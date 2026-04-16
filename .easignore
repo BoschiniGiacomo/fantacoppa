@@ -1,0 +1,19 @@
+# Cartelle del sito web (non necessarie per l'app mobile)
+FantaCoppaSito/
+backend/
+
+# File di build e sviluppo
+*.bat
+*.md
+*.backup
+
+# Documentazione
+GUIDA_*.md
+ISTRUZIONI*.md
+README*.md
+SOLUZIONE*.md
+SPOSTA_PROGETTO.md
+
+# Altri file non necessari
+fix-node-sea.js
+

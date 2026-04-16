@@ -1,0 +1,1384 @@
+:root {
+  --fc-primary: #667eea;
+  --fc-primary-dark: #764ba2;
+  --fc-bg: #f5f7fb;
+  --fc-surface: #ffffff;
+  --fc-text: #1f2937;
+  --fc-text-muted: #6b7280;
+  --fc-border: #e5e7eb;
+  --fc-radius: 12px;
+  --fc-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+}
+
+body.bg-light {
+  background-color: var(--fc-bg) !important;
+  color: var(--fc-text);
+}
+
+.navbar.bg-primary {
+  background: linear-gradient(135deg, var(--fc-primary) 0%, var(--fc-primary-dark) 100%) !important;
+}
+
+.card,
+.card-dashboard,
+.card-league {
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius);
+  box-shadow: var(--fc-shadow);
+}
+
+.card-header {
+  border-top-left-radius: var(--fc-radius) !important;
+  border-top-right-radius: var(--fc-radius) !important;
+}
+
+.form-control,
+.form-select {
+  border-radius: 10px;
+  border-color: var(--fc-border);
+}
+
+.form-control:focus,
+.form-select:focus {
+  border-color: var(--fc-primary);
+  box-shadow: 0 0 0 0.2rem rgba(102, 126, 234, 0.2);
+}
+
+.btn {
+  border-radius: 10px;
+  font-weight: 600;
+}
+
+.btn-primary {
+  background-color: var(--fc-primary);
+  border-color: var(--fc-primary);
+}
+
+.btn-primary:hover,
+.btn-primary:focus {
+  background-color: #5a71db;
+  border-color: #5a71db;
+}
+
+.nav-tabs .nav-link {
+  color: var(--fc-text-muted);
+  border-radius: 10px 10px 0 0;
+}
+
+.nav-tabs .nav-link.active {
+  color: var(--fc-primary);
+  font-weight: 700;
+}
+
+.badge.bg-primary {
+  background-color: var(--fc-primary) !important;
+}
+
+.offcanvas.offcanvas-start {
+  border-top-right-radius: 14px;
+  border-bottom-right-radius: 14px;
+}
+
+.offcanvas .offcanvas-header.bg-primary {
+  background: linear-gradient(135deg, var(--fc-primary) 0%, var(--fc-primary-dark) 100%) !important;
+}
+
+.fc-auth-shell {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px 12px;
+}
+
+.fc-auth-card {
+  width: 100%;
+  max-width: 520px;
+}
+
+.fc-auth-layout {
+  display: block;
+}
+
+.fc-auth-brand {
+  margin-bottom: 0.6rem;
+}
+
+.fc-auth-panel {
+  width: 100%;
+}
+
+.fc-auth-card .card-body {
+  padding: 1.5rem 1.25rem;
+}
+
+.fc-auth-logo {
+  text-align: center;
+  margin-bottom: 1.1rem;
+}
+
+.fc-auth-logo i {
+  font-size: 2rem;
+  color: #2c3e50;
+}
+
+.fc-auth-logo-title {
+  margin: 0.15rem 0 0;
+  font-size: 2.15rem;
+  letter-spacing: 0.12em;
+  font-weight: 800;
+  color: #2c3e50;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.fc-auth-logo-title-tight {
+  margin-top: -0.05rem;
+}
+
+.fc-auth-logo-mirror {
+  display: inline-block;
+  transform: scaleX(-1);
+}
+
+.fc-auth-logo-subtitle {
+  margin: 0.18rem 0 0;
+  color: #9ca3af;
+  font-size: 0.68rem;
+  letter-spacing: 0.34em;
+}
+
+.fc-forgot-link {
+  color: var(--fc-primary);
+  font-size: 0.88rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.fc-auth-switch {
+  color: var(--fc-primary);
+  font-size: 0.9rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.fc-auth-switch:hover,
+.fc-auth-switch:focus {
+  color: #4e66d7;
+  text-decoration: underline;
+}
+
+.fc-auth-input-wrap {
+  position: relative;
+}
+
+.fc-auth-input-wrap .form-control {
+  padding-left: 2.4rem;
+  height: 3.15rem;
+  border: none;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.09);
+  font-size: 1rem;
+}
+
+.fc-auth-input-icon {
+  position: absolute;
+  left: 0.85rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #6b7280;
+  font-size: 0.98rem;
+  pointer-events: none;
+}
+
+.fc-password-toggle {
+  position: absolute;
+  right: 0.75rem;
+  top: 50%;
+  transform: translateY(-50%);
+  border: 0;
+  background: transparent;
+  color: #8a8a8a;
+  padding: 0.25rem;
+  line-height: 1;
+}
+
+.fc-password-toggle:hover,
+.fc-password-toggle:focus {
+  color: #555;
+}
+
+.fc-auth-register-header {
+  text-align: center;
+  margin: 0 0 1rem;
+}
+
+.fc-auth-register-header i {
+  font-size: 2.5rem;
+  color: var(--fc-primary);
+}
+
+.fc-auth-register-title {
+  margin: 0.5rem 0 0;
+  font-size: 1.75rem;
+  font-weight: 800;
+  color: #333;
+}
+
+.fc-auth-register-subtitle {
+  margin: 0.25rem 0 0;
+  color: #666;
+  font-size: 0.95rem;
+}
+
+.fc-auth-page .btn-primary {
+  height: 3.15rem;
+  border-radius: 12px;
+  font-size: 1.05rem;
+  box-shadow: 0 5px 12px rgba(102, 126, 234, 0.25);
+}
+
+.fc-dashboard-page .card-header {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.badge-role-admin {
+  background: #5f7ce8;
+  color: #fff;
+}
+
+.badge-role-pagellatore {
+  background: #ffc107;
+  color: #212529;
+}
+
+.badge-role-user {
+  background: #16a34a;
+  color: #fff;
+}
+
+.fc-dashboard-page #leagueSearchResults {
+  max-height: 230px;
+  overflow-y: auto;
+  border-radius: 10px;
+}
+
+.fc-dashboard-page .list-group-item {
+  border-color: var(--fc-border);
+}
+
+.fc-dashboard-page .card-dashboard .card-body {
+  padding: 1rem;
+}
+
+.fc-dashboard-desktop {
+  background: #fff;
+  border: 1px solid var(--fc-border);
+  border-radius: 16px;
+  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.08);
+  padding: 1.25rem 1.25rem 1.35rem;
+}
+
+.fc-app-top-nav {
+  display: none;
+  align-items: center;
+  gap: 0.45rem;
+  margin-bottom: 0.9rem;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 999px;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.08);
+  padding: 0.28rem 0.32rem;
+  width: fit-content;
+}
+
+.fc-app-top-link {
+  text-decoration: none !important;
+  color: #6b7280;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.93rem;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 0.45rem 0.86rem;
+  border: 1px solid transparent;
+}
+
+.fc-app-top-link:hover {
+  color: #4f46e5;
+  background: #eef2ff;
+  border-color: #dbe2ff;
+  text-decoration: none !important;
+}
+
+.fc-dashboard-page .fc-desktop-archive-action {
+  margin-top: 0.2rem;
+  margin-bottom: 0.6rem;
+  text-align: center;
+}
+
+.fc-dashboard-page .fc-desktop-archive-action .btn {
+  border-radius: 999px;
+  padding: 0.44rem 0.95rem;
+  font-size: 0.9rem;
+}
+
+.fc-app-top-link.active {
+  color: #4f46e5;
+  background: #eef2ff;
+  border-color: #dbe2ff;
+  text-decoration: none !important;
+}
+
+.fc-dashboard-desktop-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.fc-dashboard-desktop-header h4 {
+  font-size: 1.8rem;
+}
+
+.fc-dashboard-desktop-actions .btn {
+  border-radius: 12px;
+  font-size: 1rem;
+  padding: 0.55rem 0.95rem;
+}
+
+.fc-dashboard-desktop-search-row {
+  display: grid;
+  grid-template-columns: minmax(320px, 1fr) minmax(260px, 380px);
+  gap: 0.75rem;
+  align-items: center;
+  margin-bottom: 1.1rem;
+}
+
+.fc-dashboard-desktop-search-row-single {
+  grid-template-columns: minmax(360px, 620px);
+}
+
+.fc-dashboard-desktop-join,
+.fc-dashboard-desktop-filter {
+  position: relative;
+  display: block;
+  border: 1px solid #d9dfeb;
+  border-radius: 13px;
+  background: #f8fafe;
+  padding: 0.55rem 0.8rem 0.55rem 2.2rem;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+.fc-dashboard-desktop-join::before,
+.fc-dashboard-desktop-filter::before {
+  content: "\F52A";
+  font-family: "bootstrap-icons";
+  position: absolute;
+  left: 0.78rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #7f8898;
+  font-size: 1.02rem;
+  pointer-events: none;
+}
+
+.fc-dashboard-desktop-join > i,
+.fc-dashboard-desktop-filter > i {
+  display: none !important;
+}
+
+.fc-dashboard-desktop-join .form-control,
+.fc-dashboard-desktop-filter .form-control {
+  background: transparent;
+  font-size: 1.02rem;
+  padding: 0.32rem 0;
+  width: 100%;
+  min-width: 0;
+}
+
+.fc-dashboard-desktop-join:focus-within,
+.fc-dashboard-desktop-filter:focus-within {
+  border-color: #93a7ff;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.14);
+}
+
+.fc-desktop-dashboard-section {
+  margin-bottom: 0.9rem;
+}
+
+.fc-desktop-dashboard-section-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.38rem;
+  color: #2f3541;
+  font-weight: 800;
+  font-size: 1.2rem;
+  margin-bottom: 0.7rem;
+}
+
+.fc-desktop-dashboard-section-title i {
+  color: #6479ed;
+}
+
+.fc-desktop-dashboard-section-title span {
+  color: #6b7280;
+  font-weight: 500;
+}
+
+.fc-leghe-mobile-divider {
+  height: 1px;
+  background: #e5e7eb;
+  margin: 0.75rem -0.9rem 0.6rem;
+}
+
+.fc-leghe-empty-state {
+  min-height: 44vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: #9ca3af;
+}
+
+.fc-leghe-empty-state i {
+  font-size: 4.3rem;
+  margin-bottom: 0.65rem;
+  color: #c7cbd2;
+}
+
+.fc-leghe-empty-title {
+  margin: 0;
+  font-size: 1.95rem;
+  font-weight: 700;
+  color: #8f949b;
+}
+
+.fc-leghe-empty-subtitle {
+  margin: 0.28rem 0 0;
+  font-size: 1.25rem;
+  color: #b4b8bf;
+}
+
+.fc-leghe-fab {
+  position: fixed;
+  right: 20px;
+  bottom: 94px;
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  background: #667eea;
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  box-shadow: 0 10px 18px rgba(102, 126, 234, 0.35);
+  z-index: 1041;
+}
+
+.fc-leghe-fab i {
+  font-size: 1.6rem;
+  line-height: 1;
+}
+
+.fc-dashboard-desktop .fc-league-tile {
+  min-height: 188px;
+  border-radius: 14px;
+}
+
+.fc-dashboard-desktop .fc-mobile-card-title {
+  font-size: 1.7rem;
+}
+
+.fc-dashboard-desktop .fc-league-meta {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.45rem;
+  font-size: 0.92rem;
+}
+
+.fc-dashboard-desktop .fc-league-meta > div {
+  text-align: center;
+}
+
+.fc-available-league-card {
+  cursor: pointer;
+  transition: transform 0.14s ease, box-shadow 0.14s ease;
+}
+
+.fc-available-league-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 20px rgba(15, 23, 42, 0.1);
+}
+
+.fc-league-tile {
+  border: 1px solid var(--fc-border);
+  border-radius: 12px;
+  box-shadow: 0 2px 12px rgba(15, 23, 42, 0.06);
+}
+
+.fc-league-tile .card-title a {
+  color: #1f2937 !important;
+  font-weight: 700;
+}
+
+.fc-league-meta {
+  font-size: 0.86rem;
+  color: var(--fc-text-muted);
+  border-top: 1px solid var(--fc-border);
+  margin-top: 0.7rem;
+  padding-top: 0.6rem;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.4rem 0.7rem;
+}
+
+.fc-league-meta .fc-value-good {
+  color: #198754;
+  font-weight: 700;
+}
+
+.fc-league-meta .fc-value-bad {
+  color: #dc3545;
+  font-weight: 700;
+}
+
+.fc-mobile-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: nowrap;
+  gap: 0.5rem;
+}
+
+.fc-mobile-card-title {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  gap: 0.55rem;
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: #31343d;
+  min-width: 0;
+}
+
+.fc-mobile-card-title span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fc-mobile-card-actions .btn-link {
+  color: #6b7280;
+}
+
+.fc-mobile-card-actions {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.fc-mobile-card-middle {
+  margin-top: 0.55rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.fc-mobile-members {
+  color: #8a8f99;
+  font-size: 0.92rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+}
+
+.fc-mobile-main-nav-link,
+.fc-mobile-main-nav-link:hover,
+.fc-mobile-main-nav-link:focus,
+.fc-mobile-main-nav-link:active,
+.fc-mobile-main-nav-link:visited {
+  text-decoration: none !important;
+}
+
+@media (min-width: 992px) {
+  .fc-app-top-nav {
+    display: inline-flex !important;
+  }
+
+  .fc-mobile-main-nav {
+    display: none !important;
+  }
+}
+
+@media (min-width: 992px) {
+  .fc-dashboard-page .fc-app-top-nav {
+    display: inline-flex !important;
+  }
+
+  .fc-dashboard-page .fc-app-top-link,
+  .fc-dashboard-page .fc-app-top-link:hover,
+  .fc-dashboard-page .fc-app-top-link:focus,
+  .fc-dashboard-page .fc-app-top-link:active,
+  .fc-dashboard-page .fc-app-top-link:visited {
+    text-decoration: none !important;
+  }
+
+  .fc-dashboard-page .fc-mobile-main-nav {
+    display: none !important;
+  }
+}
+
+@media (max-width: 991.98px) {
+  .fc-leghe-page .fc-app-top-nav {
+    display: none !important;
+  }
+
+  .fc-leghe-page .fc-dashboard-desktop {
+    display: none !important;
+  }
+
+  .fc-leghe-page .fc-leghe-mobile {
+    display: block !important;
+  }
+
+  .fc-leghe-page .fc-dashboard-mobile-search {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+
+  .fc-leghe-page .fc-dashboard-mobile-search .form-control {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .fc-leghe-page .fc-mobile-main-nav {
+    display: flex !important;
+  }
+}
+
+.fc-league-page .fc-league-card .card-body {
+  padding: 1rem;
+}
+
+.fc-league-page .fc-league-title {
+  font-size: 1.2rem;
+  font-weight: 800;
+  margin-bottom: 0.35rem;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.fc-league-page .fc-league-quick-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-bottom: 0.55rem;
+}
+
+.fc-league-page .fc-league-stats-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.fc-league-page .fc-league-stats-list li {
+  border-top: 1px solid var(--fc-border);
+  padding-top: 0.35rem;
+  color: var(--fc-text-muted);
+  font-size: 0.92rem;
+}
+
+.fc-market-page .fc-market-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.85rem;
+}
+
+.fc-market-page .fc-budget-chip {
+  border-radius: 999px;
+  background: #198754;
+  color: #fff;
+  padding: 0.4rem 0.7rem;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.fc-market-page .fc-market-filters {
+  border: 1px solid var(--fc-border);
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 2px 12px rgba(15, 23, 42, 0.06);
+  padding: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.fc-market-page .fc-market-filter-role {
+  max-width: 160px;
+}
+
+.fc-market-page .fc-market-filter-search {
+  max-width: 220px;
+}
+
+.fc-market-page .fc-market-table-card {
+  border: 1px solid var(--fc-border);
+  border-radius: 12px;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.07);
+}
+
+.fc-market-page .table-mercato thead th {
+  font-size: 0.86rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: #6b7280;
+}
+
+.fc-market-page .table-mercato tbody td {
+  font-size: 0.93rem;
+}
+
+.fc-squad-page .fc-squad-header,
+.fc-formation-page .fc-formation-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.85rem;
+}
+
+.fc-squad-page .fc-squad-chip {
+  border-radius: 999px;
+  padding: 0.38rem 0.7rem;
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.fc-squad-page .fc-squad-chip-budget {
+  background: #198754;
+  color: #fff;
+}
+
+.fc-squad-page .fc-squad-chip-value {
+  background: #0dcaf0;
+  color: #1f2937;
+}
+
+.fc-squad-page .fc-squad-limits-card,
+.fc-squad-page .fc-squad-table-card,
+.fc-formation-page .fc-formation-main-card,
+.fc-formation-page .fc-formation-side-card {
+  border: 1px solid var(--fc-border);
+  border-radius: 12px;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.07);
+}
+
+.fc-formation-page .formazione-header-row .form-control {
+  border-radius: 10px;
+}
+
+.fc-formation-page .campo {
+  border: 1px solid rgba(255, 255, 255, 0.22);
+}
+
+.fc-calendar-page .fc-calendar-header,
+.fc-results-page .fc-results-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.85rem;
+}
+
+.fc-calendar-page .fc-calendar-main-card,
+.fc-results-page .fc-results-main-card {
+  border: 1px solid var(--fc-border);
+  border-radius: 12px;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.07);
+}
+
+.fc-calendar-page #calendar {
+  border: 1px solid var(--fc-border);
+  border-radius: 10px;
+  padding: 0.25rem;
+  background: #fff;
+}
+
+.fc-results-page .team-card {
+  border: 1px solid var(--fc-border);
+}
+
+.fc-results-page .day-selector {
+  border: 1px solid var(--fc-border);
+  box-shadow: 0 2px 12px rgba(15, 23, 42, 0.06);
+}
+
+.fc-settings-page .fc-settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.85rem;
+}
+
+.fc-settings-page .fc-settings-card {
+  border: 1px solid var(--fc-border);
+  border-radius: 12px;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.07);
+}
+
+.fc-settings-page .fc-settings-card .card-body {
+  padding: 1.15rem;
+}
+
+.fc-page-container {
+  margin-top: 1.25rem;
+  margin-bottom: 1.5rem;
+}
+
+@media (min-width: 992px) {
+  .fc-dashboard-page .fc-page-container {
+    max-width: 1360px;
+  }
+
+  .fc-auth-card {
+    max-width: 1200px;
+  }
+
+  .fc-auth-card .card-body {
+    padding: 2.4rem 3.2rem;
+  }
+
+  .fc-auth-layout {
+    display: grid;
+    grid-template-columns: minmax(260px, 360px) minmax(480px, 1fr);
+    align-items: center;
+    gap: 2.2rem;
+  }
+
+  .fc-auth-brand {
+    margin-bottom: 0;
+  }
+
+  .fc-auth-panel {
+    min-width: 0;
+  }
+
+  .fc-auth-view {
+    max-width: none;
+    margin: 0;
+  }
+
+  .fc-page-container {
+    margin-top: 1.75rem;
+    margin-bottom: 2rem;
+  }
+
+  .fc-dashboard-page h4,
+  .fc-league-page h4,
+  .fc-market-page h4,
+  .fc-squad-page h4,
+  .fc-formation-page h4,
+  .fc-calendar-page h4,
+  .fc-results-page h4 {
+    font-size: 1.5rem;
+  }
+
+  .fc-dashboard-page .card-dashboard .card-body,
+  .fc-league-page .fc-league-card .card-body,
+  .fc-market-page .fc-market-filters,
+  .fc-market-page .fc-market-table-card .card-body,
+  .fc-squad-page .fc-squad-limits-card .card-body,
+  .fc-squad-page .fc-squad-table-card .card-body,
+  .fc-results-page .results-card .card-body {
+    padding: 1.25rem;
+  }
+
+  .fc-market-page .table-mercato thead th,
+  .fc-market-page .table-mercato tbody td,
+  .fc-squad-page .table-rosa thead th,
+  .fc-squad-page .table-rosa tbody td {
+    font-size: 0.95rem;
+    padding-top: 0.6rem;
+    padding-bottom: 0.6rem;
+  }
+
+  .fc-formation-page .campo {
+    padding: 34px 14px 14px 14px;
+  }
+
+  .fc-results-page .team-name {
+    font-size: 1.35rem;
+  }
+
+  .fc-results-page .score-amount {
+    font-size: 1.65rem;
+  }
+
+  .fc-results-page .day-selector {
+    padding: 1.25rem;
+  }
+}
+
+@media (min-width: 1200px) {
+  .fc-page-container {
+    max-width: 1240px;
+  }
+
+  .fc-market-page .fc-market-table-card .table-responsive,
+  .fc-squad-page .fc-squad-table-card .table-responsive {
+    max-height: 70vh;
+  }
+}
+
+@media (min-width: 992px) and (max-width: 1199.98px) {
+  .fc-dashboard-desktop-search-row {
+    grid-template-columns: minmax(280px, 1fr) minmax(240px, 340px);
+  }
+
+  .fc-dashboard-desktop-search-row-single {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (min-width: 992px) {
+  .fc-dashboard-page {
+    padding-top: 0.8rem;
+    padding-bottom: 86px;
+  }
+
+  .fc-app-top-nav {
+    width: 100%;
+    justify-content: space-between;
+    gap: 0.55rem;
+    padding: 0.34rem 0.42rem;
+  }
+
+  .fc-app-top-link {
+    flex: 1;
+    min-width: 0;
+    justify-content: center;
+    padding: 0.62rem 1rem;
+    font-size: 1rem;
+  }
+
+  .fc-desktop-bottom-nav {
+    position: fixed;
+    left: 50%;
+    transform: translateX(-50%);
+    bottom: 12px;
+    z-index: 1040;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2rem;
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 999px;
+    box-shadow: 0 8px 22px rgba(15, 23, 42, 0.12);
+    padding: 0.45rem 0.6rem;
+  }
+
+  .fc-desktop-bottom-link {
+    text-decoration: none;
+    color: #6b7280;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.42rem 0.8rem;
+    border-radius: 999px;
+    font-size: 0.92rem;
+    font-weight: 700;
+    transition: background-color 0.15s ease, color 0.15s ease;
+  }
+
+  .fc-desktop-bottom-link:hover {
+    color: #4f46e5;
+    background: #eef2ff;
+  }
+
+  .fc-desktop-bottom-link.active {
+    color: #4f46e5;
+    background: #eef2ff;
+  }
+}
+
+@media (max-width: 991.98px) {
+  .container {
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+  }
+
+  .fc-dashboard-page {
+    padding-bottom: 74px;
+  }
+
+  .fc-dashboard-page .fc-page-container {
+    margin-top: 0.4rem;
+    margin-bottom: 0.75rem;
+    padding-left: 0.7rem;
+    padding-right: 0.7rem;
+  }
+
+  .fc-dashboard-mobile-header h4 {
+    font-size: 2rem;
+    font-weight: 800;
+    margin-bottom: 0.7rem;
+  }
+
+  .fc-dashboard-mobile-search {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    background: #f3f4f6;
+    border: 1px solid #d7dce4;
+    border-radius: 14px;
+    padding: 0.45rem 0.65rem;
+    margin-bottom: 0.85rem;
+  }
+
+  .fc-dashboard-mobile-search i {
+    color: #7a808c;
+    font-size: 1.12rem;
+  }
+
+  .fc-dashboard-mobile-search .form-control {
+    background: transparent;
+    padding: 0.34rem 0;
+    font-size: 1.08rem;
+  }
+
+  .fc-mobile-dashboard-section {
+    margin-bottom: 0.95rem;
+  }
+
+  .fc-mobile-dashboard-section-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    color: #3f4652;
+    font-size: 1.95rem;
+    font-weight: 800;
+    margin-bottom: 0.6rem;
+    line-height: 1.1;
+  }
+
+  .fc-mobile-dashboard-section-title i {
+    color: #6f7df0;
+    font-size: 1.02rem;
+  }
+
+  .fc-mobile-dashboard-section-title span {
+    color: #7f8793;
+    font-size: 1.15rem;
+    font-weight: 500;
+  }
+
+  .fc-mobile-league-wrap {
+    margin-bottom: 0.65rem;
+  }
+
+  .fc-mobile-league-card {
+    border-radius: 16px;
+    box-shadow: 0 2px 12px rgba(15, 23, 42, 0.09);
+  }
+
+  .fc-mobile-league-card .card-body {
+    padding: 0.9rem 0.9rem 0.72rem;
+  }
+
+  .fc-mobile-league-card .fc-league-meta {
+    margin-top: 0.62rem;
+    padding-top: 0.58rem;
+    font-size: 0.86rem;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 0.35rem !important;
+    border-top: 1px solid #e5e7eb;
+  }
+
+  .fc-mobile-league-card .fc-league-meta > div {
+    text-align: center;
+  }
+
+  .fc-mobile-main-nav {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 1040;
+    display: flex;
+    align-items: center;
+    justify-content: space-around;
+    background: #fff;
+    border-top: 1px solid #e5e7eb;
+    box-shadow: 0 -4px 14px rgba(15, 23, 42, 0.08);
+    padding: 0.36rem 0.2rem 0.5rem;
+  }
+
+  .fc-mobile-main-nav-link {
+    color: #8b8f99;
+    display: inline-flex;
+    flex: 1;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.18rem;
+    font-size: 0.78rem;
+    font-weight: 600;
+  }
+
+  .fc-mobile-main-nav-link i {
+    font-size: 1.35rem;
+    line-height: 1;
+  }
+
+  .fc-mobile-main-nav-link.active {
+    color: #667eea;
+  }
+}
+
+@media (max-width: 767.98px) {
+  .fc-auth-card .card-body {
+    padding: 1.15rem 1rem;
+  }
+
+  .fc-auth-logo-title {
+    font-size: 2rem;
+  }
+
+  .fc-auth-logo-subtitle {
+    letter-spacing: 0.3em;
+  }
+
+  .fc-auth-input-wrap .form-control {
+    height: 3rem;
+  }
+
+  .card-header h5,
+  .card-header .h5 {
+    font-size: 1rem;
+  }
+
+  .btn,
+  .form-control,
+  .form-select {
+    font-size: 0.95rem;
+  }
+
+  .fc-page-container {
+    margin-top: 0.9rem;
+  }
+
+  .fc-dashboard-page .card-dashboard .card-body {
+    padding: 0.85rem;
+  }
+
+  .fc-dashboard-page .card-dashboard .btn-lg {
+    width: 100%;
+  }
+
+  .fc-dashboard-page {
+    padding-bottom: 74px;
+  }
+
+  .fc-dashboard-page .navbar {
+    display: none;
+  }
+
+  .fc-dashboard-page .fc-page-container {
+    margin-top: 0.4rem;
+    margin-bottom: 0.75rem;
+    padding-left: 0.7rem;
+    padding-right: 0.7rem;
+  }
+
+  .fc-dashboard-mobile-header h4 {
+    font-size: 2rem;
+    font-weight: 800;
+    margin-bottom: 0.7rem;
+  }
+
+  .fc-dashboard-mobile-search {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    background: #f3f4f6;
+    border: 1px solid #d7dce4;
+    border-radius: 14px;
+    padding: 0.45rem 0.65rem;
+    margin-bottom: 0.85rem;
+  }
+
+  .fc-dashboard-mobile-search i {
+    color: #7a808c;
+    font-size: 1.12rem;
+  }
+
+  .fc-dashboard-mobile-search .form-control {
+    background: transparent;
+    padding: 0.34rem 0;
+    font-size: 1.08rem;
+  }
+
+  .fc-mobile-dashboard-section {
+    margin-bottom: 0.95rem;
+  }
+
+  .fc-mobile-dashboard-section-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    color: #3f4652;
+    font-size: 1.95rem;
+    font-weight: 800;
+    margin-bottom: 0.6rem;
+    line-height: 1.1;
+  }
+
+  .fc-mobile-dashboard-section-title i {
+    color: #6f7df0;
+    font-size: 1.02rem;
+  }
+
+  .fc-mobile-dashboard-section-title span {
+    color: #7f8793;
+    font-size: 1.15rem;
+    font-weight: 500;
+  }
+
+  .fc-mobile-league-wrap {
+    margin-bottom: 0.65rem;
+  }
+
+  .fc-mobile-league-card {
+    border-radius: 16px;
+    box-shadow: 0 2px 12px rgba(15, 23, 42, 0.09);
+  }
+
+  .fc-mobile-league-card .card-body {
+    padding: 0.9rem 0.9rem 0.72rem;
+  }
+
+  .fc-mobile-league-card .fc-league-meta {
+    margin-top: 0.62rem;
+    padding-top: 0.58rem;
+    font-size: 0.86rem;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 0.35rem !important;
+    border-top: 1px solid #e5e7eb;
+  }
+
+  .fc-mobile-league-card .fc-league-meta > div {
+    text-align: center;
+  }
+
+  .fc-mobile-main-nav {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 1040;
+    display: flex;
+    align-items: center;
+    justify-content: space-around;
+    background: #fff;
+    border-top: 1px solid #e5e7eb;
+    box-shadow: 0 -4px 14px rgba(15, 23, 42, 0.08);
+    padding: 0.36rem 0.2rem 0.5rem;
+  }
+
+  .fc-mobile-main-nav-link {
+    text-decoration: none;
+    color: #8b8f99;
+    display: inline-flex;
+    flex: 1;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.18rem;
+    font-size: 0.78rem;
+    font-weight: 600;
+  }
+
+  .fc-mobile-main-nav-link i {
+    font-size: 1.35rem;
+    line-height: 1;
+  }
+
+  .fc-mobile-main-nav-link.active {
+    color: #667eea;
+  }
+
+  .fc-league-meta {
+    grid-template-columns: 1fr;
+    gap: 0.2rem;
+  }
+
+  .fc-league-page .fc-league-title {
+    font-size: 1.08rem;
+  }
+
+  .fc-league-page .fc-league-stats-list li {
+    font-size: 0.88rem;
+  }
+
+  .fc-market-page .fc-market-header {
+    align-items: flex-start;
+    flex-direction: column;
+    margin-bottom: 0.6rem;
+  }
+
+  .fc-market-page .fc-budget-chip {
+    font-size: 0.85rem;
+  }
+
+  .fc-market-page .fc-market-filters {
+    padding: 0.65rem;
+  }
+
+  .fc-market-page .fc-market-filters form {
+    flex-direction: column;
+    align-items: stretch !important;
+    gap: 0.5rem;
+  }
+
+  .fc-market-page .fc-market-filters .form-select,
+  .fc-market-page .fc-market-filters .form-control {
+    max-width: none !important;
+    width: 100%;
+  }
+
+  .fc-squad-page .fc-squad-header,
+  .fc-formation-page .fc-formation-header {
+    flex-direction: column;
+    align-items: flex-start;
+    margin-bottom: 0.6rem;
+  }
+
+  .fc-squad-page .fc-squad-chip {
+    font-size: 0.82rem;
+    padding: 0.28rem 0.58rem;
+  }
+
+  .fc-calendar-page .fc-calendar-header,
+  .fc-results-page .fc-results-header {
+    flex-direction: column;
+    align-items: flex-start;
+    margin-bottom: 0.6rem;
+  }
+
+  .fc-settings-page .fc-settings-header {
+    flex-direction: column;
+    align-items: flex-start;
+    margin-bottom: 0.6rem;
+  }
+}
