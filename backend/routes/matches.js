@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { query } = require('../config/database');
 const { authenticateToken } = require('../middleware/auth');
+const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 
 function isMissingDbObjectError(err) {
   return err && (err.code === '42P01' || err.code === '42703'); // undefined_table / undefined_column
@@ -13,6 +14,200 @@ function matchesNotConfigured(res, err) {
     error: err?.message,
     code: err?.code,
   });
+}
+
+function getInsertRows(result) {
+  if (Array.isArray(result)) return result;
+  if (result && Array.isArray(result.rows)) return result.rows;
+  return [];
+}
+
+let officialEventPushTablesReady = false;
+async function ensureOfficialEventPushTables() {
+  if (officialEventPushTablesReady) return;
+  try {
+    await query(
+      `CREATE TABLE IF NOT EXISTS user_official_match_event_sent (
+         id SERIAL PRIMARY KEY,
+         event_id INTEGER NOT NULL,
+         user_id INTEGER NOT NULL,
+         dedupe_key TEXT NOT NULL UNIQUE,
+         sent_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+       )`
+    );
+    officialEventPushTablesReady = true;
+  } catch (_) {}
+}
+
+function eventNotificationTitle(eventType) {
+  if (eventType === 'match_start') return 'Inizio partita';
+  if (eventType === 'match_end') return 'Fine partita';
+  if (eventType === 'goal') return 'Goal';
+  if (eventType === 'own_goal') return 'Autogol';
+  return null;
+}
+
+function eventNotificationBody({ eventType, homeTeamName, awayTeamName, payload }) {
+  const matchLabel = `${homeTeamName || 'Casa'} - ${awayTeamName || 'Trasferta'}`;
+  const playerName = String(payload?.player_name || '').trim();
+  if (eventType === 'match_start') return `${matchLabel}: la partita e iniziata.`;
+  if (eventType === 'match_end') return `${matchLabel}: la partita e terminata.`;
+  if (eventType === 'goal') return playerName ? `${matchLabel}: gol di ${playerName}.` : `${matchLabel}: gol.`;
+  if (eventType === 'own_goal') return playerName ? `${matchLabel}: autogol di ${playerName}.` : `${matchLabel}: autogol.`;
+  return null;
+}
+
+async function sendExpoMessages(messages) {
+  if (!Array.isArray(messages) || messages.length <= 0) return { sent: 0, invalidated: 0, errors: 0 };
+  let sent = 0;
+  let invalidated = 0;
+  let errors = 0;
+  const chunkSize = 100;
+  for (let i = 0; i < messages.length; i += chunkSize) {
+    const chunk = messages.slice(i, i + chunkSize);
+    try {
+      const resp = await fetch(EXPO_PUSH_URL, {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Accept-Encoding': 'gzip, deflate',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(chunk),
+      });
+      const data = await resp.json().catch(() => ({}));
+      const results = Array.isArray(data?.data) ? data.data : [];
+      for (let j = 0; j < chunk.length; j += 1) {
+        const r = results[j] || {};
+        const msg = chunk[j];
+        if (r.status === 'ok') {
+          sent += 1;
+          continue;
+        }
+        errors += 1;
+        const expoErr = String(r?.details?.error || r?.message || '');
+        if (/DeviceNotRegistered/i.test(expoErr)) {
+          try {
+            await query(
+              `UPDATE user_push_tokens
+               SET is_active = 0, updated_at = NOW()
+               WHERE expo_push_token = ?`,
+              [msg?.to]
+            );
+            invalidated += 1;
+          } catch (_) {}
+        }
+      }
+    } catch (_) {
+      errors += chunk.length;
+    }
+  }
+  return { sent, invalidated, errors };
+}
+
+async function notifyUsersForOfficialMatchEvent({ eventId, matchId, eventType, payload }) {
+  const title = eventNotificationTitle(eventType);
+  if (!title) return { targeted_users: 0, reserved: 0, sent: 0, invalidated: 0, errors: 0 };
+  await ensureOfficialEventPushTables();
+
+  const matchRows = await query(
+    `SELECT m.id, m.competition_id, m.home_team_id, m.away_team_id,
+            ht.name AS home_team_name, at.name AS away_team_name
+     FROM official_matches m
+     LEFT JOIN teams ht ON ht.id = m.home_team_id
+     LEFT JOIN teams at ON at.id = m.away_team_id
+     WHERE m.id = ?
+     LIMIT 1`,
+    [matchId]
+  );
+  const match = matchRows[0];
+  if (!match) return { targeted_users: 0, reserved: 0, sent: 0, invalidated: 0, errors: 0 };
+
+  const compId = Number(match.competition_id || 0);
+  const homeNorm = normalizeTeamNameForFavorite(match.home_team_name || '');
+  const awayNorm = normalizeTeamNameForFavorite(match.away_team_name || '');
+
+  const targetsByUser = new Map();
+  const addTarget = (uid, token) => {
+    const userId = Number(uid);
+    const expoToken = String(token || '').trim();
+    if (!userId || !expoToken) return;
+    if (!targetsByUser.has(userId)) targetsByUser.set(userId, new Set());
+    targetsByUser.get(userId).add(expoToken);
+  };
+
+  const byMatchRows = await query(
+    `SELECT mn.user_id, upt.expo_push_token
+     FROM user_official_match_notifications mn
+     JOIN user_push_tokens upt ON upt.user_id = mn.user_id AND upt.is_active = 1
+     WHERE mn.match_id = ? AND COALESCE(mn.enabled, 0) = 1`,
+    [matchId]
+  );
+  for (const r of byMatchRows || []) addTarget(r.user_id, r.expo_push_token);
+
+  if (compId > 0 && (homeNorm || awayNorm)) {
+    const names = [homeNorm, awayNorm].filter(Boolean);
+    if (names.length > 0) {
+      const placeholders = names.map(() => '?').join(',');
+      const byTeamRows = await query(
+        `SELECT tf.user_id, upt.expo_push_token
+         FROM user_official_team_favorites tf
+         JOIN user_push_tokens upt ON upt.user_id = tf.user_id AND upt.is_active = 1
+         WHERE tf.official_group_id = ?
+           AND COALESCE(tf.notifications_enabled, 0) = 1
+           AND tf.team_name_norm IN (${placeholders})`,
+        [compId, ...names]
+      );
+      for (const r of byTeamRows || []) addTarget(r.user_id, r.expo_push_token);
+    }
+  }
+
+  const body = eventNotificationBody({
+    eventType,
+    homeTeamName: match.home_team_name,
+    awayTeamName: match.away_team_name,
+    payload,
+  });
+  if (!body) return { targeted_users: targetsByUser.size, reserved: 0, sent: 0, invalidated: 0, errors: 0 };
+
+  let reserved = 0;
+  const messages = [];
+  for (const [userId, tokenSet] of targetsByUser.entries()) {
+    const dedupeKey = `official_match_event:${eventId}:${userId}`;
+    const ins = await query(
+      `INSERT INTO user_official_match_event_sent (event_id, user_id, dedupe_key)
+       VALUES (?, ?, ?)
+       ON CONFLICT (dedupe_key) DO NOTHING
+       RETURNING id`,
+      [eventId, userId, dedupeKey]
+    );
+    const insRows = getInsertRows(ins);
+    if (!insRows[0]?.id) continue;
+    reserved += 1;
+    for (const token of tokenSet) {
+      messages.push({
+        to: token,
+        sound: 'default',
+        title,
+        body,
+        data: {
+          type: 'official_match_event',
+          event_type: eventType,
+          match_id: Number(matchId),
+          event_id: Number(eventId),
+        },
+      });
+    }
+  }
+
+  const pushStats = await sendExpoMessages(messages);
+  return {
+    targeted_users: targetsByUser.size,
+    reserved,
+    sent: pushStats.sent,
+    invalidated: pushStats.invalidated,
+    errors: pushStats.errors,
+  };
 }
 
 function normalizeTeamNameForFavorite(name) {
@@ -1122,7 +1317,20 @@ router.post('/admin/matches/:matchId/events', authenticateToken, requireSuperuse
         throw err2;
       }
     }
-    return res.json({ ok: true, id: rows[0]?.id });
+    const insertRows = getInsertRows(rows);
+    const eventId = Number(insertRows[0]?.id || 0);
+    let notificationStats = null;
+    try {
+      notificationStats = await notifyUsersForOfficialMatchEvent({
+        eventId,
+        matchId,
+        eventType,
+        payload: payloadObj || {},
+      });
+    } catch (notifyErr) {
+      console.error('Official match event push error:', notifyErr?.message || notifyErr);
+    }
+    return res.json({ ok: true, id: eventId || null, notifications: notificationStats });
   } catch (err) {
     if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
     return res.status(500).json({ message: 'Errore inserimento evento', error: err.message });
