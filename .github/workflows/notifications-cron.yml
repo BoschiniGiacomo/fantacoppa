@@ -1,0 +1,36 @@
+name: Notifications Cron
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+jobs:
+  run-notifications-cron:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger backend notifications cron endpoint
+        env:
+          API_BASE_URL: ${{ secrets.API_BASE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$API_BASE_URL" ]; then
+            echo "Missing secret: API_BASE_URL"
+            exit 1
+          fi
+          if [ -z "$CRON_SECRET" ]; then
+            echo "Missing secret: CRON_SECRET"
+            exit 1
+          fi
+          URL="${API_BASE_URL%/}/api/notifications/run-cron"
+          echo "Calling $URL"
+          HTTP_CODE=$(curl -sS -o response.json -w "%{http_code}" \
+            -X POST "$URL" \
+            -H "Content-Type: application/json" \
+            -H "x-cron-secret: $CRON_SECRET" \
+            --data '{}')
+          cat response.json
+          if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+            echo "Cron call failed with HTTP $HTTP_CODE"
+            exit 1
+          fi
