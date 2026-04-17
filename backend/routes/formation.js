@@ -3,16 +3,33 @@ const router = express.Router();
 const { query } = require('../config/database');
 const { authenticateToken } = require('../middleware/auth');
 
+async function getEffectiveLeagueId(leagueId) {
+  try {
+    const rows = await query(
+      `SELECT linked_to_league_id
+       FROM leagues
+       WHERE id = ?
+       LIMIT 1`,
+      [leagueId]
+    );
+    const linked = Number(rows[0]?.linked_to_league_id || 0);
+    return linked > 0 ? linked : leagueId;
+  } catch (_) {
+    return leagueId;
+  }
+}
+
 // GET /api/formation/:leagueId/matchdays
 router.get('/:leagueId/matchdays', authenticateToken, async (req, res) => {
   try {
     const leagueId = Number(req.params.leagueId);
+    const effectiveLeagueId = await getEffectiveLeagueId(leagueId);
     const rows = await query(
       `SELECT giornata, deadline
        FROM matchdays
        WHERE league_id = ?
        ORDER BY giornata ASC`,
-      [leagueId]
+      [effectiveLeagueId]
     );
     res.json(rows);
   } catch (_) {
@@ -24,13 +41,14 @@ router.get('/:leagueId/matchdays', authenticateToken, async (req, res) => {
 router.get('/:leagueId/:giornata/deadline', authenticateToken, async (req, res) => {
   try {
     const leagueId = Number(req.params.leagueId);
+    const effectiveLeagueId = await getEffectiveLeagueId(leagueId);
     const giornata = Number(req.params.giornata);
     const rows = await query(
       `SELECT deadline
        FROM matchdays
        WHERE league_id = ? AND giornata = ?
        LIMIT 1`,
-      [leagueId, giornata]
+      [effectiveLeagueId, giornata]
     );
     const deadline = rows[0]?.deadline || null;
     res.json({ deadline, isExpired: deadline ? new Date(deadline) < new Date() : false });
@@ -43,6 +61,7 @@ router.get('/:leagueId/:giornata/deadline', authenticateToken, async (req, res) 
 router.get('/:leagueId/:giornata', authenticateToken, async (req, res) => {
   try {
     const leagueId = Number(req.params.leagueId);
+    const effectiveLeagueId = await getEffectiveLeagueId(leagueId);
     const giornata = Number(req.params.giornata);
     const userId = Number(req.user.userId);
 
@@ -51,7 +70,7 @@ router.get('/:leagueId/:giornata', authenticateToken, async (req, res) => {
        FROM matchdays
        WHERE league_id = ? AND giornata = ?
        LIMIT 1`,
-      [leagueId, giornata]
+      [effectiveLeagueId, giornata]
     );
     const deadline = dRows[0]?.deadline || null;
     const isExpired = deadline ? new Date(deadline) < new Date() : false;
