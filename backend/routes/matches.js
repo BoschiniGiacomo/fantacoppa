@@ -987,9 +987,9 @@ router.post('/admin/matches', authenticateToken, requireSuperuserLevels([1, 2]),
     const rows = await query(
       `
       INSERT INTO official_matches
-        (competition_id, home_team_id, away_team_id, kickoff_at, status, notes, created_by, venue, referee, match_stage, home_score, away_score)
+        (competition_id, home_team_id, away_team_id, kickoff_at, status, notes, created_by, venue, referee, match_stage, home_score, away_score, created_at)
       VALUES
-        (?, ?, ?, ?::timestamp, 'scheduled', NULL, ?, ?, ?, ?, NULL, NULL)
+        (?, ?, ?, ?::timestamp, 'scheduled', NULL, ?, ?, ?, ?, NULL, NULL, NOW())
       RETURNING id
       `,
       [competitionId, homeTeamId, awayTeamId, kickoffAt, userId, venue, referee, matchStage]
