@@ -1,0 +1,58 @@
+{
+  "expo": {
+    "name": "FantaCoppa",
+    "slug": "fantacoppa",
+    "version": "1.0.6",
+    "orientation": "portrait",
+    "icon": "./logoCoppacantoni.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "resizeMode": "contain",
+      "backgroundColor": "#667eea"
+    },
+    "assetBundlePatterns": [
+      "assets/**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.fantacoppa.app",
+      "buildNumber": "8",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "com.fantacoppa.app",
+      "versionCode": 8,
+      "googleServicesFile": "./google-services.json",
+      "permissions": []
+    },
+    "extra": {
+      "appVersionCode": 8,
+      "eas": {
+        "projectId": "f1e19392-b5b0-4646-8672-5f8e39654f4a"
+      }
+    },
+    "owner": "boscojack02",
+    "runtimeVersion": "1.0.6",
+    "updates": {
+      "url": "https://u.expo.dev/f1e19392-b5b0-4646-8672-5f8e39654f4a",
+      "enabled": false,
+      "checkAutomatically": "NEVER",
+      "fallbackToCacheTimeout": 0
+    },
+    "plugins": [
+      "@react-native-community/datetimepicker",
+      "expo-font",
+      [
+        "expo-notifications",
+        {
+          "mode": "production",
+          "enableBackgroundRemoteNotifications": true,
+          "defaultChannel": "fantacoppa-reminders",
+          "color": "#667eea"
+        }
+      ]
+    ]
+  }
+}
