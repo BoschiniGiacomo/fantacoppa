@@ -14,9 +14,9 @@ async function ensureNotificationsTables() {
          expo_push_token TEXT NOT NULL UNIQUE,
          platform TEXT NULL,
          is_active INTEGER NOT NULL DEFAULT 1,
-         created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-         updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
-         last_seen_at TIMESTAMP NOT NULL DEFAULT NOW()
+         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
        )`
     );
     await query(
@@ -28,9 +28,23 @@ async function ensureNotificationsTables() {
          notification_type TEXT NOT NULL,
          dedupe_key TEXT NOT NULL UNIQUE,
          payload_json JSONB NULL,
-         sent_at TIMESTAMP NOT NULL DEFAULT NOW()
+         sent_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
        )`
     );
+    try {
+      await query(
+        `ALTER TABLE user_push_tokens
+         ALTER COLUMN created_at TYPE TIMESTAMPTZ USING created_at AT TIME ZONE 'UTC',
+         ALTER COLUMN updated_at TYPE TIMESTAMPTZ USING updated_at AT TIME ZONE 'UTC',
+         ALTER COLUMN last_seen_at TYPE TIMESTAMPTZ USING last_seen_at AT TIME ZONE 'UTC'`
+      );
+    } catch (_) {}
+    try {
+      await query(
+        `ALTER TABLE push_notification_sends
+         ALTER COLUMN sent_at TYPE TIMESTAMPTZ USING sent_at AT TIME ZONE 'UTC'`
+      );
+    } catch (_) {}
     notificationsTablesReady = true;
   } catch (_) {}
 }

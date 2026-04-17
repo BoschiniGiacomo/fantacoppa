@@ -6,6 +6,7 @@ import { notificationDebugLog } from './notificationDebugLog';
 
 const CHANNEL_ID = 'fantacoppa-reminders';
 const SOURCE = 'fantacoppa-local';
+const TOKEN_REFRESH_MS = 10 * 60 * 1000;
 
 let initialized = false;
 let registerInFlightPromise = null;
@@ -71,7 +72,13 @@ function formatRegisterError(error) {
   return error?.message || String(error);
 }
 
-async function registerDevicePushToken() {
+async function registerDevicePushToken({ force = false } = {}) {
+  const nowAtEntry = Date.now();
+  if (!force && lastRegisteredToken && nowAtEntry - lastRegisterAtMs < TOKEN_REFRESH_MS) {
+    await notificationDebugLog('registerDevicePushToken: skip refresh (token registrato di recente)');
+    return true;
+  }
+
   if (registerInFlightPromise) {
     await notificationDebugLog('registerDevicePushToken: skip (registrazione gia in corso)');
     return registerInFlightPromise;
@@ -92,7 +99,7 @@ async function registerDevicePushToken() {
     const expoPushToken = tokenRes?.data;
     if (!expoPushToken) {
       await notificationDebugLog('registerDevicePushToken: getExpoPushTokenAsync ha restituito token vuoto');
-      return;
+      return false;
     }
     const preview = `${String(expoPushToken).slice(0, 36)}… (len ${String(expoPushToken).length})`;
     await notificationDebugLog(`registerDevicePushToken: token ottenuto ${preview}`);
@@ -102,22 +109,25 @@ async function registerDevicePushToken() {
     const recentRegistration = now - lastRegisterAtMs < 60 * 1000;
     if (sameToken && recentRegistration) {
       await notificationDebugLog('registerDevicePushToken: skip POST (token gia registrato nell’ultimo minuto)');
-      return;
+      return true;
     }
 
     await notificationApiService.registerPushToken(expoPushToken, Platform.OS);
     lastRegisteredToken = expoPushToken;
     lastRegisterAtMs = now;
     await notificationDebugLog('registerDevicePushToken: POST register-token OK (200)');
+    return true;
   } catch (error) {
     const msg = formatRegisterError(error);
     await notificationDebugLog(`registerDevicePushToken: ERRORE ${msg}`);
     console.log('Push token registration failed', error?.message || error);
+    return false;
   }
   })();
 
   try {
-    await registerInFlightPromise;
+    const ok = await registerInFlightPromise;
+    return !!ok;
   } finally {
     registerInFlightPromise = null;
   }
@@ -132,9 +142,9 @@ export async function registerPushTokenIfPermitted() {
   );
   if (!ok) {
     await notificationDebugLog('registerPushTokenIfPermitted: permesso negato, skip registrazione');
-    return;
+    return false;
   }
-  await registerDevicePushToken();
+  return await registerDevicePushToken();
 }
 
 export async function scheduleDebugTestNotification() {
@@ -157,7 +167,13 @@ export async function scheduleDebugTestNotification() {
 
 export async function retryRegisterPushTokenForDebug() {
   await notificationDebugLog('--- retryRegisterPushTokenForDebug (manuale) ---');
-  await registerPushTokenIfPermitted();
+  await initNotifications();
+  const ok = await requestNotificationsPermissionIfNeeded();
+  if (!ok) {
+    await notificationDebugLog('retryRegisterPushTokenForDebug: permesso negato');
+    return false;
+  }
+  return await registerDevicePushToken({ force: true });
 }
 
 /** Rimuove vecchie notifiche locali programmate (formazione) dopo passaggio a push server. */
@@ -174,8 +190,9 @@ async function cancelLegacyLocalFormationReminders() {
 export async function syncLeagueNotifications(leagues = []) {
   await initNotifications();
   const hasPermission = await requestNotificationsPermissionIfNeeded();
+  let tokenRegisteredOk = false;
   if (hasPermission) {
-    await registerDevicePushToken();
+    tokenRegisteredOk = await registerDevicePushToken();
   }
 
   if (!hasPermission) {
@@ -185,6 +202,6 @@ export async function syncLeagueNotifications(leagues = []) {
 
   await cancelLegacyLocalFormationReminders();
   await notificationDebugLog(
-    `syncLeagueNotifications: token ok; promemoria/calcolo via push server (leghe in lista: ${Array.isArray(leagues) ? leagues.length : 0})`
+    `syncLeagueNotifications: token_${tokenRegisteredOk ? 'ok' : 'ko'}; promemoria/calcolo via push server (leghe in lista: ${Array.isArray(leagues) ? leagues.length : 0})`
   );
 }

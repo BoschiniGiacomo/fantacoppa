@@ -1900,6 +1900,16 @@ router.post('/:id/calculate/:giornata', authenticateToken, async (req, res) => {
         [leagueId, giornata]
       );
       try {
+        // Se la giornata viene ricalcolata, consenti una nuova notifica "giornata calcolata".
+        await query(
+          `DELETE FROM push_notification_sends
+           WHERE league_id = ? AND giornata = ? AND notification_type = 'matchday_calculated'`,
+          [leagueId, giornata]
+        );
+      } catch (_) {
+        // Tabella notifiche opzionale: ignora se non presente.
+      }
+      try {
         await query(
           `DELETE FROM matchday_player_scores
            WHERE league_id = ? AND giornata = ?`,
@@ -2313,6 +2323,8 @@ router.post('/:id/matchdays', authenticateToken, async (req, res) => {
     if (!deadlineDate) return res.status(400).json({ message: 'deadline_date obbligatoria' });
 
     const deadline = `${deadlineDate} ${deadlineTime}:00`;
+    // Intenzionale: input locale "Europe/Rome" (senza TZ) -> timestamptz UTC in DB.
+    // Usare direttamente ::timestamptz qui sarebbe ambiguo perché dipende dal timezone della sessione DB.
     const matchdayId = req.body?.matchday_id ? Number(req.body.matchday_id) : null;
 
     if (matchdayId && Number.isFinite(matchdayId)) {
