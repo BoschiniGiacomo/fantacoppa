@@ -188,7 +188,16 @@ async function buildCalculatedMatchdayCandidateRows() {
 async function sendCalculatedMatchdayNotifications() {
   const candidates = await buildCalculatedMatchdayCandidateRows();
   if (!Array.isArray(candidates) || candidates.length <= 0) {
-    return { candidates: 0, reserved: 0, sent: 0, invalidated: 0, errors: 0 };
+    return {
+      candidates: 0,
+      reserved: 0,
+      skipped_no_token: 0,
+      released_failed_reservations: 0,
+      sent: 0,
+      invalidated: 0,
+      errors: 0,
+      debug: { reason: 'no_recent_calculated_matchdays_last_24h' },
+    };
   }
   const allMembers = await query(
     `SELECT lm.user_id, lm.league_id, COALESCE(ulp.notifications_enabled, 1) AS notifications_enabled
@@ -263,11 +272,18 @@ async function sendCalculatedMatchdayNotifications() {
     sent: pushStats.sent,
     invalidated: pushStats.invalidated,
     errors: pushStats.errors,
+    debug: {
+      recent_window_hours: 24,
+      leagues_with_candidates: candidates.length,
+    },
   };
 }
 
 async function sendFormationDeadlineReminders() {
-  // Finestra 60 minuti +-5 (adatta a cron ogni 5 minuti).
+  // Logica allineata alla vecchia api.php:
+  // - reminder "dovuto" quando deadline-60m <= NOW()
+  // - non inviare storico (deadline deve essere ancora futura)
+  // - dedupe DB: una sola notifica per user/lega/giornata
   const leagueRows = await query(
     `SELECT l.id AS league_id, l.name AS league_name, COALESCE(l.auto_lineup_mode, 0) AS auto_lineup_mode,
             l.linked_to_league_id, lm.user_id, COALESCE(ulp.notifications_enabled, 1) AS notifications_enabled
@@ -285,26 +301,36 @@ async function sendFormationDeadlineReminders() {
   let candidates = 0;
   let reserved = 0;
   let skippedNoToken = 0;
+  let skippedNoDueDeadline = 0;
+  let skippedLineupAlreadySubmitted = 0;
+  let skippedNotificationsDisabled = 0;
   const reservedDedupeKeys = new Set();
 
   for (const row of leagueRows) {
     const leagueId = Number(row.league_id);
     const userId = Number(row.user_id);
     const notificationsEnabled = Number(row.notifications_enabled === 0 ? 0 : 1);
-    if (!leagueId || !userId || notificationsEnabled !== 1) continue;
+    if (!leagueId || !userId) continue;
+    if (notificationsEnabled !== 1) {
+      skippedNotificationsDisabled += 1;
+      continue;
+    }
     const effectiveLeagueId = Number(row.linked_to_league_id || 0) > 0 ? Number(row.linked_to_league_id) : leagueId;
     const nearRows = await query(
       `SELECT giornata, deadline
        FROM matchdays
        WHERE league_id = ?
-         AND deadline >= NOW() + INTERVAL '55 minutes'
-         AND deadline <= NOW() + INTERVAL '65 minutes'
+         AND deadline > NOW()
+         AND (deadline - INTERVAL '60 minutes') <= NOW()
        ORDER BY deadline ASC
        LIMIT 1`,
       [effectiveLeagueId]
     );
     const target = nearRows[0];
-    if (!target) continue;
+    if (!target) {
+      skippedNoDueDeadline += 1;
+      continue;
+    }
     const giornata = Number(target.giornata);
     if (!giornata) continue;
     candidates += 1;
@@ -320,7 +346,10 @@ async function sendFormationDeadlineReminders() {
        LIMIT 1`,
       [leagueId, userId, giornata]
     );
-    if (Array.isArray(lineupRows) && lineupRows.length > 0) continue;
+    if (Array.isArray(lineupRows) && lineupRows.length > 0) {
+      skippedLineupAlreadySubmitted += 1;
+      continue;
+    }
     const reservedOk = await reserveNotificationSend({
       userId,
       leagueId,
@@ -357,6 +386,9 @@ async function sendFormationDeadlineReminders() {
     candidates,
     reserved,
     skipped_no_token: skippedNoToken,
+    skipped_no_due_deadline: skippedNoDueDeadline,
+    skipped_lineup_already_submitted: skippedLineupAlreadySubmitted,
+    skipped_notifications_disabled: skippedNotificationsDisabled,
     released_failed_reservations: releasedFailedReservations,
     sent: pushStats.sent,
     invalidated: pushStats.invalidated,
