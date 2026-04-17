@@ -2611,6 +2611,9 @@ router.post('/', authenticateToken, async (req, res) => {
     const autoLineupMode = pickFirst(body.autoLineupMode, auto_lineup_mode);
     const linkedToLeagueRaw = pickFirst(body.linked_to_league_id, body.linkedToLeagueId, null);
     const linkedToLeagueId = linkedToLeagueRaw == null ? null : Number(linkedToLeagueRaw);
+    const requireApprovalRaw = pickFirst(body.requireApproval, body.require_approval, 0);
+    const requireApproval = Number(requireApprovalRaw) ? 1 : 0;
+    const incomingBonusSettings = body.bonusSettings ?? body.bonus_settings ?? null;
 
     if (!name || String(name).trim() === '') {
       return res.status(400).json({ message: 'Nome lega obbligatorio' });
@@ -2685,6 +2688,62 @@ router.post('/', authenticateToken, async (req, res) => {
     }
 
     const leagueId = insertLeague.insertId;
+
+    // Allineamento legacy: salva sempre require_approval alla creazione (se colonna disponibile).
+    try {
+      await query(`UPDATE leagues SET require_approval = ? WHERE id = ?`, [requireApproval, leagueId]);
+    } catch (approvalErr) {
+      console.log('require_approval update skipped:', approvalErr?.message || approvalErr);
+    }
+
+    // Allineamento legacy: salva bonusSettings iniziali quando passati dal client.
+    if (incomingBonusSettings && typeof incomingBonusSettings === 'object') {
+      try {
+        const bs = normalizeBonusSettings(incomingBonusSettings);
+        await query(
+          `INSERT INTO league_bonus_settings (
+             league_id, enable_bonus_malus, enable_goal, bonus_goal, enable_assist, bonus_assist,
+             enable_yellow_card, malus_yellow_card, enable_red_card, malus_red_card,
+             enable_goals_conceded, malus_goals_conceded, enable_own_goal, malus_own_goal,
+             enable_penalty_missed, malus_penalty_missed, enable_penalty_saved, bonus_penalty_saved,
+             enable_clean_sheet, bonus_clean_sheet
+           )
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT (league_id)
+           DO UPDATE SET
+             enable_bonus_malus = EXCLUDED.enable_bonus_malus,
+             enable_goal = EXCLUDED.enable_goal,
+             bonus_goal = EXCLUDED.bonus_goal,
+             enable_assist = EXCLUDED.enable_assist,
+             bonus_assist = EXCLUDED.bonus_assist,
+             enable_yellow_card = EXCLUDED.enable_yellow_card,
+             malus_yellow_card = EXCLUDED.malus_yellow_card,
+             enable_red_card = EXCLUDED.enable_red_card,
+             malus_red_card = EXCLUDED.malus_red_card,
+             enable_goals_conceded = EXCLUDED.enable_goals_conceded,
+             malus_goals_conceded = EXCLUDED.malus_goals_conceded,
+             enable_own_goal = EXCLUDED.enable_own_goal,
+             malus_own_goal = EXCLUDED.malus_own_goal,
+             enable_penalty_missed = EXCLUDED.enable_penalty_missed,
+             malus_penalty_missed = EXCLUDED.malus_penalty_missed,
+             enable_penalty_saved = EXCLUDED.enable_penalty_saved,
+             bonus_penalty_saved = EXCLUDED.bonus_penalty_saved,
+             enable_clean_sheet = EXCLUDED.enable_clean_sheet,
+             bonus_clean_sheet = EXCLUDED.bonus_clean_sheet`,
+          [
+            leagueId,
+            bs.enable_bonus_malus, bs.enable_goal, bs.bonus_goal, bs.enable_assist, bs.bonus_assist,
+            bs.enable_yellow_card, bs.malus_yellow_card, bs.enable_red_card, bs.malus_red_card,
+            bs.enable_goals_conceded, bs.malus_goals_conceded, bs.enable_own_goal, bs.malus_own_goal,
+            bs.enable_penalty_missed, bs.malus_penalty_missed, bs.enable_penalty_saved, bs.bonus_penalty_saved,
+            bs.enable_clean_sheet, bs.bonus_clean_sheet,
+          ]
+        );
+      } catch (bonusErr) {
+        console.log('league_bonus_settings upsert skipped:', bonusErr?.message || bonusErr);
+      }
+    }
+
     try {
       await query(
         `INSERT INTO league_members (league_id, user_id, role)
