@@ -81,13 +81,17 @@ async function markTokenInactive(token) {
 }
 
 async function sendExpoMessages(messages) {
-  if (!Array.isArray(messages) || messages.length <= 0) return { sent: 0, invalidated: 0, errors: 0 };
+  if (!Array.isArray(messages) || messages.length <= 0) {
+    return { sent: 0, invalidated: 0, errors: 0, deliveredDedupeKeys: [] };
+  }
   let sent = 0;
   let invalidated = 0;
   let errors = 0;
+  const deliveredDedupeKeys = new Set();
   const chunkSize = 100;
   for (let i = 0; i < messages.length; i += chunkSize) {
     const chunk = messages.slice(i, i + chunkSize);
+    const payloadChunk = chunk.map(({ _dedupe_key, ...payload }) => payload);
     try {
       const resp = await fetch(EXPO_PUSH_URL, {
         method: 'POST',
@@ -96,7 +100,7 @@ async function sendExpoMessages(messages) {
           'Accept-Encoding': 'gzip, deflate',
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(chunk),
+        body: JSON.stringify(payloadChunk),
       });
       const data = await resp.json().catch(() => ({}));
       const results = Array.isArray(data?.data) ? data.data : [];
@@ -105,6 +109,8 @@ async function sendExpoMessages(messages) {
         const msg = chunk[j];
         if (r.status === 'ok') {
           sent += 1;
+          const key = String(msg?._dedupe_key || '').trim();
+          if (key) deliveredDedupeKeys.add(key);
           continue;
         }
         errors += 1;
@@ -118,11 +124,15 @@ async function sendExpoMessages(messages) {
       errors += chunk.length;
     }
   }
-  return { sent, invalidated, errors };
+  return { sent, invalidated, errors, deliveredDedupeKeys: [...deliveredDedupeKeys] };
+}
+
+function buildDedupeKey({ userId, leagueId, giornata, type }) {
+  return `${type}:${leagueId}:${giornata == null ? 'na' : giornata}:${userId}`;
 }
 
 async function reserveNotificationSend({ userId, leagueId, giornata, type, payloadJson }) {
-  const dedupeKey = `${type}:${leagueId}:${giornata == null ? 'na' : giornata}:${userId}`;
+  const dedupeKey = buildDedupeKey({ userId, leagueId, giornata, type });
   const rows = await query(
     `INSERT INTO push_notification_sends
        (user_id, league_id, giornata, notification_type, dedupe_key, payload_json)
@@ -132,6 +142,22 @@ async function reserveNotificationSend({ userId, leagueId, giornata, type, paylo
     [userId, leagueId, giornata ?? null, type, dedupeKey, JSON.stringify(payloadJson || {})]
   );
   return !!(Array.isArray(rows) && rows[0] && rows[0].id);
+}
+
+async function releaseNotificationSendsByDedupeKeys(keys) {
+  const list = [...new Set((keys || []).map((x) => String(x || '').trim()).filter(Boolean))];
+  if (list.length <= 0) return 0;
+  const placeholders = list.map(() => '?').join(',');
+  try {
+    await query(
+      `DELETE FROM push_notification_sends
+       WHERE dedupe_key IN (${placeholders})`,
+      list
+    );
+    return list.length;
+  } catch (_) {
+    return 0;
+  }
 }
 
 async function buildCalculatedMatchdayCandidateRows() {
@@ -183,6 +209,8 @@ async function sendCalculatedMatchdayNotifications() {
   const tokensByUser = await getActiveTokensByUserIds(distinctUsers);
   const messages = [];
   let reserved = 0;
+  let skippedNoToken = 0;
+  const reservedDedupeKeys = new Set();
 
   for (const c of candidates) {
     const leagueId = Number(c.league_id);
@@ -190,6 +218,11 @@ async function sendCalculatedMatchdayNotifications() {
     if (!leagueId || !giornata) continue;
     const userIds = membersByLeague.get(leagueId) || [];
     for (const userId of userIds) {
+      const tokens = tokensByUser.get(userId) || [];
+      if (tokens.length <= 0) {
+        skippedNoToken += 1;
+        continue;
+      }
       const reservedOk = await reserveNotificationSend({
         userId,
         leagueId,
@@ -199,10 +232,12 @@ async function sendCalculatedMatchdayNotifications() {
       });
       if (!reservedOk) continue;
       reserved += 1;
-      const tokens = tokensByUser.get(userId) || [];
+      const dedupeKey = buildDedupeKey({ userId, leagueId, giornata, type: 'matchday_calculated' });
+      reservedDedupeKeys.add(dedupeKey);
       for (const token of tokens) {
         messages.push({
           to: token,
+          _dedupe_key: dedupeKey,
           sound: 'default',
           title: 'Giornata calcolata',
           body: `${c.league_name || 'Lega'}: calcolata la ${giornata}a giornata.`,
@@ -217,9 +252,14 @@ async function sendCalculatedMatchdayNotifications() {
   }
 
   const pushStats = await sendExpoMessages(messages);
+  const delivered = new Set((pushStats.deliveredDedupeKeys || []).map((x) => String(x || '').trim()).filter(Boolean));
+  const failedReserved = [...reservedDedupeKeys].filter((k) => !delivered.has(k));
+  const releasedFailedReservations = await releaseNotificationSendsByDedupeKeys(failedReserved);
   return {
     candidates: candidates.length,
     reserved,
+    skipped_no_token: skippedNoToken,
+    released_failed_reservations: releasedFailedReservations,
     sent: pushStats.sent,
     invalidated: pushStats.invalidated,
     errors: pushStats.errors,
@@ -244,6 +284,8 @@ async function sendFormationDeadlineReminders() {
   const messages = [];
   let candidates = 0;
   let reserved = 0;
+  let skippedNoToken = 0;
+  const reservedDedupeKeys = new Set();
 
   for (const row of leagueRows) {
     const leagueId = Number(row.league_id);
@@ -266,6 +308,11 @@ async function sendFormationDeadlineReminders() {
     const giornata = Number(target.giornata);
     if (!giornata) continue;
     candidates += 1;
+    const tokens = tokensByUser.get(userId) || [];
+    if (tokens.length <= 0) {
+      skippedNoToken += 1;
+      continue;
+    }
     const lineupRows = await query(
       `SELECT 1
        FROM user_lineups
@@ -283,10 +330,12 @@ async function sendFormationDeadlineReminders() {
     });
     if (!reservedOk) continue;
     reserved += 1;
-    const tokens = tokensByUser.get(userId) || [];
+    const dedupeKey = buildDedupeKey({ userId, leagueId, giornata, type: 'formation_deadline_1h' });
+    reservedDedupeKeys.add(dedupeKey);
     for (const token of tokens) {
       messages.push({
         to: token,
+        _dedupe_key: dedupeKey,
         sound: 'default',
         title: 'Promemoria formazione',
         body: `${row.league_name || 'Lega'}: manca circa 1 ora alla scadenza della ${giornata}a giornata.`,
@@ -300,10 +349,15 @@ async function sendFormationDeadlineReminders() {
   }
 
   const pushStats = await sendExpoMessages(messages);
+  const delivered = new Set((pushStats.deliveredDedupeKeys || []).map((x) => String(x || '').trim()).filter(Boolean));
+  const failedReserved = [...reservedDedupeKeys].filter((k) => !delivered.has(k));
+  const releasedFailedReservations = await releaseNotificationSendsByDedupeKeys(failedReserved);
   return {
     scanned: leagueRows.length,
     candidates,
     reserved,
+    skipped_no_token: skippedNoToken,
+    released_failed_reservations: releasedFailedReservations,
     sent: pushStats.sent,
     invalidated: pushStats.invalidated,
     errors: pushStats.errors,

@@ -1,4 +1,3 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
 import { Linking, Platform } from 'react-native';
 import Constants from 'expo-constants';
@@ -7,7 +6,6 @@ import { notificationDebugLog } from './notificationDebugLog';
 
 const CHANNEL_ID = 'fantacoppa-reminders';
 const SOURCE = 'fantacoppa-local';
-const PERMISSION_ASKED_KEY = 'fc_notifications_permission_asked_v1';
 
 let initialized = false;
 
@@ -40,14 +38,7 @@ export async function requestNotificationsPermissionIfNeeded() {
   if (current.granted || current.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL) {
     return true;
   }
-
-  const alreadyAsked = (await AsyncStorage.getItem(PERMISSION_ASKED_KEY)) === '1';
-  if (alreadyAsked) {
-    return false;
-  }
-
   const requested = await Notifications.requestPermissionsAsync();
-  await AsyncStorage.setItem(PERMISSION_ASKED_KEY, '1');
   return !!(requested.granted || requested.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL);
 }
 
@@ -107,13 +98,11 @@ async function registerDevicePushToken() {
 
 export async function registerPushTokenIfPermitted() {
   await initNotifications();
+  const ok = await requestNotificationsPermissionIfNeeded();
   const perm = await Notifications.getPermissionsAsync();
   await notificationDebugLog(
     `registerPushTokenIfPermitted: granted=${perm.granted} ios=${perm.ios?.status ?? 'n/a'}`
   );
-  const ok =
-    perm.granted ||
-    perm.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL;
   if (!ok) {
     await notificationDebugLog('registerPushTokenIfPermitted: permesso negato, skip registrazione');
     return;
