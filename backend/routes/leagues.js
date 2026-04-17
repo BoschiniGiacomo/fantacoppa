@@ -6,6 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
 const { createClient } = require('@supabase/supabase-js');
+const { triggerCalculatedNotificationForLeagueMatchday } = require('./notifications');
 
 const uploadsRoot = path.resolve(__dirname, '..', 'uploads');
 const userTeamLogosDir = path.join(uploadsRoot, 'team_logos');
@@ -2012,6 +2013,13 @@ router.post('/:id/calculate/:giornata', authenticateToken, async (req, res) => {
       details.push({ user_id: userId, punteggio, players: playerScores });
     }
 
+    let notificationStats = null;
+    try {
+      notificationStats = await triggerCalculatedNotificationForLeagueMatchday(leagueId, giornata);
+    } catch (notifyErr) {
+      console.error('Immediate matchday_calculated push error:', notifyErr?.message || notifyErr);
+    }
+
     return res.json({
       success: true,
       already_calculated: false,
@@ -2020,6 +2028,7 @@ router.post('/:id/calculate/:giornata', authenticateToken, async (req, res) => {
       users_with_6_politico: usersWith6Politico,
       processed_users: details.length,
       results: details.sort((a, b) => b.punteggio - a.punteggio),
+      notifications: notificationStats,
     });
   } catch (error) {
     console.error('Calculate matchday error:', error);

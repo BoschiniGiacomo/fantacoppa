@@ -419,6 +419,83 @@ async function runNotificationsCronJob() {
   return { calculated: calcStats, formation_reminders: reminderStats };
 }
 
+async function triggerCalculatedNotificationForLeagueMatchday(leagueId, giornata) {
+  const lid = Number(leagueId);
+  const g = Number(giornata);
+  if (!lid || !g) {
+    return { candidates: 0, reserved: 0, sent: 0, invalidated: 0, errors: 0, debug: { reason: 'invalid_params' } };
+  }
+  await ensureNotificationsTables();
+  const leagueRows = await query(
+    `SELECT id AS league_id, name AS league_name
+     FROM leagues
+     WHERE id = ?
+     LIMIT 1`,
+    [lid]
+  );
+  if (!Array.isArray(leagueRows) || !leagueRows[0]) {
+    return { candidates: 0, reserved: 0, sent: 0, invalidated: 0, errors: 0, debug: { reason: 'league_not_found' } };
+  }
+  const allMembers = await query(
+    `SELECT lm.user_id, lm.league_id, COALESCE(ulp.notifications_enabled, 1) AS notifications_enabled
+     FROM league_members lm
+     LEFT JOIN user_league_prefs ulp ON ulp.user_id = lm.user_id AND ulp.league_id = lm.league_id
+     WHERE lm.league_id = ?`,
+    [lid]
+  );
+  const userIds = (allMembers || [])
+    .filter((m) => Number(m.notifications_enabled === 0 ? 0 : 1) === 1)
+    .map((m) => Number(m.user_id))
+    .filter((x) => x > 0);
+  const tokensByUser = await getActiveTokensByUserIds(userIds);
+  const messages = [];
+  let reserved = 0;
+  let skippedNoToken = 0;
+  const reservedDedupeKeys = new Set();
+  for (const userId of userIds) {
+    const tokens = tokensByUser.get(userId) || [];
+    if (tokens.length <= 0) {
+      skippedNoToken += 1;
+      continue;
+    }
+    const reservedOk = await reserveNotificationSend({
+      userId,
+      leagueId: lid,
+      giornata: g,
+      type: 'matchday_calculated',
+      payloadJson: { league_id: lid, giornata: g },
+    });
+    if (!reservedOk) continue;
+    reserved += 1;
+    const dedupeKey = buildDedupeKey({ userId, leagueId: lid, giornata: g, type: 'matchday_calculated' });
+    reservedDedupeKeys.add(dedupeKey);
+    for (const token of tokens) {
+      messages.push({
+        to: token,
+        _dedupe_key: dedupeKey,
+        sound: 'default',
+        title: 'Giornata calcolata',
+        body: `${leagueRows[0].league_name || 'Lega'}: calcolata la ${g}a giornata.`,
+        data: { type: 'matchday_calculated', league_id: lid, giornata: g },
+      });
+    }
+  }
+  const pushStats = await sendExpoMessages(messages);
+  const delivered = new Set((pushStats.deliveredDedupeKeys || []).map((x) => String(x || '').trim()).filter(Boolean));
+  const failedReserved = [...reservedDedupeKeys].filter((k) => !delivered.has(k));
+  const releasedFailedReservations = await releaseNotificationSendsByDedupeKeys(failedReserved);
+  return {
+    candidates: 1,
+    reserved,
+    skipped_no_token: skippedNoToken,
+    released_failed_reservations: releasedFailedReservations,
+    sent: pushStats.sent,
+    invalidated: pushStats.invalidated,
+    errors: pushStats.errors,
+    debug: { mode: 'immediate_after_calculation', league_id: lid, giornata: g },
+  };
+}
+
 router.post('/register-token', authenticateToken, async (req, res) => {
   try {
     await ensureNotificationsTables();
@@ -470,3 +547,5 @@ router.post('/run-cron', async (req, res) => {
 });
 
 module.exports = router;
+module.exports.runNotificationsCronJob = runNotificationsCronJob;
+module.exports.triggerCalculatedNotificationForLeagueMatchday = triggerCalculatedNotificationForLeagueMatchday;
