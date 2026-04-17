@@ -1515,7 +1515,8 @@ router.get('/:id/matchday-status', authenticateToken, async (req, res) => {
     if (!leagueId) return res.status(400).json({ message: 'League ID non valido' });
     const effectiveLeagueId = await getEffectiveLeagueId(leagueId);
     let rows = await query(
-      `SELECT m.giornata, m.deadline,
+      `SELECT m.giornata,
+              to_char((m.deadline AT TIME ZONE 'Europe/Rome'), 'YYYY-MM-DD HH24:MI:SS') AS deadline,
               CASE WHEN EXISTS (
                 SELECT 1 FROM player_ratings pr
                 WHERE pr.league_id = m.league_id AND pr.giornata = m.giornata
@@ -2281,7 +2282,8 @@ router.get('/:id/matchdays', authenticateToken, async (req, res) => {
     if (!leagueId) return res.status(400).json({ message: 'League ID non valido' });
     const effectiveLeagueId = await getEffectiveLeagueId(leagueId);
     const rows = await query(
-      `SELECT id, giornata, deadline
+      `SELECT id, giornata,
+              to_char((deadline AT TIME ZONE 'Europe/Rome'), 'YYYY-MM-DD HH24:MI:SS') AS deadline
        FROM matchdays
        WHERE league_id = ?
        ORDER BY deadline ASC`,
@@ -2316,7 +2318,7 @@ router.post('/:id/matchdays', authenticateToken, async (req, res) => {
     if (matchdayId && Number.isFinite(matchdayId)) {
       await query(
         `UPDATE matchdays
-         SET deadline = ?
+         SET deadline = (?::timestamp AT TIME ZONE 'Europe/Rome')
          WHERE id = ? AND league_id = ?`,
         [deadline, matchdayId, leagueId]
       );
@@ -2330,7 +2332,7 @@ router.post('/:id/matchdays', authenticateToken, async (req, res) => {
       const nextGiornata = Number(maxRows[0]?.max_giornata || 0) + 1;
       await query(
         `INSERT INTO matchdays (league_id, giornata, deadline)
-         VALUES (?, ?, ?)`,
+         VALUES (?, ?, (?::timestamp AT TIME ZONE 'Europe/Rome'))`,
         [leagueId, nextGiornata, deadline]
       );
     }

@@ -25,7 +25,8 @@ router.get('/:leagueId/matchdays', authenticateToken, async (req, res) => {
     const leagueId = Number(req.params.leagueId);
     const effectiveLeagueId = await getEffectiveLeagueId(leagueId);
     const rows = await query(
-      `SELECT giornata, deadline
+      `SELECT giornata,
+              to_char((deadline AT TIME ZONE 'Europe/Rome'), 'YYYY-MM-DD HH24:MI:SS') AS deadline
        FROM matchdays
        WHERE league_id = ?
        ORDER BY giornata ASC`,
@@ -44,7 +45,7 @@ router.get('/:leagueId/:giornata/deadline', authenticateToken, async (req, res) 
     const effectiveLeagueId = await getEffectiveLeagueId(leagueId);
     const giornata = Number(req.params.giornata);
     const rows = await query(
-      `SELECT deadline
+      `SELECT to_char((deadline AT TIME ZONE 'Europe/Rome'), 'YYYY-MM-DD HH24:MI:SS') AS deadline
        FROM matchdays
        WHERE league_id = ? AND giornata = ?
        LIMIT 1`,
@@ -66,7 +67,7 @@ router.get('/:leagueId/:giornata', authenticateToken, async (req, res) => {
     const userId = Number(req.user.userId);
 
     const dRows = await query(
-      `SELECT deadline
+      `SELECT to_char((deadline AT TIME ZONE 'Europe/Rome'), 'YYYY-MM-DD HH24:MI:SS') AS deadline
        FROM matchdays
        WHERE league_id = ? AND giornata = ?
        LIMIT 1`,
