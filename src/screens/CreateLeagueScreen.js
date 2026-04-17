@@ -17,6 +17,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { leagueService } from '../services/api';
 import { Ionicons } from '@expo/vector-icons';
 import BonusIcon from '../components/BonusIcon';
@@ -27,6 +28,7 @@ const STEPS = [
   { id: 3, title: 'Bonus/Malus', icon: 'trophy' },
   { id: 4, title: 'Riepilogo', icon: 'checkmark-circle' },
 ];
+const CREATE_LEAGUE_DRAFT_KEY = 'create_league_draft_v1';
 
 export default function CreateLeagueScreen({ navigation }) {
   const insets = useSafeAreaInsets();
@@ -282,6 +284,48 @@ export default function CreateLeagueScreen({ navigation }) {
   }, [linkToOfficial, officialLeagues.length]);
   
   const [showTimePicker, setShowTimePicker] = useState(false);
+  const [draftLoaded, setDraftLoaded] = useState(false);
+
+  // Ripristina bozza (se presente) per evitare perdita dati tra step/navigazioni.
+  useEffect(() => {
+    let mounted = true;
+    const loadDraft = async () => {
+      try {
+        const raw = await AsyncStorage.getItem(CREATE_LEAGUE_DRAFT_KEY);
+        if (!mounted || !raw) return;
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object') {
+          if (parsed.formData && typeof parsed.formData === 'object') {
+            setFormData((prev) => ({ ...prev, ...parsed.formData }));
+          }
+          if (typeof parsed.linkToOfficial === 'boolean') {
+            setLinkToOfficial(parsed.linkToOfficial);
+          }
+          if (Number.isFinite(Number(parsed.currentStep))) {
+            const s = Math.min(Math.max(Number(parsed.currentStep), 1), STEPS.length);
+            setCurrentStep(s);
+          }
+        }
+      } catch (_) {
+        // Ignore bozza corrotta/non leggibile.
+      } finally {
+        if (mounted) setDraftLoaded(true);
+      }
+    };
+    loadDraft();
+    return () => { mounted = false; };
+  }, []);
+
+  // Salva bozza in modo continuo.
+  useEffect(() => {
+    if (!draftLoaded) return;
+    const payload = {
+      formData,
+      linkToOfficial,
+      currentStep,
+    };
+    AsyncStorage.setItem(CREATE_LEAGUE_DRAFT_KEY, JSON.stringify(payload)).catch(() => {});
+  }, [draftLoaded, formData, linkToOfficial, currentStep]);
   
   // Convert defaultTime string to Date object for picker
   const getTimeDate = () => {
@@ -302,7 +346,7 @@ export default function CreateLeagueScreen({ navigation }) {
   
   const handleSliderChange = (value) => {
     const clampedValue = Math.min(Math.max(value, 0), 1000);
-    setFormData({ ...formData, initialBudget: clampedValue.toString() });
+    setFormData((prev) => ({ ...prev, initialBudget: clampedValue.toString() }));
   };
   
   const sliderTrackRef = useRef(null);
@@ -336,7 +380,7 @@ export default function CreateLeagueScreen({ navigation }) {
 
   const handleTitolariChange = (value) => {
     const clampedValue = Math.min(Math.max(value, 4), 11);
-    setFormData({ ...formData, numeroTitolari: clampedValue.toString() });
+    setFormData((prev) => ({ ...prev, numeroTitolari: clampedValue.toString() }));
   };
   
   const titolariSliderTrackRef = useRef(null);
@@ -500,9 +544,11 @@ export default function CreateLeagueScreen({ navigation }) {
       const createdLeagueId = response?.data?.id || response?.data?.leagueId;
       
       if (createdLeagueId) {
+        await AsyncStorage.removeItem(CREATE_LEAGUE_DRAFT_KEY).catch(() => {});
         navigation.navigate('League', { leagueId: createdLeagueId });
       } else {
         showToast('Lega creata con successo!', 'success');
+        await AsyncStorage.removeItem(CREATE_LEAGUE_DRAFT_KEY).catch(() => {});
         setTimeout(() => navigation.goBack(), 2500);
       }
     } catch (error) {
@@ -521,6 +567,7 @@ export default function CreateLeagueScreen({ navigation }) {
           const fallbackLeague = sameName[0];
           if (fallbackLeague?.id) {
             showToast('Lega creata con successo!', 'success');
+            await AsyncStorage.removeItem(CREATE_LEAGUE_DRAFT_KEY).catch(() => {});
             setTimeout(() => navigation.navigate('League', { leagueId: fallbackLeague.id }), 350);
             return;
           }
