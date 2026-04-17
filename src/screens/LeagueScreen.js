@@ -122,6 +122,12 @@ export default function LeagueScreen({ route, navigation }) {
           console.log('User needs to provide team info');
           console.log('Default team name:', teamInfoCheck.data.default_team_name);
           console.log('Default coach name:', teamInfoCheck.data.default_coach_name);
+          // Evita falso "Lega non trovata" mentre mostriamo la modal dati squadra.
+          setLeague((prev) => (
+            prev && !Array.isArray(prev)
+              ? prev
+              : { id: Number(leagueId), name: 'Lega' }
+          ));
           
           setDefaultTeamName(teamInfoCheck.data.default_team_name || '');
           setDefaultCoachName(teamInfoCheck.data.default_coach_name || '');
