@@ -147,7 +147,7 @@ function buildDedupeKey({ userId, leagueId, giornata, type }) {
 
 async function reserveNotificationSend({ userId, leagueId, giornata, type, payloadJson }) {
   const dedupeKey = buildDedupeKey({ userId, leagueId, giornata, type });
-  const rows = await query(
+  const result = await query(
     `INSERT INTO push_notification_sends
        (user_id, league_id, giornata, notification_type, dedupe_key, payload_json)
      VALUES (?, ?, ?, ?, ?, ?::jsonb)
@@ -155,7 +155,9 @@ async function reserveNotificationSend({ userId, leagueId, giornata, type, paylo
      RETURNING id`,
     [userId, leagueId, giornata ?? null, type, dedupeKey, JSON.stringify(payloadJson || {})]
   );
-  return !!(Array.isArray(rows) && rows[0] && rows[0].id);
+  // query() for INSERT returns { rows: [...] }, while SELECT returns array.
+  const insertRows = Array.isArray(result) ? result : result?.rows;
+  return !!(Array.isArray(insertRows) && insertRows[0] && insertRows[0].id);
 }
 
 async function releaseNotificationSendsByDedupeKeys(keys) {
