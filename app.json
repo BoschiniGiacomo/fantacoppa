@@ -29,6 +29,7 @@
     },
     "extra": {
       "appVersionCode": 9,
+      "supabaseUrl": "https://zaqvtlsmefrgbduhzmwk.supabase.co",
       "eas": {
         "projectId": "f1e19392-b5b0-4646-8672-5f8e39654f4a"
       }

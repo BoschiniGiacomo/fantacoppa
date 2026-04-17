@@ -5,6 +5,7 @@ import Constants from 'expo-constants';
 // URL API configurabile via env Expo.
 // Se non definita, fallback al backend nuovo in produzione.
 const DEFAULT_API_BASE_URL = 'https://fantacoppa-backend.onrender.com/api';
+const DEFAULT_SUPABASE_PUBLIC_URL = 'https://zaqvtlsmefrgbduhzmwk.supabase.co';
 export const API_BASE_URL =
   (typeof process !== 'undefined' && process?.env?.EXPO_PUBLIC_API_BASE_URL)
     ? String(process.env.EXPO_PUBLIC_API_BASE_URL).trim()
@@ -37,9 +38,16 @@ export function publicAssetUrl(relativePath) {
     (typeof process !== 'undefined' && process?.env?.EXPO_PUBLIC_SUPABASE_URL)
       ? String(process.env.EXPO_PUBLIC_SUPABASE_URL).trim()
       : '';
+  const extraSupabaseUrl = String(
+    Constants?.expoConfig?.extra?.supabaseUrl ||
+    Constants?.expoConfig?.extra?.EXPO_PUBLIC_SUPABASE_URL ||
+    ''
+  ).trim();
   const supabaseUrl =
     envSupabaseUrl ||
-    ((typeof process !== 'undefined' && process?.env?.SUPABASE_URL) ? String(process.env.SUPABASE_URL).trim() : '');
+    extraSupabaseUrl ||
+    ((typeof process !== 'undefined' && process?.env?.SUPABASE_URL) ? String(process.env.SUPABASE_URL).trim() : '') ||
+    DEFAULT_SUPABASE_PUBLIC_URL;
 
   if (supabaseUrl && p.replace(/^\/+/, '').startsWith('uploads/')) {
     const clean = p.replace(/^\/+/, '');
