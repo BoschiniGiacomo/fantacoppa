@@ -223,6 +223,13 @@ export default function LeagueScreen({ route, navigation }) {
       
       // Top 5 classifica - prendi i primi 5 dalla classifica completa
       const fullStandingsData = standingsFullRes.data;
+      const fallbackTeamInfo = {
+        team_name: (leagueRes?.data?.team_name || '').trim?.() || league?.team_name || '',
+        coach_name: (leagueRes?.data?.coach_name || '').trim?.() || league?.coach_name || '',
+        team_logo: (leagueRes?.data?.team_logo && String(leagueRes.data.team_logo).trim() !== '')
+          ? String(leagueRes.data.team_logo)
+          : (league?.team_logo || 'default_1'),
+      };
       let top5 = [];
       if (Array.isArray(fullStandingsData) && fullStandingsData.length > 0) {
         top5 = fullStandingsData.slice(0, 5); // I primi 5 sono già ordinati per punteggio
@@ -292,13 +299,21 @@ export default function LeagueScreen({ route, navigation }) {
         } else {
           console.log('User not found in standings');
           setUserStats(null);
-          setUserTeamInfo(null);
+          setUserTeamInfo((prev) => ({
+            team_name: prev?.team_name || fallbackTeamInfo.team_name,
+            coach_name: prev?.coach_name || fallbackTeamInfo.coach_name,
+            team_logo: prev?.team_logo || fallbackTeamInfo.team_logo,
+          }));
           setUserScores([]);
         }
       } else {
         console.log('Full standings not available or user not logged in');
         setUserStats(null);
-        setUserTeamInfo(null);
+        setUserTeamInfo((prev) => ({
+          team_name: prev?.team_name || fallbackTeamInfo.team_name,
+          coach_name: prev?.coach_name || fallbackTeamInfo.coach_name,
+          team_logo: prev?.team_logo || fallbackTeamInfo.team_logo,
+        }));
         // Prova comunque a recuperare i punteggi
         console.log('=== FALLBACK: Recupero punteggi ===');
         if (userStatsRes && userStatsRes.data && userStatsRes.data.scores && Array.isArray(userStatsRes.data.scores)) {
@@ -498,7 +513,7 @@ export default function LeagueScreen({ route, navigation }) {
       )}
 
       {/* ── Avvisi setup ── */}
-      {(hasDefaultNames || (squadPlayersCount === 0 && marketPlayersCount > 0)) && (
+      {(hasDefaultNames || squadPlayersCount === 0) && (
         <View style={styles.tipsWrap}>
           {hasDefaultNames && (
             <TouchableOpacity style={[styles.tipBanner, { backgroundColor: '#fff8e1' }]} activeOpacity={0.7} onPress={() => navigation.navigate('Settings', { leagueId, section: 'team' })}>
@@ -510,7 +525,7 @@ export default function LeagueScreen({ route, navigation }) {
               <Ionicons name="chevron-forward" size={16} color="#c8a000" />
             </TouchableOpacity>
           )}
-          {squadPlayersCount === 0 && marketPlayersCount > 0 && (
+          {squadPlayersCount === 0 && (
             <TouchableOpacity style={[styles.tipBanner, { backgroundColor: '#fff3e0' }]} activeOpacity={0.7} onPress={() => navigation.navigate('Market', { leagueId })}>
               <Ionicons name="cart-outline" size={16} color="#bf5500" />
               <View style={styles.tipTextWrap}>
@@ -609,9 +624,9 @@ export default function LeagueScreen({ route, navigation }) {
       </View>
 
       {/* ── Ultime giornate ── */}
-      {userScores.length > 0 && (
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Ultime giornate</Text>
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>Ultime giornate</Text>
+        {userScores.length > 0 ? (
           <View style={styles.scoresRow}>
             {userScores.map((score, index) => (
               <View key={`s-${score.giornata}-${index}`} style={styles.scoreChip}>
@@ -620,8 +635,17 @@ export default function LeagueScreen({ route, navigation }) {
               </View>
             ))}
           </View>
-        </View>
-      )}
+        ) : (
+          <View style={styles.scoresRow}>
+            {[1, 2, 3, 4, 5].map((n) => (
+              <View key={`empty-score-${n}`} style={[styles.scoreChip, styles.scoreChipEmpty]}>
+                <Text style={styles.scoreGiornata}>{n}ª</Text>
+                <Text style={styles.scorePtsEmpty}>-</Text>
+              </View>
+            ))}
+          </View>
+        )}
+      </View>
 
       {/* Modal per inserire nome squadra e allenatore */}
       <TeamInfoModal
@@ -631,7 +655,11 @@ export default function LeagueScreen({ route, navigation }) {
         defaultCoachName={defaultCoachName}
         onSave={async (teamName, coachName) => {
           setShowTeamInfoModal(false);
-          setUserTeamInfo({ team_name: teamName, coach_name: coachName });
+          setUserTeamInfo((prev) => ({
+            team_name: teamName,
+            coach_name: coachName,
+            team_logo: prev?.team_logo || 'default_1',
+          }));
           await loadData();
         }}
         onClose={() => {}}
