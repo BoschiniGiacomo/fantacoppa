@@ -403,6 +403,22 @@ async function addUserToLeagueWithInitialBudget(userId, leagueId, leagueInitialB
   );
 }
 
+async function getEffectiveLeagueId(leagueId) {
+  try {
+    const rows = await query(
+      `SELECT linked_to_league_id
+       FROM leagues
+       WHERE id = ?
+       LIMIT 1`,
+      [leagueId]
+    );
+    const linked = Number(rows[0]?.linked_to_league_id || 0);
+    return linked > 0 ? linked : leagueId;
+  } catch (_) {
+    return leagueId;
+  }
+}
+
 let joinRequestsTableReady = false;
 async function ensureJoinRequestsTable() {
   joinRequestsTableReady = true;
@@ -874,6 +890,7 @@ router.get('/:id/teams', authenticateToken, async (req, res) => {
   try {
     const leagueId = toValidLeagueId(req.params.id);
     if (!leagueId) return res.status(400).json({ message: 'League ID non valido' });
+    const effectiveLeagueId = await getEffectiveLeagueId(leagueId);
     let rows = [];
     try {
       rows = await query(
@@ -887,7 +904,7 @@ router.get('/:id/teams', authenticateToken, async (req, res) => {
          ) pc ON pc.team_id = t.id
          WHERE t.league_id = ?
          ORDER BY t.id ASC`,
-        [leagueId]
+        [effectiveLeagueId]
       );
     } catch (_) {
       rows = await query(
@@ -901,7 +918,7 @@ router.get('/:id/teams', authenticateToken, async (req, res) => {
          ) pc ON pc.team_id = t.id
          WHERE t.league_id = ?
          ORDER BY t.id ASC`,
-        [leagueId]
+        [effectiveLeagueId]
       );
       rows = rows.map((r) => ({ ...r, jersey_color: '#667eea', logo_path: null, player_count: Number(r?.player_count || 0) }));
     }
@@ -1496,6 +1513,7 @@ router.get('/:id/matchday-status', authenticateToken, async (req, res) => {
   try {
     const leagueId = toValidLeagueId(req.params.id);
     if (!leagueId) return res.status(400).json({ message: 'League ID non valido' });
+    const effectiveLeagueId = await getEffectiveLeagueId(leagueId);
     let rows = await query(
       `SELECT m.giornata, m.deadline,
               CASE WHEN EXISTS (
@@ -1513,7 +1531,7 @@ router.get('/:id/matchday-status', authenticateToken, async (req, res) => {
        FROM matchdays m
        WHERE m.league_id = ?
        ORDER BY m.giornata ASC`,
-      [leagueId]
+      [effectiveLeagueId]
     );
     // Se mancano matchdays ma esistono risultati/voti, restituisce comunque uno stato minimo.
     if (!rows.length) {
@@ -1535,7 +1553,7 @@ router.get('/:id/matchday-status', authenticateToken, async (req, res) => {
            SELECT giornata FROM matchday_results WHERE league_id = ?
          ) g
          ORDER BY g.giornata ASC`,
-        [leagueId, leagueId, leagueId, leagueId, leagueId]
+        [effectiveLeagueId, effectiveLeagueId, effectiveLeagueId, effectiveLeagueId, effectiveLeagueId]
       );
     }
     res.json(rows);
@@ -1614,12 +1632,13 @@ router.get('/:id/votes/matchdays', authenticateToken, async (req, res) => {
   try {
     const leagueId = toValidLeagueId(req.params.id);
     if (!leagueId) return res.status(400).json({ message: 'League ID non valido' });
+    const effectiveLeagueId = await getEffectiveLeagueId(leagueId);
     const matchdays = await query(
       `SELECT giornata
        FROM matchdays
        WHERE league_id = ?
        ORDER BY giornata ASC`,
-      [leagueId]
+      [effectiveLeagueId]
     );
     let last = null;
     try {
@@ -1627,7 +1646,7 @@ router.get('/:id/votes/matchdays', authenticateToken, async (req, res) => {
         `SELECT MAX(giornata)::int AS last_g
          FROM player_ratings
          WHERE league_id = ?`,
-        [leagueId]
+        [effectiveLeagueId]
       );
       last = rows[0]?.last_g || null;
     } catch (_) {
@@ -1645,19 +1664,20 @@ router.get('/:id/votes/players', authenticateToken, async (req, res) => {
   try {
     const leagueId = toValidLeagueId(req.params.id);
     if (!leagueId) return res.status(400).json({ message: 'League ID non valido' });
+    const effectiveLeagueId = await getEffectiveLeagueId(leagueId);
     const teams = await query(
       `SELECT id, name
        FROM teams
        WHERE league_id = ?
        ORDER BY id ASC`,
-      [leagueId]
+      [effectiveLeagueId]
     );
     const players = await query(
       `SELECT id, first_name, last_name, role, team_id
        FROM players
        WHERE team_id IN (SELECT id FROM teams WHERE league_id = ?)
        ORDER BY team_id ASC, role ASC, last_name ASC`,
-      [leagueId]
+      [effectiveLeagueId]
     );
     const byTeam = {};
     teams.forEach((t) => { byTeam[t.id] = { id: t.id, name: t.name, players: [] }; });
@@ -1677,13 +1697,14 @@ router.get('/:id/votes/:giornata', authenticateToken, async (req, res) => {
     const leagueId = toValidLeagueId(req.params.id);
     const giornata = Number(req.params.giornata);
     if (!leagueId || !Number.isFinite(giornata)) return res.status(400).json({ message: 'Parametri non validi' });
+    const effectiveLeagueId = await getEffectiveLeagueId(leagueId);
     try {
       const rows = await query(
         `SELECT player_id, rating, goals, assists, yellow_cards, red_cards,
                 goals_conceded, own_goals, penalty_missed, penalty_saved, clean_sheet
          FROM player_ratings
          WHERE league_id = ? AND giornata = ?`,
-        [leagueId, giornata]
+        [effectiveLeagueId, giornata]
       );
       const mapped = {};
       rows.forEach((r) => {
@@ -1778,6 +1799,7 @@ router.post('/:id/calculate/:giornata', authenticateToken, async (req, res) => {
     if (!leagueId || !Number.isFinite(giornata) || giornata <= 0) {
       return res.status(400).json({ message: 'Parametri non validi' });
     }
+    const effectiveLeagueId = await getEffectiveLeagueId(leagueId);
 
     const roleRows = await query(
       `SELECT role
@@ -1837,7 +1859,7 @@ router.post('/:id/calculate/:giornata', authenticateToken, async (req, res) => {
               goals_conceded, own_goals, penalty_missed, penalty_saved, clean_sheet
        FROM player_ratings
        WHERE league_id = ? AND giornata = ?`,
-      [leagueId, giornata]
+      [effectiveLeagueId, giornata]
     );
     const votesByPlayer = {};
     voteRows.forEach((r) => { votesByPlayer[Number(r.player_id)] = r; });
@@ -1845,7 +1867,7 @@ router.post('/:id/calculate/:giornata', authenticateToken, async (req, res) => {
       `SELECT p.id, p.first_name, p.last_name, p.role
        FROM players p
        WHERE p.team_id IN (SELECT id FROM teams WHERE league_id = ?)`,
-      [leagueId]
+      [effectiveLeagueId]
     );
     const playersById = {};
     playersRows.forEach((p) => {
@@ -1982,6 +2004,7 @@ router.get('/:id/live/:giornata', authenticateToken, async (req, res) => {
     const leagueId = toValidLeagueId(req.params.id);
     const giornata = Number(req.params.giornata);
     if (!leagueId || !Number.isFinite(giornata)) return res.status(400).json({ message: 'Parametri non validi' });
+    const effectiveLeagueId = await getEffectiveLeagueId(leagueId);
 
     const members = await query(
       `SELECT lm.user_id, u.username, ub.team_name, ub.coach_name, ub.team_logo
@@ -2094,10 +2117,10 @@ router.get('/:id/live/:giornata', authenticateToken, async (req, res) => {
                 pr.goals_conceded, pr.own_goals, pr.penalty_missed, pr.penalty_saved, pr.clean_sheet,
                 p.role AS player_role, CONCAT(COALESCE(p.first_name, ''), ' ', COALESCE(p.last_name, '')) AS player_name
          FROM player_ratings pr
-         JOIN user_players up ON up.player_id = pr.player_id AND up.league_id = pr.league_id
+         JOIN user_players up ON up.player_id = pr.player_id AND up.league_id = ?
          JOIN players p ON p.id = pr.player_id
          WHERE pr.league_id = ? AND pr.giornata = ?`,
-        [leagueId, giornata]
+        [leagueId, effectiveLeagueId, giornata]
       );
     } catch (_) {
       ratings = [];
@@ -2238,12 +2261,13 @@ router.get('/:id/matchdays', authenticateToken, async (req, res) => {
   try {
     const leagueId = toValidLeagueId(req.params.id);
     if (!leagueId) return res.status(400).json({ message: 'League ID non valido' });
+    const effectiveLeagueId = await getEffectiveLeagueId(leagueId);
     const rows = await query(
       `SELECT id, giornata, deadline
        FROM matchdays
        WHERE league_id = ?
        ORDER BY deadline ASC`,
-      [leagueId]
+      [effectiveLeagueId]
     );
     const enriched = rows.map((r) => {
       const d = new Date(r.deadline);
