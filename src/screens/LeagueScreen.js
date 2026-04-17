@@ -372,26 +372,32 @@ export default function LeagueScreen({ route, navigation }) {
         setLiveMatchday(null);
       }
 
-      // Prossima scadenza formazione + check badge
-      try {
-        const mdRes = await formationService.getMatchdays(leagueId);
-        const mds = mdRes?.data || [];
-        const now = new Date();
-        const future = mds
-          .filter(m => m.deadline && new Date(m.deadline) > now)
-          .sort((a, b) => new Date(a.deadline) - new Date(b.deadline));
-        if (future.length > 0) {
-          setNextDeadline({ deadline: future[0].deadline, giornata: future[0].giornata });
-        } else {
+      const isAutoLineupMode = Number(leagueRes?.data?.auto_lineup_mode || 0) === 1;
+
+      // Prossima scadenza formazione + check badge (solo se formazione NON automatica)
+      if (isAutoLineupMode) {
+        setNextDeadline(null);
+      } else {
+        try {
+          const mdRes = await formationService.getMatchdays(leagueId);
+          const mds = mdRes?.data || [];
+          const now = new Date();
+          const future = mds
+            .filter(m => m.deadline && new Date(m.deadline) > now)
+            .sort((a, b) => new Date(a.deadline) - new Date(b.deadline));
+          if (future.length > 0) {
+            setNextDeadline({ deadline: future[0].deadline, giornata: future[0].giornata });
+          } else {
+            setNextDeadline(null);
+          }
+
+          try {
+            await syncSubmittedFormationOnboarding({ leagueId, formationService, markDone });
+          } catch (_) {}
+        } catch (e) {
+          console.log('Could not load formation deadlines:', e);
           setNextDeadline(null);
         }
-
-        try {
-          await syncSubmittedFormationOnboarding({ leagueId, formationService, markDone });
-        } catch (_) {}
-      } catch (e) {
-        console.log('Could not load formation deadlines:', e);
-        setNextDeadline(null);
       }
 
     } catch (error) {
@@ -447,6 +453,7 @@ export default function LeagueScreen({ route, navigation }) {
     userTeamInfo.coach_name &&
     /^Squadra\s*\d+$/i.test(userTeamInfo.team_name.trim()) &&
     /^Allenatore\s*\d+$/i.test(userTeamInfo.coach_name.trim());
+  const isAutoLineupMode = Number(displayLeague?.auto_lineup_mode || 0) === 1;
 
   // Medaglie top 3
   const medalColors = ['#ffc107', '#adb5bd', '#cd7f32']; // oro, argento, bronzo
@@ -548,7 +555,7 @@ export default function LeagueScreen({ route, navigation }) {
       )}
 
       {/* ── Banner scadenza formazione ── */}
-      {nextDeadline && deadlineCountdown && (
+      {!isAutoLineupMode && nextDeadline && deadlineCountdown && (
         <TouchableOpacity style={styles.fdBanner} activeOpacity={0.7} onPress={() => navigation.navigate('Formation', { leagueId })}>
           <View style={styles.fdLeft}>
             <Ionicons name="football-outline" size={20} color="#667eea" />

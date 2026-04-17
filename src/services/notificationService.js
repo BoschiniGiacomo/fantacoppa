@@ -8,6 +8,9 @@ const CHANNEL_ID = 'fantacoppa-reminders';
 const SOURCE = 'fantacoppa-local';
 
 let initialized = false;
+let registerInFlightPromise = null;
+let lastRegisteredToken = null;
+let lastRegisterAtMs = 0;
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -69,6 +72,12 @@ function formatRegisterError(error) {
 }
 
 async function registerDevicePushToken() {
+  if (registerInFlightPromise) {
+    await notificationDebugLog('registerDevicePushToken: skip (registrazione gia in corso)');
+    return registerInFlightPromise;
+  }
+
+  registerInFlightPromise = (async () => {
   await notificationDebugLog(`registerDevicePushToken: platform=${Platform.OS}`);
 
   const projectId = resolveExpoProjectId();
@@ -87,12 +96,30 @@ async function registerDevicePushToken() {
     }
     const preview = `${String(expoPushToken).slice(0, 36)}… (len ${String(expoPushToken).length})`;
     await notificationDebugLog(`registerDevicePushToken: token ottenuto ${preview}`);
+
+    const now = Date.now();
+    const sameToken = lastRegisteredToken && lastRegisteredToken === expoPushToken;
+    const recentRegistration = now - lastRegisterAtMs < 60 * 1000;
+    if (sameToken && recentRegistration) {
+      await notificationDebugLog('registerDevicePushToken: skip POST (token gia registrato nell’ultimo minuto)');
+      return;
+    }
+
     await notificationApiService.registerPushToken(expoPushToken, Platform.OS);
+    lastRegisteredToken = expoPushToken;
+    lastRegisterAtMs = now;
     await notificationDebugLog('registerDevicePushToken: POST register-token OK (200)');
   } catch (error) {
     const msg = formatRegisterError(error);
     await notificationDebugLog(`registerDevicePushToken: ERRORE ${msg}`);
     console.log('Push token registration failed', error?.message || error);
+  }
+  })();
+
+  try {
+    await registerInFlightPromise;
+  } finally {
+    registerInFlightPromise = null;
   }
 }
 
