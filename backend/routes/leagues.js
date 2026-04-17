@@ -414,12 +414,15 @@ async function getLeagueByIdForUser(leagueId, userId) {
     `SELECT l.id, l.name, l.access_code, l.creator_id, l.created_at,
             l.initial_budget, l.default_deadline_time, l.max_portieri, l.max_difensori,
             l.max_centrocampisti, l.max_attaccanti, l.numero_titolari, l.auto_lineup_mode,
+            l.linked_to_league_id,
+            ll.name AS linked_league_name,
             lm.role, ub.team_name, ub.coach_name, ub.team_logo,
             COALESCE(ulp.favorite, 0) AS favorite,
             COALESCE(ulp.archived, 0) AS archived,
             COALESCE(ulp.notifications_enabled, 1) AS notifications_enabled
      FROM leagues l
      JOIN league_members lm ON lm.league_id = l.id AND lm.user_id = ?
+     LEFT JOIN leagues ll ON ll.id = l.linked_to_league_id
      LEFT JOIN user_budget ub ON ub.league_id = l.id AND ub.user_id = lm.user_id
      LEFT JOIN user_league_prefs ulp ON ulp.league_id = l.id AND ulp.user_id = lm.user_id
      WHERE l.id = ?
@@ -437,6 +440,8 @@ router.get('/', authenticateToken, async (req, res) => {
       `SELECT l.id, l.name, l.access_code, l.creator_id, l.created_at,
               l.initial_budget, l.default_deadline_time, l.max_portieri, l.max_difensori,
               l.max_centrocampisti, l.max_attaccanti, l.numero_titolari, l.auto_lineup_mode,
+              l.linked_to_league_id,
+              ll.name AS linked_league_name,
               lm.role, ub.team_name, ub.coach_name, ub.team_logo,
               COALESCE(ulp.favorite, 0) AS favorite,
               COALESCE(ulp.archived, 0) AS archived,
@@ -447,6 +452,7 @@ router.get('/', authenticateToken, async (req, res) => {
               NULL AS current_matchday
        FROM leagues l
        JOIN league_members lm ON lm.league_id = l.id
+       LEFT JOIN leagues ll ON ll.id = l.linked_to_league_id
        LEFT JOIN user_budget ub ON ub.league_id = l.id AND ub.user_id = lm.user_id
        LEFT JOIN user_league_prefs ulp ON ulp.league_id = l.id AND ulp.user_id = lm.user_id
        WHERE lm.user_id = ?
@@ -473,6 +479,8 @@ router.get('/all', authenticateToken, async (req, res) => {
       `SELECT l.id, l.name, l.access_code, l.creator_id, l.created_at,
               l.initial_budget, l.default_deadline_time, l.max_portieri, l.max_difensori,
               l.max_centrocampisti, l.max_attaccanti, l.numero_titolari, l.auto_lineup_mode,
+              l.linked_to_league_id,
+              ll.name AS linked_league_name,
               my.role,
               COALESCE(ulp.favorite, 0) AS favorite,
               COALESCE(ulp.archived, 0) AS archived,
@@ -482,6 +490,7 @@ router.get('/all', authenticateToken, async (req, res) => {
               0 AS market_locked,
               NULL AS current_matchday
        FROM leagues l
+       LEFT JOIN leagues ll ON ll.id = l.linked_to_league_id
        LEFT JOIN league_members my ON my.league_id = l.id AND my.user_id = ?
        LEFT JOIN user_league_prefs ulp ON ulp.league_id = l.id AND ulp.user_id = ?
        WHERE my.user_id IS NULL
@@ -506,11 +515,14 @@ router.get('/search', authenticateToken, async (req, res) => {
       `SELECT l.id, l.name, l.access_code, l.creator_id, l.created_at,
               l.initial_budget, l.default_deadline_time, l.max_portieri, l.max_difensori,
               l.max_centrocampisti, l.max_attaccanti, l.numero_titolari, l.auto_lineup_mode,
+              l.linked_to_league_id,
+              ll.name AS linked_league_name,
               CASE WHEN my.user_id IS NULL THEN 0 ELSE 1 END AS is_joined,
               (SELECT COUNT(*) FROM league_members lm2 WHERE lm2.league_id = l.id) AS user_count,
               0 AS market_locked,
               NULL AS current_matchday
        FROM leagues l
+       LEFT JOIN leagues ll ON ll.id = l.linked_to_league_id
        LEFT JOIN league_members my ON my.league_id = l.id AND my.user_id = ?
        WHERE l.name ILIKE ?
          AND my.user_id IS NULL
@@ -2687,7 +2699,15 @@ router.post('/', authenticateToken, async (req, res) => {
       }
     }
 
-    const leagueId = insertLeague.insertId;
+    const leagueId = Number(
+      insertLeague?.insertId ||
+      insertLeague?.rows?.[0]?.id ||
+      insertLeague?.[0]?.id ||
+      0
+    );
+    if (!leagueId || leagueId <= 0) {
+      return res.status(500).json({ message: 'Errore creazione lega: id non restituito dal database' });
+    }
 
     // Allineamento legacy: salva sempre require_approval alla creazione (se colonna disponibile).
     try {

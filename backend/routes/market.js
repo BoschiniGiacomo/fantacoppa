@@ -37,6 +37,22 @@ async function getUserMarketBlockValue(leagueId, userId) {
   return Number(rows[0]?.blocked || 0);
 }
 
+async function getEffectiveSourceLeagueId(leagueId) {
+  try {
+    const rows = await query(
+      `SELECT linked_to_league_id
+       FROM leagues
+       WHERE id = ?
+       LIMIT 1`,
+      [leagueId]
+    );
+    const linked = Number(rows[0]?.linked_to_league_id || 0);
+    return linked > 0 ? linked : leagueId;
+  } catch (_) {
+    return leagueId;
+  }
+}
+
 function isUserEffectivelyBlocked(marketLocked, userBlockValue) {
   // market_locked=0 => blocked=1 blocks single user
   // market_locked=1 => blocked=1 is exception (user unblocked)
@@ -59,6 +75,7 @@ router.get('/:leagueId/players', authenticateToken, async (req, res) => {
     const role = String(req.query?.role || '').trim();
     const search = String(req.query?.search || '').trim();
     const userId = Number(req.user.userId);
+    const sourceLeagueId = await getEffectiveSourceLeagueId(leagueId);
 
     let sql = `
       SELECT p.id, p.first_name, p.last_name, p.role, p.rating,
@@ -80,7 +97,7 @@ router.get('/:leagueId/players', authenticateToken, async (req, res) => {
        AND t.league_id = ?
       WHERE 1=1
     `;
-    const params = [userId, leagueId, leagueId];
+    const params = [userId, leagueId, sourceLeagueId];
     if (role) {
       sql += ' AND p.role = ?';
       params.push(role);
@@ -151,6 +168,7 @@ router.post('/:leagueId/buy', authenticateToken, async (req, res) => {
     if (!leagueId || !Number.isFinite(playerId) || playerId <= 0) {
       return res.status(400).json({ message: 'Parametri non validi' });
     }
+    const sourceLeagueId = await getEffectiveSourceLeagueId(leagueId);
 
     const flags = await getLeagueMarketFlags(leagueId);
     const userBlockValue = await getUserMarketBlockValue(leagueId, userId);
@@ -158,7 +176,14 @@ router.post('/:leagueId/buy', authenticateToken, async (req, res) => {
       return res.status(400).json({ message: 'Il mercato è bloccato per il tuo account' });
     }
 
-    const pRows = await query('SELECT id, role, rating FROM players WHERE id = ? LIMIT 1', [playerId]);
+    const pRows = await query(
+      `SELECT p.id, p.role, p.rating
+       FROM players p
+       JOIN teams t ON t.id = p.team_id
+       WHERE p.id = ? AND t.league_id = ?
+       LIMIT 1`,
+      [playerId, sourceLeagueId]
+    );
     const p = pRows[0];
     if (!p) return res.status(404).json({ message: 'Giocatore non trovato' });
 
