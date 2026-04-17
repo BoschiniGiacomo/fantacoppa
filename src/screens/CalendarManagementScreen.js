@@ -14,8 +14,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { Calendar } from 'react-native-calendars';
 import { leagueService } from '../services/api';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { parseAppDate } from '../utils/dateTime';
 
 export default function CalendarManagementScreen({ route, navigation }) {
+  const parseDeadlineDate = (value) => parseAppDate(value);
+
   const { leagueId } = route.params || {};
   const insets = useSafeAreaInsets();
   const [matchdays, setMatchdays] = useState([]);
@@ -106,7 +109,7 @@ export default function CalendarManagementScreen({ route, navigation }) {
     const matchday = matchdays.find((m) => m.deadline_date === day.dateString);
     if (matchday) {
       // Modifica giornata esistente
-      const deadline = new Date(matchday.deadline);
+      const deadline = parseDeadlineDate(matchday.deadline);
       setSelectedDeadline(deadline);
       setEditingMatchday(matchday);
       setShowModal(true);
@@ -177,7 +180,8 @@ export default function CalendarManagementScreen({ route, navigation }) {
   };
 
   const formatDate = (dateString) => {
-    const date = new Date(dateString);
+    const date = parseDeadlineDate(dateString);
+    if (!date) return '--';
     return date.toLocaleDateString('it-IT', {
       weekday: 'long',
       year: 'numeric',
@@ -270,8 +274,8 @@ export default function CalendarManagementScreen({ route, navigation }) {
             </View>
           ) : (
             matchdays.map((matchday) => {
-              const deadline = new Date(matchday.deadline);
-              const deadlineTimeText = Number.isNaN(deadline.getTime())
+              const deadline = parseDeadlineDate(matchday.deadline);
+              const deadlineTimeText = !deadline || Number.isNaN(deadline.getTime())
                 ? (matchday.deadline_time || '--:--')
                 : deadline.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
               return (

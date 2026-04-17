@@ -12,6 +12,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { formationService, leagueService } from '../services/api';
 import { useOnboarding } from '../context/OnboardingContext';
 import { hasSubmittedFormationPayload } from '../utils/formationSubmission';
+import { parseAppDate } from '../utils/dateTime';
 
 export default function CalendarScreen({ route, navigation }) {
   const { leagueId } = route.params || {};
@@ -30,6 +31,8 @@ export default function CalendarScreen({ route, navigation }) {
   useEffect(() => {
     loadData();
   }, [leagueId]);
+
+  const parseDeadlineDate = (value) => parseAppDate(value);
 
   const loadData = async () => {
     try {
@@ -59,7 +62,7 @@ export default function CalendarScreen({ route, navigation }) {
 
           // Controlla se la scadenza è nel passato
           const now = new Date();
-          const deadline = new Date(matchday.deadline);
+          const deadline = parseDeadlineDate(matchday.deadline);
           const isExpired = deadline < now;
 
           return {
@@ -85,7 +88,8 @@ export default function CalendarScreen({ route, navigation }) {
   };
 
   const formatDate = (dateString) => {
-    const date = new Date(dateString);
+    const date = parseDeadlineDate(dateString);
+    if (!date) return '--';
     return date.toLocaleDateString('it-IT', {
       weekday: 'short',
       day: 'numeric',
@@ -95,7 +99,8 @@ export default function CalendarScreen({ route, navigation }) {
   };
 
   const formatTime = (dateString) => {
-    const date = new Date(dateString);
+    const date = parseDeadlineDate(dateString);
+    if (!date) return '--:--';
     return date.toLocaleTimeString('it-IT', {
       hour: '2-digit',
       minute: '2-digit',

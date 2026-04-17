@@ -8,6 +8,7 @@ import { useAuth } from '../context/AuthContext';
 import { useOnboarding } from '../context/OnboardingContext';
 import { formationService, leagueService, squadService } from '../services/api';
 import { Ionicons } from '@expo/vector-icons';
+import { parseAppDate } from '../utils/dateTime';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 
@@ -76,6 +77,7 @@ export default function FormationScreen({ route }) {
   const [isExpired, setIsExpired] = useState(false);
   const [hasSaved, setHasSaved] = useState(false);   // true se esiste già una formazione salvata
   const [countdown, setCountdown] = useState(null);  // { days, hours, mins, secs } o null
+  const parseDeadlineDate = (value) => parseAppDate(value);
 
   // UI
   const [toastMsg, setToastMsg] = useState(null);
@@ -237,7 +239,10 @@ export default function FormationScreen({ route }) {
       // Seleziona giornata default: la prima con scadenza futura, altrimenti l'ultima
       if (md.length > 0) {
         const now = new Date();
-        const futureMatchday = md.find(m => m.deadline && new Date(m.deadline) > now);
+        const futureMatchday = md.find((m) => {
+          const d = parseDeadlineDate(m?.deadline);
+          return !!d && d > now;
+        });
         const defaultMd = futureMatchday ? futureMatchday.giornata : md[md.length - 1].giornata;
         setSelectedMatchday(defaultMd);
         await loadFormationForMatchday(defaultMd, players);
@@ -303,7 +308,9 @@ export default function FormationScreen({ route }) {
     if (!deadlineStr) { setCountdown(null); return; }
     const tick = () => {
       const now = Date.now();
-      const target = new Date(deadlineStr).getTime();
+      const parsed = parseDeadlineDate(deadlineStr);
+      if (!parsed) { setCountdown(null); return false; }
+      const target = parsed.getTime();
       const diff = target - now;
       if (diff <= 0) {
         setCountdown(null);
@@ -479,7 +486,8 @@ export default function FormationScreen({ route }) {
   // ============================================================
   const formatDeadlineDate = (dl) => {
     if (!dl) return '';
-    const d = new Date(dl);
+    const d = parseDeadlineDate(dl);
+    if (!d) return '';
     const day = d.toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric', month: 'short' });
     const time = d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
     return `${day} alle ${time}`;
@@ -531,7 +539,10 @@ export default function FormationScreen({ route }) {
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.mdRow} contentContainerStyle={{ paddingHorizontal: 12, gap: 8 }}>
           {matchdays.map(m => {
             const active = m.giornata === selectedMatchday;
-            const past = m.deadline && new Date(m.deadline) < new Date();
+            const past = (() => {
+              const d = parseDeadlineDate(m?.deadline);
+              return !!d && d < new Date();
+            })();
             return (
               <TouchableOpacity
                 key={m.giornata}
