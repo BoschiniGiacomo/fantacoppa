@@ -212,7 +212,6 @@ async function sendCalculatedMatchdayNotifications() {
       sent: 0,
       invalidated: 0,
       errors: 0,
-      debug: { reason: 'no_recent_calculated_matchdays_last_24h' },
     };
   }
   const allMembers = await query(
@@ -288,10 +287,6 @@ async function sendCalculatedMatchdayNotifications() {
     sent: pushStats.sent,
     invalidated: pushStats.invalidated,
     errors: pushStats.errors,
-    debug: {
-      recent_window_hours: 24,
-      leagues_with_candidates: candidates.length,
-    },
   };
 }
 
@@ -425,7 +420,7 @@ async function triggerCalculatedNotificationForLeagueMatchday(leagueId, giornata
   const lid = Number(leagueId);
   const g = Number(giornata);
   if (!lid || !g) {
-    return { candidates: 0, reserved: 0, sent: 0, invalidated: 0, errors: 0, debug: { reason: 'invalid_params' } };
+    return { candidates: 0, reserved: 0, sent: 0, invalidated: 0, errors: 0 };
   }
   await ensureNotificationsTables();
   const leagueRows = await query(
@@ -436,7 +431,7 @@ async function triggerCalculatedNotificationForLeagueMatchday(leagueId, giornata
     [lid]
   );
   if (!Array.isArray(leagueRows) || !leagueRows[0]) {
-    return { candidates: 0, reserved: 0, sent: 0, invalidated: 0, errors: 0, debug: { reason: 'league_not_found' } };
+    return { candidates: 0, reserved: 0, sent: 0, invalidated: 0, errors: 0 };
   }
   const allMembers = await query(
     `SELECT lm.user_id, lm.league_id, COALESCE(ulp.notifications_enabled, 1) AS notifications_enabled
@@ -494,7 +489,6 @@ async function triggerCalculatedNotificationForLeagueMatchday(leagueId, giornata
     sent: pushStats.sent,
     invalidated: pushStats.invalidated,
     errors: pushStats.errors,
-    debug: { mode: 'immediate_after_calculation', league_id: lid, giornata: g },
   };
 }
 
@@ -525,7 +519,6 @@ router.post('/register-token', authenticateToken, async (req, res) => {
 
     return res.json({ message: 'Token push registrato' });
   } catch (error) {
-    console.error('Register push token error:', error);
     return res.status(500).json({ message: 'Errore registrazione token push', error: error.message });
   }
 });
@@ -543,7 +536,6 @@ router.post('/run-cron', async (req, res) => {
     const stats = await runNotificationsCronJob();
     return res.json({ ok: true, stats });
   } catch (error) {
-    console.error('Notifications cron run error:', error);
     return res.status(500).json({ ok: false, message: 'Errore esecuzione cron notifiche', error: error.message });
   }
 });

@@ -22,22 +22,108 @@ function getInsertRows(result) {
   return [];
 }
 
-function eventNotificationTitle(eventType) {
-  if (eventType === 'match_start') return 'Inizio partita';
-  if (eventType === 'match_end') return 'Fine partita';
-  if (eventType === 'goal') return 'Goal';
-  if (eventType === 'own_goal') return 'Autogol';
+function formatPlayerInitialLast(raw) {
+  const parts = String(raw || '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (parts.length === 0) return '';
+  if (parts.length === 1) {
+    const w = parts[0];
+    return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+  }
+  const fi = parts[0].charAt(0).toUpperCase();
+  const last = parts[parts.length - 1];
+  const lastFmt = last.charAt(0).toUpperCase() + last.slice(1).toLowerCase();
+  return `${fi}.${lastFmt}`;
+}
+
+function formatScorePlain(homeGoals, awayGoals) {
+  if (homeGoals == null || awayGoals == null) return '';
+  const h = Number(homeGoals);
+  const a = Number(awayGoals);
+  if (!Number.isFinite(h) || !Number.isFinite(a)) return '';
+  return ` ${h}-${a}`;
+}
+
+function teamNameFromSide(teamSide, homeTeamName, awayTeamName) {
+  const s = String(teamSide || '').trim().toLowerCase();
+  if (s === 'home') return String(homeTeamName || '').trim() || 'Casa';
+  if (s === 'away') return String(awayTeamName || '').trim() || 'Trasferta';
+  return '';
+}
+
+/** Titolo + corpo push (goal / autogol / fine partita come richiesto). */
+function buildMatchEventPushContent({ eventType, homeTeamName, awayTeamName, teamSide, payload, homeGoals, awayGoals }) {
+  const matchLabel = `${homeTeamName || 'Casa'} - ${awayTeamName || 'Trasferta'}`;
+  const playerFmt = formatPlayerInitialLast(String(payload?.player_name || '').trim());
+  const scoreStr = formatScorePlain(homeGoals, awayGoals);
+  const sideTeam = teamNameFromSide(teamSide, homeTeamName, awayTeamName);
+
+  if (eventType === 'match_start') {
+    return { title: 'Inizio partita', body: `${matchLabel}: la partita e iniziata.` };
+  }
+  if (eventType === 'match_end') {
+    return { title: 'Partita terminata', body: `${matchLabel}${scoreStr}`.trimEnd() };
+  }
+  if (eventType === 'goal') {
+    const title = sideTeam ? `GOAL ${sideTeam}` : 'GOAL';
+    const body = playerFmt
+      ? `goal di ${playerFmt} ${matchLabel}${scoreStr}`.trimEnd()
+      : `goal ${matchLabel}${scoreStr}`.trimEnd();
+    return { title, body };
+  }
+  if (eventType === 'own_goal') {
+    const title = sideTeam ? `AUTOGOAL ${sideTeam}` : 'AUTOGOAL';
+    const body = playerFmt
+      ? `Autogoal di ${playerFmt} ${matchLabel}${scoreStr}`.trimEnd()
+      : `Autogoal ${matchLabel}${scoreStr}`.trimEnd();
+    return { title, body };
+  }
   return null;
 }
 
-function eventNotificationBody({ eventType, homeTeamName, awayTeamName, payload }) {
-  const matchLabel = `${homeTeamName || 'Casa'} - ${awayTeamName || 'Trasferta'}`;
-  const playerName = String(payload?.player_name || '').trim();
-  if (eventType === 'match_start') return `${matchLabel}: la partita e iniziata.`;
-  if (eventType === 'match_end') return `${matchLabel}: la partita e terminata.`;
-  if (eventType === 'goal') return playerName ? `${matchLabel}: gol di ${playerName}.` : `${matchLabel}: gol.`;
-  if (eventType === 'own_goal') return playerName ? `${matchLabel}: autogol di ${playerName}.` : `${matchLabel}: autogol.`;
-  return null;
+/** Punteggio da eventi goal/own_goal, con fallback alle colonne official_matches (stessa logica lista / api.php). */
+async function fetchOfficialMatchLiveScore(matchId) {
+  const mid = Number(matchId);
+  if (!mid) return null;
+  const rows = await safeQuery(
+    `SELECT
+       COALESCE((
+         SELECT SUM(
+           CASE
+             WHEN e.event_type = 'goal' AND e.team_side = 'home' THEN 1
+             WHEN e.event_type = 'own_goal' AND e.team_side = 'away' THEN 1
+             ELSE 0
+           END
+         )::int
+         FROM official_match_events e
+         WHERE e.match_id = ? AND e.event_type IN ('goal','own_goal')
+       ), m.home_score, 0) AS home_goals,
+       COALESCE((
+         SELECT SUM(
+           CASE
+             WHEN e.event_type = 'goal' AND e.team_side = 'away' THEN 1
+             WHEN e.event_type = 'own_goal' AND e.team_side = 'home' THEN 1
+             ELSE 0
+           END
+         )::int
+         FROM official_match_events e
+         WHERE e.match_id = ? AND e.event_type IN ('goal','own_goal')
+       ), m.away_score, 0) AS away_goals
+     FROM official_matches m
+     WHERE m.id = ?
+     LIMIT 1`,
+    [mid, mid, mid]
+  );
+  const r = rows[0];
+  if (!r) return null;
+  const h = Number(r.home_goals);
+  const a = Number(r.away_goals);
+  return {
+    home: Number.isFinite(h) ? h : 0,
+    away: Number.isFinite(a) ? a : 0,
+  };
 }
 
 async function safeQuery(sql, params = [], fallback = []) {
@@ -98,10 +184,7 @@ async function sendExpoMessages(messages) {
   return { sent, invalidated, errors };
 }
 
-async function notifyUsersForOfficialMatchEvent({ eventId, matchId, eventType, payload }) {
-  const title = eventNotificationTitle(eventType);
-  if (!title) return { targeted_users: 0, reserved: 0, sent: 0, invalidated: 0, errors: 0 };
-
+async function notifyUsersForOfficialMatchEvent({ eventId, matchId, eventType, payload, teamSide }) {
   const matchRows = await safeQuery(
     `SELECT m.id, m.competition_id, m.home_team_id, m.away_team_id,
             ht.name AS home_team_name, at.name AS away_team_name
@@ -137,19 +220,8 @@ async function notifyUsersForOfficialMatchEvent({ eventId, matchId, eventType, p
      WHERE mn.match_id = ? AND COALESCE(mn.enabled, 0) = 1`,
     [matchId]
   );
-  let fromMatchBellUsers = 0;
-  const matchBellSeen = new Set();
-  for (const r of byMatchRows || []) {
-    const u = Number(r.user_id);
-    if (u && !matchBellSeen.has(u)) {
-      matchBellSeen.add(u);
-      fromMatchBellUsers += 1;
-    }
-    addTarget(r.user_id, r.expo_push_token);
-  }
+  for (const r of byMatchRows || []) addTarget(r.user_id, r.expo_push_token);
 
-  let fromTeamFavoriteUsers = 0;
-  const teamFavSeen = new Set();
   if (compId > 0 && (homeNorm || awayNorm)) {
     const names = [homeNorm, awayNorm].filter(Boolean);
     if (names.length > 0) {
@@ -163,24 +235,31 @@ async function notifyUsersForOfficialMatchEvent({ eventId, matchId, eventType, p
            AND tf.team_name_norm IN (${placeholders})`,
         [compId, ...names]
       );
-      for (const r of byTeamRows || []) {
-        const u = Number(r.user_id);
-        if (u && !teamFavSeen.has(u)) {
-          teamFavSeen.add(u);
-          fromTeamFavoriteUsers += 1;
-        }
-        addTarget(r.user_id, r.expo_push_token);
-      }
+      for (const r of byTeamRows || []) addTarget(r.user_id, r.expo_push_token);
     }
   }
 
-  const body = eventNotificationBody({
+  let homeGoals = null;
+  let awayGoals = null;
+  if (eventType === 'goal' || eventType === 'own_goal' || eventType === 'match_end') {
+    const live = await fetchOfficialMatchLiveScore(matchId);
+    if (live) {
+      homeGoals = live.home;
+      awayGoals = live.away;
+    }
+  }
+
+  const pushText = buildMatchEventPushContent({
     eventType,
     homeTeamName: match.home_team_name,
     awayTeamName: match.away_team_name,
+    teamSide,
     payload,
+    homeGoals,
+    awayGoals,
   });
-  if (!body) return { targeted_users: targetsByUser.size, reserved: 0, sent: 0, invalidated: 0, errors: 0 };
+  if (!pushText) return { targeted_users: targetsByUser.size, reserved: 0, sent: 0, invalidated: 0, errors: 0 };
+  const { title, body } = pushText;
 
   let reserved = 0;
   const messages = [];
@@ -210,6 +289,7 @@ async function notifyUsersForOfficialMatchEvent({ eventId, matchId, eventType, p
           event_type: eventType,
           match_id: Number(matchId),
           event_id: evId,
+          ...(homeGoals != null && awayGoals != null ? { home_score: homeGoals, away_score: awayGoals } : {}),
         },
       });
     }
@@ -222,18 +302,6 @@ async function notifyUsersForOfficialMatchEvent({ eventId, matchId, eventType, p
     sent: pushStats.sent,
     invalidated: pushStats.invalidated,
     errors: pushStats.errors,
-    debug: {
-      // id nell'endpoint events è l'id riga official_match_events, non user_id
-      official_match_event_id: evId || null,
-      match_id: Number(matchId),
-      competition_id: compId || null,
-      // Campanella partita: solo match_id (nessun nome squadra in user_official_match_notifications)
-      users_with_match_bell: fromMatchBellUsers,
-      // Preferiti: confronto su team_name_norm + official_group_id (= competition_id partita)
-      users_with_team_favorite_bell: fromTeamFavoriteUsers,
-      home_team_norm: homeNorm || null,
-      away_team_norm: awayNorm || null,
-    },
   };
 }
 
@@ -1353,31 +1421,27 @@ router.post('/admin/matches/:matchId/events', authenticateToken, requireSuperuse
         matchId,
         eventType,
         payload: payloadObj || {},
+        teamSide,
       });
-    } catch (notifyErr) {
-      console.error('Official match event push error:', notifyErr?.message || notifyErr);
+    } catch (_notifyErr) {
       notificationStats = {
         targeted_users: 0,
         reserved: 0,
         sent: 0,
         invalidated: 0,
         errors: 1,
-        debug_error: String(notifyErr?.message || notifyErr || 'unknown_error'),
       };
     }
     return res.json({
       ok: true,
       id: eventId || null,
-      notifications:
-        notificationStats ||
-        ({
-          targeted_users: 0,
-          reserved: 0,
-          sent: 0,
-          invalidated: 0,
-          errors: 0,
-          debug: { reason: 'notify_stats_missing' },
-        }),
+      notifications: notificationStats || {
+        targeted_users: 0,
+        reserved: 0,
+        sent: 0,
+        invalidated: 0,
+        errors: 0,
+      },
     });
   } catch (err) {
     if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);

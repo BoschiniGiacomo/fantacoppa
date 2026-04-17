@@ -62,7 +62,7 @@ export default function DashboardScreen({ navigation, route }) {
         ? normalized.filter(l => !hiddenLeagues.has(l.id))
         : normalized;
       setLeagues(filtered);
-      syncLeagueNotifications(filtered).catch((e) => console.log('Notifications sync failed', e?.message || e));
+      syncLeagueNotifications(filtered).catch(() => {});
     } catch (error) {
       showToast('Impossibile caricare le leghe');
       console.error(error);

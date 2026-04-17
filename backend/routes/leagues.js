@@ -2016,8 +2016,8 @@ router.post('/:id/calculate/:giornata', authenticateToken, async (req, res) => {
     let notificationStats = null;
     try {
       notificationStats = await triggerCalculatedNotificationForLeagueMatchday(leagueId, giornata);
-    } catch (notifyErr) {
-      console.error('Immediate matchday_calculated push error:', notifyErr?.message || notifyErr);
+    } catch (_notifyErr) {
+      /* push opzionale: fallimento non blocca calcolo */
     }
 
     return res.json({

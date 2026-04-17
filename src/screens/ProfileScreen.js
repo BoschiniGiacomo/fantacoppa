@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -9,22 +9,12 @@ import {
   ScrollView,
   ActivityIndicator,
   Keyboard,
-  Platform,
 } from 'react-native';
 import { useAuth } from '../context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import { authService } from '../services/api';
-import {
-  openSystemNotificationSettings,
-  scheduleDebugTestNotification,
-  retryRegisterPushTokenForDebug,
-} from '../services/notificationService';
-import {
-  getNotificationDebugLog,
-  clearNotificationDebugLog,
-  shareNotificationDebugLogFile,
-} from '../services/notificationDebugLog';
-import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { openSystemNotificationSettings } from '../services/notificationService';
+import { useNavigation } from '@react-navigation/native';
 
 export default function ProfileScreen() {
   const { user, logout } = useAuth();
@@ -45,54 +35,6 @@ export default function ProfileScreen() {
     setTimeout(() => setToastMsg(null), 2500);
   };
 
-  const [notifDebugOpen, setNotifDebugOpen] = useState(false);
-  const [notifDebugLog, setNotifDebugLog] = useState('');
-
-  const refreshNotifLog = useCallback(async () => {
-    const t = await getNotificationDebugLog();
-    setNotifDebugLog(t.trim() ? t : '(nessuna voce — usa i pulsanti sotto)');
-  }, []);
-
-  useFocusEffect(
-    useCallback(() => {
-      refreshNotifLog();
-    }, [refreshNotifLog])
-  );
-
-  const handleDebugTestNotification = async () => {
-    try {
-      await scheduleDebugTestNotification();
-      showToast('Notifica di test tra ~3 secondi. Metti l’app in background.', 'success');
-      await refreshNotifLog();
-    } catch (e) {
-      showToast(e?.message || 'Errore notifica test');
-    }
-  };
-
-  const handleRetryPushRegister = async () => {
-    try {
-      await retryRegisterPushTokenForDebug();
-      showToast('Tentativo inviato — leggi il log qui sotto', 'success');
-      await refreshNotifLog();
-    } catch (e) {
-      showToast(e?.message || 'Errore');
-    }
-  };
-
-  const handleClearNotifLog = async () => {
-    await clearNotificationDebugLog();
-    await refreshNotifLog();
-    showToast('Log svuotato', 'success');
-  };
-
-  const handleShareNotifLog = async () => {
-    try {
-      await shareNotificationDebugLogFile();
-    } catch (e) {
-      showToast(e?.message || 'Condivisione non riuscita');
-    }
-  };
-  
   // Livelli superuser: 1 = admin completo, 2 = gestione partite.
   const superuserLevel = Number(user?.is_superuser || 0);
   const canOpenSuperUserPanel = superuserLevel === 1;
@@ -303,59 +245,6 @@ export default function ProfileScreen() {
             color="#ccc"
           />
         </TouchableOpacity>
-
-        {canOpenSuperUserPanel && (
-          <>
-            <TouchableOpacity
-              style={styles.menuItem}
-              onPress={() => setNotifDebugOpen(!notifDebugOpen)}
-            >
-              <Ionicons name="bug-outline" size={24} color="#666" />
-              <Text style={styles.menuText}>Debug notifiche e log</Text>
-              <Ionicons
-                name={notifDebugOpen ? 'chevron-down' : 'chevron-forward'}
-                size={20}
-                color="#ccc"
-              />
-            </TouchableOpacity>
-
-            {notifDebugOpen && (
-              <View style={styles.notifDebugPanel}>
-                <Text style={styles.notifDebugHint}>
-                  Il log è salvato in app (AsyncStorage). Condividi il file .txt per analizzarlo sul PC.
-                </Text>
-                <View style={styles.notifDebugButtons}>
-                  <TouchableOpacity style={styles.notifDebugBtn} onPress={handleDebugTestNotification}>
-                    <Text style={styles.notifDebugBtnText}>Notifica test (3s)</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.notifDebugBtn} onPress={handleRetryPushRegister}>
-                    <Text style={styles.notifDebugBtnText}>Riprova registrazione push</Text>
-                  </TouchableOpacity>
-                </View>
-                <View style={styles.notifDebugButtons}>
-                  <TouchableOpacity style={styles.notifDebugBtnSecondary} onPress={refreshNotifLog}>
-                    <Text style={styles.notifDebugBtnSecondaryText}>Aggiorna log</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.notifDebugBtnSecondary} onPress={handleClearNotifLog}>
-                    <Text style={styles.notifDebugBtnSecondaryText}>Svuota log</Text>
-                  </TouchableOpacity>
-                </View>
-                <TouchableOpacity style={styles.notifDebugShareBtn} onPress={handleShareNotifLog}>
-                  <Text style={styles.notifDebugShareBtnText}>Condividi log (.txt)</Text>
-                </TouchableOpacity>
-                <ScrollView
-                  style={styles.notifDebugScroll}
-                  nestedScrollEnabled
-                  keyboardShouldPersistTaps="handled"
-                >
-                  <Text selectable style={styles.notifDebugLogText}>
-                    {notifDebugLog}
-                  </Text>
-                </ScrollView>
-              </View>
-            )}
-          </>
-        )}
 
         <TouchableOpacity
           style={[styles.menuItem, styles.deleteAccountItem]}
@@ -846,80 +735,6 @@ const styles = StyleSheet.create({
   },
   confirmButtonDestructiveText: {
     color: '#fff',
-  },
-  notifDebugPanel: {
-    backgroundColor: '#f8f9fa',
-    paddingHorizontal: 16,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e9ecef',
-  },
-  notifDebugHint: {
-    fontSize: 12,
-    color: '#666',
-    lineHeight: 18,
-    marginBottom: 12,
-  },
-  notifDebugButtons: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 8,
-  },
-  notifDebugBtn: {
-    flexGrow: 1,
-    minWidth: '45%',
-    backgroundColor: '#667eea',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  notifDebugBtnText: {
-    color: '#fff',
-    fontSize: 13,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-  notifDebugBtnSecondary: {
-    flexGrow: 1,
-    minWidth: '45%',
-    backgroundColor: '#e9ecef',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  notifDebugBtnSecondaryText: {
-    color: '#333',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  notifDebugShareBtn: {
-    backgroundColor: '#495057',
-    paddingVertical: 10,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  notifDebugShareBtnText: {
-    color: '#fff',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  notifDebugScroll: {
-    maxHeight: 220,
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#dee2e6',
-    borderRadius: 8,
-    padding: 8,
-  },
-  notifDebugLogText: {
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    fontSize: 10,
-    color: '#212529',
-    lineHeight: 14,
   },
 });
 
