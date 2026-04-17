@@ -1525,13 +1525,22 @@ router.get('/:id/matchday-status', authenticateToken, async (req, res) => {
                WHERE pr2.league_id = m.league_id AND pr2.giornata = m.giornata) AS votes_count,
               CASE WHEN EXISTS (
                 SELECT 1 FROM matchday_results mr
-                WHERE mr.league_id = m.league_id AND mr.giornata = m.giornata
+                WHERE mr.league_id = ? AND mr.giornata = m.giornata
               ) THEN 1 ELSE 0 END AS is_calculated,
-              NULL AS calculated_at
+              (
+                SELECT MAX(
+                  COALESCE(
+                    NULLIF(to_jsonb(mr2)->>'created_at', '')::timestamp,
+                    NULLIF(to_jsonb(mr2)->>'calculated_at', '')::timestamp
+                  )
+                )
+                FROM matchday_results mr2
+                WHERE mr2.league_id = ? AND mr2.giornata = m.giornata
+              ) AS calculated_at
        FROM matchdays m
        WHERE m.league_id = ?
        ORDER BY m.giornata ASC`,
-      [effectiveLeagueId]
+      [leagueId, leagueId, effectiveLeagueId]
     );
     // Se mancano matchdays ma esistono risultati/voti, restituisce comunque uno stato minimo.
     if (!rows.length) {
@@ -1546,14 +1555,23 @@ router.get('/:id/matchday-status', authenticateToken, async (req, res) => {
                   SELECT 1 FROM matchday_results mr
                   WHERE mr.league_id = ? AND mr.giornata = g.giornata
                 ) THEN 1 ELSE 0 END AS is_calculated,
-                NULL AS calculated_at
+                (
+                  SELECT MAX(
+                    COALESCE(
+                      NULLIF(to_jsonb(mr2)->>'created_at', '')::timestamp,
+                      NULLIF(to_jsonb(mr2)->>'calculated_at', '')::timestamp
+                    )
+                  )
+                  FROM matchday_results mr2
+                  WHERE mr2.league_id = ? AND mr2.giornata = g.giornata
+                ) AS calculated_at
          FROM (
            SELECT giornata FROM player_ratings WHERE league_id = ?
            UNION
            SELECT giornata FROM matchday_results WHERE league_id = ?
          ) g
          ORDER BY g.giornata ASC`,
-        [effectiveLeagueId, effectiveLeagueId, effectiveLeagueId, effectiveLeagueId, effectiveLeagueId]
+        [effectiveLeagueId, effectiveLeagueId, leagueId, leagueId, effectiveLeagueId, leagueId]
       );
     }
     res.json(rows);
