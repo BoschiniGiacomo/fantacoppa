@@ -18,6 +18,7 @@ import { publicAssetUrl } from '../services/api';
 import TeamInfoModal from '../components/TeamInfoModal';
 import { defaultLogosMap } from '../constants/defaultLogos';
 import { syncSubmittedFormationOnboarding } from '../utils/formationSubmission';
+import { parseAppDate } from '../utils/dateTime';
 
 export default function LeagueScreen({ route, navigation }) {
   const { user } = useAuth();
@@ -39,6 +40,7 @@ export default function LeagueScreen({ route, navigation }) {
   const [nextDeadline, setNextDeadline] = useState(null);       // { deadline: string, giornata: number }
   const [deadlineCountdown, setDeadlineCountdown] = useState(null); // { days, hours, mins, secs }
   const [toastMsg, setToastMsg] = useState(null);
+  const parseDeadlineDate = (value) => parseAppDate(value);
 
   const normalizeUserScores = (rawScores) => {
     if (!Array.isArray(rawScores)) return [];
@@ -79,7 +81,9 @@ export default function LeagueScreen({ route, navigation }) {
   useEffect(() => {
     if (!nextDeadline) { setDeadlineCountdown(null); return; }
     const tick = () => {
-      const diff = new Date(nextDeadline.deadline).getTime() - Date.now();
+      const deadlineDate = parseDeadlineDate(nextDeadline.deadline);
+      if (!deadlineDate) { setDeadlineCountdown(null); setNextDeadline(null); return false; }
+      const diff = deadlineDate.getTime() - Date.now();
       if (diff <= 0) { setDeadlineCountdown(null); setNextDeadline(null); return false; }
       setDeadlineCountdown({
         days:  Math.floor(diff / 86400000),
@@ -363,8 +367,15 @@ export default function LeagueScreen({ route, navigation }) {
         
         // Filtra: deadline passata, ha voti, non calcolata
         const liveCandidate = statuses
-          .filter(m => m.has_votes && !m.is_calculated && m.deadline && new Date(m.deadline) < now)
-          .sort((a, b) => new Date(b.deadline) - new Date(a.deadline)); // più recente prima
+          .filter((m) => {
+            const d = parseDeadlineDate(m?.deadline);
+            return m.has_votes && !m.is_calculated && d && d < now;
+          })
+          .sort((a, b) => {
+            const da = parseDeadlineDate(a?.deadline);
+            const db = parseDeadlineDate(b?.deadline);
+            return (db?.getTime() || 0) - (da?.getTime() || 0);
+          }); // più recente prima
         
         setLiveMatchday(liveCandidate.length > 0 ? liveCandidate[0].giornata : null);
       } catch (e) {
@@ -383,8 +394,15 @@ export default function LeagueScreen({ route, navigation }) {
           const mds = mdRes?.data || [];
           const now = new Date();
           const future = mds
-            .filter(m => m.deadline && new Date(m.deadline) > now)
-            .sort((a, b) => new Date(a.deadline) - new Date(b.deadline));
+            .filter((m) => {
+              const d = parseDeadlineDate(m?.deadline);
+              return d && d > now;
+            })
+            .sort((a, b) => {
+              const da = parseDeadlineDate(a?.deadline);
+              const db = parseDeadlineDate(b?.deadline);
+              return (da?.getTime() || Number.MAX_SAFE_INTEGER) - (db?.getTime() || Number.MAX_SAFE_INTEGER);
+            });
           if (future.length > 0) {
             setNextDeadline({ deadline: future[0].deadline, giornata: future[0].giornata });
           } else {
@@ -562,9 +580,11 @@ export default function LeagueScreen({ route, navigation }) {
             <View>
               <Text style={styles.fdTitle}>Formazione {nextDeadline.giornata}ª G</Text>
               <Text style={styles.fdDate}>
-                {new Date(nextDeadline.deadline).toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric', month: 'short' })}
-                {' alle '}
-                {new Date(nextDeadline.deadline).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}
+                {(() => {
+                  const d = parseDeadlineDate(nextDeadline.deadline);
+                  if (!d) return 'Data non disponibile';
+                  return `${d.toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric', month: 'short' })} alle ${d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}`;
+                })()}
               </Text>
             </View>
           </View>

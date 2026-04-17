@@ -18,6 +18,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { defaultLogosMap } from '../constants/defaultLogos';
 import { syncSubmittedFormationOnboarding } from '../utils/formationSubmission';
+import { parseAppDate } from '../utils/dateTime';
 
 const ROLE_COLORS = {
   P: '#0d6efd',
@@ -38,6 +39,7 @@ export default function TeamDetailScreen({ route, navigation }) {
   const [results, setResults] = useState([]);
   const [activeTab, setActiveTab] = useState('squad');
   const [loading, setLoading] = useState(true);
+  const parseDeadlineDate = (value) => parseAppDate(value);
   const [toastMsg, setToastMsg] = useState(null);
 
   const showToast = (text, type = 'error') => {
@@ -258,10 +260,14 @@ export default function TeamDetailScreen({ route, navigation }) {
                         <View style={styles.resultMeta}>
                           <Ionicons name="time-outline" size={13} color="#999" />
                           <Text style={styles.resultDate}>
-                            {new Date(item.deadline).toLocaleDateString('it-IT', {
-                              day: '2-digit', month: 'short', year: 'numeric',
-                              hour: '2-digit', minute: '2-digit',
-                            })}
+                            {(() => {
+                              const d = parseDeadlineDate(item.deadline);
+                              if (!d) return 'Data non disponibile';
+                              return d.toLocaleDateString('it-IT', {
+                                day: '2-digit', month: 'short', year: 'numeric',
+                                hour: '2-digit', minute: '2-digit',
+                              });
+                            })()}
                           </Text>
                         </View>
                       )}

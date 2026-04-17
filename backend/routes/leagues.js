@@ -1531,8 +1531,8 @@ router.get('/:id/matchday-status', authenticateToken, async (req, res) => {
               (
                 SELECT MAX(
                   COALESCE(
-                    NULLIF(to_jsonb(mr2)->>'created_at', '')::timestamp,
-                    NULLIF(to_jsonb(mr2)->>'calculated_at', '')::timestamp
+                    NULLIF(to_jsonb(mr2)->>'created_at', '')::timestamptz,
+                    NULLIF(to_jsonb(mr2)->>'calculated_at', '')::timestamptz
                   )
                 )
                 FROM matchday_results mr2
@@ -1559,8 +1559,8 @@ router.get('/:id/matchday-status', authenticateToken, async (req, res) => {
                 (
                   SELECT MAX(
                     COALESCE(
-                      NULLIF(to_jsonb(mr2)->>'created_at', '')::timestamp,
-                      NULLIF(to_jsonb(mr2)->>'calculated_at', '')::timestamp
+                      NULLIF(to_jsonb(mr2)->>'created_at', '')::timestamptz,
+                      NULLIF(to_jsonb(mr2)->>'calculated_at', '')::timestamptz
                     )
                   )
                   FROM matchday_results mr2
@@ -2047,8 +2047,8 @@ router.get('/:id/live/:giornata', authenticateToken, async (req, res) => {
       const cRows = await query(
         `SELECT MAX(
             COALESCE(
-              NULLIF(to_jsonb(mr)->>'created_at', '')::timestamp,
-              NULLIF(to_jsonb(mr)->>'calculated_at', '')::timestamp
+              NULLIF(to_jsonb(mr)->>'created_at', '')::timestamptz,
+              NULLIF(to_jsonb(mr)->>'calculated_at', '')::timestamptz
             )
           ) AS calc_at
          FROM matchday_results mr

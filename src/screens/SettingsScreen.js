@@ -25,6 +25,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { leagueService, marketService } from '../services/api';
 import { useOnboarding } from '../context/OnboardingContext';
 import { defaultLogos, defaultLogosMap } from '../constants/defaultLogos';
+import { parseAppDate } from '../utils/dateTime';
 
 export default function SettingsScreen({ route, navigation }) {
   const { leagueId, section } = route.params || {};
@@ -38,6 +39,7 @@ export default function SettingsScreen({ route, navigation }) {
   const [saved, setSaved] = useState(false);
   const [savedBonus, setSavedBonus] = useState(false);
   const [savedTeam, setSavedTeam] = useState(false);
+  const parseDeadlineDate = (value) => parseAppDate(value);
   const [activeSection, setActiveSection] = useState(section || 'team');
   const [activeGeneralSubsection, setActiveGeneralSubsection] = useState('base');
   const [showTimePicker, setShowTimePicker] = useState(false);
@@ -616,7 +618,8 @@ export default function SettingsScreen({ route, navigation }) {
       // Auto-seleziona la prima giornata calcolabile (con voti, deadline passata, non calcolata)
       const now = new Date();
       const calculable = (res.data || []).filter(m => {
-        const deadlinePassed = !m.deadline || new Date(m.deadline) < now;
+        const d = parseDeadlineDate(m?.deadline);
+        const deadlinePassed = !d || d < now;
         return m.has_votes && deadlinePassed && !m.is_calculated;
       });
       if (calculable.length > 0 && !selectedCalcMatchday) {
@@ -1399,7 +1402,8 @@ export default function SettingsScreen({ route, navigation }) {
                     const now = new Date();
                     const isCalculated = Number(m?.is_calculated) === 1;
                     const hasVotes = Number(m?.has_votes) === 1;
-                    const deadlinePassed = !m.deadline || new Date(m.deadline) < now;
+                    const d = parseDeadlineDate(m?.deadline);
+                    const deadlinePassed = !d || d < now;
                     const isSelected = selectedCalcMatchday === m.giornata;
                     return (
                       <TouchableOpacity
@@ -1449,7 +1453,12 @@ export default function SettingsScreen({ route, navigation }) {
                       {mdIsCalculated && md.calculated_at && (
                         <View style={styles.calcInfoRow}>
                           <Text style={styles.calcInfoLabel}>Calcolata il:</Text>
-                          <Text style={styles.calcInfoValue}>{new Date(md.calculated_at).toLocaleString('it-IT')}</Text>
+                          <Text style={styles.calcInfoValue}>
+                            {(() => {
+                              const d = parseDeadlineDate(md.calculated_at);
+                              return d ? d.toLocaleString('it-IT') : '-';
+                            })()}
+                          </Text>
                         </View>
                       )}
                       <View style={styles.calcInfoRow}>
@@ -1459,7 +1468,12 @@ export default function SettingsScreen({ route, navigation }) {
                       {md.deadline && (
                         <View style={styles.calcInfoRow}>
                           <Text style={styles.calcInfoLabel}>Scadenza:</Text>
-                          <Text style={styles.calcInfoValue}>{new Date(md.deadline).toLocaleString('it-IT')}</Text>
+                          <Text style={styles.calcInfoValue}>
+                            {(() => {
+                              const d = parseDeadlineDate(md.deadline);
+                              return d ? d.toLocaleString('it-IT') : '-';
+                            })()}
+                          </Text>
                         </View>
                       )}
                     </View>

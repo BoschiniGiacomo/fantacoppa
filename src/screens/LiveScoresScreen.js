@@ -15,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { publicAssetUrl } from '../services/api';
 import { leagueService } from '../services/api';
 import { defaultLogosMap } from '../constants/defaultLogos';
+import { parseAppDate } from '../utils/dateTime';
 
 const getRoleColor = (role) => {
   const colors = { P: '#0d6efd', D: '#198754', C: '#e6a800', A: '#dc3545' };
@@ -30,6 +31,7 @@ export default function LiveScoresScreen({ route, navigation }) {
   const [expandedTeams, setExpandedTeams] = useState({});
   const [currentGiornata, setCurrentGiornata] = useState(initialGiornata);
   const [availableMatchdays, setAvailableMatchdays] = useState([]);
+  const parseDeadlineDate = (value) => parseAppDate(value);
 
   const loadLiveData = async (isRefresh = false) => {
     try {
@@ -51,7 +53,10 @@ export default function LiveScoresScreen({ route, navigation }) {
       const statuses = statusRes?.data || [];
       const now = new Date();
       const liveDays = statuses
-        .filter(m => m.has_votes && !m.is_calculated && m.deadline && new Date(m.deadline) < now)
+        .filter((m) => {
+          const d = parseDeadlineDate(m?.deadline);
+          return m.has_votes && !m.is_calculated && d && d < now;
+        })
         .sort((a, b) => a.giornata - b.giornata); // ordine crescente G1, G2, G3...
       setAvailableMatchdays(liveDays);
     } catch (e) {

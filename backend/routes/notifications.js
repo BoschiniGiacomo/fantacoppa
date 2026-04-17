@@ -166,8 +166,8 @@ async function buildCalculatedMatchdayCandidateRows() {
     `SELECT mr.league_id, mr.giornata,
             MAX(
               COALESCE(
-                NULLIF(to_jsonb(mr)->>'created_at', '')::timestamp,
-                NULLIF(to_jsonb(mr)->>'calculated_at', '')::timestamp,
+                NULLIF(to_jsonb(mr)->>'created_at', '')::timestamptz,
+                NULLIF(to_jsonb(mr)->>'calculated_at', '')::timestamptz,
                 NOW()
               )
             ) AS calculated_at,
@@ -177,8 +177,8 @@ async function buildCalculatedMatchdayCandidateRows() {
      GROUP BY mr.league_id, mr.giornata
      HAVING MAX(
        COALESCE(
-         NULLIF(to_jsonb(mr)->>'created_at', '')::timestamp,
-         NULLIF(to_jsonb(mr)->>'calculated_at', '')::timestamp,
+         NULLIF(to_jsonb(mr)->>'created_at', '')::timestamptz,
+         NULLIF(to_jsonb(mr)->>'calculated_at', '')::timestamptz,
          NOW()
        )
      ) >= NOW() - INTERVAL '24 hours'`
@@ -320,8 +320,8 @@ async function sendFormationDeadlineReminders() {
       `SELECT giornata, deadline
        FROM matchdays
        WHERE league_id = ?
-         AND deadline > NOW()
-         AND (deadline - INTERVAL '60 minutes') <= NOW()
+         AND (deadline AT TIME ZONE 'Europe/Rome') > (NOW() AT TIME ZONE 'Europe/Rome')
+         AND ((deadline AT TIME ZONE 'Europe/Rome') - INTERVAL '60 minutes') <= (NOW() AT TIME ZONE 'Europe/Rome')
        ORDER BY deadline ASC
        LIMIT 1`,
       [effectiveLeagueId]
