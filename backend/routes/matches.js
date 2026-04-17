@@ -22,23 +22,6 @@ function getInsertRows(result) {
   return [];
 }
 
-let officialEventPushTablesReady = false;
-async function ensureOfficialEventPushTables() {
-  if (officialEventPushTablesReady) return;
-  try {
-    await query(
-      `CREATE TABLE IF NOT EXISTS user_official_match_event_sent (
-         id SERIAL PRIMARY KEY,
-         event_id INTEGER NOT NULL,
-         user_id INTEGER NOT NULL,
-         dedupe_key TEXT NOT NULL UNIQUE,
-         sent_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-       )`
-    );
-    officialEventPushTablesReady = true;
-  } catch (_) {}
-}
-
 function eventNotificationTitle(eventType) {
   if (eventType === 'match_start') return 'Inizio partita';
   if (eventType === 'match_end') return 'Fine partita';
@@ -55,6 +38,16 @@ function eventNotificationBody({ eventType, homeTeamName, awayTeamName, payload 
   if (eventType === 'goal') return playerName ? `${matchLabel}: gol di ${playerName}.` : `${matchLabel}: gol.`;
   if (eventType === 'own_goal') return playerName ? `${matchLabel}: autogol di ${playerName}.` : `${matchLabel}: autogol.`;
   return null;
+}
+
+async function safeQuery(sql, params = [], fallback = []) {
+  try {
+    const rows = await query(sql, params);
+    return Array.isArray(rows) ? rows : rows?.rows || fallback;
+  } catch (err) {
+    if (isMissingDbObjectError(err)) return fallback;
+    throw err;
+  }
 }
 
 async function sendExpoMessages(messages) {
@@ -108,9 +101,8 @@ async function sendExpoMessages(messages) {
 async function notifyUsersForOfficialMatchEvent({ eventId, matchId, eventType, payload }) {
   const title = eventNotificationTitle(eventType);
   if (!title) return { targeted_users: 0, reserved: 0, sent: 0, invalidated: 0, errors: 0 };
-  await ensureOfficialEventPushTables();
 
-  const matchRows = await query(
+  const matchRows = await safeQuery(
     `SELECT m.id, m.competition_id, m.home_team_id, m.away_team_id,
             ht.name AS home_team_name, at.name AS away_team_name
      FROM official_matches m
@@ -136,20 +128,33 @@ async function notifyUsersForOfficialMatchEvent({ eventId, matchId, eventType, p
     targetsByUser.get(userId).add(expoToken);
   };
 
-  const byMatchRows = await query(
+  // Stessa logica target di api.php collectOfficialMatchEventPushTargets:
+  // campanella sulla partita OR preferiti squadra (gruppo ufficiale + nome normalizzato) con notifiche attive.
+  const byMatchRows = await safeQuery(
     `SELECT mn.user_id, upt.expo_push_token
      FROM user_official_match_notifications mn
      JOIN user_push_tokens upt ON upt.user_id = mn.user_id AND upt.is_active = 1
      WHERE mn.match_id = ? AND COALESCE(mn.enabled, 0) = 1`,
     [matchId]
   );
-  for (const r of byMatchRows || []) addTarget(r.user_id, r.expo_push_token);
+  let fromMatchBellUsers = 0;
+  const matchBellSeen = new Set();
+  for (const r of byMatchRows || []) {
+    const u = Number(r.user_id);
+    if (u && !matchBellSeen.has(u)) {
+      matchBellSeen.add(u);
+      fromMatchBellUsers += 1;
+    }
+    addTarget(r.user_id, r.expo_push_token);
+  }
 
+  let fromTeamFavoriteUsers = 0;
+  const teamFavSeen = new Set();
   if (compId > 0 && (homeNorm || awayNorm)) {
     const names = [homeNorm, awayNorm].filter(Boolean);
     if (names.length > 0) {
       const placeholders = names.map(() => '?').join(',');
-      const byTeamRows = await query(
+      const byTeamRows = await safeQuery(
         `SELECT tf.user_id, upt.expo_push_token
          FROM user_official_team_favorites tf
          JOIN user_push_tokens upt ON upt.user_id = tf.user_id AND upt.is_active = 1
@@ -158,7 +163,14 @@ async function notifyUsersForOfficialMatchEvent({ eventId, matchId, eventType, p
            AND tf.team_name_norm IN (${placeholders})`,
         [compId, ...names]
       );
-      for (const r of byTeamRows || []) addTarget(r.user_id, r.expo_push_token);
+      for (const r of byTeamRows || []) {
+        const u = Number(r.user_id);
+        if (u && !teamFavSeen.has(u)) {
+          teamFavSeen.add(u);
+          fromTeamFavoriteUsers += 1;
+        }
+        addTarget(r.user_id, r.expo_push_token);
+      }
     }
   }
 
@@ -172,29 +184,32 @@ async function notifyUsersForOfficialMatchEvent({ eventId, matchId, eventType, p
 
   let reserved = 0;
   const messages = [];
+  const evId = Number(eventId);
   for (const [userId, tokenSet] of targetsByUser.entries()) {
-    const dedupeKey = `official_match_event:${eventId}:${userId}`;
-    const ins = await query(
-      `INSERT INTO user_official_match_event_sent (event_id, user_id, dedupe_key)
-       VALUES (?, ?, ?)
-       ON CONFLICT (dedupe_key) DO NOTHING
+    // Schema allineato a api.php: user_official_match_event_sent (user_id, match_event_id), INSERT IGNORE / ON CONFLICT
+    const ins = await safeQuery(
+      `INSERT INTO user_official_match_event_sent (user_id, match_event_id)
+       VALUES (?, ?)
+       ON CONFLICT (user_id, match_event_id) DO NOTHING
        RETURNING id`,
-      [eventId, userId, dedupeKey]
+      [userId, evId],
+      []
     );
-    const insRows = getInsertRows(ins);
-    if (!insRows[0]?.id) continue;
+    if (!ins[0]?.id) continue;
     reserved += 1;
     for (const token of tokenSet) {
       messages.push({
         to: token,
         sound: 'default',
+        channelId: 'fantacoppa-reminders',
+        priority: 'high',
         title,
         body,
         data: {
-          type: 'official_match_event',
+          type: 'match_event',
           event_type: eventType,
           match_id: Number(matchId),
-          event_id: Number(eventId),
+          event_id: evId,
         },
       });
     }
@@ -207,6 +222,18 @@ async function notifyUsersForOfficialMatchEvent({ eventId, matchId, eventType, p
     sent: pushStats.sent,
     invalidated: pushStats.invalidated,
     errors: pushStats.errors,
+    debug: {
+      // id nell'endpoint events è l'id riga official_match_events, non user_id
+      official_match_event_id: evId || null,
+      match_id: Number(matchId),
+      competition_id: compId || null,
+      // Campanella partita: solo match_id (nessun nome squadra in user_official_match_notifications)
+      users_with_match_bell: fromMatchBellUsers,
+      // Preferiti: confronto su team_name_norm + official_group_id (= competition_id partita)
+      users_with_team_favorite_bell: fromTeamFavoriteUsers,
+      home_team_norm: homeNorm || null,
+      away_team_norm: awayNorm || null,
+    },
   };
 }
 
@@ -1329,8 +1356,29 @@ router.post('/admin/matches/:matchId/events', authenticateToken, requireSuperuse
       });
     } catch (notifyErr) {
       console.error('Official match event push error:', notifyErr?.message || notifyErr);
+      notificationStats = {
+        targeted_users: 0,
+        reserved: 0,
+        sent: 0,
+        invalidated: 0,
+        errors: 1,
+        debug_error: String(notifyErr?.message || notifyErr || 'unknown_error'),
+      };
     }
-    return res.json({ ok: true, id: eventId || null, notifications: notificationStats });
+    return res.json({
+      ok: true,
+      id: eventId || null,
+      notifications:
+        notificationStats ||
+        ({
+          targeted_users: 0,
+          reserved: 0,
+          sent: 0,
+          invalidated: 0,
+          errors: 0,
+          debug: { reason: 'notify_stats_missing' },
+        }),
+    });
   } catch (err) {
     if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
     return res.status(500).json({ message: 'Errore inserimento evento', error: err.message });
