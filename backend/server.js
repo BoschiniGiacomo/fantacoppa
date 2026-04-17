@@ -26,6 +26,8 @@ const { pool } = require('./config/database');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const MIN_SUPPORTED_APP_VERSION_CODE = parseInt(process.env.MIN_SUPPORTED_APP_VERSION_CODE || '0', 10) || 0;
+const APP_FORCE_UPDATE_URL = (process.env.APP_FORCE_UPDATE_URL || '').trim();
 
 // Middleware
 app.use(cors()); // Permette richieste da qualsiasi origine (per sviluppo)
@@ -33,6 +35,33 @@ app.use(express.json()); // Parse JSON bodies
 app.use(express.urlencoded({ extended: true })); // Parse URL-encoded bodies
 app.use('/uploads', express.static(path.resolve(__dirname, 'uploads')));
 app.use('/api/uploads', express.static(path.resolve(__dirname, 'uploads')));
+
+// Enforce versione minima app su tutte le API del nuovo backend.
+app.use('/api', (req, res, next) => {
+  if (MIN_SUPPORTED_APP_VERSION_CODE <= 0) {
+    return next();
+  }
+
+  // Lascia sempre accessibili endpoint diagnostici.
+  if (req.path === '/health' || req.path === '/test-db') {
+    return next();
+  }
+
+  const versionHeader = req.get('X-App-Version-Code');
+  const currentVersionCode = parseInt(versionHeader || '0', 10) || 0;
+
+  if (currentVersionCode < MIN_SUPPORTED_APP_VERSION_CODE) {
+    return res.status(426).json({
+      code: 'UPDATE_REQUIRED',
+      message: 'Questa versione dell\'app non e piu supportata. Aggiorna per continuare.',
+      current_version_code: currentVersionCode,
+      min_supported_version_code: MIN_SUPPORTED_APP_VERSION_CODE,
+      update_url: APP_FORCE_UPDATE_URL,
+    });
+  }
+
+  return next();
+});
 
 // Routes
 app.use('/api/auth', authRoutes);

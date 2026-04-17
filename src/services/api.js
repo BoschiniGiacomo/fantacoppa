@@ -2,28 +2,27 @@ import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 
-// URL API configurabile via env Expo:
-// EXPO_PUBLIC_API_BASE_URL=https://.../api.php oppure http://<ip>:3000/api
-// Se non definita, fallback al backend storico Altervista.
+// URL API configurabile via env Expo.
+// Se non definita, fallback al backend nuovo in produzione.
+const DEFAULT_API_BASE_URL = 'https://fantacoppa-backend.onrender.com/api';
 export const API_BASE_URL =
   (typeof process !== 'undefined' && process?.env?.EXPO_PUBLIC_API_BASE_URL)
     ? String(process.env.EXPO_PUBLIC_API_BASE_URL).trim()
-    : 'http://localhost:3000/api';
-// Legacy Altervista disabilitato: l'app deve usare solo il backend nuovo.
+    : DEFAULT_API_BASE_URL;
 
-/** Unisce base e segmento senza new URL() (con .../api.php il resolver URL del browser/RN sbaglia). */
+/** Unisce base e segmento senza new URL(). */
 export function apiFileUrl(suffix = '') {
   const base = String(API_BASE_URL).replace(/\/+$/, '');
   const s = String(suffix).replace(/^\/+/, '');
   return s ? `${base}/${s}` : base;
 }
 
-/** Base URL della cartella del sito (parent di api.php): qui risiedono uploads/… */
+/** Base URL parent per servire file pubblici (es. uploads). */
 export function publicUploadBaseUrl() {
   // Se API_BASE_URL è .../api, ritorna il parent (server) per servire uploads/
   // Es: http://192.168.0.62:3000/api -> http://192.168.0.62:3000
   const s = String(API_BASE_URL).replace(/\/+$/, '');
-  return s.endsWith('/api') ? s.slice(0, -4) : s.replace(/\/?api\.php$/i, '');
+  return s.endsWith('/api') ? s.slice(0, -4) : s;
 }
 
 /** URL assoluto per path tipo uploads/official_team_logos/… (stesso schema di Partite / dettaglio match). */
