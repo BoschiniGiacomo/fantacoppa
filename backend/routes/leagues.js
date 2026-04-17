@@ -2582,6 +2582,8 @@ router.post('/:id/leave', authenticateToken, async (req, res) => {
 router.post('/', authenticateToken, async (req, res) => {
   try {
     const userId = Number(req.user.userId);
+    const body = req.body || {};
+    const pickFirst = (...vals) => vals.find((v) => v !== undefined);
     const {
       name,
       access_code = null,
@@ -2596,31 +2598,62 @@ router.post('/', authenticateToken, async (req, res) => {
       team_name = 'Squadra 1',
       coach_name = 'Allenatore 1',
       team_logo = 'default_1',
-    } = req.body || {};
+    } = body;
+
+    const accessCode = pickFirst(body.accessCode, access_code);
+    const initialBudget = pickFirst(body.initialBudget, initial_budget);
+    const defaultDeadlineTime = pickFirst(body.defaultTime, body.default_deadline_time, default_deadline_time);
+    const maxPortieri = pickFirst(body.maxPortieri, max_portieri);
+    const maxDifensori = pickFirst(body.maxDifensori, max_difensori);
+    const maxCentrocampisti = pickFirst(body.maxCentrocampisti, max_centrocampisti);
+    const maxAttaccanti = pickFirst(body.maxAttaccanti, max_attaccanti);
+    const numeroTitolari = pickFirst(body.numeroTitolari, numero_titolari);
+    const autoLineupMode = pickFirst(body.autoLineupMode, auto_lineup_mode);
+    const linkedToLeagueRaw = pickFirst(body.linked_to_league_id, body.linkedToLeagueId, null);
+    const linkedToLeagueId = linkedToLeagueRaw == null ? null : Number(linkedToLeagueRaw);
 
     if (!name || String(name).trim() === '') {
       return res.status(400).json({ message: 'Nome lega obbligatorio' });
+    }
+    if (linkedToLeagueId != null && (!Number.isFinite(linkedToLeagueId) || linkedToLeagueId <= 0)) {
+      return res.status(400).json({ message: 'linked_to_league_id non valido' });
+    }
+
+    if (linkedToLeagueId) {
+      const linkedRows = await query(
+        `SELECT id
+         FROM leagues
+         WHERE id = ?
+           AND COALESCE(is_official, 0) = 1
+           AND COALESCE(is_visible_for_linking, 1) = 1
+         LIMIT 1`,
+        [linkedToLeagueId]
+      );
+      if (!Array.isArray(linkedRows) || linkedRows.length <= 0) {
+        return res.status(400).json({ message: 'La lega ufficiale selezionata non è disponibile per il collegamento' });
+      }
     }
 
     let insertLeague;
     try {
       insertLeague = await query(
         `INSERT INTO leagues
-          (name, access_code, creator_id, initial_budget, default_deadline_time, max_portieri, max_difensori, max_centrocampisti, max_attaccanti, numero_titolari, auto_lineup_mode)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          (name, access_code, creator_id, initial_budget, default_deadline_time, max_portieri, max_difensori, max_centrocampisti, max_attaccanti, numero_titolari, auto_lineup_mode, linked_to_league_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
          RETURNING id`,
         [
           String(name).trim(),
-          access_code ? String(access_code).trim() : null,
+          accessCode ? String(accessCode).trim() : null,
           userId,
-          Number(initial_budget),
-          String(default_deadline_time),
-          Number(max_portieri),
-          Number(max_difensori),
-          Number(max_centrocampisti),
-          Number(max_attaccanti),
-          Number(numero_titolari),
-          Number(auto_lineup_mode),
+          Number(initialBudget),
+          String(defaultDeadlineTime),
+          Number(maxPortieri),
+          Number(maxDifensori),
+          Number(maxCentrocampisti),
+          Number(maxAttaccanti),
+          Number(numeroTitolari),
+          Number(autoLineupMode),
+          linkedToLeagueId || null,
         ]
       );
     } catch (insertError) {
@@ -2628,21 +2661,22 @@ router.post('/', authenticateToken, async (req, res) => {
         await syncLeaguesIdSequence();
         insertLeague = await query(
           `INSERT INTO leagues
-            (name, access_code, creator_id, initial_budget, default_deadline_time, max_portieri, max_difensori, max_centrocampisti, max_attaccanti, numero_titolari, auto_lineup_mode)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (name, access_code, creator_id, initial_budget, default_deadline_time, max_portieri, max_difensori, max_centrocampisti, max_attaccanti, numero_titolari, auto_lineup_mode, linked_to_league_id, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
            RETURNING id`,
           [
             String(name).trim(),
-            access_code ? String(access_code).trim() : null,
+            accessCode ? String(accessCode).trim() : null,
             userId,
-            Number(initial_budget),
-            String(default_deadline_time),
-            Number(max_portieri),
-            Number(max_difensori),
-            Number(max_centrocampisti),
-            Number(max_attaccanti),
-            Number(numero_titolari),
-            Number(auto_lineup_mode),
+            Number(initialBudget),
+            String(defaultDeadlineTime),
+            Number(maxPortieri),
+            Number(maxDifensori),
+            Number(maxCentrocampisti),
+            Number(maxAttaccanti),
+            Number(numeroTitolari),
+            Number(autoLineupMode),
+            linkedToLeagueId || null,
           ]
         );
       } else {
@@ -2677,7 +2711,7 @@ router.post('/', authenticateToken, async (req, res) => {
       await query(
         `INSERT INTO user_budget (user_id, league_id, budget, team_name, coach_name, team_logo)
          VALUES (?, ?, ?, ?, ?, ?)`,
-        [userId, leagueId, Number(initial_budget), String(team_name), String(coach_name), String(team_logo)]
+        [userId, leagueId, Number(initialBudget), String(team_name), String(coach_name), String(team_logo)]
       );
     } catch (budgetErr) {
       console.log('user_budget insert skipped:', budgetErr.message);
