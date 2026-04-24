@@ -291,17 +291,17 @@ router.post('/forgot-password', async (req, res) => {
     const users = await query('SELECT id FROM users WHERE LOWER(email) = LOWER(?) LIMIT 1', [email]);
     console.log(`[DEBUG_FORGOT] utenti trovati=${users.length}`);
     if (users.length) {
+      const userId = Number(users[0].id);
       const newPassword = `fc${Math.random().toString(36).slice(2, 10)}${Date.now().toString().slice(-2)}`;
-      const hashed = await bcrypt.hash(newPassword, 10);
-      console.log(`[DEBUG_FORGOT] password temporanea generata len=${newPassword.length}, update DB user_id=${Number(users[0].id)}`);
-      await query('UPDATE users SET password = ? WHERE id = ?', [hashed, Number(users[0].id)]);
-      console.log('[DEBUG_FORGOT] password aggiornata su DB');
+      console.log(`[DEBUG_FORGOT] password temporanea generata len=${newPassword.length}, user_id=${userId}`);
 
       const mailSent = await sendForgotPasswordEmail(email, newPassword);
       if (mailSent) {
-        console.log(`Forgot-password email inviata a: ${email}`);
+        const hashed = await bcrypt.hash(newPassword, 10);
+        await query('UPDATE users SET password = ? WHERE id = ?', [hashed, userId]);
+        console.log('[DEBUG_FORGOT] email inviata e password aggiornata su DB');
       } else {
-        console.error(`Forgot-password email NON inviata a: ${email} (config SMTP mancante o errore invio)`);
+        console.error('[DEBUG_FORGOT] email non inviata: password NON aggiornata (operazione annullata)');
       }
     }
 
