@@ -1374,13 +1374,14 @@ router.get('/:id/standings/full', authenticateToken, async (req, res) => {
       const rows = await query(
         `SELECT mr.user_id AS id, u.username,
                 COALESCE(ub.team_name, u.username) AS team_name,
+                COALESCE(ub.team_logo, 'default_1') AS team_logo,
                 SUM(mr.punteggio)::float AS punteggio,
                 AVG(mr.punteggio)::float AS media_punti
          FROM matchday_results mr
          JOIN users u ON u.id = mr.user_id
          LEFT JOIN user_budget ub ON ub.user_id = mr.user_id AND ub.league_id = mr.league_id
          WHERE mr.league_id = ?
-         GROUP BY mr.user_id, u.username, ub.team_name
+         GROUP BY mr.user_id, u.username, ub.team_name, ub.team_logo
          ORDER BY punteggio DESC, media_punti DESC`,
         [leagueId]
       );
@@ -1389,6 +1390,7 @@ router.get('/:id/standings/full', authenticateToken, async (req, res) => {
       // Fallback senza risultati calcolati.
       const rows = await query(
         `SELECT lm.user_id AS id, u.username, COALESCE(ub.team_name, u.username) AS team_name,
+                COALESCE(ub.team_logo, 'default_1') AS team_logo,
                 0::float AS punteggio, 0::float AS media_punti
          FROM league_members lm
          JOIN users u ON u.id = lm.user_id
