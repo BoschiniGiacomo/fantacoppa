@@ -21,10 +21,7 @@ function imageFilename(prefix, originalname) {
 }
 
 const teamLogoUpload = multer({
-  storage: multer.diskStorage({
-    destination: (_req, _file, cb) => cb(null, userTeamLogosDir),
-    filename: (_req, file, cb) => cb(null, imageFilename('team', file.originalname)),
-  }),
+  storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 },
 });
 
@@ -664,7 +661,48 @@ router.post('/:id/team-info/logo', authenticateToken, teamLogoUpload.single('log
     const leagueId = toValidLeagueId(req.params.id);
     if (!leagueId) return res.status(400).json({ message: 'League ID non valido' });
     if (!req.file) return res.status(400).json({ message: 'File logo mancante' });
-    const logoPath = `uploads/team_logos/${req.file.filename}`;
+    const supabase = getSupabaseStorageClient();
+    if (!supabase) {
+      return res.status(500).json({
+        message: 'Supabase Storage non configurato: manca SUPABASE_SERVICE_ROLE_KEY nel backend .env',
+      });
+    }
+    const ext = path.extname(String(req.file.originalname || '')).toLowerCase();
+    const safeExt = ['.jpg', '.jpeg', '.png', '.webp'].includes(ext) ? ext : '.jpg';
+    const ts = Math.floor(Date.now() / 1000);
+    const filename = `user_team_${leagueId}_${userId}_${ts}${safeExt}`;
+    const storagePath = `team_logos/${filename}`;
+
+    // Best effort cleanup: mantiene un solo logo custom per utente/lega.
+    try {
+      const { data: existing, error: listErr } = await supabase.storage.from('uploads').list('team_logos', {
+        limit: 2000,
+      });
+      if (!listErr && Array.isArray(existing)) {
+        const prefix = `user_team_${leagueId}_${userId}_`;
+        const toDelete = existing
+          .map((f) => String(f?.name || '').trim())
+          .filter((name) => name.startsWith(prefix))
+          .map((name) => `team_logos/${name}`);
+        if (toDelete.length > 0) {
+          await supabase.storage.from('uploads').remove(toDelete);
+        }
+      }
+    } catch (_) {
+      // ignore cleanup errors
+    }
+
+    const { error: storageError } = await supabase.storage
+      .from('uploads')
+      .upload(storagePath, req.file.buffer, {
+        contentType: req.file.mimetype || 'image/jpeg',
+        upsert: true,
+        cacheControl: '3600',
+      });
+    if (storageError) {
+      return res.status(500).json({ message: 'Errore upload logo su Supabase Storage', error: storageError.message });
+    }
+    const logoPath = `uploads/${storagePath}`;
     await query(
       `UPDATE user_budget
        SET team_logo = ?
@@ -684,6 +722,25 @@ router.delete('/:id/team-info/logo', authenticateToken, async (req, res) => {
     const userId = Number(req.user.userId);
     const leagueId = toValidLeagueId(req.params.id);
     if (!leagueId) return res.status(400).json({ message: 'League ID non valido' });
+    try {
+      const rows = await query(
+        `SELECT team_logo
+         FROM user_budget
+         WHERE user_id = ? AND league_id = ?
+         LIMIT 1`,
+        [userId, leagueId]
+      );
+      const existingLogo = String(rows?.[0]?.team_logo || '').trim();
+      if (existingLogo.startsWith('uploads/team_logos/')) {
+        const supabase = getSupabaseStorageClient();
+        if (supabase) {
+          const storagePath = existingLogo.replace(/^uploads\//, '');
+          await supabase.storage.from('uploads').remove([storagePath]);
+        }
+      }
+    } catch (_) {
+      // ignore cleanup errors
+    }
     await query(
       `UPDATE user_budget
        SET team_logo = 'default_1'
