@@ -1,5 +1,6 @@
 import React, { createContext, useState, useEffect, useContext } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { AppState } from 'react-native';
 import {
   authService,
   setUnauthorizedHandler,
@@ -60,6 +61,51 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [token, setToken] = useState(null);
   const [updateRequiredInfo, setUpdateRequiredInfo] = useState(null);
+
+  useEffect(() => {
+    if (!token || !user) return undefined;
+
+    const HEARTBEAT_MS = 60 * 1000;
+    let intervalId = null;
+    let isForeground = AppState.currentState === 'active';
+
+    const sendPresencePing = async () => {
+      try {
+        await authService.presencePing();
+      } catch (_) {
+        // Silent fail: presenza non deve disturbare UX.
+      }
+    };
+
+    const startHeartbeat = () => {
+      if (intervalId != null) return;
+      // Ping immediato quando torni in foreground
+      sendPresencePing();
+      intervalId = setInterval(sendPresencePing, HEARTBEAT_MS);
+    };
+
+    const stopHeartbeat = () => {
+      if (intervalId != null) {
+        clearInterval(intervalId);
+        intervalId = null;
+      }
+    };
+
+    if (isForeground) startHeartbeat();
+
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      const nextForeground = nextState === 'active';
+      if (nextForeground === isForeground) return;
+      isForeground = nextForeground;
+      if (isForeground) startHeartbeat();
+      else stopHeartbeat();
+    });
+
+    return () => {
+      stopHeartbeat();
+      subscription?.remove?.();
+    };
+  }, [token, user]);
 
   useEffect(() => {
     setUnauthorizedHandler(async () => {

@@ -55,20 +55,56 @@ async function loadClusterMeta(clusterId) {
 
 router.get('/users', authenticateToken, requireSuperuser, async (_req, res) => {
   try {
-    // Nel DB legacy alcune colonne (es. is_online, last_login) possono non esistere.
-    // Evitiamo query "ottimistiche" che generano errori rumorosi nei log.
-    const rows = await query(
-      `SELECT
-         u.id,
-         u.username,
-         u.email,
-         COALESCE(u.is_superuser, 0) AS is_superuser,
-         0 AS is_online,
-         NULLIF(to_jsonb(u)->>'last_login', '')::timestamp AS last_login
-       FROM users u
-       ORDER BY u.username ASC, u.id ASC`
-    );
-    return res.json(rows);
+    // Compatibile con schema legacy: prova con user_presence, fallback se tabella assente/non accessibile.
+    try {
+      const rows = await query(
+        `SELECT
+           u.id,
+           u.username,
+           u.email,
+           COALESCE(u.is_superuser, 0) AS is_superuser,
+           COALESCE(
+             up.last_seen_at,
+             NULLIF(to_jsonb(u)->>'last_login', '')::timestamp
+           ) AS last_login,
+           CASE
+             WHEN COALESCE(
+               up.last_seen_at,
+               NULLIF(to_jsonb(u)->>'last_login', '')::timestamp
+             ) >= (NOW() - INTERVAL '2 minutes') THEN 1
+             ELSE 0
+           END AS is_online
+         FROM users u
+         LEFT JOIN user_presence up ON up.user_id = u.id
+         ORDER BY u.username ASC, u.id ASC`
+      );
+      return res.json(rows);
+    } catch (innerError) {
+      const code = String(innerError?.code || '').toLowerCase();
+      const msg = String(innerError?.message || '').toLowerCase();
+      const isPresenceUnavailable =
+        code === '42p01' ||
+        msg.includes('user_presence') ||
+        msg.includes('relation') ||
+        msg.includes('does not exist');
+      if (!isPresenceUnavailable) throw innerError;
+
+      const fallbackRows = await query(
+        `SELECT
+           u.id,
+           u.username,
+           u.email,
+           COALESCE(u.is_superuser, 0) AS is_superuser,
+           NULLIF(to_jsonb(u)->>'last_login', '')::timestamp AS last_login,
+           CASE
+             WHEN NULLIF(to_jsonb(u)->>'last_login', '')::timestamp >= (NOW() - INTERVAL '2 minutes') THEN 1
+             ELSE 0
+           END AS is_online
+         FROM users u
+         ORDER BY u.username ASC, u.id ASC`
+      );
+      return res.json(fallbackRows);
+    }
   } catch (error) {
     return res.status(500).json({ message: 'Errore caricamento utenti', error: error.message });
   }
@@ -92,6 +128,29 @@ async function toggleSuperuserHandler(req, res) {
 
 router.put('/users/:id/toggle-superuser', authenticateToken, requireSuperuser, toggleSuperuserHandler);
 router.post('/users/:id/toggle-superuser', authenticateToken, requireSuperuser, toggleSuperuserHandler);
+
+async function setSuperuserLevelHandler(req, res) {
+  try {
+    const id = Number(req.params.id);
+    const me = Number(req.user?.userId);
+    const rawLevel = Number(req.body?.level);
+    const level = Number.isFinite(rawLevel) ? rawLevel : 0;
+    if (!id || id <= 0) return res.status(400).json({ message: 'ID utente non valido' });
+    if (id === me) return res.status(400).json({ message: 'Non puoi modificare te stesso' });
+    if (![0, 1, 2].includes(level)) {
+      return res.status(400).json({ message: 'Livello non valido (consentiti: 0, 1, 2)' });
+    }
+    const current = await query(`SELECT id FROM users WHERE id = ? LIMIT 1`, [id]);
+    if (!current.length) return res.status(404).json({ message: 'Utente non trovato' });
+    await query(`UPDATE users SET is_superuser = ? WHERE id = ?`, [level, id]);
+    return res.json({ success: true, is_superuser: level });
+  } catch (error) {
+    return res.status(500).json({ message: 'Errore aggiornamento utente', error: error.message });
+  }
+}
+
+router.put('/users/:id/superuser-level', authenticateToken, requireSuperuser, setSuperuserLevelHandler);
+router.post('/users/:id/superuser-level', authenticateToken, requireSuperuser, setSuperuserLevelHandler);
 
 router.get('/leagues', authenticateToken, requireSuperuser, async (_req, res) => {
   try {

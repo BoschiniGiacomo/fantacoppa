@@ -278,6 +278,12 @@ router.post('/logout', (req, res) => {
   res.json({ message: 'Logout effettuato con successo' });
 });
 
+// Presence ping: chiamata periodica dal client quando l'app è in foreground.
+// Il middleware auth aggiorna last_login con heartbeat.
+router.post('/presence/ping', authenticateToken, async (_req, res) => {
+  return res.json({ ok: true, server_time: new Date().toISOString() });
+});
+
 // Password dimenticata (risposta sempre generica)
 router.post('/forgot-password', async (req, res) => {
   try {

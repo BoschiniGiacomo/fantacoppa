@@ -210,6 +210,7 @@ export const authService = {
   logout: () => {
     return api.post('/auth/logout');
   },
+  presencePing: () => api.post('/auth/presence/ping'),
   deleteAccount: (password) => {
     return api.post('/auth/delete-account', { password });
   },
@@ -221,6 +222,7 @@ export const leagueService = {
   getAll: () => api.get('/leagues'),
   getAllLeagues: () => api.get('/leagues/all'),
   getById: (id) => api.get(`/leagues/${id}`),
+  getDashboardData: (leagueId) => api.get(`/leagues/${leagueId}/dashboard-data`),
   create: (data) => api.post('/leagues', data),
   join: (leagueId, accessCode) => api.post(`/leagues/${leagueId}/join`, { accessCode }),
   leave: (leagueId) => api.post(`/leagues/${leagueId}/leave`),
@@ -421,6 +423,13 @@ export const leagueService = {
 
 // Servizio per il mercato
 export const marketService = {
+  getBootstrap: (leagueId, filters = {}) => {
+    const params = new URLSearchParams();
+    if (filters.role) params.append('role', filters.role);
+    if (filters.search) params.append('search', filters.search);
+    const q = params.toString() ? `?${params.toString()}` : '';
+    return api.get(`/market/${leagueId}/bootstrap${q}`);
+  },
   getPlayers: (leagueId, filters = {}) => {
     const params = new URLSearchParams();
     if (filters.role) params.append('role', filters.role);
@@ -437,6 +446,7 @@ export const marketService = {
 
 // Servizio per la rosa
 export const squadService = {
+  getBootstrap: (leagueId) => api.get(`/squad/${leagueId}/bootstrap`),
   getSquad: (leagueId) => api.get(`/squad/${leagueId}`),
   removePlayer: (leagueId, playerId) => api.delete(`/squad/${leagueId}/players/${playerId}`),
   getRoleLimits: (leagueId) => api.get(`/squad/${leagueId}/limits`),
@@ -542,6 +552,7 @@ export const teamsService = {
 export const superuserService = {
   getUsers: () => api.get('/superuser/users'),
   toggleSuperuser: (userId) => api.post(`/superuser/users/${userId}/toggle-superuser`),
+  setSuperuserLevel: (userId, level) => api.post(`/superuser/users/${userId}/superuser-level`, { level }),
   getLeagues: () => api.get('/superuser/leagues'),
   deleteLeague: (leagueId) => api.delete(`/superuser/leagues/${leagueId}`),
   joinLeagueAsAdmin: (leagueId) => api.post(`/superuser/leagues/${leagueId}/join-as-admin`),

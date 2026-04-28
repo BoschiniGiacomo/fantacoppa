@@ -1279,7 +1279,7 @@ router.post('/admin/matches', authenticateToken, requireSuperuserLevels([1, 2]),
       INSERT INTO official_matches
         (competition_id, home_team_id, away_team_id, kickoff_at, status, notes, created_by, venue, referee, match_stage, home_score, away_score, created_at)
       VALUES
-        (?, ?, ?, ?::timestamp, 'scheduled', NULL, ?, ?, ?, ?, NULL, NULL, NOW())
+        (?, ?, ?, (?::timestamp AT TIME ZONE 'Europe/Rome'), 'scheduled', NULL, ?, ?, ?, ?, NULL, NULL, NOW())
       RETURNING id
       `,
       [competitionId, homeTeamId, awayTeamId, kickoffAt, userId, venue, referee, matchStage]
@@ -1306,7 +1306,7 @@ router.put('/admin/matches/:matchId', authenticateToken, requireSuperuserLevels(
       `
       UPDATE official_matches
       SET
-        kickoff_at = COALESCE(?::timestamp, kickoff_at),
+        kickoff_at = COALESCE((?::timestamp AT TIME ZONE 'Europe/Rome'), kickoff_at),
         home_score = ?,
         away_score = ?,
         status = COALESCE(?, status),

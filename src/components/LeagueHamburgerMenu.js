@@ -9,6 +9,8 @@ export default function LeagueHamburgerMenu({ leagueId, navigation, isAdmin, use
   const [settingsExpanded, setSettingsExpanded] = useState(true);
   const insets = useSafeAreaInsets();
   const { badges, hasHamburgerBadge } = useOnboarding();
+  const isSuperuserViewer = userRole === 'superuser_viewer';
+  const canViewFullMenu = isAdmin || isSuperuserViewer;
 
   // Mappa id menu item -> chiave badge
   const menuBadgeMap = {
@@ -20,8 +22,8 @@ export default function LeagueHamburgerMenu({ leagueId, navigation, isAdmin, use
   // Costruisci il submenu in base al ruolo
   const settingsSubMenu = [];
   
-  // Solo gli admin vedono "Generali"
-  if (isAdmin) {
+  // Admin e superuser observer vedono menu completo impostazioni.
+  if (canViewFullMenu) {
     settingsSubMenu.push({
       id: 'settings-general',
       label: 'Generali',
@@ -77,13 +79,16 @@ export default function LeagueHamburgerMenu({ leagueId, navigation, isAdmin, use
     });
   }
   
-  settingsSubMenu.push({
-    id: 'settings-squad',
-    label: 'Profilo squadra',
-    icon: 'person-outline',
-    screen: 'Settings',
-    params: { leagueId, section: 'team' },
-  });
+  // In modalità osservatore superuser non ha senso mostrare profilo squadra.
+  if (!isSuperuserViewer) {
+    settingsSubMenu.push({
+      id: 'settings-squad',
+      label: 'Profilo squadra',
+      icon: 'person-outline',
+      screen: 'Settings',
+      params: { leagueId, section: 'team' },
+    });
+  }
 
   const menuItems = [
     {
@@ -101,7 +106,7 @@ export default function LeagueHamburgerMenu({ leagueId, navigation, isAdmin, use
       params: { leagueId },
     },
     // Mostra "Inserisci Voti" solo per admin e pagellatore, e nascondi per leghe collegate
-    ...((isAdmin || userRole === 'pagellatore') && !isLinkedLeague ? [{
+    ...((canViewFullMenu || userRole === 'pagellatore') && !isLinkedLeague ? [{
       id: 'insert-votes',
       label: 'Inserisci Voti',
       icon: 'pencil-outline',

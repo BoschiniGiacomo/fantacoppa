@@ -42,6 +42,9 @@ export default function UserManagementScreen({ route, navigation }) {
   const [loadingJoinRequests, setLoadingJoinRequests] = useState(false);
 
   const isAdmin = userRole === 'admin';
+  const isSuperuserObserver = String(league?.role || '') === 'superuser_viewer';
+  const canViewAdminPanels = isAdmin || isSuperuserObserver;
+  const isReadOnlyObserver = isSuperuserObserver;
 
   // Filtra e ordina i membri
   const filteredMembers = useMemo(() => {
@@ -103,10 +106,10 @@ export default function UserManagementScreen({ route, navigation }) {
     loadMembers();
     loadLeaveInfo();
     loadLeague();
-    if (isAdmin) {
+    if (canViewAdminPanels) {
       loadApprovalSetting();
     }
-  }, [leagueId]);
+  }, [leagueId, canViewAdminPanels]);
 
   const loadLeague = async () => {
     try {
@@ -144,6 +147,7 @@ export default function UserManagementScreen({ route, navigation }) {
   };
 
   const handleApproveRequest = async (requestId) => {
+    if (isReadOnlyObserver) return;
     try {
       await leagueService.approveJoinRequest(leagueId, requestId);
       setJoinRequests(prev => prev.filter(r => r.id !== requestId));
@@ -157,6 +161,7 @@ export default function UserManagementScreen({ route, navigation }) {
   };
 
   const handleRejectRequest = async (requestId) => {
+    if (isReadOnlyObserver) return;
     try {
       await leagueService.rejectJoinRequest(leagueId, requestId);
       setJoinRequests(prev => prev.filter(r => r.id !== requestId));
@@ -185,7 +190,7 @@ export default function UserManagementScreen({ route, navigation }) {
       }
 
       // Se non è admin, mostra solo l'utente corrente
-      if (!isAdmin) {
+      if (!canViewAdminPanels) {
         membersData = membersData.filter((m) => m && m.is_current_user);
       }
 
@@ -212,6 +217,7 @@ export default function UserManagementScreen({ route, navigation }) {
   };
 
   const handleChangeRole = async (memberId, newRole) => {
+    if (isReadOnlyObserver) return;
     try {
       setChangingRole(memberId);
       await leagueService.changeRole(leagueId, memberId, newRole);
@@ -243,6 +249,7 @@ export default function UserManagementScreen({ route, navigation }) {
   };
 
   const handleRemoveUser = (user) => {
+    if (isReadOnlyObserver) return;
     setConfirmModal({
       title: 'Rimuovi utente',
       message: `Sei sicuro di voler rimuovere "${user.username}" dalla lega? Verranno eliminati anche i suoi giocatori acquistati e il budget associato.`,
@@ -267,6 +274,7 @@ export default function UserManagementScreen({ route, navigation }) {
   };
 
   const handleLeaveLeague = () => {
+    if (isReadOnlyObserver) return;
     if (!leaveInfo) {
       showToast('Impossibile ottenere le informazioni per lasciare la lega');
       return;
@@ -354,7 +362,7 @@ export default function UserManagementScreen({ route, navigation }) {
         <View style={styles.memberInfo}>
           <View style={styles.memberHeaderRow}>
             <Text style={styles.memberUsername}>{member.username}</Text>
-            {isAdmin && !isCurrentUser && (
+            {isAdmin && !isReadOnlyObserver && !isCurrentUser && (
               <TouchableOpacity
                 style={styles.removeButtonCompact}
                 onPress={() => handleRemoveUser(member)}
@@ -367,7 +375,7 @@ export default function UserManagementScreen({ route, navigation }) {
                 )}
               </TouchableOpacity>
             )}
-            {isCurrentUser && (
+            {isCurrentUser && !isReadOnlyObserver && (
               <TouchableOpacity
                 style={styles.leaveButtonCompact}
                 onPress={handleLeaveLeague}
@@ -386,8 +394,14 @@ export default function UserManagementScreen({ route, navigation }) {
               {member.team_name} - {member.coach_name}
             </Text>
           )}
+          {isReadOnlyObserver && (
+            <View style={[styles.roleReadOnlyBadge, { backgroundColor: roleBadge.color }]}>
+              <Ionicons name={roleBadge.icon} size={12} color="#fff" style={{ marginRight: 5 }} />
+              <Text style={styles.roleReadOnlyBadgeText}>{roleBadge.label}</Text>
+            </View>
+          )}
         </View>
-        {isAdmin && (
+        {isAdmin && !isReadOnlyObserver && (
           <View style={styles.memberActions}>
             <View style={styles.roleSelector}>
               <TouchableOpacity
@@ -476,7 +490,7 @@ export default function UserManagementScreen({ route, navigation }) {
       </View>
 
       {/* Tab Utenti / Richieste */}
-      {isAdmin && requireJoinApproval && (
+      {canViewAdminPanels && requireJoinApproval && (
         <View style={styles.tabsContainer}>
           <TouchableOpacity
             style={[styles.tabItem, activeTab === 'members' && styles.tabItemActive]}
@@ -506,6 +520,12 @@ export default function UserManagementScreen({ route, navigation }) {
 
       {activeTab === 'members' && (
       <>
+      {isReadOnlyObserver && (
+        <View style={styles.readOnlyBanner}>
+          <Ionicons name="eye-outline" size={16} color="#7a6100" />
+          <Text style={styles.readOnlyBannerText}>Modalita osservazione: modifiche disabilitate</Text>
+        </View>
+      )}
       {/* Barra di ricerca */}
       <View style={styles.searchContainer}>
         <Ionicons name="search" size={20} color="#666" style={styles.searchIcon} />
@@ -639,6 +659,12 @@ export default function UserManagementScreen({ route, navigation }) {
           style={styles.content}
           contentContainerStyle={[styles.contentContainer, { paddingBottom: insets.bottom + 20 }]}
         >
+          {isReadOnlyObserver && (
+            <View style={styles.readOnlyBanner}>
+              <Ionicons name="eye-outline" size={16} color="#7a6100" />
+              <Text style={styles.readOnlyBannerText}>Modalita osservazione: modifiche disabilitate</Text>
+            </View>
+          )}
           {loadingJoinRequests ? (
             <View style={styles.centerContainer}>
               <ActivityIndicator size="large" color="#667eea" />
@@ -666,6 +692,7 @@ export default function UserManagementScreen({ route, navigation }) {
                   <TouchableOpacity
                     style={styles.requestApproveBtn}
                     onPress={() => handleApproveRequest(req.id)}
+                    disabled={isReadOnlyObserver}
                   >
                     <Ionicons name="checkmark" size={16} color="#fff" />
                     <Text style={styles.requestBtnText}>Approva</Text>
@@ -673,6 +700,7 @@ export default function UserManagementScreen({ route, navigation }) {
                   <TouchableOpacity
                     style={styles.requestRejectBtn}
                     onPress={() => handleRejectRequest(req.id)}
+                    disabled={isReadOnlyObserver}
                   >
                     <Ionicons name="close" size={16} color="#fff" />
                     <Text style={styles.requestBtnText}>Rifiuta</Text>
@@ -957,6 +985,20 @@ const styles = StyleSheet.create({
   memberTeam: {
     fontSize: 13,
     color: '#666',
+  },
+  roleReadOnlyBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    marginTop: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+  },
+  roleReadOnlyBadgeText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '700',
   },
   memberActions: {
     flexDirection: 'row',
@@ -1279,6 +1321,26 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 13,
     fontWeight: '600',
+  },
+  readOnlyBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#fff3cd',
+    borderColor: '#ffe69c',
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginHorizontal: 16,
+    marginTop: 10,
+    marginBottom: 2,
+  },
+  readOnlyBannerText: {
+    color: '#7a6100',
+    fontSize: 13,
+    fontWeight: '700',
+    flex: 1,
   },
 });
 

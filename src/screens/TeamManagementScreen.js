@@ -88,6 +88,8 @@ function OfficialTeamRowLogo({ logoUrl, logoPath, style, fallbackStyle }) {
 export default function TeamManagementScreen({ route, navigation }) {
   const { leagueId } = route.params || {};
   const insets = useSafeAreaInsets();
+  const [leagueRole, setLeagueRole] = useState('');
+  const isReadOnlyObserver = leagueRole === 'superuser_viewer';
   const [teams, setTeams] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -148,6 +150,11 @@ export default function TeamManagementScreen({ route, navigation }) {
   const loadTeams = async () => {
     try {
       setLoading(true);
+      try {
+        const leagueRes = await leagueService.getById(leagueId);
+        const leagueData = Array.isArray(leagueRes?.data) ? leagueRes.data[0] : leagueRes?.data;
+        setLeagueRole(String(leagueData?.role || ''));
+      } catch (_) {}
       const res = await leagueService.getTeams(leagueId);
       
       // Assicurati che teams sia sempre un array
@@ -203,6 +210,7 @@ export default function TeamManagementScreen({ route, navigation }) {
   };
 
   const handleAddTeam = async () => {
+    if (isReadOnlyObserver) return;
     if (!teamName.trim()) {
       showToast('Inserisci un nome per la squadra');
       return;
@@ -274,6 +282,7 @@ export default function TeamManagementScreen({ route, navigation }) {
   };
 
   const handleImportCSV = async () => {
+    if (isReadOnlyObserver) return;
     try {
       const result = await DocumentPicker.getDocumentAsync({
         type: ['text/csv', 'text/comma-separated-values', 'application/octet-stream'],
@@ -311,6 +320,7 @@ export default function TeamManagementScreen({ route, navigation }) {
   };
 
   const handleSaveJerseyColor = async () => {
+    if (isReadOnlyObserver) return;
     if (!jerseyColorModalTeam) return;
     try {
       setSavingJerseyColor(true);
@@ -328,6 +338,7 @@ export default function TeamManagementScreen({ route, navigation }) {
   };
 
   const handleDeleteTeam = async (teamId, teamName) => {
+    if (isReadOnlyObserver) return;
     setConfirmModal({
       title: 'Conferma eliminazione',
       message: `Sei sicuro di voler eliminare la squadra "${teamName}"? Verranno eliminati anche tutti i giocatori associati.`,
@@ -352,6 +363,7 @@ export default function TeamManagementScreen({ route, navigation }) {
   };
 
   const renderRightActions = (team) => {
+    if (isReadOnlyObserver) return null;
     return (
       <TouchableOpacity
         style={styles.deleteAction}
@@ -421,6 +433,7 @@ export default function TeamManagementScreen({ route, navigation }) {
   };
 
   const handleAddPlayer = async () => {
+    if (isReadOnlyObserver) return;
     if (!newPlayerFirstName.trim() || !newPlayerLastName.trim()) {
       showToast('Inserisci nome e cognome del giocatore');
       return;
@@ -469,6 +482,7 @@ export default function TeamManagementScreen({ route, navigation }) {
   };
 
   const handleEditPlayer = (player, teamId) => {
+    if (isReadOnlyObserver) return;
     const ratingValue = player.rating !== null && player.rating !== undefined 
       ? String(player.rating) 
       : '0.0';
@@ -486,6 +500,7 @@ export default function TeamManagementScreen({ route, navigation }) {
   };
 
   const handleSavePlayer = async () => {
+    if (isReadOnlyObserver) return;
     if (!editingPlayer) {
       showToast('Nessun giocatore selezionato');
       return;
@@ -585,6 +600,7 @@ export default function TeamManagementScreen({ route, navigation }) {
   };
 
   const handleDeletePlayer = async (playerId, playerName, teamId) => {
+    if (isReadOnlyObserver) return;
     setConfirmModal({
       title: 'Conferma eliminazione',
       message: `Sei sicuro di voler eliminare ${playerName}?`,
@@ -711,6 +727,7 @@ export default function TeamManagementScreen({ route, navigation }) {
     const hasTeamLogo = !!(team.logo_url || team.logo_path);
 
     const handleUploadTeamLogo = async () => {
+      if (isReadOnlyObserver) return;
       try {
         const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
         if (status !== 'granted') {
@@ -745,11 +762,13 @@ export default function TeamManagementScreen({ route, navigation }) {
     };
 
     const openJerseyColorModal = () => {
+      if (isReadOnlyObserver) return;
       setJerseyColorDraft(team.jersey_color || '');
       setJerseyColorModalTeam(team);
     };
 
     const handleRemoveTeamLogo = async () => {
+      if (isReadOnlyObserver) return;
       if (!hasTeamLogo) return;
       setConfirmModal({
         title: 'Rimuovi logo squadra',
@@ -794,6 +813,7 @@ export default function TeamManagementScreen({ route, navigation }) {
             <TouchableOpacity
               style={styles.jerseyColorSwatchBtn}
               onPress={openJerseyColorModal}
+              disabled={isReadOnlyObserver}
               accessibilityLabel="Colore maglia formazioni"
             >
               <View
@@ -804,7 +824,7 @@ export default function TeamManagementScreen({ route, navigation }) {
                 ]}
               />
             </TouchableOpacity>
-            <TouchableOpacity style={styles.teamLogoActionBtn} onPress={handleUploadTeamLogo}>
+            <TouchableOpacity style={[styles.teamLogoActionBtn, isReadOnlyObserver && styles.teamLogoActionBtnDisabled]} onPress={handleUploadTeamLogo} disabled={isReadOnlyObserver}>
               {uploadingTeamLogoId === team.id ? (
                 <ActivityIndicator size="small" color="#667eea" />
               ) : (
@@ -814,7 +834,7 @@ export default function TeamManagementScreen({ route, navigation }) {
             <TouchableOpacity
               style={[styles.teamLogoActionBtn, !hasTeamLogo && styles.teamLogoActionBtnDisabled]}
               onPress={handleRemoveTeamLogo}
-              disabled={!hasTeamLogo || uploadingTeamLogoId === team.id}
+              disabled={isReadOnlyObserver || !hasTeamLogo || uploadingTeamLogoId === team.id}
             >
               <Ionicons name="trash-outline" size={14} color={!hasTeamLogo ? '#bbb' : '#dc3545'} />
             </TouchableOpacity>
@@ -911,6 +931,12 @@ export default function TeamManagementScreen({ route, navigation }) {
           <RefreshControl refreshing={refreshing} onRefresh={loadTeams} colors={['#667eea']} tintColor="#667eea" />
         }
       >
+        {isReadOnlyObserver && (
+          <View style={styles.readOnlyBanner}>
+            <Ionicons name="eye-outline" size={16} color="#7a6100" />
+            <Text style={styles.readOnlyBannerText}>Modalita osservazione: modifiche disabilitate</Text>
+          </View>
+        )}
         {/* Form aggiunta squadra - Tendina */}
         <View style={styles.accordionContainer}>
           <TouchableOpacity
@@ -936,11 +962,12 @@ export default function TeamManagementScreen({ route, navigation }) {
                   onChangeText={setTeamName}
                   placeholder="Nome squadra"
                   onSubmitEditing={handleAddTeam}
+                  editable={!isReadOnlyObserver}
                 />
                 <TouchableOpacity
                   style={[styles.addButton, adding && styles.addButtonDisabled]}
                   onPress={handleAddTeam}
-                  disabled={adding}
+                  disabled={adding || isReadOnlyObserver}
                 >
                   {adding ? (
                     <ActivityIndicator size="small" color="#fff" />
@@ -980,6 +1007,7 @@ export default function TeamManagementScreen({ route, navigation }) {
                 <TouchableOpacity
                   style={styles.selectInput}
                   onPress={() => setShowTeamSelectModal(true)}
+                  disabled={isReadOnlyObserver}
                 >
                   <Text style={[styles.selectInputText, !newPlayerTeamId && styles.selectInputPlaceholder]}>
                     {newPlayerTeamId 
@@ -1000,6 +1028,7 @@ export default function TeamManagementScreen({ route, navigation }) {
                     onChangeText={setNewPlayerFirstName}
                     placeholder="Nome"
                     autoCapitalize="words"
+                    editable={!isReadOnlyObserver}
                   />
                 </View>
                 <View style={[styles.formGroup, { flex: 1, marginLeft: 8 }]}>
@@ -1010,6 +1039,7 @@ export default function TeamManagementScreen({ route, navigation }) {
                     onChangeText={setNewPlayerLastName}
                     placeholder="Cognome"
                     autoCapitalize="words"
+                    editable={!isReadOnlyObserver}
                   />
                 </View>
               </View>
@@ -1023,7 +1053,8 @@ export default function TeamManagementScreen({ route, navigation }) {
                       <TouchableOpacity
                         key={r}
                         style={[styles.roleOption, newPlayerRole === r && styles.roleOptionActive]}
-                        onPress={() => setNewPlayerRole(r)}
+                        onPress={() => !isReadOnlyObserver && setNewPlayerRole(r)}
+                        disabled={isReadOnlyObserver}
                       >
                         <Text style={[styles.roleOptionText, newPlayerRole === r && styles.roleOptionTextActive]}>
                           {r}
@@ -1040,6 +1071,7 @@ export default function TeamManagementScreen({ route, navigation }) {
                     onChangeText={setNewPlayerRating}
                     placeholder="0.0"
                     keyboardType="numeric"
+                    editable={!isReadOnlyObserver}
                   />
                 </View>
               </View>
@@ -1047,7 +1079,7 @@ export default function TeamManagementScreen({ route, navigation }) {
               <TouchableOpacity
                 style={[styles.addButton, (addingPlayer || !newPlayerTeamId) && styles.addButtonDisabled]}
                 onPress={handleAddPlayer}
-                disabled={addingPlayer || !newPlayerTeamId}
+                disabled={addingPlayer || !newPlayerTeamId || isReadOnlyObserver}
               >
                 {addingPlayer ? (
                   <ActivityIndicator size="small" color="#fff" />
@@ -1112,7 +1144,7 @@ export default function TeamManagementScreen({ route, navigation }) {
           <TouchableOpacity
             style={[styles.csvButton, styles.importButton]}
             onPress={handleImportCSV}
-            disabled={importing || downloading}
+            disabled={importing || downloading || isReadOnlyObserver}
           >
             {importing ? (
               <ActivityIndicator size="small" color="#fff" />
@@ -1193,11 +1225,12 @@ export default function TeamManagementScreen({ route, navigation }) {
               placeholderTextColor="#aaa"
               autoCapitalize="characters"
               autoCorrect={false}
+              editable={!isReadOnlyObserver}
             />
             <TouchableOpacity
               style={styles.jerseyColorResetBtn}
               onPress={() => setJerseyColorDraft('')}
-              disabled={savingJerseyColor}
+              disabled={savingJerseyColor || isReadOnlyObserver}
             >
               <Text style={styles.jerseyColorResetBtnText}>Usa colore predefinito app</Text>
             </TouchableOpacity>
@@ -1212,7 +1245,7 @@ export default function TeamManagementScreen({ route, navigation }) {
               <TouchableOpacity
                 style={styles.jerseyColorModalSave}
                 onPress={handleSaveJerseyColor}
-                disabled={savingJerseyColor}
+                disabled={savingJerseyColor || isReadOnlyObserver}
               >
                 {savingJerseyColor ? (
                   <ActivityIndicator color="#fff" size="small" />
@@ -1307,6 +1340,7 @@ export default function TeamManagementScreen({ route, navigation }) {
                     onChangeText={setFirstName}
                     placeholder="Nome"
                     autoCapitalize="words"
+                    editable={!isReadOnlyObserver}
                   />
                 </View>
 
@@ -1318,6 +1352,7 @@ export default function TeamManagementScreen({ route, navigation }) {
                     onChangeText={setLastName}
                     placeholder="Cognome"
                     autoCapitalize="words"
+                    editable={!isReadOnlyObserver}
                   />
                 </View>
 
@@ -1335,7 +1370,8 @@ export default function TeamManagementScreen({ route, navigation }) {
                               styles.teamPickerOption,
                               selectedTeamId === team.id && styles.teamPickerOptionActive
                             ]}
-                            onPress={() => setSelectedTeamId(team.id)}
+                            onPress={() => !isReadOnlyObserver && setSelectedTeamId(team.id)}
+                            disabled={isReadOnlyObserver}
                           >
                             <Text style={[
                               styles.teamPickerOptionText,
@@ -1357,7 +1393,8 @@ export default function TeamManagementScreen({ route, navigation }) {
                       <TouchableOpacity
                         key={r}
                         style={[styles.roleOption, role === r && styles.roleOptionActive]}
-                        onPress={() => setRole(r)}
+                        onPress={() => !isReadOnlyObserver && setRole(r)}
+                        disabled={isReadOnlyObserver}
                       >
                         <Text style={[styles.roleOptionText, role === r && styles.roleOptionTextActive]}>
                           {r}
@@ -1375,6 +1412,7 @@ export default function TeamManagementScreen({ route, navigation }) {
                     onChangeText={setRating}
                     placeholder="0.0"
                     keyboardType="numeric"
+                    editable={!isReadOnlyObserver}
                   />
                 </View>
                 <View style={styles.formGroup}>
@@ -1385,6 +1423,7 @@ export default function TeamManagementScreen({ route, navigation }) {
                     onChangeText={setShirtNumber}
                     placeholder="es. 10"
                     keyboardType="number-pad"
+                    editable={!isReadOnlyObserver}
                   />
                 </View>
               </>
@@ -1410,7 +1449,7 @@ export default function TeamManagementScreen({ route, navigation }) {
               <TouchableOpacity
                 style={[styles.saveButton, saving && styles.buttonDisabled]}
                 onPress={handleSavePlayer}
-                disabled={saving}
+                disabled={saving || isReadOnlyObserver}
               >
                 {saving ? (
                   <ActivityIndicator size="small" color="#fff" />
@@ -1457,6 +1496,24 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f2f3f7' },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   content: { flex: 1 },
+  readOnlyBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff8e1',
+    marginHorizontal: 14,
+    marginTop: 10,
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    gap: 8,
+    borderWidth: 1,
+    borderColor: '#ffe082',
+  },
+  readOnlyBannerText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#7a6100',
+  },
 
   // ── Header ──
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 14, paddingVertical: 10, backgroundColor: '#f2f3f7' },

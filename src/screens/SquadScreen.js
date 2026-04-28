@@ -13,7 +13,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { useOnboarding } from '../context/OnboardingContext';
-import { squadService, marketService, leagueService, formationService } from '../services/api';
+import { squadService, formationService } from '../services/api';
 import { Ionicons } from '@expo/vector-icons';
 import { syncSubmittedFormationOnboarding } from '../utils/formationSubmission';
 
@@ -56,33 +56,23 @@ export default function SquadScreen({ route, navigation }) {
 
   const loadData = useCallback(async () => {
     try {
-      const [squadRes, limitsRes, blockedRes, leagueRes, budgetRes] = await Promise.all([
-        squadService.getSquad(leagueId),
-        squadService.getRoleLimits(leagueId),
-        marketService.isBlocked(leagueId),
-        leagueService.getById(leagueId).catch(() => ({ data: null })),
-        marketService.getBudget(leagueId).catch(() => ({ data: { budget: 0 } })),
-      ]);
-      const players = Array.isArray(squadRes?.data?.players)
-        ? squadRes.data.players
-        : (Array.isArray(squadRes?.data?.squad) ? squadRes.data.squad : []);
+      const bootstrapRes = await squadService.getBootstrap(leagueId);
+      const data = bootstrapRes?.data || {};
+      const players = Array.isArray(data?.players)
+        ? data.players
+        : (Array.isArray(data?.squad) ? data.squad : []);
       setSquad(players);
 
-      // Budget: usa endpoint dedicato market/budget (fonte affidabile)
-      const budgetValue = budgetRes?.data?.budget ?? squadRes?.data?.budget ?? 0;
+      const budgetValue = data?.budget ?? 0;
       setBudget(typeof budgetValue === 'number' ? budgetValue : parseFloat(budgetValue) || 0);
 
       // Valore rosa: somma rating dei giocatori caricati
-      const computedTotalValue = players.reduce((sum, p) => {
-        const rating = Number(p?.rating);
-        return sum + (Number.isFinite(rating) ? rating : 0);
-      }, 0);
+      const computedTotalValue = Number(data?.total_value || 0);
       setTotalValue(computedTotalValue);
-      setRoleLimits(limitsRes.data || {});
-      setMarketBlocked(blockedRes?.data?.blocked || false);
-      if (leagueRes?.data) {
-        const leagueData = Array.isArray(leagueRes.data) ? leagueRes.data[0] : leagueRes.data;
-        setLeague(leagueData);
+      setRoleLimits(data?.role_limits || {});
+      setMarketBlocked(Boolean(data?.market_blocked));
+      if (data?.league && typeof data.league === 'object') {
+        setLeague(data.league);
       }
 
       try {

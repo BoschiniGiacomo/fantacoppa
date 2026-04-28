@@ -446,6 +446,43 @@ async function getLeagueByIdForUser(leagueId, userId) {
   return rows[0] || null;
 }
 
+async function getUserSuperuserLevel(userId) {
+  try {
+    const rows = await query(
+      `SELECT COALESCE(is_superuser, 0) AS is_superuser
+       FROM users
+       WHERE id = ?
+       LIMIT 1`,
+      [userId]
+    );
+    return Number(rows[0]?.is_superuser || 0);
+  } catch (_) {
+    return 0;
+  }
+}
+
+async function getLeagueByIdForSuperuserViewer(leagueId, userId) {
+  const rows = await query(
+    `SELECT l.id, l.name, l.access_code, l.creator_id, l.created_at,
+            l.initial_budget, l.default_deadline_time, l.max_portieri, l.max_difensori,
+            l.max_centrocampisti, l.max_attaccanti, l.numero_titolari, l.auto_lineup_mode,
+            l.linked_to_league_id,
+            ll.name AS linked_league_name,
+            'superuser_viewer'::text AS role, ub.team_name, ub.coach_name, ub.team_logo,
+            COALESCE(ulp.favorite, 0) AS favorite,
+            COALESCE(ulp.archived, 0) AS archived,
+            COALESCE(ulp.notifications_enabled, 1) AS notifications_enabled
+     FROM leagues l
+     LEFT JOIN leagues ll ON ll.id = l.linked_to_league_id
+     LEFT JOIN user_budget ub ON ub.league_id = l.id AND ub.user_id = ?
+     LEFT JOIN user_league_prefs ulp ON ulp.league_id = l.id AND ulp.user_id = ?
+     WHERE l.id = ?
+     LIMIT 1`,
+    [userId, userId, leagueId]
+  );
+  return rows[0] || null;
+}
+
 // GET /api/leagues - leghe dell'utente loggato
 router.get('/', authenticateToken, async (req, res) => {
   try {
@@ -560,7 +597,13 @@ router.get('/:id', authenticateToken, async (req, res) => {
       return res.status(400).json({ message: 'League ID non valido' });
     }
 
-    const league = await getLeagueByIdForUser(leagueId, userId);
+    let league = await getLeagueByIdForUser(leagueId, userId);
+    if (!league) {
+      const suLevel = await getUserSuperuserLevel(userId);
+      if (suLevel === 1) {
+        league = await getLeagueByIdForSuperuserViewer(leagueId, userId);
+      }
+    }
     if (!league) {
       return res.status(404).json({ message: 'Lega non trovata o accesso negato' });
     }
@@ -568,6 +611,222 @@ router.get('/:id', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Get league by id error:', error);
     res.status(500).json({ message: 'Errore nel recupero lega' });
+  }
+});
+
+// GET /api/leagues/:id/dashboard-data - payload aggregato dashboard lega
+router.get('/:id/dashboard-data', authenticateToken, async (req, res) => {
+  try {
+    const userId = Number(req.user.userId);
+    const leagueId = Number(req.params.id);
+    if (!Number.isFinite(leagueId) || leagueId <= 0) {
+      return res.status(400).json({ message: 'League ID non valido' });
+    }
+
+    let league = await getLeagueByIdForUser(leagueId, userId);
+    if (!league) {
+      const suLevel = await getUserSuperuserLevel(userId);
+      if (suLevel === 1) {
+        league = await getLeagueByIdForSuperuserViewer(leagueId, userId);
+      }
+    }
+    if (!league) {
+      return res.status(404).json({ message: 'Lega non trovata o accesso negato' });
+    }
+
+    const teamRows = await query(
+      `SELECT team_name, coach_name, team_logo
+       FROM user_budget
+       WHERE user_id = ? AND league_id = ?
+       LIMIT 1`,
+      [userId, leagueId]
+    );
+    const teamName = String(teamRows[0]?.team_name || '').trim();
+    const coachName = String(teamRows[0]?.coach_name || '').trim();
+    const teamLogo = String(teamRows[0]?.team_logo || 'default_1').trim() || 'default_1';
+    const hasTeam = teamName !== '' && !/^Squadra\s*\d+$/i.test(teamName);
+    const hasCoach = coachName !== '' && !/^Allenatore\s*\d+$/i.test(coachName);
+    const isSuperuserViewer = String(league?.role || '') === 'superuser_viewer';
+    const needsInfo = isSuperuserViewer ? false : !(hasTeam && hasCoach);
+
+    const standingsRows = await query(
+      `SELECT mr.user_id AS id, u.username,
+              COALESCE(ub.team_name, u.username) AS team_name,
+              COALESCE(ub.team_logo, 'default_1') AS team_logo,
+              SUM(mr.punteggio)::float AS punteggio,
+              AVG(mr.punteggio)::float AS media_punti
+       FROM matchday_results mr
+       JOIN users u ON u.id = mr.user_id
+       LEFT JOIN user_budget ub ON ub.user_id = mr.user_id AND ub.league_id = mr.league_id
+       WHERE mr.league_id = ?
+       GROUP BY mr.user_id, u.username, ub.team_name, ub.team_logo
+       ORDER BY punteggio DESC, media_punti DESC`,
+      [leagueId]
+    );
+    const standingsFull = Array.isArray(standingsRows) && standingsRows.length > 0
+      ? standingsRows
+      : await query(
+          `SELECT lm.user_id AS id, u.username,
+                  COALESCE(ub.team_name, u.username) AS team_name,
+                  COALESCE(ub.team_logo, 'default_1') AS team_logo,
+                  0::float AS punteggio, 0::float AS media_punti
+           FROM league_members lm
+           JOIN users u ON u.id = lm.user_id
+           LEFT JOIN user_budget ub ON ub.user_id = lm.user_id AND ub.league_id = lm.league_id
+           WHERE lm.league_id = ?
+           ORDER BY u.username ASC`,
+          [leagueId]
+        );
+
+    const topStandings = standingsFull.slice(0, 5);
+    const userIdx = standingsFull.findIndex((r) => Number(r.id) === userId);
+    const userStats = userIdx >= 0
+      ? {
+          position: userIdx + 1,
+          totalPoints: Number(Number(standingsFull[userIdx].punteggio || 0).toFixed(1)),
+          avgPoints: Number(Number(standingsFull[userIdx].media_punti || 0).toFixed(2)),
+        }
+      : null;
+
+    let userScores = [];
+    try {
+      const scoreRows = await query(
+        `SELECT giornata, punteggio
+         FROM matchday_results
+         WHERE league_id = ? AND user_id = ?
+         ORDER BY giornata ASC`,
+        [leagueId, userId]
+      );
+      userScores = scoreRows.map((r) => ({
+        giornata: Number(r.giornata || 0),
+        punteggio: Number(r.punteggio || 0),
+      }));
+    } catch (_) {
+      userScores = [];
+    }
+
+    const squadCountRows = await query(
+      `SELECT COUNT(*)::int AS c
+       FROM user_players
+       WHERE user_id = ? AND league_id = ?`,
+      [userId, leagueId]
+    );
+    const squadPlayersCount = Number(squadCountRows[0]?.c || 0);
+
+    const effectiveLeagueId = await getEffectiveLeagueId(leagueId);
+    const marketCountRows = await query(
+      `SELECT COUNT(*)::int AS c
+       FROM players p
+       JOIN teams t ON t.id = p.team_id
+       WHERE t.league_id = ?`,
+      [effectiveLeagueId]
+    );
+    const marketPlayersCount = Number(marketCountRows[0]?.c || 0);
+
+    const roleLimitsRows = await query(
+      `SELECT max_portieri, max_difensori, max_centrocampisti, max_attaccanti
+       FROM leagues
+       WHERE id = ?
+       LIMIT 1`,
+      [leagueId]
+    );
+    const limits = roleLimitsRows[0] || {};
+    const roleOwnedRows = await query(
+      `SELECT p.role, COUNT(*)::int AS c
+       FROM user_players up
+       JOIN players p ON p.id = up.player_id
+       WHERE up.user_id = ? AND up.league_id = ?
+       GROUP BY p.role`,
+      [userId, leagueId]
+    );
+    const ownedByRole = { P: 0, D: 0, C: 0, A: 0 };
+    roleOwnedRows.forEach((r) => {
+      const role = String(r.role || '').trim().toUpperCase();
+      if (ownedByRole[role] != null) ownedByRole[role] = Number(r.c || 0);
+    });
+    const limitsByRole = {
+      P: Number(limits.max_portieri || 0),
+      D: Number(limits.max_difensori || 0),
+      C: Number(limits.max_centrocampisti || 0),
+      A: Number(limits.max_attaccanti || 0),
+    };
+    const squadFull = ['P', 'D', 'C', 'A'].every((r) => limitsByRole[r] > 0 && ownedByRole[r] >= limitsByRole[r]);
+
+    let liveMatchday = null;
+    try {
+      const liveRows = await query(
+        `SELECT m.giornata
+         FROM matchdays m
+         WHERE m.league_id = ?
+           AND m.deadline < NOW()
+           AND EXISTS (
+             SELECT 1
+             FROM player_ratings pr
+             WHERE pr.league_id = m.league_id
+               AND pr.giornata = m.giornata
+           )
+           AND NOT EXISTS (
+             SELECT 1
+             FROM matchday_results mr
+             WHERE mr.league_id = ?
+               AND mr.giornata = m.giornata
+           )
+         ORDER BY m.deadline DESC
+         LIMIT 1`,
+        [effectiveLeagueId, leagueId]
+      );
+      liveMatchday = Number(liveRows[0]?.giornata || 0) || null;
+    } catch (_) {
+      liveMatchday = null;
+    }
+
+    let nextDeadline = null;
+    if (Number(league.auto_lineup_mode || 0) !== 1) {
+      try {
+        const ndRows = await query(
+          `SELECT giornata,
+                  to_char((deadline AT TIME ZONE 'Europe/Rome'), 'YYYY-MM-DD HH24:MI:SS') AS deadline
+           FROM matchdays
+           WHERE league_id = ?
+             AND deadline > NOW()
+           ORDER BY deadline ASC
+           LIMIT 1`,
+          [effectiveLeagueId]
+        );
+        if (ndRows[0]) {
+          nextDeadline = {
+            giornata: Number(ndRows[0].giornata || 0),
+            deadline: ndRows[0].deadline,
+          };
+        }
+      } catch (_) {
+        nextDeadline = null;
+      }
+    }
+
+    return res.json({
+      league,
+      needs_info: needsInfo,
+      default_team_name: teamName || '',
+      default_coach_name: coachName || '',
+      user_team_info: {
+        team_name: teamName || '',
+        coach_name: coachName || '',
+        team_logo: teamLogo || 'default_1',
+      },
+      top_standings: topStandings,
+      user_stats: userStats,
+      user_scores: userScores,
+      squad_players_count: squadPlayersCount,
+      market_players_count: marketPlayersCount,
+      role_limits: limitsByRole,
+      squad_full: squadFull,
+      live_matchday: liveMatchday,
+      next_deadline: nextDeadline,
+    });
+  } catch (error) {
+    console.error('Dashboard data error:', error);
+    return res.status(500).json({ message: 'Errore caricamento dashboard lega' });
   }
 });
 

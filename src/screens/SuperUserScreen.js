@@ -556,21 +556,27 @@ export default function SuperUserScreen() {
     }
   }, [activeTab, isSuperuser]);
   
-  // Toggle superuser status
-  const handleToggleSuperuser = async (userId, currentStatus) => {
+  // Imposta livello superuser: 0 = nessun ruolo, 1 = super user, 2 = gestore partite
+  const handleSetSuperuserLevel = async (userId, currentLevel, nextLevel) => {
+    if (Number(currentLevel || 0) === Number(nextLevel || 0)) return;
+    const labels = {
+      0: 'nessun ruolo',
+      1: 'super user',
+      2: 'gestore partite',
+    };
     setConfirmModal({
-      title: currentStatus ? 'Rimuovi Super User' : 'Rendi Super User',
-      message: `Sei sicuro di voler ${currentStatus ? 'rimuovere' : 'assegnare'} i privilegi di super user a questo utente?`,
+      title: 'Aggiorna ruolo utente',
+      message: `Confermi il cambio ruolo a "${labels[nextLevel] || 'nessun ruolo'}"?`,
       confirmText: 'Conferma',
       destructive: true,
       onConfirm: async () => {
         setConfirmModal(null);
         try {
-          await superuserService.toggleSuperuser(userId);
+          await superuserService.setSuperuserLevel(userId, nextLevel);
           await loadUsers();
-          showToast(currentStatus ? 'Super user rimosso' : 'Utente reso super user', 'success');
+          showToast(`Ruolo aggiornato: ${labels[nextLevel] || 'nessun ruolo'}`, 'success');
         } catch (error) {
-          console.error('Error toggling superuser:', error);
+          console.error('Error updating superuser level:', error);
           showToast(error.response?.data?.message || 'Errore durante l\'operazione');
         }
       },
@@ -775,8 +781,13 @@ export default function SuperUserScreen() {
           bVal = b.is_online ? 1 : 0;
           break;
         case 'is_superuser':
-          aVal = a.is_superuser ? 1 : 0;
-          bVal = b.is_superuser ? 1 : 0;
+          {
+            const roleOrder = { 0: 0, 2: 1, 1: 2 };
+            const aRole = Number(a?.is_superuser || 0);
+            const bRole = Number(b?.is_superuser || 0);
+            aVal = roleOrder[aRole] ?? 0;
+            bVal = roleOrder[bRole] ?? 0;
+          }
           break;
         default:
           return 0;
@@ -795,7 +806,9 @@ export default function SuperUserScreen() {
   }
   
   const renderUserItem = ({ item }) => {
-    const isSuper = Number(item?.is_superuser || 0) > 0;
+    const suLevel = Number(item?.is_superuser || 0);
+    const isSuper = suLevel > 0;
+    const badgeText = suLevel === 2 ? 'GM' : 'SU';
     return (
     <View style={styles.userItem}>
       {/* Colonna 1: Nome utente e email */}
@@ -803,8 +816,13 @@ export default function SuperUserScreen() {
         <View style={styles.userHeader}>
           <Text style={styles.userName}>{item.username}</Text>
           {isSuper && (
-            <View style={styles.superuserBadge}>
-              <Text style={styles.superuserBadgeText}>SU</Text>
+            <View
+              style={[
+                styles.superuserBadge,
+                suLevel === 2 ? styles.superuserBadgeManager : styles.superuserBadgeSuper,
+              ]}
+            >
+              <Text style={styles.superuserBadgeText}>{badgeText}</Text>
             </View>
           )}
         </View>
@@ -824,18 +842,49 @@ export default function SuperUserScreen() {
         </Text>
       </View>
       
-      {/* Colonna 4: Pulsante Super User */}
+      {/* Colonna 4: Ruolo utente */}
       <View style={[styles.buttonColumn, styles.columnWithPaddingRight]}>
-        <TouchableOpacity
-          style={[styles.toggleSuperuserButton, isSuper && styles.toggleSuperuserButtonActive]}
-          onPress={() => handleToggleSuperuser(item.id, item.is_superuser)}
-        >
-          <Ionicons 
-            name={isSuper ? "star" : "star-outline"} 
-            size={16} 
-            color={isSuper ? '#fff' : '#667eea'} 
-          />
-        </TouchableOpacity>
+        <View style={styles.roleSelector}>
+          <TouchableOpacity
+            style={[
+              styles.roleOption,
+              suLevel === 0 && styles.roleOptionActiveUser,
+            ]}
+            onPress={() => handleSetSuperuserLevel(item.id, suLevel, 0)}
+          >
+            <Ionicons
+              name={suLevel === 0 ? 'person' : 'person-outline'}
+              size={14}
+              color={suLevel === 0 ? '#fff' : '#2f6fed'}
+            />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.roleOption,
+              suLevel === 1 && styles.roleOptionActiveSuper,
+            ]}
+            onPress={() => handleSetSuperuserLevel(item.id, suLevel, 1)}
+          >
+            <Ionicons
+              name={suLevel === 1 ? 'star' : 'star-outline'}
+              size={14}
+              color={suLevel === 1 ? '#fff' : '#f4b400'}
+            />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.roleOption,
+              suLevel === 2 && styles.roleOptionActiveManager,
+            ]}
+            onPress={() => handleSetSuperuserLevel(item.id, suLevel, 2)}
+          >
+            <Ionicons
+              name={suLevel === 2 ? 'football' : 'football-outline'}
+              size={14}
+              color={suLevel === 2 ? '#fff' : '#2e7d32'}
+            />
+          </TouchableOpacity>
+        </View>
       </View>
     </View>
   );
@@ -1085,7 +1134,7 @@ export default function SuperUserScreen() {
                     style={[styles.buttonColumnHeader, styles.columnWithPaddingRight, styles.sortableColumn]}
                     onPress={() => handleSort('is_superuser')}
                   >
-                    <Text style={styles.columnHeaderText}>Super User</Text>
+                    <Text style={styles.columnHeaderText}>Ruolo</Text>
                     {sortColumn === 'is_superuser' && (
                       <Ionicons 
                         name={sortDirection === 'asc' ? 'chevron-up' : 'chevron-down'} 
@@ -2075,15 +2124,23 @@ const styles = StyleSheet.create({
     color: '#333',
   },
   superuserBadge: {
+    minWidth: 28,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  superuserBadgeSuper: {
     backgroundColor: '#ffc107',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
+  },
+  superuserBadgeManager: {
+    backgroundColor: '#2e7d32',
   },
   superuserBadgeText: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: 'bold',
-    color: '#333',
+    color: '#1f2937',
   },
   userEmail: {
     fontSize: 11,
@@ -2100,13 +2157,13 @@ const styles = StyleSheet.create({
     color: '#666',
   },
   statusColumn: {
-    flex: 0.8,
+    flex: 0.65,
     alignItems: 'center',
     justifyContent: 'center',
-    minWidth: 60,
+    minWidth: 50,
   },
   buttonColumn: {
-    flex: 1.5,
+    flex: 1.7,
     minWidth: 100,
     alignItems: 'center',
     justifyContent: 'center',
@@ -2116,6 +2173,41 @@ const styles = StyleSheet.create({
     minWidth: 100,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  roleSelector: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#f1f3f5',
+    borderRadius: 8,
+    padding: 2,
+    width: '100%',
+  },
+  roleOption: {
+    flex: 1,
+    minHeight: 28,
+    borderRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+    paddingVertical: 4,
+  },
+  roleOptionActiveUser: {
+    backgroundColor: '#2f6fed',
+  },
+  roleOptionActiveSuper: {
+    backgroundColor: '#f4b400',
+  },
+  roleOptionActiveManager: {
+    backgroundColor: '#2e7d32',
+  },
+  roleOptionText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#495057',
+  },
+  roleOptionTextActive: {
+    color: '#fff',
   },
   statusIndicator: {
     width: 8,
@@ -2128,7 +2220,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#28a745',
   },
   userStatus: {
-    fontSize: 12,
+    fontSize: 10,
     color: '#666',
     fontWeight: '500',
   },

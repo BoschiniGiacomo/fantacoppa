@@ -130,6 +130,9 @@ export default function SettingsScreen({ route, navigation }) {
   const [calcFeedback, setCalcFeedback] = useState('');
   const [toastMsg, setToastMsg] = useState(null); // { text, type: 'success' | 'error' }
   const [confirmModal, setConfirmModal] = useState(null); // { title, message, confirmText, onConfirm, destructive }
+  const isSuperuserObserver = String(league?.role || '') === 'superuser_viewer';
+  const canViewAdminSections = isAdmin || isSuperuserObserver;
+  const isReadOnlyObserver = isSuperuserObserver && !isAdmin;
   
   // Impostazioni generali
   const [autoLineupMode, setAutoLineupMode] = useState(false);
@@ -206,28 +209,28 @@ export default function SettingsScreen({ route, navigation }) {
   }, [section]);
 
   useEffect(() => {
-    if (activeSection === 'general' && isAdmin) {
+    if (activeSection === 'general' && canViewAdminSections) {
       loadSettings();
     }
-    if (activeSection === 'market' && isAdmin) {
+    if (activeSection === 'market' && canViewAdminSections) {
       loadMarketSettings();
     }
-    if (activeSection === 'calculate' && isAdmin) {
+    if (activeSection === 'calculate' && canViewAdminSections) {
       loadMatchdayStatus();
     }
-  }, [activeSection, isAdmin]);
+  }, [activeSection, isAdmin, canViewAdminSections]);
 
   // Ricarica dati quando la schermata riceve il focus
   useFocusEffect(
     useCallback(() => {
       loadData();
-      if (activeSection === 'market' && isAdmin) {
+      if (activeSection === 'market' && canViewAdminSections) {
         loadMarketSettings();
       }
-      if (activeSection === 'calculate' && isAdmin) {
+      if (activeSection === 'calculate' && canViewAdminSections) {
         loadMatchdayStatus();
       }
-    }, [leagueId, activeSection, isAdmin])
+    }, [leagueId, activeSection, isAdmin, canViewAdminSections])
   );
 
   const loadData = async () => {
@@ -253,7 +256,8 @@ export default function SettingsScreen({ route, navigation }) {
       }
       
       if (!section) {
-        setActiveSection(isAdmin ? 'general' : 'team');
+        const canOpenAdminArea = leagueData.role === 'admin' || leagueData.role === 'superuser_viewer';
+        setActiveSection(canOpenAdminArea ? 'general' : 'team');
       }
     } catch (error) {
       console.error('Error loading settings:', error);
@@ -541,6 +545,7 @@ export default function SettingsScreen({ route, navigation }) {
           trackColor={{ false: '#e0e0e0', true: trackColor }}
           thumbColor={bonusSettings[enableKey] ? '#fff' : '#f4f3f4'}
           style={styles.bmRowSw}
+          disabled={isReadOnlyObserver}
         />
         <TextInput
           ref={bonusInputRefs[valueKey]}
@@ -563,7 +568,7 @@ export default function SettingsScreen({ route, navigation }) {
           returnKeyType={isLast ? 'done' : 'next'}
           placeholder={placeholder}
           placeholderTextColor="#999"
-          editable={bonusSettings[enableKey]}
+          editable={bonusSettings[enableKey] && !isReadOnlyObserver}
         />
       </View>
     );
@@ -826,7 +831,7 @@ export default function SettingsScreen({ route, navigation }) {
         {/* Mostra le tab solo se non c'è una sezione specifica (section === null/undefined) */}
         {!section && (
           <View style={styles.tabsContainer}>
-            {isAdmin && (
+            {canViewAdminSections && (
               <TouchableOpacity
                 style={[styles.tab, activeSection === 'general' && styles.tabActive]}
                 onPress={() => setActiveSection('general')}
@@ -848,8 +853,14 @@ export default function SettingsScreen({ route, navigation }) {
         )}
 
         {/* Content Sections */}
-        {activeSection === 'general' && isAdmin && (
+        {activeSection === 'general' && canViewAdminSections && (
           <View style={styles.section}>
+            {isReadOnlyObserver && (
+              <View style={styles.readOnlyBanner}>
+                <Ionicons name="eye-outline" size={16} color="#7a6100" />
+                <Text style={styles.readOnlyBannerText}>Modalita osservazione: modifiche disabilitate</Text>
+              </View>
+            )}
             {/* Tab per sottosezioni */}
             <View style={styles.generalTabsContainer}>
               <TouchableOpacity
@@ -897,6 +908,7 @@ export default function SettingsScreen({ route, navigation }) {
                 <Text style={styles.subtitle}>Orario di default per le scadenze</Text>
                 <TouchableOpacity
                   style={styles.input}
+                  disabled={isReadOnlyObserver}
                   onPress={() => {
                     // Prepara la data con l'orario corrente (solo ore e minuti, senza secondi)
                     const timeStr = settings.default_deadline_time.split(':').slice(0, 2).join(':');
@@ -952,6 +964,7 @@ export default function SettingsScreen({ route, navigation }) {
                   <Switch
                     value={requireJoinApproval}
                     onValueChange={handleToggleRequireApproval}
+                    disabled={isReadOnlyObserver}
                   />
                 </View>
               </View>
@@ -970,6 +983,7 @@ export default function SettingsScreen({ route, navigation }) {
                 onChangeText={(text) => setSettings({...settings, access_code: text})}
                 placeholder="Codice di accesso"
                 maxLength={20}
+                editable={!isReadOnlyObserver}
               />
             </View>
 
@@ -1001,6 +1015,7 @@ export default function SettingsScreen({ route, navigation }) {
                     setTempIntValues({...tempIntValues, max_portieri: null});
                   }}
                   keyboardType="numeric"
+                  editable={!isReadOnlyObserver}
                 />
               </View>
               <View style={styles.roleSeparator} />
@@ -1029,6 +1044,7 @@ export default function SettingsScreen({ route, navigation }) {
                     setTempIntValues({...tempIntValues, max_difensori: null});
                   }}
                   keyboardType="numeric"
+                  editable={!isReadOnlyObserver}
                 />
               </View>
               <View style={styles.roleSeparator} />
@@ -1057,6 +1073,7 @@ export default function SettingsScreen({ route, navigation }) {
                     setTempIntValues({...tempIntValues, max_centrocampisti: null});
                   }}
                   keyboardType="numeric"
+                  editable={!isReadOnlyObserver}
                 />
               </View>
               <View style={styles.roleSeparator} />
@@ -1085,6 +1102,7 @@ export default function SettingsScreen({ route, navigation }) {
                     setTempIntValues({...tempIntValues, max_attaccanti: null});
                   }}
                   keyboardType="numeric"
+                  editable={!isReadOnlyObserver}
                 />
               </View>
             </View>
@@ -1096,7 +1114,7 @@ export default function SettingsScreen({ route, navigation }) {
                 saved && styles.saveButtonSuccess
               ]} 
               onPress={handleSaveSettings}
-              disabled={saving}
+              disabled={saving || isReadOnlyObserver}
             >
               {saving ? (
                 <ActivityIndicator size="small" color="#fff" />
@@ -1124,6 +1142,7 @@ export default function SettingsScreen({ route, navigation }) {
                       value={bonusSettings.enable_bonus_malus}
                       onValueChange={(value) => setBonusSettings({...bonusSettings, enable_bonus_malus: value})}
                       style={{ marginLeft: 'auto' }}
+                      disabled={isReadOnlyObserver}
                     />
                   </View>
                   <Text style={styles.subtitle}>Abilita o disabilita il sistema bonus/malus per la lega</Text>
@@ -1154,7 +1173,7 @@ export default function SettingsScreen({ route, navigation }) {
                     savedBonus && styles.saveButtonSuccess
                   ]} 
                   onPress={handleSaveBonusSettings}
-                  disabled={savingBonus}
+                  disabled={savingBonus || isReadOnlyObserver}
                 >
                   {savingBonus ? (
                     <ActivityIndicator size="small" color="#fff" />
@@ -1382,8 +1401,14 @@ export default function SettingsScreen({ route, navigation }) {
           </View>
         )}
 
-        {activeSection === 'calculate' && isAdmin && (
+        {activeSection === 'calculate' && canViewAdminSections && (
           <View style={styles.section}>
+            {isReadOnlyObserver && (
+              <View style={styles.readOnlyBanner}>
+                <Ionicons name="eye-outline" size={16} color="#7a6100" />
+                <Text style={styles.readOnlyBannerText}>Modalita osservazione: modifiche disabilitate</Text>
+              </View>
+            )}
             {loadingCalc ? (
               <View style={{ padding: 40, alignItems: 'center' }}>
                 <ActivityIndicator size="large" color="#667eea" />
@@ -1483,7 +1508,8 @@ export default function SettingsScreen({ route, navigation }) {
                 {/* Checkbox 6 politico */}
                 <TouchableOpacity
                   style={styles.calc6PoliticoRow}
-                  onPress={() => setUse6Politico(!use6Politico)}
+                  onPress={() => !isReadOnlyObserver && setUse6Politico(!use6Politico)}
+                  disabled={isReadOnlyObserver}
                 >
                   <View style={[styles.calcCheckbox, use6Politico && styles.calcCheckboxActive]}>
                     {use6Politico && <Ionicons name="checkmark" size={14} color="#fff" />}
@@ -1498,7 +1524,7 @@ export default function SettingsScreen({ route, navigation }) {
                 <TouchableOpacity
                   style={[styles.calcButton, calculating && { opacity: 0.6 }]}
                   onPress={handleCalculateMatchday}
-                  disabled={calculating || !selectedCalcMatchday}
+                  disabled={calculating || !selectedCalcMatchday || isReadOnlyObserver}
                 >
                   {calculating ? (
                     <ActivityIndicator color="#fff" />
@@ -1537,7 +1563,7 @@ export default function SettingsScreen({ route, navigation }) {
                     <TouchableOpacity
                       style={[styles.modalConfirmBtnCalc, calculating && { opacity: 0.6 }]}
                       onPress={() => doCalculate(true)}
-                      disabled={calculating}
+                      disabled={calculating || isReadOnlyObserver}
                     >
                       {calculating ? <ActivityIndicator color="#fff" size="small" /> : (
                         <Text style={{ color: '#fff', fontWeight: '600' }}>Ricalcola</Text>
@@ -1550,8 +1576,14 @@ export default function SettingsScreen({ route, navigation }) {
           </View>
         )}
 
-        {activeSection === 'market' && isAdmin && (
+        {activeSection === 'market' && canViewAdminSections && (
           <View style={styles.section}>
+            {isReadOnlyObserver && (
+              <View style={styles.readOnlyBanner}>
+                <Ionicons name="eye-outline" size={16} color="#7a6100" />
+                <Text style={styles.readOnlyBannerText}>Modalita osservazione: modifiche disabilitate</Text>
+              </View>
+            )}
             {loadingMarket ? (
               <View style={{ padding: 40, alignItems: 'center' }}>
                 <ActivityIndicator size="large" color="#667eea" />
@@ -1567,6 +1599,7 @@ export default function SettingsScreen({ route, navigation }) {
                   <Switch
                     value={marketLocked}
                     onValueChange={handleToggleMarketLocked}
+                    disabled={isReadOnlyObserver}
                     style={{ marginLeft: 'auto' }}
                     trackColor={{ false: '#28a745', true: '#dc3545' }}
                     thumbColor="#fff"
@@ -1659,6 +1692,7 @@ export default function SettingsScreen({ route, navigation }) {
                           <Switch
                             value={effectiveBlocked}
                             onValueChange={(newBlocked) => handleToggleUserBlock(member.user_id, newBlocked)}
+                            disabled={isReadOnlyObserver}
                             trackColor={{ false: '#28a745', true: '#dc3545' }}
                             thumbColor="#fff"
                           />
@@ -1786,6 +1820,23 @@ const styles = StyleSheet.create({
   },
   section: {
     padding: 14,
+  },
+  readOnlyBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff8e1',
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 10,
+    gap: 8,
+    borderWidth: 1,
+    borderColor: '#ffe082',
+  },
+  readOnlyBannerText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#7a6100',
   },
   sectionTitle: {
     fontSize: 18,

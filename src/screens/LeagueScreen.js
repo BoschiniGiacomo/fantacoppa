@@ -12,7 +12,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { useOnboarding } from '../context/OnboardingContext';
-import { leagueService, squadService, marketService, formationService } from '../services/api';
+import { leagueService, formationService } from '../services/api';
 import { Ionicons } from '@expo/vector-icons';
 import { publicAssetUrl } from '../services/api';
 import TeamInfoModal from '../components/TeamInfoModal';
@@ -115,309 +115,77 @@ export default function LeagueScreen({ route, navigation }) {
 
   const loadData = async () => {
     try {
-      // Prima verifica se l'utente ha bisogno di inserire team_name e coach_name
-      try {
-        console.log('=== CHECK TEAM INFO ===');
-        console.log('League ID:', leagueId);
-        const teamInfoCheck = await leagueService.checkTeamInfo(leagueId);
-        console.log('Team info check response:', JSON.stringify(teamInfoCheck.data, null, 2));
-        
-        if (teamInfoCheck.data && teamInfoCheck.data.needs_info) {
-          console.log('User needs to provide team info');
-          console.log('Default team name:', teamInfoCheck.data.default_team_name);
-          console.log('Default coach name:', teamInfoCheck.data.default_coach_name);
-          // Evita falso "Lega non trovata" mentre mostriamo la modal dati squadra.
-          setLeague((prev) => (
-            prev && !Array.isArray(prev)
-              ? prev
-              : { id: Number(leagueId), name: 'Lega' }
-          ));
-          
-          setDefaultTeamName(teamInfoCheck.data.default_team_name || '');
-          setDefaultCoachName(teamInfoCheck.data.default_coach_name || '');
-          setShowTeamInfoModal(true);
-          setLoading(false);
-          console.log('Team info modal should be visible now');
-          return; // Non caricare altri dati finché non vengono inseriti team_name e coach_name
-        }
-      } catch (error) {
-        console.error('Error checking team info:', error);
-        console.error('Error details:', error.response?.data || error.message);
-        // Continua comunque a caricare i dati
-      }
+      const res = await leagueService.getDashboardData(leagueId);
+      const payload = res?.data || {};
+      const leagueData = payload?.league && typeof payload.league === 'object'
+        ? payload.league
+        : { id: Number(leagueId), name: 'Lega' };
+      const leagueName = String(leagueData.name || '').trim();
+      const safeLeague = { ...leagueData, name: leagueName || `Lega ${leagueId}` };
+      const isSuperuserViewer = String(safeLeague?.role || '') === 'superuser_viewer';
+      const teamInfo = payload?.user_team_info || {};
+      const safeTeamLogo = String(teamInfo.team_logo || safeLeague.team_logo || 'default_1').trim() || 'default_1';
 
-      const [leagueRes, standingsFullRes, userStatsRes, squadRes, marketRes, roleLimitsRes] = await Promise.all([
-        leagueService.getById(leagueId).catch(err => {
-          console.error('Error getting league:', err);
-          return { data: { id: leagueId, name: 'Lega' } };
-        }),
-        leagueService.getStandingsFull(leagueId).catch(err => {
-          console.error('Error getting full standings:', err);
-          return { data: [] };
-        }),
-        leagueService.getUserStats(leagueId).catch(() => ({ data: null })), // Per gli ultimi 5 punteggi
-        squadService.getSquad(leagueId).catch(() => ({ data: { squad: [] } })), // Per conteggio giocatori rosa
-        marketService.getPlayers(leagueId).catch(() => ({ data: [] })), // Per conteggio giocatori mercato
-        squadService.getRoleLimits(leagueId).catch(() => ({ data: {} })), // Per limiti ruolo
-      ]);
-      
-      //console.log('League response:', JSON.stringify(leagueRes, null, 2));
-      //console.log('League response data:', JSON.stringify(leagueRes.data, null, 2));
-      
-      // Imposta sempre i dati della lega se disponibili
-      if (leagueRes && leagueRes.data) {
-        let leagueData = leagueRes.data;
-        
-        // Se la risposta è un array, prendi la prima lega con l'ID corretto
-        if (Array.isArray(leagueData)) {
-          console.warn('API returned an array instead of a single object, searching for league with ID:', leagueId);
-          const foundLeague = leagueData.find(l => l && l.id === parseInt(leagueId));
-          if (foundLeague) {
-            leagueData = foundLeague;
-            console.log('Found league in array:', leagueData.name);
-          } else {
-            console.error('League not found in array. Requested ID:', leagueId, 'Available IDs:', leagueData.map(l => l?.id).filter(Boolean));
-            // NON usare un fallback errato - mostra errore invece
-            showToast(`Lega con ID ${leagueId} non trovata. Potresti non essere ancora iscritto a questa lega.`);
-            setLoading(false);
-            return;
-          }
-        }
-        
-        console.log('Full league data:', JSON.stringify(leagueData, null, 2));
-        
-        // Assicurati che il nome sia presente - prova anche campi alternativi
-        const leagueName = leagueData.name || leagueData.league_name || leagueData.leagueName || null;
-        if (!leagueName || leagueName === '' || leagueName === null) {
-          console.warn('League name is missing! League data:', leagueData);
-          // Prova a recuperare il nome dalla dashboard se disponibile
-          leagueData.name = 'Lega ' + leagueId;
-        } else {
-          // Assicurati che il nome sia una stringa valida
-          leagueData.name = String(leagueName).trim();
-        }
-   
-        // Assicurati di settare un oggetto, non un array
-        if (!Array.isArray(leagueData)) {
-          setLeague(leagueData);
-          
-          // Aggiorna onboarding: modalità formazione automatica
-          updateAutoDetect({ autoLineupMode: !!(leagueData.auto_lineup_mode) });
-          
-          // Se team_name, coach_name o team_logo sono presenti nei dati della lega, usali per userTeamInfo
-          // (questo è utile quando si torna da Settings dopo aver modificato i dati)
-          // Il logo personalizzato ha precedenza sul default
-          // Assicurati che team_logo sia sempre impostato (default_1 solo se mancante/null/vuoto)
-          // Il logo personalizzato ha sempre precedenza
-          const teamLogo = (leagueData.team_logo && leagueData.team_logo.trim() !== '') ? leagueData.team_logo : 'default_1';
-          setUserTeamInfo({
-            team_name: leagueData.team_name || '',
-            coach_name: leagueData.coach_name || '',
-            team_logo: teamLogo, // team_logo può essere un percorso personalizzato o 'default_X'
-          });
-        } else {
-          console.error('Trying to set league with an array! Using fallback.');
-          setLeague({ id: leagueId, name: 'Lega' });
-        }
+      // First paint: header + card squadra immediati.
+      setLeague(safeLeague);
+      setUserTeamInfo({
+        team_name: String(teamInfo.team_name || safeLeague.team_name || '').trim(),
+        coach_name: String(teamInfo.coach_name || safeLeague.coach_name || '').trim(),
+        team_logo: safeTeamLogo,
+      });
+      updateAutoDetect({ autoLineupMode: !!safeLeague.auto_lineup_mode });
+
+      if (payload.needs_info && !isSuperuserViewer) {
+        setDefaultTeamName(String(payload.default_team_name || '').trim());
+        setDefaultCoachName(String(payload.default_coach_name || '').trim());
+        setShowTeamInfoModal(true);
       } else {
-        console.error('League data is null or undefined');
-        // Prova a recuperare almeno l'ID dalla route
-        setLeague({ id: leagueId, name: 'Lega' });
-      }
-      
-      // Top 5 classifica - prendi i primi 5 dalla classifica completa
-      const fullStandingsData = standingsFullRes.data;
-      const fallbackTeamInfo = {
-        team_name: (leagueRes?.data?.team_name || '').trim?.() || league?.team_name || '',
-        coach_name: (leagueRes?.data?.coach_name || '').trim?.() || league?.coach_name || '',
-        team_logo: (leagueRes?.data?.team_logo && String(leagueRes.data.team_logo).trim() !== '')
-          ? String(leagueRes.data.team_logo)
-          : (league?.team_logo || 'default_1'),
-      };
-      let top5 = [];
-      if (Array.isArray(fullStandingsData) && fullStandingsData.length > 0) {
-        top5 = fullStandingsData.slice(0, 5); // I primi 5 sono già ordinati per punteggio
-      } else {
-        console.log('Full standings is not an array or is empty');
-      }
-      setTopStandings(top5);
-      
-      if (Array.isArray(fullStandingsData) && fullStandingsData.length > 0 && user?.id) {
-        // Trova l'utente nella classifica
-        const userIndex = fullStandingsData.findIndex(team => team.id === user.id);
-        
-        if (userIndex !== -1) {
-          const userTeam = fullStandingsData[userIndex];
-          
-          const position = userIndex + 1;
-          const totalPoints = parseFloat(userTeam.punteggio || 0);
-          const avgPoints = parseFloat(userTeam.media_punti || 0);
-          const giornateConVoti = userTeam.giornate_con_voti || 0;
-          const teamName = userTeam.team_name || '';
-          const coachName = userTeam.coach_name || userTeam.username || '';
-          
-          setUserStats({
-            position: position,
-            totalPoints: totalPoints.toFixed(1),
-            avgPoints: avgPoints.toFixed(2),
-          });
-          
-          // Imposta info squadra
-          // NON sovrascrivere team_logo se è già stato impostato da leagueData (può essere personalizzato)
-          // Usa il logo già impostato in userTeamInfo (da leagueData) se esiste, altrimenti usa league?.team_logo
-          setUserTeamInfo(prev => {
-            const existingLogo = prev?.team_logo; // Logo già impostato da leagueData (può essere personalizzato)
-            const leagueLogo = league?.team_logo || 'default_1'; // Logo da league state (fallback)
-            const finalLogo = existingLogo || leagueLogo; // Usa quello esistente se c'è, altrimenti quello da league
-            
-            return {
-              team_name: teamName,
-              coach_name: coachName,
-              team_logo: finalLogo, // Mantieni il logo personalizzato se esiste già
-            };
-          });
-          
-          // Ultimi 5 punteggi - usa getUserStats se disponibile
-          if (userStatsRes && userStatsRes.data && userStatsRes.data.scores && Array.isArray(userStatsRes.data.scores)) {
-            const scores = normalizeUserScores(userStatsRes.data.scores);
-            
-            // Mostra solo se ci sono almeno 1 punteggio (max 5)
-            if (scores.length > 0) {
-              // Se ci sono 5 o più, prendi le ultime 5 e inverti l'ordine (ultima a sinistra)
-              // Se ci sono meno di 5, prendi tutte in ordine crescente (1, 2, 3...)
-              let scoresToSet;
-              if (scores.length >= 5) {
-                scoresToSet = scores.slice(-5).reverse(); // Ultime 5, ordine decrescente
-              } else {
-                scoresToSet = scores; // Tutte in ordine crescente
-              }
-              setUserScores(scoresToSet);
-            } else {
-              console.log('Nessun punteggio disponibile - array vuoto o nessun punteggio > 0');
-              setUserScores([]);
-            }
-          } else {
-            console.log('userStatsRes non contiene scores validi');
-            setUserScores([]);
-          }
-        } else {
-          console.log('User not found in standings');
-          setUserStats(null);
-          setUserTeamInfo((prev) => ({
-            team_name: prev?.team_name || fallbackTeamInfo.team_name,
-            coach_name: prev?.coach_name || fallbackTeamInfo.coach_name,
-            team_logo: prev?.team_logo || fallbackTeamInfo.team_logo,
-          }));
-          setUserScores([]);
-        }
-      } else {
-        console.log('Full standings not available or user not logged in');
-        setUserStats(null);
-        setUserTeamInfo((prev) => ({
-          team_name: prev?.team_name || fallbackTeamInfo.team_name,
-          coach_name: prev?.coach_name || fallbackTeamInfo.coach_name,
-          team_logo: prev?.team_logo || fallbackTeamInfo.team_logo,
-        }));
-        // Prova comunque a recuperare i punteggi
-        console.log('=== FALLBACK: Recupero punteggi ===');
-        if (userStatsRes && userStatsRes.data && userStatsRes.data.scores && Array.isArray(userStatsRes.data.scores)) {
-          const scores = normalizeUserScores(userStatsRes.data.scores);
-          console.log('Scores trovati nel fallback:', scores.length);
-          if (scores.length > 0) {
-            const last5Scores = scores.slice(-5).reverse();
-            setUserScores(last5Scores);
-          } else {
-            setUserScores([]);
-          }
-        } else {
-          console.log('Nessun punteggio nel fallback');
-          setUserScores([]);
-        }
-      }
-      console.log('=== FINE DEBUG STATISTICHE UTENTE ===');
-      
-      // Conta i giocatori nella rosa
-      const squadData = squadRes?.data;
-      const playersArray = squadData?.players || squadData?.squad || [];
-      const squadCount = Array.isArray(playersArray) ? playersArray.length : 0;
-      setSquadPlayersCount(squadCount);
-      
-      // Conta i giocatori disponibili nel mercato
-      const marketData = marketRes?.data || [];
-      const marketCount = Array.isArray(marketData) ? marketData.length : 0;
-      setMarketPlayersCount(marketCount);
-
-      // Calcola se la rosa è completa (tutti gli slot pieni per ogni ruolo)
-      const limits = roleLimitsRes?.data || {};
-      if (limits && Object.keys(limits).length > 0 && Array.isArray(playersArray)) {
-        const allFull = ['P', 'D', 'C', 'A'].every(r => {
-          const limit = limits[r] || 0;
-          const owned = playersArray.filter(p => p.role === r).length;
-          return limit > 0 && owned >= limit;
-        });
-        updateAutoDetect({ squadFull: allFull });
+        setShowTeamInfoModal(false);
       }
 
-      // Controlla se c'è una giornata live:
-      // la giornata con deadline nel passato più vicina a oggi, non calcolata, con almeno un voto
-      try {
-        const statusRes = await leagueService.getMatchdayStatus(leagueId);
-        const statuses = statusRes?.data || [];
-        const now = new Date();
-        
-        // Filtra: deadline passata, ha voti, non calcolata
-        const liveCandidate = statuses
-          .filter((m) => {
-            const d = parseDeadlineDate(m?.deadline);
-            return m.has_votes && !m.is_calculated && d && d < now;
-          })
-          .sort((a, b) => {
-            const da = parseDeadlineDate(a?.deadline);
-            const db = parseDeadlineDate(b?.deadline);
-            return (db?.getTime() || 0) - (da?.getTime() || 0);
-          }); // più recente prima
-        
-        setLiveMatchday(liveCandidate.length > 0 ? liveCandidate[0].giornata : null);
-      } catch (e) {
-        console.log('Could not load matchday status:', e);
-        setLiveMatchday(null);
-      }
+      setLoading(false);
 
-      const isAutoLineupMode = Number(leagueRes?.data?.auto_lineup_mode || 0) === 1;
+      // Dati secondari in background per ridurre il tempo percepito.
+      requestAnimationFrame(() => {
+        const top = Array.isArray(payload.top_standings) ? payload.top_standings : [];
+        setTopStandings(top.slice(0, 5));
 
-      // Prossima scadenza formazione + check badge (solo se formazione NON automatica)
-      if (isAutoLineupMode) {
-        setNextDeadline(null);
-      } else {
-        try {
-          const mdRes = await formationService.getMatchdays(leagueId);
-          const mds = mdRes?.data || [];
-          const now = new Date();
-          const future = mds
-            .filter((m) => {
-              const d = parseDeadlineDate(m?.deadline);
-              return d && d > now;
-            })
-            .sort((a, b) => {
-              const da = parseDeadlineDate(a?.deadline);
-              const db = parseDeadlineDate(b?.deadline);
-              return (da?.getTime() || Number.MAX_SAFE_INTEGER) - (db?.getTime() || Number.MAX_SAFE_INTEGER);
-            });
-          if (future.length > 0) {
-            setNextDeadline({ deadline: future[0].deadline, giornata: future[0].giornata });
-          } else {
-            setNextDeadline(null);
-          }
+        const us = payload.user_stats;
+        setUserStats(us ? {
+          position: Number(us.position || 0),
+          totalPoints: Number(Number(us.totalPoints || 0).toFixed(1)),
+          avgPoints: Number(Number(us.avgPoints || 0).toFixed(2)),
+        } : null);
 
-          try {
-            await syncSubmittedFormationOnboarding({ leagueId, formationService, markDone });
-          } catch (_) {}
-        } catch (e) {
-          console.log('Could not load formation deadlines:', e);
+        const scoresNorm = normalizeUserScores(Array.isArray(payload.user_scores) ? payload.user_scores : []);
+        if (scoresNorm.length >= 5) setUserScores(scoresNorm.slice(-5).reverse());
+        else setUserScores(scoresNorm);
+
+        setSquadPlayersCount(Number(payload.squad_players_count || 0));
+        setMarketPlayersCount(Number(payload.market_players_count || 0));
+        setLiveMatchday(Number(payload.live_matchday || 0) || null);
+
+        const isAutoLineupMode = Number(safeLeague?.auto_lineup_mode || 0) === 1;
+        if (isAutoLineupMode) {
           setNextDeadline(null);
+        } else {
+          const nd = payload?.next_deadline;
+          setNextDeadline(
+            nd && nd.deadline
+              ? { giornata: Number(nd.giornata || 0), deadline: String(nd.deadline) }
+              : null
+          );
         }
-      }
 
+        updateAutoDetect({
+          squadFull: !!payload.squad_full,
+        });
+      });
+
+      // Mantiene il check onboarding "formazione inviata" senza bloccare la UI.
+      try {
+        await syncSubmittedFormationOnboarding({ leagueId, formationService, markDone });
+      } catch (_) {}
     } catch (error) {
       showToast('Impossibile caricare i dati della lega');
       console.error('Error loading league data:', error);
@@ -425,7 +193,6 @@ export default function LeagueScreen({ route, navigation }) {
       setTopStandings([]);
       setSquadPlayersCount(0);
       setMarketPlayersCount(0);
-    } finally {
       setLoading(false);
     }
   };

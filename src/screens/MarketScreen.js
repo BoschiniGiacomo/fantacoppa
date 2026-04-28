@@ -14,7 +14,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { useOnboarding } from '../context/OnboardingContext';
-import { marketService, leagueService, squadService, formationService } from '../services/api';
+import { marketService, formationService } from '../services/api';
 import { Ionicons } from '@expo/vector-icons';
 import { syncSubmittedFormationOnboarding } from '../utils/formationSubmission';
 
@@ -86,45 +86,31 @@ export default function MarketScreen({ route, navigation }) {
 
   const loadData = async () => {
     try {
-      const [playersRes, budgetRes, blockedRes, leagueRes, limitsRes, squadRes] = await Promise.all([
-        marketService.getPlayers(leagueId, { role: selectedRole, search: searchQuery }),
-        marketService.getBudget(leagueId),
-        marketService.isBlocked(leagueId),
-        leagueService.getById(leagueId).catch(() => ({ data: null })),
-        squadService.getRoleLimits(leagueId).catch(() => ({ data: null })),
-        squadService.getSquad(leagueId).catch(() => ({ data: [] })),
-      ]);
-      const playersList = playersRes.data || [];
+      const bootstrapRes = await marketService.getBootstrap(leagueId, { role: selectedRole, search: searchQuery });
+      const data = bootstrapRes?.data || {};
+      const playersList = Array.isArray(data.players) ? data.players : [];
       setPlayers(playersList);
-      const budgetValue = budgetRes?.data?.budget ?? 0;
+      const budgetValue = data?.budget ?? 0;
       setBudget(typeof budgetValue === 'number' ? budgetValue : parseFloat(budgetValue) || 0);
-      const blockedData = blockedRes?.data || {};
-      setMarketBlocked(Boolean(blockedData.blocked));
-      setMarketBlockReason(String(blockedData.block_reason || 'none'));
-      if (leagueRes?.data) {
-        const leagueData = Array.isArray(leagueRes.data) ? leagueRes.data[0] : leagueRes.data;
-        setLeague(leagueData);
+      setMarketBlocked(Boolean(data.market_blocked || data.blocked));
+      setMarketBlockReason(String(data.block_reason || 'none'));
+      if (data.league && typeof data.league === 'object') {
+        setLeague(data.league);
       }
-      if (limitsRes?.data) {
-        setRoleLimits({
-          P: limitsRes.data.P || 3,
-          D: limitsRes.data.D || 8,
-          C: limitsRes.data.C || 8,
-          A: limitsRes.data.A || 6,
-        });
-      }
-      // Conta giocatori posseduti per ruolo dalla rosa completa (non filtrata)
-      const counts = { P: 0, D: 0, C: 0, A: 0 };
-      const squadList = squadRes?.data?.players || squadRes?.data || [];
-      if (Array.isArray(squadList)) {
-        squadList.forEach(p => {
-          const role = p.role || '';
-          if (counts.hasOwnProperty(role)) {
-            counts[role]++;
-          }
-        });
-      }
-      setOwnedCounts(counts);
+      const limits = data?.role_limits || {};
+      setRoleLimits({
+        P: Number(limits.P || 0) || 3,
+        D: Number(limits.D || 0) || 8,
+        C: Number(limits.C || 0) || 8,
+        A: Number(limits.A || 0) || 6,
+      });
+      const counts = data?.owned_counts || {};
+      setOwnedCounts({
+        P: Number(counts.P || 0),
+        D: Number(counts.D || 0),
+        C: Number(counts.C || 0),
+        A: Number(counts.A || 0),
+      });
 
       try {
         await syncSubmittedFormationOnboarding({ leagueId, formationService, markDone });

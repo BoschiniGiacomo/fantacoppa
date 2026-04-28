@@ -21,6 +21,8 @@ export default function CalendarManagementScreen({ route, navigation }) {
 
   const { leagueId } = route.params || {};
   const insets = useSafeAreaInsets();
+  const [leagueRole, setLeagueRole] = useState('');
+  const isReadOnlyObserver = leagueRole === 'superuser_viewer';
   const [matchdays, setMatchdays] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -69,6 +71,11 @@ export default function CalendarManagementScreen({ route, navigation }) {
   const loadMatchdays = async () => {
     try {
       setLoading(true);
+      try {
+        const leagueRes = await leagueService.getById(leagueId);
+        const leagueData = Array.isArray(leagueRes?.data) ? leagueRes.data[0] : leagueRes?.data;
+        setLeagueRole(String(leagueData?.role || ''));
+      } catch (_) {}
       const res = await leagueService.getMatchdays(leagueId);
       setMatchdays(res.data || []);
     } catch (error) {
@@ -125,6 +132,7 @@ export default function CalendarManagementScreen({ route, navigation }) {
   };
 
   const handleSaveMatchday = async () => {
+    if (isReadOnlyObserver) return;
     try {
       setSaving(true);
       const deadlineDate = selectedDeadline.toISOString().split('T')[0];
@@ -156,6 +164,7 @@ export default function CalendarManagementScreen({ route, navigation }) {
   };
 
   const handleDeleteMatchday = (matchday) => {
+    if (isReadOnlyObserver) return;
     setConfirmModal({
       title: 'Conferma eliminazione',
       message: `Sei sicuro di voler eliminare la Giornata ${matchday.giornata}?`,
@@ -222,6 +231,7 @@ export default function CalendarManagementScreen({ route, navigation }) {
         <Text style={styles.headerTitle}>Gestione Calendario</Text>
         <TouchableOpacity
           onPress={() => {
+            if (isReadOnlyObserver) return;
             const tomorrow = new Date();
             tomorrow.setDate(tomorrow.getDate() + 1);
             // Usa l'orario di default dalle impostazioni
@@ -231,9 +241,10 @@ export default function CalendarManagementScreen({ route, navigation }) {
             setEditingMatchday(null);
             setShowModal(true);
           }}
-          style={styles.addButton}
+          style={[styles.addButton, isReadOnlyObserver && styles.addButtonDisabled]}
+          disabled={isReadOnlyObserver}
         >
-          <Ionicons name="add" size={24} color="#667eea" />
+          <Ionicons name="add" size={24} color={isReadOnlyObserver ? '#bbb' : '#667eea'} />
         </TouchableOpacity>
       </View>
 
@@ -244,6 +255,12 @@ export default function CalendarManagementScreen({ route, navigation }) {
           <RefreshControl refreshing={refreshing} onRefresh={loadMatchdays} />
         }
       >
+        {isReadOnlyObserver && (
+          <View style={styles.readOnlyBanner}>
+            <Ionicons name="eye-outline" size={16} color="#7a6100" />
+            <Text style={styles.readOnlyBannerText}>Modalita osservazione: modifiche disabilitate</Text>
+          </View>
+        )}
         {/* Calendario */}
         <View style={styles.calendarContainer}>
           <Calendar
@@ -297,7 +314,7 @@ export default function CalendarManagementScreen({ route, navigation }) {
                   </View>
                   <TouchableOpacity
                     onPress={() => handleDeleteMatchday(matchday)}
-                    disabled={deletingId === matchday.id}
+                    disabled={isReadOnlyObserver || deletingId === matchday.id}
                     style={styles.deleteButton}
                   >
                     {deletingId === matchday.id ? (
@@ -335,6 +352,7 @@ export default function CalendarManagementScreen({ route, navigation }) {
               <TouchableOpacity
                 style={styles.dateTimeButton}
                 onPress={() => setShowDatePicker(true)}
+                disabled={isReadOnlyObserver}
               >
                 <Ionicons name="calendar-outline" size={20} color="#667eea" />
                 <Text style={styles.dateTimeText}>
@@ -345,6 +363,7 @@ export default function CalendarManagementScreen({ route, navigation }) {
               <TouchableOpacity
                 style={styles.dateTimeButton}
                 onPress={() => setShowTimePicker(true)}
+                disabled={isReadOnlyObserver}
               >
                 <Ionicons name="time-outline" size={20} color="#667eea" />
                 <Text style={styles.dateTimeText}>
@@ -399,7 +418,7 @@ export default function CalendarManagementScreen({ route, navigation }) {
                     saved && styles.saveButtonSuccess
                   ]}
                   onPress={handleSaveMatchday}
-                  disabled={saving}
+                  disabled={saving || isReadOnlyObserver}
                 >
                   {saving ? (
                     <ActivityIndicator size="small" color="#fff" />
@@ -473,6 +492,27 @@ const styles = StyleSheet.create({
   },
   addButton: {
     padding: 8,
+  },
+  addButtonDisabled: {
+    opacity: 0.5,
+  },
+  readOnlyBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff8e1',
+    marginHorizontal: 16,
+    marginTop: 8,
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    gap: 8,
+    borderWidth: 1,
+    borderColor: '#ffe082',
+  },
+  readOnlyBannerText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#7a6100',
   },
   loadingContainer: {
     flex: 1,

@@ -115,6 +115,117 @@ router.get('/:leagueId/players', authenticateToken, async (req, res) => {
   }
 });
 
+// GET /api/market/:leagueId/bootstrap
+// Payload aggregato per schermata Mercato (caricamento iniziale/refresh).
+router.get('/:leagueId/bootstrap', authenticateToken, async (req, res) => {
+  try {
+    const leagueId = toLeagueId(req.params.leagueId);
+    if (!leagueId) return res.status(400).json({ message: 'League ID non valido' });
+    const role = String(req.query?.role || '').trim();
+    const search = String(req.query?.search || '').trim();
+    const userId = Number(req.user.userId);
+    const sourceLeagueId = await getEffectiveSourceLeagueId(leagueId);
+
+    const [flags, userBlockValue] = await Promise.all([
+      getLeagueMarketFlags(leagueId),
+      getUserMarketBlockValue(leagueId, userId),
+    ]);
+    const blocked = isUserEffectivelyBlocked(flags.market_locked, userBlockValue);
+    const blockReason = blocked
+      ? (Number(flags.market_locked) === 1 ? 'global' : 'user')
+      : 'none';
+
+    const budgetRows = await query(
+      `SELECT budget
+       FROM user_budget
+       WHERE user_id = ? AND league_id = ?
+       LIMIT 1`,
+      [userId, leagueId]
+    );
+    const budget = Number(budgetRows[0]?.budget || 0);
+
+    const limitsRows = await query(
+      `SELECT max_portieri, max_difensori, max_centrocampisti, max_attaccanti,
+              initial_budget, name
+       FROM leagues
+       WHERE id = ?
+       LIMIT 1`,
+      [leagueId]
+    );
+    const l = limitsRows[0] || {};
+    const roleLimits = {
+      P: Number(l.max_portieri || 0),
+      D: Number(l.max_difensori || 0),
+      C: Number(l.max_centrocampisti || 0),
+      A: Number(l.max_attaccanti || 0),
+    };
+    const league = {
+      id: leagueId,
+      name: l.name || '',
+      initial_budget: Number(l.initial_budget || 0),
+    };
+
+    const ownedRows = await query(
+      `SELECT p.role, COUNT(*)::int AS c
+       FROM user_players up
+       JOIN players p ON p.id = up.player_id
+       WHERE up.user_id = ? AND up.league_id = ?
+       GROUP BY p.role`,
+      [userId, leagueId]
+    );
+    const ownedCounts = { P: 0, D: 0, C: 0, A: 0 };
+    ownedRows.forEach((r) => {
+      const key = String(r.role || '').trim().toUpperCase();
+      if (ownedCounts[key] != null) ownedCounts[key] = Number(r.c || 0);
+    });
+
+    let sql = `
+      SELECT p.id, p.first_name, p.last_name, p.role, p.rating,
+             COALESCE(t.name, '') AS team_name,
+             CASE
+               WHEN EXISTS (
+                 SELECT 1
+                 FROM user_players up
+                 WHERE up.player_id = p.id
+                   AND up.user_id = ?
+                   AND up.league_id = ?
+                 LIMIT 1
+               ) THEN 1
+               ELSE 0
+             END AS owned
+      FROM players p
+      JOIN teams t
+        ON t.id = p.team_id
+       AND t.league_id = ?
+      WHERE 1=1
+    `;
+    const params = [userId, leagueId, sourceLeagueId];
+    if (role) {
+      sql += ' AND p.role = ?';
+      params.push(role);
+    }
+    if (search) {
+      sql += ' AND (p.first_name ILIKE ? OR p.last_name ILIKE ?)';
+      params.push(`%${search}%`, `%${search}%`);
+    }
+    sql += ' ORDER BY p.rating DESC, p.last_name ASC LIMIT 1000';
+    const players = await query(sql, params);
+
+    return res.json({
+      league,
+      players,
+      budget,
+      blocked,
+      block_reason: blockReason,
+      role_limits: roleLimits,
+      owned_counts: ownedCounts,
+    });
+  } catch (error) {
+    console.error('Market bootstrap error:', error);
+    return res.status(500).json({ message: 'Errore caricamento dati mercato' });
+  }
+});
+
 // GET /api/market/:leagueId/budget
 router.get('/:leagueId/budget', authenticateToken, async (req, res) => {
   try {
