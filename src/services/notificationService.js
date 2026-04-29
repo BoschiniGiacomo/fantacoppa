@@ -125,7 +125,7 @@ async function cancelLegacyLocalFormationReminders() {
 
 /**
  * Registra il token push (serve per tutte le notifiche “stile WhatsApp”: calcolo giornata + promemoria formazione da server).
- * Promemoria e “giornata calcolata” arrivano via Expo → FCM/APNs anche con app chiusa (cron + calcolo su api.php).
+ * Promemoria e “giornata calcolata” arrivano via Expo → FCM/APNs anche con app chiusa (cron + calcolo ).
  */
 export async function syncLeagueNotifications(_leagues = []) {
   await initNotifications();

@@ -291,7 +291,6 @@ async function sendCalculatedMatchdayNotifications() {
 }
 
 async function sendFormationDeadlineReminders() {
-  // Logica allineata alla vecchia api.php:
   // - reminder "dovuto" quando deadline-60m <= NOW()
   // - non inviare storico (deadline deve essere ancora futura)
   // - dedupe DB: una sola notifica per user/lega/giornata

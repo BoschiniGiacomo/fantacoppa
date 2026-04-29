@@ -19,6 +19,7 @@ yarn-error.*
 # build / output
 web-build/
 dist/
+dist-buildcheck/
 build/
 android/app/build/
 

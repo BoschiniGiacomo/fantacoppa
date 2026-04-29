@@ -139,6 +139,10 @@ export default function MarketScreen({ route, navigation }) {
   };
 
   const handleBuyPlayer = async (player) => {
+    if (Number(player?.is_injured || 0) === 1) {
+      showError('Giocatore infortunato non acquistabile');
+      return;
+    }
     // Blocca acquisti multipli simultanei
     if (buyingPlayer) return;
     if (marketBlocked) {
@@ -213,12 +217,14 @@ export default function MarketScreen({ route, navigation }) {
     const cantAfford = budgetValue < item.rating;
     const roleColor = getRoleColor(item.role);
     const roleFull = ownedCounts[item.role] >= roleLimits[item.role];
+    const isInjured = Number(item?.is_injured || 0) === 1;
 
     return (
       <TouchableOpacity
         style={[
           styles.playerCard,
           item.owned && styles.playerCardOwned,
+          isInjured && styles.playerCardInjured,
         ]}
         onPress={() => navigation.navigate('PlayerStats', {
           playerId: item.id,
@@ -249,7 +255,11 @@ export default function MarketScreen({ route, navigation }) {
             <Text style={[styles.playerRating, cantAfford && !item.owned && styles.playerRatingRed]}>
               {item.rating}
             </Text>
-            {item.owned ? (
+            {isInjured ? (
+              <View style={styles.injuredActionBadge}>
+                <Ionicons name="bandage" size={24} color="#fff" />
+              </View>
+            ) : item.owned ? (
               <View style={styles.ownedBadge}>
                 <Ionicons name="checkmark-circle" size={18} color="#198754" />
               </View>
@@ -490,11 +500,29 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f2f4f7',
   },
+  playerCardInjured: {
+    borderColor: '#ffd6d6',
+    backgroundColor: '#fff8f8',
+  },
   centerContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#f2f4f7',
+  },
+  injuredActionBadge: {
+    marginTop: 2,
+    backgroundColor: '#e65050',
+    borderRadius: 18,
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.15,
+    shadowRadius: 2,
+    elevation: 2,
   },
   // Header
   header: {

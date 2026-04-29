@@ -235,8 +235,9 @@ export default function FormationScreen({ route }) {
         setLeague(ld);
       }
 
-      const players = squadRes?.data?.players || [];
-      setSquad(players);
+      const playersRaw = squadRes?.data?.players || [];
+      const activePlayers = playersRaw.filter((p) => Number(p?.is_injured || 0) !== 1);
+      setSquad(activePlayers);
 
       const nt = settingsRes?.data?.numero_titolari || 10;
       const al = !!(settingsRes?.data?.auto_lineup_mode);
@@ -252,7 +253,7 @@ export default function FormationScreen({ route }) {
         });
         const defaultMd = futureMatchday ? futureMatchday.giornata : md[md.length - 1].giornata;
         setSelectedMatchday(defaultMd);
-        await loadFormationForMatchday(defaultMd, players);
+        await loadFormationForMatchday(defaultMd, activePlayers);
       }
     } catch (error) {
       console.error('FormationScreen loadInitialData:', error);

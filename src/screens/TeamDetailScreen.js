@@ -19,6 +19,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { defaultLogosMap } from '../constants/defaultLogos';
 import { syncSubmittedFormationOnboarding } from '../utils/formationSubmission';
 import { parseAppDate } from '../utils/dateTime';
+import InjurySwapIcon from '../components/InjurySwapIcon';
 
 const ROLE_COLORS = {
   P: '#0d6efd',
@@ -224,7 +225,19 @@ export default function TeamDetailScreen({ route, navigation }) {
                           <Text style={styles.playerTeam} numberOfLines={1}>{player.team_name}</Text>
                         ) : null}
                       </View>
-                      <Text style={styles.playerRating}>{player.rating?.toFixed(1) || '-'}</Text>
+                      <View style={styles.playerRight}>
+                        {Number(player?.acquired_as_injury_replacement || 0) === 1 && (
+                          <View style={styles.replacementActionBadge}>
+                            <InjurySwapIcon size={26} />
+                          </View>
+                        )}
+                        {Number(player?.is_injured || 0) === 1 && (
+                          <View style={styles.injuredActionBadge}>
+                            <Ionicons name="bandage" size={22} color="#e65050" />
+                          </View>
+                        )}
+                        <Text style={styles.playerRating}>{player.rating?.toFixed(1) || '-'}</Text>
+                      </View>
                     </TouchableOpacity>
                   ))}
                 </View>
@@ -502,6 +515,25 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#667eea',
     marginRight: 6,
+  },
+  playerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  injuredActionBadge: {
+    width: 24,
+    height: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
+  },
+  replacementActionBadge: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
   },
 
   /* ===== Risultati ===== */

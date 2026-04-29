@@ -12,6 +12,7 @@ import {
   Platform,
   Modal,
   Image,
+  Switch,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -118,6 +119,10 @@ export default function TeamManagementScreen({ route, navigation }) {
   const [rating, setRating] = useState('');
   const [shirtNumber, setShirtNumber] = useState('');
   const [selectedTeamId, setSelectedTeamId] = useState(null);
+  const [isInjured, setIsInjured] = useState(false);
+  const [replacementPlayerId, setReplacementPlayerId] = useState(null);
+  const [playerOptions, setPlayerOptions] = useState([]);
+  const [applyingReplacement, setApplyingReplacement] = useState(false);
   
   // Form fields per aggiunta nuovo giocatore
   const [newPlayerFirstName, setNewPlayerFirstName] = useState('');
@@ -432,6 +437,16 @@ export default function TeamManagementScreen({ route, navigation }) {
     }
   };
 
+  const loadPlayerOptions = async () => {
+    try {
+      const res = await leagueService.getPlayersOptions(leagueId);
+      const rows = Array.isArray(res?.data) ? res.data : [];
+      setPlayerOptions(rows);
+    } catch (_) {
+      setPlayerOptions([]);
+    }
+  };
+
   const handleAddPlayer = async () => {
     if (isReadOnlyObserver) return;
     if (!newPlayerFirstName.trim() || !newPlayerLastName.trim()) {
@@ -481,7 +496,7 @@ export default function TeamManagementScreen({ route, navigation }) {
     }
   };
 
-  const handleEditPlayer = (player, teamId) => {
+  const handleEditPlayer = async (player, teamId) => {
     if (isReadOnlyObserver) return;
     const ratingValue = player.rating !== null && player.rating !== undefined 
       ? String(player.rating) 
@@ -493,9 +508,12 @@ export default function TeamManagementScreen({ route, navigation }) {
     setRating(ratingValue);
     setShirtNumber(player.shirt_number === null || typeof player.shirt_number === 'undefined' ? '' : String(player.shirt_number));
     setSelectedTeamId(teamId);
+    setIsInjured(Number(player?.is_injured || 0) === 1);
+    setReplacementPlayerId(player?.injury_replacement_player_id ? Number(player.injury_replacement_player_id) : null);
     
     const playerWithTeamId = { ...player, teamId };
     setEditingPlayer(playerWithTeamId);
+    await loadPlayerOptions();
     setShowEditModal(true);
   };
 
@@ -518,6 +536,10 @@ export default function TeamManagementScreen({ route, navigation }) {
       showToast('Ruolo non valido');
       return;
     }
+    if (isInjured && !replacementPlayerId) {
+      showToast('Se il giocatore è infortunato seleziona un sostituto');
+      return;
+    }
 
     try {
       setSaving(true);
@@ -531,6 +553,8 @@ export default function TeamManagementScreen({ route, navigation }) {
         role: role,
         rating: parseFloat(rating),
         shirt_number: shirtNumber === '' ? null : Number(shirtNumber),
+        is_injured: isInjured ? 1 : 0,
+        injury_replacement_player_id: isInjured ? replacementPlayerId : null,
       };
       
       // Aggiungi team_id solo se è stato modificato
@@ -552,6 +576,8 @@ export default function TeamManagementScreen({ route, navigation }) {
         setRole('P');
         setRating('');
         setShirtNumber('');
+        setIsInjured(false);
+        setReplacementPlayerId(null);
       } else {
         showToast(responseMessage || 'Giocatore aggiornato con successo!', 'success');
         setShowEditModal(false);
@@ -561,6 +587,8 @@ export default function TeamManagementScreen({ route, navigation }) {
         setRole('P');
         setRating('');
         setShirtNumber('');
+        setIsInjured(false);
+        setReplacementPlayerId(null);
         setSelectedTeamId(null);
         
         // Ricarica anche le squadre per aggiornare il conteggio
@@ -593,6 +621,8 @@ export default function TeamManagementScreen({ route, navigation }) {
         setRole('P');
         setRating('');
         setShirtNumber('');
+        setIsInjured(false);
+        setReplacementPlayerId(null);
       }
     } finally {
       setSaving(false);
@@ -620,6 +650,36 @@ export default function TeamManagementScreen({ route, navigation }) {
           showToast(errorMessage);
         } finally {
           setDeletingPlayerId(null);
+        }
+      },
+    });
+  };
+
+  const handleApplyReplacementToOwners = async () => {
+    if (!editingPlayer?.id || !replacementPlayerId) {
+      showToast('Seleziona prima un sostituto');
+      return;
+    }
+    setConfirmModal({
+      title: 'Applica sostituto alle squadre',
+      message: 'Confermi l\'aggiunta del sostituto a tutte le rose che hanno il giocatore infortunato?',
+      confirmText: 'Applica',
+      destructive: false,
+      onConfirm: async () => {
+        setConfirmModal(null);
+        try {
+          setApplyingReplacement(true);
+          const res = await leagueService.applyInjuryReplacement(leagueId, editingPlayer.id, replacementPlayerId);
+          const data = res?.data || {};
+          showToast(
+            `Applicato: +${Number(data.replacements_added || 0)} squadre, già presente in ${Number(data.already_had_replacement || 0)}`,
+            'success'
+          );
+        } catch (error) {
+          const errorMessage = error.response?.data?.error || error.response?.data?.message || 'Errore applicazione sostituto';
+          showToast(errorMessage);
+        } finally {
+          setApplyingReplacement(false);
         }
       },
     });
@@ -711,6 +771,11 @@ export default function TeamManagementScreen({ route, navigation }) {
                 <View style={styles.ratingBadge}>
                   <Text style={styles.ratingText}>#{player?.shirt_number ?? '-'}</Text>
                 </View>
+                {Number(player?.is_injured || 0) === 1 && (
+                  <View style={[styles.ratingBadge, { backgroundColor: '#ffe5e5' }]}>
+                    <Text style={[styles.ratingText, { color: '#c92a2a' }]}>Infortunato</Text>
+                  </View>
+                )}
               </View>
             </View>
             <Ionicons name="chevron-back" size={14} color="#ccc" style={{ marginLeft: 4 }} />
@@ -1325,6 +1390,8 @@ export default function TeamManagementScreen({ route, navigation }) {
           setRole('P');
           setRating('');
           setSelectedTeamId(null);
+          setIsInjured(false);
+          setReplacementPlayerId(null);
         }}
       >
         <View style={styles.modalOverlay}>
@@ -1426,6 +1493,48 @@ export default function TeamManagementScreen({ route, navigation }) {
                     editable={!isReadOnlyObserver}
                   />
                 </View>
+                <View style={styles.formGroup}>
+                  <View style={styles.inlineSwitchRow}>
+                    <Text style={styles.label}>Infortunato</Text>
+                    <Switch value={isInjured} onValueChange={setIsInjured} disabled={isReadOnlyObserver} />
+                  </View>
+                </View>
+                {isInjured && (
+                  <View style={styles.formGroup}>
+                    <Text style={styles.label}>Sostituto</Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.replacementScroll}>
+                      {playerOptions
+                        .filter((p) => Number(p.id) !== Number(editingPlayer?.id))
+                        .map((p) => {
+                          const selected = Number(replacementPlayerId) === Number(p.id);
+                          const disabled = Number(p.is_injured || 0) === 1;
+                          return (
+                            <TouchableOpacity
+                              key={p.id}
+                              style={[styles.replacementChip, selected && styles.replacementChipActive, disabled && styles.replacementChipDisabled]}
+                              onPress={() => !disabled && setReplacementPlayerId(Number(p.id))}
+                              disabled={disabled || isReadOnlyObserver}
+                            >
+                              <Text style={[styles.replacementChipText, selected && styles.replacementChipTextActive]}>
+                                {p.last_name} {p.first_name} ({p.role})
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                    </ScrollView>
+                    <TouchableOpacity
+                      style={[styles.applyReplacementButton, (!replacementPlayerId || applyingReplacement) && styles.buttonDisabled]}
+                      onPress={handleApplyReplacementToOwners}
+                      disabled={!replacementPlayerId || applyingReplacement || isReadOnlyObserver}
+                    >
+                      {applyingReplacement ? (
+                        <ActivityIndicator size="small" color="#fff" />
+                      ) : (
+                        <Text style={styles.applyReplacementButtonText}>Applica sostituto alle squadre interessate</Text>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                )}
               </>
             )}
 
@@ -1441,6 +1550,8 @@ export default function TeamManagementScreen({ route, navigation }) {
                   setRating('');
                   setShirtNumber('');
                   setSelectedTeamId(null);
+                  setIsInjured(false);
+                  setReplacementPlayerId(null);
                 }}
                 disabled={saving}
               >
@@ -1685,6 +1796,29 @@ const styles = StyleSheet.create({
   saveButton: { flex: 1, backgroundColor: '#667eea', paddingVertical: 13, borderRadius: 10, alignItems: 'center' },
   saveButtonText: { color: '#fff', fontSize: 15, fontWeight: '700' },
   buttonDisabled: { opacity: 0.6 },
+  inlineSwitchRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  replacementScroll: { maxHeight: 48 },
+  replacementChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#dde1f2',
+    backgroundColor: '#f8f9ff',
+    marginRight: 8,
+  },
+  replacementChipActive: { backgroundColor: '#667eea', borderColor: '#667eea' },
+  replacementChipDisabled: { opacity: 0.45 },
+  replacementChipText: { fontSize: 12, color: '#42506b', fontWeight: '600' },
+  replacementChipTextActive: { color: '#fff' },
+  applyReplacementButton: {
+    marginTop: 10,
+    backgroundColor: '#2f855a',
+    paddingVertical: 10,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  applyReplacementButtonText: { color: '#fff', fontSize: 13, fontWeight: '700' },
 
   // ── Team picker (in modal) ──
   teamPickerContainer: { marginTop: 4 },

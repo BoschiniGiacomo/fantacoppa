@@ -16,14 +16,14 @@ function parseAuthResponsePayload(data) {
     return {
       ok: false,
       error:
-        'Risposta vuota dal server. Verifica l\'URL dell\'API in api.js (deve puntare a api.php).',
+        'Risposta vuota dal server. Verifica l\'URL dell\'API in api.js.',
     };
   }
   if (typeof data !== 'object' || Array.isArray(data)) {
     return {
       ok: false,
       error:
-        'Il server non ha restituito JSON valido (es. pagina HTML o errore PHP). Controlla URL e deploy di api.php.',
+        'Il server non ha restituito JSON valido (es. pagina HTML o errore PHP). Controlla URL.',
     };
   }
 
@@ -35,7 +35,7 @@ function parseAuthResponsePayload(data) {
       ok: false,
       error:
         data.message ||
-        'Nessun token nella risposta del server. Verifica URL API e versione di api.php.',
+        'Nessun token nella risposta del server. Verifica URL API.',
     };
   }
   if (!user || typeof user !== 'object') {

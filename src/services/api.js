@@ -187,8 +187,7 @@ export const authService = {
       delete api.defaults.headers.common['Authorization'];
     }
   },
-  // URL assoluto + baseURL vuoto: garantisce .../api.php/auth/forgot-password (evita 404 "Endpoint non trovato").
-  forgotPassword: (email) =>
+   forgotPassword: (email) =>
     api.post(apiFileUrl('auth/forgot-password'), { email }, { baseURL: '' }),
   
   changePassword: (currentPassword, newPassword, confirmPassword) => {
@@ -385,6 +384,14 @@ export const leagueService = {
   updatePlayer: async (leagueId, teamId, playerId, playerData) => {
     return api.put(`/leagues/${leagueId}/teams/${teamId}/players/${playerId}`, playerData);
   },
+  getPlayersOptions: async (leagueId) => {
+    return api.get(`/leagues/${leagueId}/players/options`);
+  },
+  applyInjuryReplacement: async (leagueId, playerId, replacementPlayerId) => {
+    return api.post(`/leagues/${leagueId}/injuries/${playerId}/apply-replacement`, {
+      replacement_player_id: replacementPlayerId,
+    });
+  },
   deletePlayer: async (leagueId, teamId, playerId) => {
     return api.delete(`/leagues/${leagueId}/teams/${teamId}/players/${playerId}`);
   },
@@ -470,7 +477,6 @@ export const profileService = {
 };
 
 export const notificationService = {
-  // Stesso motivo di forgotPassword: con baseURL .../api.php, path assoluto /foo va a dominio/foo (404).
   registerPushToken: (token, platform) =>
     api.post(
       apiFileUrl('notifications/register-token'),

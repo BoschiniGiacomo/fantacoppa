@@ -12,7 +12,7 @@ Altervista **NON permette connessioni MySQL esterne** per motivi di sicurezza. L
 
 Crea un'API PHP sul server Altervista che fa da ponte tra l'app mobile e il database:
 
-1. **Crea un file `api.php` sul server Altervista:**
+
 ```php
 <?php
 header('Content-Type: application/json');

@@ -79,6 +79,7 @@ router.get('/:leagueId/players', authenticateToken, async (req, res) => {
 
     let sql = `
       SELECT p.id, p.first_name, p.last_name, p.role, p.rating,
+             COALESCE(p.is_injured, 0)::int AS is_injured,
              COALESCE(t.name, '') AS team_name,
              CASE
                WHEN EXISTS (
@@ -87,6 +88,15 @@ router.get('/:leagueId/players', authenticateToken, async (req, res) => {
                  WHERE up.player_id = p.id
                    AND up.user_id = ?
                    AND up.league_id = ?
+                 LIMIT 1
+               ) OR EXISTS (
+                 SELECT 1
+                 FROM user_players up2
+                 JOIN players inj ON inj.id = up2.player_id
+                 WHERE up2.user_id = ?
+                   AND up2.league_id = ?
+                   AND COALESCE(inj.is_injured, 0) = 1
+                   AND inj.injury_replacement_player_id = p.id
                  LIMIT 1
                ) THEN 1
                ELSE 0
@@ -97,7 +107,7 @@ router.get('/:leagueId/players', authenticateToken, async (req, res) => {
        AND t.league_id = ?
       WHERE 1=1
     `;
-    const params = [userId, leagueId, sourceLeagueId];
+    const params = [userId, leagueId, userId, leagueId, sourceLeagueId];
     if (role) {
       sql += ' AND p.role = ?';
       params.push(role);
@@ -166,12 +176,25 @@ router.get('/:leagueId/bootstrap', authenticateToken, async (req, res) => {
     };
 
     const ownedRows = await query(
-      `SELECT p.role, COUNT(*)::int AS c
-       FROM user_players up
-       JOIN players p ON p.id = up.player_id
-       WHERE up.user_id = ? AND up.league_id = ?
+      `WITH effective_owned AS (
+         SELECT up.player_id
+         FROM user_players up
+         JOIN players p ON p.id = up.player_id
+         WHERE up.user_id = ? AND up.league_id = ?
+           AND COALESCE(p.is_injured, 0) = 0
+         UNION
+         SELECT inj.injury_replacement_player_id AS player_id
+         FROM user_players up
+         JOIN players inj ON inj.id = up.player_id
+         WHERE up.user_id = ? AND up.league_id = ?
+           AND COALESCE(inj.is_injured, 0) = 1
+           AND inj.injury_replacement_player_id IS NOT NULL
+       )
+       SELECT p.role, COUNT(*)::int AS c
+       FROM effective_owned eo
+       JOIN players p ON p.id = eo.player_id
        GROUP BY p.role`,
-      [userId, leagueId]
+      [userId, leagueId, userId, leagueId]
     );
     const ownedCounts = { P: 0, D: 0, C: 0, A: 0 };
     ownedRows.forEach((r) => {
@@ -181,6 +204,7 @@ router.get('/:leagueId/bootstrap', authenticateToken, async (req, res) => {
 
     let sql = `
       SELECT p.id, p.first_name, p.last_name, p.role, p.rating,
+             COALESCE(p.is_injured, 0)::int AS is_injured,
              COALESCE(t.name, '') AS team_name,
              CASE
                WHEN EXISTS (
@@ -189,6 +213,15 @@ router.get('/:leagueId/bootstrap', authenticateToken, async (req, res) => {
                  WHERE up.player_id = p.id
                    AND up.user_id = ?
                    AND up.league_id = ?
+                 LIMIT 1
+               ) OR EXISTS (
+                 SELECT 1
+                 FROM user_players up2
+                 JOIN players inj ON inj.id = up2.player_id
+                 WHERE up2.user_id = ?
+                   AND up2.league_id = ?
+                   AND COALESCE(inj.is_injured, 0) = 1
+                   AND inj.injury_replacement_player_id = p.id
                  LIMIT 1
                ) THEN 1
                ELSE 0
@@ -199,7 +232,7 @@ router.get('/:leagueId/bootstrap', authenticateToken, async (req, res) => {
        AND t.league_id = ?
       WHERE 1=1
     `;
-    const params = [userId, leagueId, sourceLeagueId];
+    const params = [userId, leagueId, userId, leagueId, sourceLeagueId];
     if (role) {
       sql += ' AND p.role = ?';
       params.push(role);
@@ -288,7 +321,7 @@ router.post('/:leagueId/buy', authenticateToken, async (req, res) => {
     }
 
     const pRows = await query(
-      `SELECT p.id, p.role, p.rating
+      `SELECT p.id, p.role, p.rating, COALESCE(p.is_injured, 0)::int AS is_injured
        FROM players p
        JOIN teams t ON t.id = p.team_id
        WHERE p.id = ? AND t.league_id = ?
@@ -297,12 +330,31 @@ router.post('/:leagueId/buy', authenticateToken, async (req, res) => {
     );
     const p = pRows[0];
     if (!p) return res.status(404).json({ message: 'Giocatore non trovato' });
+    if (Number(p.is_injured || 0) === 1) {
+      return res.status(400).json({ message: 'Giocatore infortunato non acquistabile' });
+    }
 
     const alreadyOwned = await query(
-      'SELECT 1 FROM user_players WHERE user_id = ? AND league_id = ? AND player_id = ? LIMIT 1',
+      `SELECT 1
+       FROM user_players up
+       WHERE up.user_id = ? AND up.league_id = ? AND up.player_id = ?
+       LIMIT 1`,
       [userId, leagueId, playerId]
     );
-    if (alreadyOwned.length > 0) return res.status(400).json({ message: 'Giocatore già acquistato' });
+    const effectivelyOwnedByReplacement = await query(
+      `SELECT 1
+       FROM user_players up
+       JOIN players inj ON inj.id = up.player_id
+       WHERE up.user_id = ?
+         AND up.league_id = ?
+         AND COALESCE(inj.is_injured, 0) = 1
+         AND inj.injury_replacement_player_id = ?
+       LIMIT 1`,
+      [userId, leagueId, playerId]
+    );
+    if (alreadyOwned.length > 0 || effectivelyOwnedByReplacement.length > 0) {
+      return res.status(400).json({ message: 'Giocatore già acquistato' });
+    }
 
     const budgetRows = await query('SELECT budget FROM user_budget WHERE user_id = ? AND league_id = ? LIMIT 1', [userId, leagueId]);
     const budget = Number(budgetRows[0]?.budget || 0);
@@ -319,7 +371,8 @@ router.post('/:leagueId/buy', authenticateToken, async (req, res) => {
       `SELECT COUNT(*)::int AS c
        FROM user_players up
        JOIN players p ON p.id = up.player_id
-       WHERE up.user_id = ? AND up.league_id = ? AND p.role = ?`,
+       WHERE up.user_id = ? AND up.league_id = ? AND p.role = ?
+         AND COALESCE(p.is_injured, 0) = 0`,
       [userId, leagueId, p.role]
     );
     const owned = Number(countRows[0]?.c || 0);

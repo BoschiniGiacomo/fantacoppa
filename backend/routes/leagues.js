@@ -245,7 +245,8 @@ async function buildAutoLineupSimple(leagueId, userId, numeroTitolari, votesByPl
     `SELECT p.id, p.role
      FROM user_players up
      JOIN players p ON p.id = up.player_id
-     WHERE up.league_id = ? AND up.user_id = ?`,
+     WHERE up.league_id = ? AND up.user_id = ?
+       AND COALESCE(p.is_injured, 0) = 0`,
     [leagueId, userId]
   );
   if (!rows.length) return [];
@@ -329,6 +330,7 @@ async function buildFallbackLineupFromRoster(leagueId, userId, numeroTitolari) {
      FROM user_players up
      JOIN players p ON p.id = up.player_id
      WHERE up.league_id = ? AND up.user_id = ?
+       AND COALESCE(p.is_injured, 0) = 0
      ORDER BY p.id ASC`,
     [leagueId, userId]
   );
@@ -390,6 +392,45 @@ async function buildFallbackLineupFromRoster(leagueId, userId, numeroTitolari) {
     titolari,
     panchina,
   };
+}
+
+async function getInjuryReplacementMap(leagueId) {
+  try {
+    const rows = await query(
+      `SELECT p.id AS injured_id, p.injury_replacement_player_id
+       FROM players p
+       JOIN teams t ON t.id = p.team_id
+       WHERE t.league_id = ?
+         AND COALESCE(p.is_injured, 0) = 1
+         AND p.injury_replacement_player_id IS NOT NULL`,
+      [leagueId]
+    );
+    const map = {};
+    rows.forEach((r) => {
+      const injuredId = Number(r.injured_id);
+      const replacementId = Number(r.injury_replacement_player_id);
+      if (Number.isFinite(injuredId) && injuredId > 0 && Number.isFinite(replacementId) && replacementId > 0 && replacementId !== injuredId) {
+        map[injuredId] = replacementId;
+      }
+    });
+    return map;
+  } catch (_) {
+    return {};
+  }
+}
+
+function applyInjuryMap(ids, injuryMap) {
+  const out = [];
+  const used = new Set();
+  (ids || []).forEach((rawId) => {
+    const id = Number(rawId);
+    if (!Number.isFinite(id) || id <= 0) return;
+    const mapped = Number(injuryMap[id] || id);
+    if (!Number.isFinite(mapped) || mapped <= 0 || used.has(mapped)) return;
+    used.add(mapped);
+    out.push(mapped);
+  });
+  return out;
 }
 
 async function getLeagueBonusSettings(leagueId) {
@@ -1249,9 +1290,10 @@ router.post('/:id/change-role', authenticateToken, async (req, res) => {
   try {
     const leagueId = toValidLeagueId(req.params.id);
     const actorId = Number(req.user.userId);
-    const memberId = Number(req.body?.member_id);
+    const memberIdRaw = req.body?.member_id != null ? req.body.member_id : req.body?.user_id;
+    const memberId = Number(memberIdRaw);
     const newRole = String(req.body?.new_role || '').trim();
-    if (!leagueId || !Number.isFinite(memberId) || !['admin', 'user'].includes(newRole)) {
+    if (!leagueId || !Number.isFinite(memberId) || !['admin', 'user', 'pagellatore'].includes(newRole)) {
       return res.status(400).json({ message: 'Parametri non validi' });
     }
     const roleRows = await query(
@@ -1537,7 +1579,9 @@ router.get('/:id/teams/:teamId/players', authenticateToken, async (req, res) => 
                     THEN (to_jsonb(p)->>'numero_maglia')::int
                   ELSE NULL
                 END
-              ) AS shirt_number
+              ) AS shirt_number,
+              COALESCE(p.is_injured, 0)::int AS is_injured,
+              p.injury_replacement_player_id
        FROM players p
        JOIN teams t ON t.id = p.team_id
        WHERE p.team_id = ? AND t.league_id = ?
@@ -1559,35 +1603,40 @@ router.post('/:id/teams/:teamId/players', authenticateToken, async (req, res) =>
     const firstName = String(req.body?.first_name || '').trim();
     const lastName = String(req.body?.last_name || '').trim();
     const role = String(req.body?.role || '').trim();
+    const ratingRaw = req.body?.rating;
+    const rating = ratingRaw == null || ratingRaw === '' ? 0 : Number(ratingRaw);
     const shirtNumber = req.body?.shirt_number === '' || req.body?.shirt_number == null
       ? null
       : Number(req.body.shirt_number);
     if (!leagueId || !Number.isFinite(teamId) || !firstName || !lastName || !['P', 'D', 'C', 'A'].includes(role)) {
       return res.status(400).json({ message: 'Parametri non validi' });
     }
+    if (!Number.isFinite(rating) || rating < 0) {
+      return res.status(400).json({ message: 'Valutazione non valida' });
+    }
     let ins;
     try {
       try {
         ins = await query(
-          `INSERT INTO players (team_id, first_name, last_name, role, shirt_number)
-           VALUES (?, ?, ?, ?, ?)
+          `INSERT INTO players (team_id, first_name, last_name, role, rating, shirt_number, is_injured, injury_replacement_player_id)
+           VALUES (?, ?, ?, ?, ?, ?, 0, NULL)
            RETURNING id`,
-          [teamId, firstName, lastName, role, shirtNumber]
+          [teamId, firstName, lastName, role, rating, shirtNumber]
         );
       } catch (_) {
         try {
           ins = await query(
-            `INSERT INTO players (team_id, first_name, last_name, role, numero_maglia)
-             VALUES (?, ?, ?, ?, ?)
+            `INSERT INTO players (team_id, first_name, last_name, role, rating, numero_maglia, is_injured, injury_replacement_player_id)
+             VALUES (?, ?, ?, ?, ?, ?, 0, NULL)
              RETURNING id`,
-            [teamId, firstName, lastName, role, shirtNumber]
+            [teamId, firstName, lastName, role, rating, shirtNumber]
           );
         } catch (_) {
           ins = await query(
-            `INSERT INTO players (team_id, first_name, last_name, role)
-             VALUES (?, ?, ?, ?)
+            `INSERT INTO players (team_id, first_name, last_name, role, rating, is_injured, injury_replacement_player_id)
+             VALUES (?, ?, ?, ?, ?, 0, NULL)
              RETURNING id`,
-            [teamId, firstName, lastName, role]
+            [teamId, firstName, lastName, role, rating]
           );
         }
       }
@@ -1596,25 +1645,25 @@ router.post('/:id/teams/:teamId/players', authenticateToken, async (req, res) =>
         await syncPlayersIdSequence();
         try {
           ins = await query(
-            `INSERT INTO players (team_id, first_name, last_name, role, shirt_number)
-             VALUES (?, ?, ?, ?, ?)
+            `INSERT INTO players (team_id, first_name, last_name, role, rating, shirt_number, is_injured, injury_replacement_player_id)
+             VALUES (?, ?, ?, ?, ?, ?, 0, NULL)
              RETURNING id`,
-            [teamId, firstName, lastName, role, shirtNumber]
+            [teamId, firstName, lastName, role, rating, shirtNumber]
           );
         } catch (_) {
           try {
             ins = await query(
-              `INSERT INTO players (team_id, first_name, last_name, role, numero_maglia)
-               VALUES (?, ?, ?, ?, ?)
+              `INSERT INTO players (team_id, first_name, last_name, role, rating, numero_maglia, is_injured, injury_replacement_player_id)
+               VALUES (?, ?, ?, ?, ?, ?, 0, NULL)
                RETURNING id`,
-              [teamId, firstName, lastName, role, shirtNumber]
+              [teamId, firstName, lastName, role, rating, shirtNumber]
             );
           } catch (_) {
             ins = await query(
-              `INSERT INTO players (team_id, first_name, last_name, role)
-               VALUES (?, ?, ?, ?)
+              `INSERT INTO players (team_id, first_name, last_name, role, rating, is_injured, injury_replacement_player_id)
+               VALUES (?, ?, ?, ?, ?, 0, NULL)
                RETURNING id`,
-              [teamId, firstName, lastName, role]
+              [teamId, firstName, lastName, role, rating]
             );
           }
         }
@@ -1622,7 +1671,14 @@ router.post('/:id/teams/:teamId/players', authenticateToken, async (req, res) =>
         throw insertErr;
       }
     }
-    res.status(201).json({ id: ins.insertId, first_name: firstName, last_name: lastName, role, shirt_number: shirtNumber });
+    res.status(201).json({
+      id: ins.insertId,
+      first_name: firstName,
+      last_name: lastName,
+      role,
+      rating,
+      shirt_number: shirtNumber,
+    });
   } catch (error) {
     console.error('Add player to team error:', error);
     res.status(500).json({ message: 'Errore creazione giocatore' });
@@ -1638,11 +1694,35 @@ router.put('/:id/teams/:teamId/players/:playerId', authenticateToken, async (req
     const firstName = req.body?.first_name != null ? String(req.body.first_name).trim() : null;
     const lastName = req.body?.last_name != null ? String(req.body.last_name).trim() : null;
     const role = req.body?.role != null ? String(req.body.role).trim() : null;
+    const isInjured = req.body?.is_injured != null ? Number(req.body.is_injured ? 1 : 0) : null;
+    const injuryReplacementPlayerId =
+      req.body?.injury_replacement_player_id == null || req.body?.injury_replacement_player_id === ''
+        ? null
+        : Number(req.body.injury_replacement_player_id);
     const shirtNumber = req.body?.shirt_number === '' || req.body?.shirt_number == null
       ? null
       : Number(req.body.shirt_number);
     if (!leagueId || !Number.isFinite(teamId) || !Number.isFinite(playerId)) {
       return res.status(400).json({ message: 'Parametri non validi' });
+    }
+    if (injuryReplacementPlayerId != null && (!Number.isFinite(injuryReplacementPlayerId) || injuryReplacementPlayerId <= 0)) {
+      return res.status(400).json({ message: 'Sostituto non valido' });
+    }
+    if (injuryReplacementPlayerId != null && injuryReplacementPlayerId === playerId) {
+      return res.status(400).json({ message: 'Il sostituto deve essere diverso dal giocatore infortunato' });
+    }
+    if (injuryReplacementPlayerId != null) {
+      const replacementRows = await query(
+        `SELECT p.id
+         FROM players p
+         JOIN teams t ON t.id = p.team_id
+         WHERE p.id = ? AND t.league_id = ?
+         LIMIT 1`,
+        [injuryReplacementPlayerId, leagueId]
+      );
+      if (!replacementRows[0]) {
+        return res.status(400).json({ message: 'Il sostituto deve appartenere alla stessa lega' });
+      }
     }
     try {
       await query(
@@ -1650,10 +1730,21 @@ router.put('/:id/teams/:teamId/players/:playerId', authenticateToken, async (req
          SET first_name = COALESCE(?, first_name),
              last_name = COALESCE(?, last_name),
              role = COALESCE(?, role),
-             shirt_number = ?
+             shirt_number = ?,
+             is_injured = COALESCE(CAST(? AS integer), is_injured),
+             injury_replacement_player_id = CASE
+               WHEN COALESCE(CAST(? AS integer), is_injured) = 1 THEN CAST(? AS integer)
+               ELSE NULL
+             END
          FROM teams t
          WHERE p.id = ? AND p.team_id = ? AND t.id = p.team_id AND t.league_id = ?`,
-        [firstName, lastName, role, shirtNumber, playerId, teamId, leagueId]
+        [
+          firstName, lastName, role, shirtNumber,
+          Number.isFinite(isInjured) ? isInjured : null,
+          Number.isFinite(isInjured) ? isInjured : null,
+          injuryReplacementPlayerId,
+          playerId, teamId, leagueId,
+        ]
       );
     } catch (_) {
       try {
@@ -1662,26 +1753,54 @@ router.put('/:id/teams/:teamId/players/:playerId', authenticateToken, async (req
            SET first_name = COALESCE(?, first_name),
                last_name = COALESCE(?, last_name),
                role = COALESCE(?, role),
-               numero_maglia = ?
+               numero_maglia = ?,
+               is_injured = COALESCE(CAST(? AS integer), is_injured),
+               injury_replacement_player_id = CASE
+                 WHEN COALESCE(CAST(? AS integer), is_injured) = 1 THEN CAST(? AS integer)
+                 ELSE NULL
+               END
            FROM teams t
            WHERE p.id = ? AND p.team_id = ? AND t.id = p.team_id AND t.league_id = ?`,
-          [firstName, lastName, role, shirtNumber, playerId, teamId, leagueId]
+          [
+            firstName, lastName, role, shirtNumber,
+            Number.isFinite(isInjured) ? isInjured : null,
+            Number.isFinite(isInjured) ? isInjured : null,
+            injuryReplacementPlayerId,
+            playerId, teamId, leagueId,
+          ]
         );
       } catch (_) {
         await query(
           `UPDATE players p
            SET first_name = COALESCE(?, first_name),
                last_name = COALESCE(?, last_name),
-               role = COALESCE(?, role)
+               role = COALESCE(?, role),
+               is_injured = COALESCE(CAST(? AS integer), is_injured),
+               injury_replacement_player_id = CASE
+                 WHEN COALESCE(CAST(? AS integer), is_injured) = 1 THEN CAST(? AS integer)
+                 ELSE NULL
+               END
            FROM teams t
            WHERE p.id = ? AND p.team_id = ? AND t.id = p.team_id AND t.league_id = ?`,
-          [firstName, lastName, role, playerId, teamId, leagueId]
+          [
+            firstName, lastName, role,
+            Number.isFinite(isInjured) ? isInjured : null,
+            Number.isFinite(isInjured) ? isInjured : null,
+            injuryReplacementPlayerId,
+            playerId, teamId, leagueId,
+          ]
         );
       }
     }
     res.json({ message: 'Giocatore aggiornato' });
   } catch (error) {
     console.error('Update player error:', error);
+    const msg = String(error?.message || '').toLowerCase();
+    if (msg.includes('is_injured') || msg.includes('injury_replacement_player_id')) {
+      return res.status(500).json({
+        message: 'Colonne infortunio non trovate nel DB. Esegui la migrazione db/injury_migration.sql',
+      });
+    }
     res.status(500).json({ message: 'Errore aggiornamento giocatore' });
   }
 });
@@ -1705,6 +1824,121 @@ router.delete('/:id/teams/:teamId/players/:playerId', authenticateToken, async (
   } catch (error) {
     console.error('Delete player error:', error);
     res.status(500).json({ message: 'Errore eliminazione giocatore' });
+  }
+});
+
+// GET /api/leagues/:id/players/options
+router.get('/:id/players/options', authenticateToken, async (req, res) => {
+  try {
+    const leagueId = toValidLeagueId(req.params.id);
+    if (!leagueId) return res.status(400).json({ message: 'League ID non valido' });
+    const rows = await query(
+      `SELECT p.id, p.first_name, p.last_name, p.role, t.id AS team_id, t.name AS team_name,
+              COALESCE(p.is_injured, 0)::int AS is_injured,
+              p.injury_replacement_player_id
+       FROM players p
+       JOIN teams t ON t.id = p.team_id
+       WHERE t.league_id = ?
+       ORDER BY p.last_name ASC, p.first_name ASC`,
+      [leagueId]
+    );
+    res.json(rows);
+  } catch (error) {
+    console.error('Get player options error:', error);
+    res.status(500).json({ message: 'Errore caricamento elenco giocatori' });
+  }
+});
+
+// POST /api/leagues/:id/injuries/:playerId/apply-replacement
+router.post('/:id/injuries/:playerId/apply-replacement', authenticateToken, async (req, res) => {
+  try {
+    const leagueId = toValidLeagueId(req.params.id);
+    const playerId = Number(req.params.playerId);
+    const currentUserId = Number(req.user.userId);
+    const replacementPlayerId = Number(req.body?.replacement_player_id);
+    if (!leagueId || !Number.isFinite(playerId) || playerId <= 0 || !Number.isFinite(replacementPlayerId) || replacementPlayerId <= 0) {
+      return res.status(400).json({ message: 'Parametri non validi' });
+    }
+    if (playerId === replacementPlayerId) {
+      return res.status(400).json({ message: 'Il sostituto deve essere diverso dal giocatore infortunato' });
+    }
+
+    const roleRows = await query(
+      `SELECT role FROM league_members WHERE league_id = ? AND user_id = ? LIMIT 1`,
+      [leagueId, currentUserId]
+    );
+    if (!roleRows[0] || String(roleRows[0].role) !== 'admin') {
+      return res.status(403).json({ message: 'Solo gli amministratori possono applicare la sostituzione infortunio' });
+    }
+
+    const targetRows = await query(
+      `SELECT p.id
+       FROM players p
+       JOIN teams t ON t.id = p.team_id
+       WHERE p.id = ? AND t.league_id = ?
+       LIMIT 1`,
+      [playerId, leagueId]
+    );
+    if (!targetRows[0]) return res.status(404).json({ message: 'Giocatore infortunato non trovato in lega' });
+
+    const replacementRows = await query(
+      `SELECT p.id
+       FROM players p
+       JOIN teams t ON t.id = p.team_id
+       WHERE p.id = ? AND t.league_id = ?
+       LIMIT 1`,
+      [replacementPlayerId, leagueId]
+    );
+    if (!replacementRows[0]) return res.status(400).json({ message: 'Sostituto non trovato in lega' });
+
+    await query(
+      `UPDATE players
+       SET is_injured = 1,
+           injury_replacement_player_id = ?
+       WHERE id = ?`,
+      [replacementPlayerId, playerId]
+    );
+
+    const ownersRows = await query(
+      `SELECT DISTINCT up.user_id
+       FROM user_players up
+       WHERE up.league_id = ? AND up.player_id = ?`,
+      [leagueId, playerId]
+    );
+
+    let addedCount = 0;
+    let alreadyOwnedCount = 0;
+    for (const owner of ownersRows) {
+      const ownerUserId = Number(owner.user_id);
+      const hasReplacementRows = await query(
+        `SELECT 1
+         FROM user_players
+         WHERE league_id = ? AND user_id = ? AND player_id = ?
+         LIMIT 1`,
+        [leagueId, ownerUserId, replacementPlayerId]
+      );
+      if (hasReplacementRows[0]) {
+        alreadyOwnedCount += 1;
+        continue;
+      }
+      await query(
+        `INSERT INTO user_players (user_id, league_id, player_id)
+         VALUES (?, ?, ?)
+         ON CONFLICT (user_id, league_id, player_id) DO NOTHING`,
+        [ownerUserId, leagueId, replacementPlayerId]
+      );
+      addedCount += 1;
+    }
+
+    res.json({
+      message: 'Sostituzione infortunio applicata',
+      affected_owners: ownersRows.length,
+      replacements_added: addedCount,
+      already_had_replacement: alreadyOwnedCount,
+    });
+  } catch (error) {
+    console.error('Apply injury replacement error:', error);
+    res.status(500).json({ message: 'Errore applicazione sostituzione infortunio' });
   }
 });
 
@@ -1796,6 +2030,20 @@ router.get('/:id/standings/matchday/:giornata/formation/:userId', authenticateTo
     }
 
     const bonusSettings = await getLeagueBonusSettings(leagueId);
+    const injuryMap = await getInjuryReplacementMap(leagueId);
+    let recoverPrevious = false;
+    try {
+      const leagueRows = await query(
+        `SELECT COALESCE(recover_previous_lineup_if_missing, 1) AS recover_previous_lineup_if_missing
+         FROM leagues
+         WHERE id = ?
+         LIMIT 1`,
+        [leagueId]
+      );
+      recoverPrevious = Number(leagueRows[0]?.recover_previous_lineup_if_missing ?? 1) === 1;
+    } catch (_) {
+      recoverPrevious = false;
+    }
     let isCalculated = false;
     try {
       const calcRows = await query(
@@ -1815,18 +2063,11 @@ router.get('/:id/standings/matchday/:giornata/formation/:userId', authenticateTo
        LIMIT 1`,
       [leagueId, giornata, targetUserId]
     );
+    const hasDirectLineupForMatchday = !!lineRows[0];
     let playerIds = parseIdsArray(lineRows[0]?.titolari);
     let formationRecovered = false;
 
     if (playerIds.length < 1 && !isCalculated) {
-      const leagueRows = await query(
-        `SELECT COALESCE(recover_previous_lineup_if_missing, 1) AS recover_previous_lineup_if_missing
-         FROM leagues
-         WHERE id = ?
-         LIMIT 1`,
-        [leagueId]
-      );
-      const recoverPrevious = Number(leagueRows[0]?.recover_previous_lineup_if_missing ?? 1) === 1;
       if (recoverPrevious) {
         const previousRows = await query(
           `SELECT titolari
@@ -1838,6 +2079,25 @@ router.get('/:id/standings/matchday/:giornata/formation/:userId', authenticateTo
         );
         playerIds = parseIdsArray(previousRows[0]?.titolari);
         formationRecovered = playerIds.length > 0;
+      }
+    }
+
+    if (hasDirectLineupForMatchday && recoverPrevious && isCalculated) {
+      try {
+        const prevCountRows = await query(
+          `SELECT COUNT(*)::int AS c
+           FROM user_lineups
+           WHERE league_id = ? AND user_id = ? AND giornata < ?`,
+          [leagueId, targetUserId, giornata]
+        );
+        const hadPreviousLineups = Number(prevCountRows[0]?.c || 0) > 0;
+        if (!hadPreviousLineups) {
+          // Prima formazione storica utente su giornata già calcolata:
+          // può essere stata generata dal sistema per il calcolo.
+          formationRecovered = true;
+        }
+      } catch (_) {
+        // Ignora errori di detection.
       }
     }
 
@@ -2326,6 +2586,7 @@ router.post('/:id/calculate/:giornata', authenticateToken, async (req, res) => {
     const recoverPreviousLineupIfMissing = Number(leagueRows[0]?.recover_previous_lineup_if_missing ?? 1) === 1;
     const enableSvFallbackVote = Number(leagueRows[0]?.enable_sv_fallback_vote ?? 0) === 1;
     const bonusSettings = await getLeagueBonusSettings(leagueId);
+    const injuryMap = await getInjuryReplacementMap(leagueId);
 
     const members = await query(
       `SELECT lm.user_id
@@ -2346,8 +2607,8 @@ router.post('/:id/calculate/:giornata', authenticateToken, async (req, res) => {
     const lineupByUser = {};
     lineupRows.forEach((r) => {
       lineupByUser[Number(r.user_id)] = {
-        titolari: parseIdsArray(r.titolari).slice(0, numeroTitolari),
-        panchina: parseIdsArray(r.panchina),
+        titolari: applyInjuryMap(parseIdsArray(r.titolari), injuryMap).slice(0, numeroTitolari),
+        panchina: applyInjuryMap(parseIdsArray(r.panchina), injuryMap),
       };
     });
 
@@ -2412,13 +2673,13 @@ router.post('/:id/calculate/:giornata', authenticateToken, async (req, res) => {
       } else if (recoverPreviousLineupIfMissing) {
         const previousLineup = await getClosestPreviousLineup(leagueId, userId, giornata, numeroTitolari);
         if (previousLineup && previousLineup.titolari.length > 0) {
-          titolari = previousLineup.titolari.filter((id) => Number.isFinite(id) && id > 0).slice(0, numeroTitolari);
-          panchina = previousLineup.panchina.filter((id) => Number.isFinite(id) && id > 0);
+          titolari = applyInjuryMap(previousLineup.titolari, injuryMap).slice(0, numeroTitolari);
+          panchina = applyInjuryMap(previousLineup.panchina, injuryMap);
         } else {
           const generated = await buildFallbackLineupFromRoster(leagueId, userId, numeroTitolari);
           if (generated && generated.titolari.length > 0) {
-            titolari = generated.titolari.filter((id) => Number.isFinite(id) && id > 0).slice(0, numeroTitolari);
-            panchina = generated.panchina.filter((id) => Number.isFinite(id) && id > 0);
+            titolari = applyInjuryMap(generated.titolari, injuryMap).slice(0, numeroTitolari);
+            panchina = applyInjuryMap(generated.panchina, injuryMap);
             try {
               await query(
                 `INSERT INTO user_lineups (user_id, league_id, giornata, modulo, titolari, panchina)
@@ -2445,8 +2706,14 @@ router.post('/:id/calculate/:giornata', authenticateToken, async (req, res) => {
       }
 
       if (!titolari.length && autoLineupMode) {
-        titolari = await buildAutoLineupSimple(leagueId, userId, numeroTitolari, votesByPlayer, bonusSettings, use6Politico);
+        titolari = applyInjuryMap(
+          await buildAutoLineupSimple(leagueId, userId, numeroTitolari, votesByPlayer, bonusSettings, use6Politico),
+          injuryMap
+        );
       }
+
+      titolari = applyInjuryMap(titolari, injuryMap).slice(0, numeroTitolari);
+      panchina = applyInjuryMap(panchina, injuryMap);
 
       if (!Array.isArray(panchina)) {
         panchina = [];

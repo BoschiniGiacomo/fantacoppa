@@ -95,6 +95,7 @@ async function buildFallbackLineupFromRoster(leagueId, userId, numeroTitolari) {
      FROM user_players up
      JOIN players p ON p.id = up.player_id
      WHERE up.league_id = ? AND up.user_id = ?
+       AND COALESCE(p.is_injured, 0) = 0
      ORDER BY p.id ASC`,
     [leagueId, userId]
   );
@@ -155,6 +156,47 @@ async function buildFallbackLineupFromRoster(leagueId, userId, numeroTitolari) {
     titolari,
     panchina,
   };
+}
+
+async function getInjuryReplacementMap(leagueId) {
+  try {
+    const rows = await query(
+      `SELECT p.id AS injured_id, p.injury_replacement_player_id
+       FROM players p
+       JOIN teams t ON t.id = p.team_id
+       WHERE t.league_id = ?
+         AND COALESCE(p.is_injured, 0) = 1
+         AND p.injury_replacement_player_id IS NOT NULL`,
+      [leagueId]
+    );
+    const map = {};
+    rows.forEach((r) => {
+      const injuredId = Number(r.injured_id);
+      const replacementId = Number(r.injury_replacement_player_id);
+      if (Number.isFinite(injuredId) && injuredId > 0 && Number.isFinite(replacementId) && replacementId > 0 && replacementId !== injuredId) {
+        map[injuredId] = replacementId;
+      }
+    });
+    return map;
+  } catch (_) {
+    return {};
+  }
+}
+
+function applyInjuryMap(ids, injuryMap) {
+  if (!Array.isArray(ids) || ids.length === 0) return [];
+  const out = [];
+  const used = new Set();
+  ids.forEach((rawId) => {
+    const id = Number(rawId);
+    if (!Number.isFinite(id) || id <= 0) return;
+    const mapped = Number(injuryMap[id] || id);
+    if (!Number.isFinite(mapped) || mapped <= 0) return;
+    if (used.has(mapped)) return;
+    used.add(mapped);
+    out.push(mapped);
+  });
+  return out;
 }
 
 // GET /api/formation/:leagueId/matchdays
@@ -226,6 +268,7 @@ router.get('/:leagueId/:giornata', authenticateToken, async (req, res) => {
       isCalculated = false;
     }
 
+    const injuryMap = await getInjuryReplacementMap(leagueId);
     const rows = await query(
       `SELECT modulo, titolari, panchina
        FROM user_lineups
@@ -257,7 +300,13 @@ router.get('/:leagueId/:giornata', authenticateToken, async (req, res) => {
           [userId, leagueId, giornata]
         );
         if (previousRows[0]) {
-          row = previousRows[0];
+          const prevTit = applyInjuryMap(parseIdsArray(previousRows[0].titolari), injuryMap).slice(0, numeroTitolari);
+          const prevBen = applyInjuryMap(parseIdsArray(previousRows[0].panchina), injuryMap);
+          row = {
+            modulo: previousRows[0].modulo,
+            titolari: JSON.stringify(prevTit),
+            panchina: JSON.stringify(prevBen),
+          };
           formationRecovered = true;
         } else {
           const generated = await buildFallbackLineupFromRoster(leagueId, userId, numeroTitolari);
@@ -290,6 +339,36 @@ router.get('/:leagueId/:giornata', authenticateToken, async (req, res) => {
               // Se il salvataggio fallisce, restituisce comunque la formazione generata.
             }
           }
+        }
+      }
+    }
+
+    if (row && !isCalculated) {
+      const patchedTitolari = applyInjuryMap(parseIdsArray(row.titolari), injuryMap);
+      const patchedPanchina = applyInjuryMap(parseIdsArray(row.panchina), injuryMap);
+      const rowTitRaw = parseIdsArray(row.titolari);
+      const rowBenRaw = parseIdsArray(row.panchina);
+      const changed =
+        patchedTitolari.length !== rowTitRaw.length
+        || patchedPanchina.length !== rowBenRaw.length
+        || patchedTitolari.some((id, i) => id !== rowTitRaw[i])
+        || patchedPanchina.some((id, i) => id !== rowBenRaw[i]);
+      if (changed) {
+        row = {
+          ...row,
+          titolari: JSON.stringify(patchedTitolari),
+          panchina: JSON.stringify(patchedPanchina),
+        };
+        try {
+          await query(
+            `UPDATE user_lineups
+             SET titolari = ?, panchina = ?
+             WHERE user_id = ? AND league_id = ? AND giornata = ?`,
+            [row.titolari, row.panchina, userId, leagueId, giornata]
+          );
+          formationRecovered = true;
+        } catch (_) {
+          // Ignore persistence failures.
         }
       }
     }
@@ -352,8 +431,9 @@ router.post('/:leagueId/:giornata', authenticateToken, async (req, res) => {
     const giornata = Number(req.params.giornata);
     const userId = Number(req.user.userId);
     const modulo = String(req.body?.modulo || '').trim();
-    const titolari = req.body?.titolari != null ? JSON.stringify(req.body.titolari) : '[]';
-    const panchina = req.body?.panchina != null ? JSON.stringify(req.body.panchina) : '[]';
+    const injuryMap = await getInjuryReplacementMap(leagueId);
+    const titolari = JSON.stringify(applyInjuryMap(parseIdsArray(req.body?.titolari), injuryMap));
+    const panchina = JSON.stringify(applyInjuryMap(parseIdsArray(req.body?.panchina), injuryMap));
 
     if (!modulo) return res.status(400).json({ message: 'Modulo obbligatorio' });
 

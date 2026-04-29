@@ -355,10 +355,11 @@ export default function UserManagementScreen({ route, navigation }) {
   const renderMemberItem = (member) => {
     const roleBadge = getRoleBadge(member.role);
     const isCurrentUser = Number(member?.is_current_user) === 1 || member?.is_current_user === true;
+    const memberUserId = Number(member?.user_id);
     const hasTeamName = String(member?.team_name || '').trim().length > 0;
 
     return (
-      <View key={member.id} style={styles.memberItem}>
+      <View key={member.user_id} style={styles.memberItem}>
         <View style={styles.memberInfo}>
           <View style={styles.memberHeaderRow}>
             <Text style={styles.memberUsername}>{member.username}</Text>
@@ -409,8 +410,8 @@ export default function UserManagementScreen({ route, navigation }) {
                   styles.roleOption,
                   member.role === 'user' && [styles.roleOptionActive, { backgroundColor: getRoleBadge('user').color }],
                 ]}
-                onPress={() => handleChangeRole(member.id, 'user')}
-                disabled={changingRole === member.id}
+                onPress={() => handleChangeRole(memberUserId, 'user')}
+                disabled={changingRole === memberUserId}
               >
                 {member.role === 'user' && (
                   <Ionicons name={getRoleBadge('user').icon} size={12} color="#fff" style={{ marginRight: 4 }} />
@@ -429,8 +430,8 @@ export default function UserManagementScreen({ route, navigation }) {
                   styles.roleOption,
                   member.role === 'pagellatore' && [styles.roleOptionActive, { backgroundColor: getRoleBadge('pagellatore').color }],
                 ]}
-                onPress={() => handleChangeRole(member.id, 'pagellatore')}
-                disabled={changingRole === member.id}
+                onPress={() => handleChangeRole(memberUserId, 'pagellatore')}
+                disabled={changingRole === memberUserId}
               >
                 {member.role === 'pagellatore' && (
                   <Ionicons name={getRoleBadge('pagellatore').icon} size={12} color="#fff" style={{ marginRight: 4 }} />
@@ -449,8 +450,8 @@ export default function UserManagementScreen({ route, navigation }) {
                   styles.roleOption,
                   member.role === 'admin' && [styles.roleOptionActive, { backgroundColor: getRoleBadge('admin').color }],
                 ]}
-                onPress={() => handleChangeRole(member.id, 'admin')}
-                disabled={changingRole === member.id}
+                onPress={() => handleChangeRole(memberUserId, 'admin')}
+                disabled={changingRole === memberUserId}
               >
                 {member.role === 'admin' && (
                   <Ionicons name={getRoleBadge('admin').icon} size={12} color="#fff" style={{ marginRight: 4 }} />
@@ -465,7 +466,7 @@ export default function UserManagementScreen({ route, navigation }) {
                 </Text>
               </TouchableOpacity>
             </View>
-            {savedRoleMemberId === member.id && (
+            {savedRoleMemberId === memberUserId && (
               <View style={styles.roleSavedIndicator}>
                 <Ionicons name="checkmark-circle" size={20} color="#198754" />
               </View>

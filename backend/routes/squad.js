@@ -13,12 +13,31 @@ router.get('/:leagueId', authenticateToken, async (req, res) => {
     }
 
     const players = await query(
-      `SELECT p.id, p.first_name, p.last_name, p.role, p.rating,
-              COALESCE(t.name, '') AS team_name
-       FROM user_players up
-       JOIN players p ON p.id = up.player_id
+      `WITH direct_owned AS (
+         SELECT up.player_id
+         FROM user_players up
+         WHERE up.user_id = ? AND up.league_id = ?
+       ),
+       effective_players AS (
+         SELECT d.player_id, 1::int AS directly_owned, 0::int AS acquired_as_injury_replacement
+         FROM direct_owned d
+         UNION
+         SELECT inj.injury_replacement_player_id AS player_id, 0::int AS directly_owned, 1::int AS acquired_as_injury_replacement
+         FROM direct_owned d
+         JOIN players inj ON inj.id = d.player_id
+         WHERE COALESCE(inj.is_injured, 0) = 1
+           AND inj.injury_replacement_player_id IS NOT NULL
+       )
+       SELECT p.id, p.first_name, p.last_name, p.role, p.rating,
+              COALESCE(p.is_injured, 0)::int AS is_injured,
+              p.injury_replacement_player_id,
+              COALESCE(t.name, '') AS team_name,
+              MAX(ep.acquired_as_injury_replacement)::int AS acquired_as_injury_replacement,
+              MAX(ep.directly_owned)::int AS directly_owned
+       FROM effective_players ep
+       JOIN players p ON p.id = ep.player_id
        LEFT JOIN teams t ON t.id = p.team_id
-       WHERE up.user_id = ? AND up.league_id = ?`,
+       GROUP BY p.id, p.first_name, p.last_name, p.role, p.rating, p.is_injured, p.injury_replacement_player_id, t.name`,
       [userId, leagueId]
     );
     res.json({ squad: players, players });
@@ -40,12 +59,31 @@ router.get('/:leagueId/bootstrap', authenticateToken, async (req, res) => {
 
     const [players, limitsRows, budgetRows, blockedRows, leagueRows] = await Promise.all([
       query(
-        `SELECT p.id, p.first_name, p.last_name, p.role, p.rating,
-                COALESCE(t.name, '') AS team_name
-         FROM user_players up
-         JOIN players p ON p.id = up.player_id
+        `WITH direct_owned AS (
+           SELECT up.player_id
+           FROM user_players up
+           WHERE up.user_id = ? AND up.league_id = ?
+         ),
+         effective_players AS (
+           SELECT d.player_id, 1::int AS directly_owned, 0::int AS acquired_as_injury_replacement
+           FROM direct_owned d
+           UNION
+           SELECT inj.injury_replacement_player_id AS player_id, 0::int AS directly_owned, 1::int AS acquired_as_injury_replacement
+           FROM direct_owned d
+           JOIN players inj ON inj.id = d.player_id
+           WHERE COALESCE(inj.is_injured, 0) = 1
+             AND inj.injury_replacement_player_id IS NOT NULL
+         )
+         SELECT p.id, p.first_name, p.last_name, p.role, p.rating,
+                COALESCE(p.is_injured, 0)::int AS is_injured,
+                p.injury_replacement_player_id,
+                COALESCE(t.name, '') AS team_name,
+                MAX(ep.acquired_as_injury_replacement)::int AS acquired_as_injury_replacement,
+                MAX(ep.directly_owned)::int AS directly_owned
+         FROM effective_players ep
+         JOIN players p ON p.id = ep.player_id
          LEFT JOIN teams t ON t.id = p.team_id
-         WHERE up.user_id = ? AND up.league_id = ?`,
+         GROUP BY p.id, p.first_name, p.last_name, p.role, p.rating, p.is_injured, p.injury_replacement_player_id, t.name`,
         [userId, leagueId]
       ),
       query(
@@ -88,7 +126,10 @@ router.get('/:leagueId/bootstrap', authenticateToken, async (req, res) => {
       A: Number(limits.max_attaccanti || 0),
     };
     const budget = Number(budgetRows[0]?.budget || 0);
-    const total_value = (players || []).reduce((sum, p) => sum + (Number(p?.rating) || 0), 0);
+    const total_value = (players || []).reduce((sum, p) => {
+      if (Number(p?.acquired_as_injury_replacement || 0) === 1) return sum;
+      return sum + (Number(p?.rating) || 0);
+    }, 0);
 
     const marketLocked = Number(blockedRows[0]?.market_locked || 0) === 1;
     const userBlockedRaw = Number(blockedRows[0]?.user_blocked || 0);
@@ -149,9 +190,21 @@ router.delete('/:leagueId/players/:playerId', authenticateToken, async (req, res
 
     const pRows = await query('SELECT rating FROM players WHERE id = ? LIMIT 1', [playerId]);
     const price = Number(pRows[0]?.rating || 0);
+    const replacementRows = await query(
+      `SELECT 1
+       FROM user_players up
+       JOIN players inj ON inj.id = up.player_id
+       WHERE up.user_id = ?
+         AND up.league_id = ?
+         AND COALESCE(inj.is_injured, 0) = 1
+         AND inj.injury_replacement_player_id = ?
+       LIMIT 1`,
+      [userId, leagueId, playerId]
+    );
+    const refund = replacementRows[0] ? 0 : price;
 
     await query('DELETE FROM user_players WHERE user_id = ? AND league_id = ? AND player_id = ?', [userId, leagueId, playerId]);
-    await query('UPDATE user_budget SET budget = budget + ? WHERE user_id = ? AND league_id = ?', [price, userId, leagueId]);
+    await query('UPDATE user_budget SET budget = budget + ? WHERE user_id = ? AND league_id = ?', [refund, userId, leagueId]);
     res.json({ message: 'Giocatore rimosso dalla rosa' });
   } catch (error) {
     console.error('Squad remove error:', error);

@@ -1076,9 +1076,6 @@ export default function ManageMatchesScreen() {
                       </View>
                     </View>
                     <Text style={styles.label}>Classifica (righe: posizione;nome;pg;dr;pt)</Text>
-                    <Text style={styles.muted}>
-                      La classifica non viene salvata sul match (come in `api.php`): viene gestita separatamente tramite le tabelle ufficiali.
-                    </Text>
                     <TouchableOpacity style={styles.primaryBtn} onPress={saveMetaLineupsStandings}>
                       <Text style={styles.primaryBtnText}>Salva dettagli tab</Text>
                     </TouchableOpacity>

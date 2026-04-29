@@ -24,7 +24,7 @@
     "android": {
       "package": "com.fantacoppa.app",
       "versionCode": 9,
-      "googleServicesFile": "./google-services.json",
+      "googleServicesFile": "./android/app/google-services.json",
       "permissions": []
     },
     "extra": {

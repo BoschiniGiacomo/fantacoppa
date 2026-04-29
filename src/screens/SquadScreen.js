@@ -16,6 +16,7 @@ import { useOnboarding } from '../context/OnboardingContext';
 import { squadService, formationService } from '../services/api';
 import { Ionicons } from '@expo/vector-icons';
 import { syncSubmittedFormationOnboarding } from '../utils/formationSubmission';
+import InjurySwapIcon from '../components/InjurySwapIcon';
 
 export default function SquadScreen({ route, navigation }) {
   const { user } = useAuth();
@@ -103,7 +104,7 @@ export default function SquadScreen({ route, navigation }) {
     if (!roleLimits || Object.keys(roleLimits).length === 0) return;
     const allFull = ['P', 'D', 'C', 'A'].every(r => {
       const limit = roleLimits[r] || 0;
-      const owned = squad.filter(p => p.role === r).length;
+      const owned = squad.filter(p => p.role === r && Number(p?.is_injured || 0) !== 1).length;
       return limit > 0 && owned >= limit;
     });
     updateAutoDetect({ squadFull: allFull, squadEmpty: squad.length === 0 });
@@ -152,6 +153,10 @@ export default function SquadScreen({ route, navigation }) {
     return squad.filter((p) => p.role === role);
   };
 
+  const getActivePlayersByRole = (role) => {
+    return squad.filter((p) => p.role === role && Number(p?.is_injured || 0) !== 1);
+  };
+
 
   // Budget values
   const initialBudget = league?.initial_budget || league?.budget || 500;
@@ -160,7 +165,7 @@ export default function SquadScreen({ route, navigation }) {
 
   const renderRoleSection = (role) => {
     const players = getPlayersByRole(role);
-    const count = players.length;
+    const count = getActivePlayersByRole(role).length;
     const limit = roleLimits[role] || 0;
     const roleColor = getRoleColor(role);
     const isRoleFull = limit > 0 && count >= limit;
@@ -227,8 +232,18 @@ export default function SquadScreen({ route, navigation }) {
                   <Text style={styles.playerTeam} numberOfLines={1}>{player.team_name}</Text>
                 </View>
                 <View style={styles.playerRight}>
+                  {Number(player?.acquired_as_injury_replacement || 0) === 1 && (
+                    <View style={styles.replacementActionBadge}>
+                      <InjurySwapIcon size={26} />
+                    </View>
+                  )}
+                  {Number(player?.is_injured || 0) === 1 ? (
+                    <View style={styles.injuredActionBadge}>
+                      <Ionicons name="bandage" size={22} color="#e65050" />
+                    </View>
+                  ) : null}
                   <Text style={styles.playerRating}>{player.rating}</Text>
-                  {!marketBlocked && (
+                  {Number(player?.is_injured || 0) !== 1 && (!marketBlocked && Number(player?.directly_owned || 0) === 1) ? (
                     <TouchableOpacity
                       style={styles.removeButton}
                       onPress={(e) => {
@@ -238,7 +253,7 @@ export default function SquadScreen({ route, navigation }) {
                     >
                       <Ionicons name="trash-outline" size={16} color="#fff" />
                     </TouchableOpacity>
-                  )}
+                  ) : null}
                 </View>
               </View>
             </TouchableOpacity>
@@ -296,7 +311,7 @@ export default function SquadScreen({ route, navigation }) {
       {/* Contatori ruolo sempre visibili */}
       <View style={styles.roleCountSection}>
         {roles.map((r) => {
-          const owned = getPlayersByRole(r).length;
+          const owned = getActivePlayersByRole(r).length;
           const limit = roleLimits[r] || 0;
           const isFull = owned >= limit && limit > 0;
           const color = getRoleColor(r);
@@ -699,6 +714,22 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#888',
     marginLeft: 28,
+  },
+  injuredActionBadge: {
+    marginTop: 2,
+    width: 24,
+    height: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
+  },
+  replacementActionBadge: {
+    marginTop: 2,
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
   },
   playerRight: {
     flexDirection: 'row',

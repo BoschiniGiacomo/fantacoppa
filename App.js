@@ -38,6 +38,7 @@ import StandingsScreen from './src/screens/StandingsScreen';
 import UserManagementScreen from './src/screens/UserManagementScreen';
 import SuperUserScreen from './src/screens/SuperUserScreen';
 import TeamManagementScreen from './src/screens/TeamManagementScreen';
+import InjuryManagementScreen from './src/screens/InjuryManagementScreen';
 import TeamPlayersScreen from './src/screens/TeamPlayersScreen';
 import CalendarManagementScreen from './src/screens/CalendarManagementScreen';
 import InsertVotesScreen from './src/screens/InsertVotesScreen';
@@ -231,6 +232,11 @@ function AppNavigator() {
                 <Stack.Screen 
                   name="TeamManagement"
                   component={TeamManagementScreen}
+                  options={{ headerShown: false }}
+                />
+                <Stack.Screen
+                  name="InjuryManagement"
+                  component={InjuryManagementScreen}
                   options={{ headerShown: false }}
                 />
                 <Stack.Screen 

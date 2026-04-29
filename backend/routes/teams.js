@@ -51,10 +51,31 @@ router.get('/:leagueId/:userId', authenticateToken, async (req, res) => {
     let players = [];
     try {
       players = await query(
-        `SELECT p.id, p.first_name, p.last_name, p.role, p.rating
-         FROM user_players up
-         JOIN players p ON p.id = up.player_id
-         WHERE up.user_id = ? AND up.league_id = ?`,
+        `WITH direct_owned AS (
+           SELECT up.player_id
+           FROM user_players up
+           WHERE up.user_id = ? AND up.league_id = ?
+         ),
+         effective_players AS (
+           SELECT d.player_id, 1::int AS directly_owned, 0::int AS acquired_as_injury_replacement
+           FROM direct_owned d
+           UNION
+           SELECT inj.injury_replacement_player_id AS player_id, 0::int AS directly_owned, 1::int AS acquired_as_injury_replacement
+           FROM direct_owned d
+           JOIN players inj ON inj.id = d.player_id
+           WHERE COALESCE(inj.is_injured, 0) = 1
+             AND inj.injury_replacement_player_id IS NOT NULL
+         )
+         SELECT p.id, p.first_name, p.last_name, p.role, p.rating,
+                COALESCE(p.is_injured, 0)::int AS is_injured,
+                p.injury_replacement_player_id,
+                COALESCE(t.name, '') AS team_name,
+                MAX(ep.acquired_as_injury_replacement)::int AS acquired_as_injury_replacement,
+                MAX(ep.directly_owned)::int AS directly_owned
+         FROM effective_players ep
+         JOIN players p ON p.id = ep.player_id
+         LEFT JOIN teams t ON t.id = p.team_id
+         GROUP BY p.id, p.first_name, p.last_name, p.role, p.rating, p.is_injured, p.injury_replacement_player_id, t.name`,
         [userId, leagueId]
       );
     } catch (_) {

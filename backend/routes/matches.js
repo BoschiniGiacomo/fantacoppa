@@ -83,7 +83,7 @@ function buildMatchEventPushContent({ eventType, homeTeamName, awayTeamName, tea
   return null;
 }
 
-/** Punteggio da eventi goal/own_goal, con fallback alle colonne official_matches (stessa logica lista / api.php). */
+/** Punteggio da eventi goal/own_goal, con fallback alle colonne official_matches. */
 async function fetchOfficialMatchLiveScore(matchId) {
   const mid = Number(matchId);
   if (!mid) return null;
@@ -211,7 +211,6 @@ async function notifyUsersForOfficialMatchEvent({ eventId, matchId, eventType, p
     targetsByUser.get(userId).add(expoToken);
   };
 
-  // Stessa logica target di api.php collectOfficialMatchEventPushTargets:
   // campanella sulla partita OR preferiti squadra (gruppo ufficiale + nome normalizzato) con notifiche attive.
   const byMatchRows = await safeQuery(
     `SELECT mn.user_id, upt.expo_push_token
@@ -265,7 +264,6 @@ async function notifyUsersForOfficialMatchEvent({ eventId, matchId, eventType, p
   const messages = [];
   const evId = Number(eventId);
   for (const [userId, tokenSet] of targetsByUser.entries()) {
-    // Schema allineato a api.php: user_official_match_event_sent (user_id, match_event_id), INSERT IGNORE / ON CONFLICT
     const ins = await safeQuery(
       `INSERT INTO user_official_match_event_sent (user_id, match_event_id)
        VALUES (?, ?)
@@ -764,7 +762,7 @@ router.get('/matches', authenticateToken, async (req, res) => {
   }
 });
 
-// GET /matches/:matchId/detail — dettaglio match con tabs (overview/formazione/classifica) come legacy api.php
+// GET /matches/:matchId/detail — dettaglio match con tabs (overview/formazione/classifica)
 router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
   try {
     const userId = Number(req.user?.userId);
@@ -1076,7 +1074,6 @@ router.put('/matches/follow-preferences', authenticateToken, async (req, res) =>
     const competitions = Array.isArray(req.body?.competitions) ? req.body.competitions : [];
 
     // Strategia semplice: per ogni gruppo, upsert per le squadre presenti e cancella quelle non più presenti.
-    // (Allineato allo spirito dell'api.php: salva per nome normalizzato.)
     for (const c of competitions) {
       const groupId = Number(c?.official_group_id);
       if (!groupId || groupId <= 0) continue;
@@ -1381,7 +1378,7 @@ router.post('/admin/matches/:matchId/events', authenticateToken, requireSuperuse
       );
 
     try {
-      // Legacy api.php: nessun created_by sugli eventi. Se la colonna non esiste, non deve bloccare l'inserimento.
+      // nessun created_by sugli eventi. Se la colonna non esiste, non deve bloccare l'inserimento.
       rows = await insertWithoutCreatedBy();
     } catch (err2) {
       // Se qualcuno ha aggiunto la colonna created_by sul DB, prova a valorizzarla.

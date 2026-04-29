@@ -40,6 +40,15 @@ export default function LeagueHamburgerMenu({ leagueId, navigation, isAdmin, use
         screen: 'TeamManagement',
         params: { leagueId },
       });
+      if (isAdmin) {
+        settingsSubMenu.push({
+          id: 'settings-injuries',
+          label: 'Gestione Infortuni',
+          icon: 'medkit-outline',
+          screen: 'InjuryManagement',
+          params: { leagueId },
+        });
+      }
       settingsSubMenu.push({
         id: 'settings-calendar',
         label: 'Gestione Calendario',
