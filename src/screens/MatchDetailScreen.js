@@ -502,6 +502,7 @@ function sortLineupForDisplay(players) {
 
 /** Blu maglia predefinito (app), leggermente più chiaro del precedente #818cf8. */
 const DEFAULT_LINEUP_JERSEY_ICON = '#a5b4fc';
+const EMPTY_LINEUPS = { home: [], away: [] };
 
 function isValidLineupJerseyHex(s) {
   if (s == null || typeof s !== 'string') return false;
@@ -604,7 +605,15 @@ function lineupJerseyColorsFromTeam(teamColor) {
  * Casa: maglia (con ruolo piccolo in angolo) | nome.
  * Ospiti: nome | maglia (stesso overlay ruolo).
  */
-function LineupPlayerRow({ player, variant = 'home', jerseyIconColor, teamShirtBaseHex, onPressName }) {
+function LineupPlayerRow({
+  player,
+  variant = 'home',
+  jerseyIconColor,
+  teamShirtBaseHex,
+  onPressName,
+  compact = false,
+  inlineAction = null,
+}) {
   const role = player.role;
   const displayName = player.displayName || player.name || '';
   const num =
@@ -623,7 +632,12 @@ function LineupPlayerRow({ player, variant = 'home', jerseyIconColor, teamShirtB
       style={styles.jerseyBadge}
       accessibilityLabel={`Numero maglia ${num}, ruolo ${role || 'non indicato'}`}
     >
-      <MaterialCommunityIcons name="tshirt-crew" size={38} color={shirtTint} style={styles.jerseyIcon} />
+      <MaterialCommunityIcons
+        name="tshirt-crew"
+        size={38}
+        color={shirtTint}
+        style={styles.jerseyIcon}
+      />
       <Text style={[styles.jerseyNumber, { color: numTint }]} numberOfLines={1}>
         {num}
       </Text>
@@ -639,14 +653,24 @@ function LineupPlayerRow({ player, variant = 'home', jerseyIconColor, teamShirtB
     </View>
   );
   const nameText = (
-    <Text style={styles.lineupPlayerNameText} numberOfLines={2}>
+    <Text
+      style={[
+        styles.lineupPlayerNameText,
+        inlineAction && (variant === 'away' ? styles.lineupPlayerNameTextWithActionAway : styles.lineupPlayerNameTextWithActionHome),
+      ]}
+      numberOfLines={2}
+    >
       {displayName}
     </Text>
   );
   const nameEl =
     typeof onPressName === 'function' ? (
       <TouchableOpacity
-        style={styles.lineupNamePressable}
+        style={[
+          styles.lineupNamePressable,
+          inlineAction && styles.lineupNamePressableWithAction,
+          inlineAction && (variant === 'away' ? styles.lineupNamePressableWithActionAway : styles.lineupNamePressableWithActionHome),
+        ]}
         onPress={onPressName}
         activeOpacity={0.65}
         accessibilityRole="button"
@@ -655,13 +679,36 @@ function LineupPlayerRow({ player, variant = 'home', jerseyIconColor, teamShirtB
         {nameText}
       </TouchableOpacity>
     ) : (
-      <View style={styles.lineupNamePressable}>{nameText}</View>
+      <View
+        style={[
+          styles.lineupNamePressable,
+          inlineAction && styles.lineupNamePressableWithAction,
+          inlineAction && (variant === 'away' ? styles.lineupNamePressableWithActionAway : styles.lineupNamePressableWithActionHome),
+        ]}
+      >
+        {nameText}
+      </View>
     );
+  const actionEl = inlineAction ? (
+    <TouchableOpacity
+      style={[
+        styles.lineupInlineActionBtn,
+        styles.lineupInlineActionBtnEmbedded,
+        variant === 'away' ? styles.lineupInlineActionBtnAway : styles.lineupInlineActionBtnHome,
+        inlineAction.type === 'add' && styles.lineupInlineActionBtnAdd,
+      ]}
+      onPress={inlineAction.onPress}
+      disabled={inlineAction.disabled}
+    >
+      <Ionicons name={inlineAction.type === 'add' ? 'add' : 'remove'} size={16} color="#fff" />
+    </TouchableOpacity>
+  ) : null;
 
   if (variant === 'away') {
     return (
       <View style={styles.lineupRow}>
         {nameEl}
+        {actionEl}
         {jersey}
       </View>
     );
@@ -669,6 +716,7 @@ function LineupPlayerRow({ player, variant = 'home', jerseyIconColor, teamShirtB
   return (
     <View style={styles.lineupRow}>
       {jersey}
+      {actionEl}
       {nameEl}
     </View>
   );
@@ -868,6 +916,10 @@ export default function MatchDetailScreen({ navigation, route }) {
   const [data, setData] = useState(null);
   const [tick, setTick] = useState(0);
   const [showEventEditor, setShowEventEditor] = useState(false);
+  const [lineupEditMode, setLineupEditMode] = useState(false);
+  const [savingUnavailable, setSavingUnavailable] = useState(false);
+  const [unavailableIdsHome, setUnavailableIdsHome] = useState([]);
+  const [unavailableIdsAway, setUnavailableIdsAway] = useState([]);
   const [eventType, setEventType] = useState('goal');
   const [eventTeamSide, setEventTeamSide] = useState('home');
   const [eventMinute, setEventMinute] = useState('');
@@ -937,6 +989,7 @@ export default function MatchDetailScreen({ navigation, route }) {
   const favorites = data?.favorites || {};
   const notifications = data?.notifications || {};
   const lineups = data?.lineups || { home: [], away: [] };
+  const unavailableLineups = data?.unavailable_lineups || EMPTY_LINEUPS;
   const teamPlayers = data?.team_players || { home: [], away: [] };
   const liveEvents = data?.events || [];
   const standings = data?.standings || [];
@@ -974,10 +1027,31 @@ export default function MatchDetailScreen({ navigation, route }) {
     };
   }, [matchId, timerAnchorPhaseId]);
 
-  const lineupHomeSorted = useMemo(() => sortLineupForDisplay(lineups.home || []), [lineups.home]);
-  const lineupAwaySorted = useMemo(() => sortLineupForDisplay(lineups.away || []), [lineups.away]);
+  const homeRosterSorted = useMemo(() => sortLineupForDisplay(teamPlayers.home || []), [teamPlayers.home]);
+  const awayRosterSorted = useMemo(() => sortLineupForDisplay(teamPlayers.away || []), [teamPlayers.away]);
+  const unavailableHomeSet = useMemo(() => new Set(unavailableIdsHome), [unavailableIdsHome]);
+  const unavailableAwaySet = useMemo(() => new Set(unavailableIdsAway), [unavailableIdsAway]);
+  const lineupHomeSorted = useMemo(
+    () => homeRosterSorted.filter((p) => !unavailableHomeSet.has(Number(p.id))),
+    [homeRosterSorted, unavailableHomeSet]
+  );
+  const lineupAwaySorted = useMemo(
+    () => awayRosterSorted.filter((p) => !unavailableAwaySet.has(Number(p.id))),
+    [awayRosterSorted, unavailableAwaySet]
+  );
+  const lineupHomeUnavailableSorted = useMemo(
+    () => homeRosterSorted.filter((p) => unavailableHomeSet.has(Number(p.id))),
+    [homeRosterSorted, unavailableHomeSet]
+  );
+  const lineupAwayUnavailableSorted = useMemo(
+    () => awayRosterSorted.filter((p) => unavailableAwaySet.has(Number(p.id))),
+    [awayRosterSorted, unavailableAwaySet]
+  );
   const lineupHomeDisplayNames = useMemo(() => buildLineupDisplayNames(lineupHomeSorted), [lineupHomeSorted]);
   const lineupAwayDisplayNames = useMemo(() => buildLineupDisplayNames(lineupAwaySorted), [lineupAwaySorted]);
+  const lineupHomeUnavailableDisplayNames = useMemo(() => buildLineupDisplayNames(lineupHomeUnavailableSorted), [lineupHomeUnavailableSorted]);
+  const lineupAwayUnavailableDisplayNames = useMemo(() => buildLineupDisplayNames(lineupAwayUnavailableSorted), [lineupAwayUnavailableSorted]);
+  const hasUnavailablePlayers = lineupHomeUnavailableSorted.length > 0 || lineupAwayUnavailableSorted.length > 0;
   const homeJerseyColors = useMemo(() => lineupJerseyColorsFromTeam(match.home_jersey_color), [match.home_jersey_color]);
   const awayJerseyColors = useMemo(() => lineupJerseyColorsFromTeam(match.away_jersey_color), [match.away_jersey_color]);
   const homeKitBaseHex = useMemo(
@@ -988,6 +1062,20 @@ export default function MatchDetailScreen({ navigation, route }) {
     () => lineupShirtToHex6(match.away_jersey_color) || DEFAULT_LINEUP_JERSEY_ICON,
     [match.away_jersey_color]
   );
+
+  useEffect(() => {
+    if (lineupEditMode) return;
+    const nextHome = (unavailableLineups.home || []).map((p) => Number(p.id)).filter((n) => Number.isFinite(n) && n > 0);
+    const nextAway = (unavailableLineups.away || []).map((p) => Number(p.id)).filter((n) => Number.isFinite(n) && n > 0);
+    setUnavailableIdsHome((prev) => {
+      if (prev.length === nextHome.length && prev.every((v, i) => v === nextHome[i])) return prev;
+      return nextHome;
+    });
+    setUnavailableIdsAway((prev) => {
+      if (prev.length === nextAway.length && prev.every((v, i) => v === nextAway[i])) return prev;
+      return nextAway;
+    });
+  }, [unavailableLineups.home, unavailableLineups.away, lineupEditMode, matchId]);
   const heroClock = useMemo(
     () => computeLiveHeroClock(liveEvents, match, tick, liveTimerOffsetSec),
     [liveEvents, match, tick, liveTimerOffsetSec]
@@ -1104,7 +1192,7 @@ export default function MatchDetailScreen({ navigation, route }) {
     activeTab === 'live' && canManageLive
       ? insets.bottom + 72
       : activeTab === 'lineup'
-        ? Math.max(insets.bottom, 28) + 32
+        ? Math.max(insets.bottom, 28) + (canManageLive ? 88 : 32)
         : undefined;
 
   const openPlayerStatsFromLineup = (p, displayName, leagueIdRaw) => {
@@ -1128,6 +1216,37 @@ export default function MatchDetailScreen({ navigation, route }) {
   const toggleNotifications = async () => {
     await matchesService.toggleMatchNotifications(match.id, Number(notifications.enabled) !== 1);
     await loadDetail({ showLoading: false });
+  };
+
+  const saveUnavailablePlayers = async (nextHomeIds, nextAwayIds) => {
+    try {
+      setSavingUnavailable(true);
+      await adminMatchesService.updateUnavailablePlayers(match.id, {
+        home_player_ids: nextHomeIds,
+        away_player_ids: nextAwayIds,
+      });
+    } catch (err) {
+      const body = err?.response?.data;
+      const msg = (typeof body === 'string' ? body : null) || body?.message || body?.error || err?.message || 'Operazione non riuscita';
+      Alert.alert('Errore', String(msg));
+      await loadDetail({ showLoading: false });
+    } finally {
+      setSavingUnavailable(false);
+    }
+  };
+
+  const toggleUnavailableDraft = (side, playerId) => {
+    const pid = Number(playerId);
+    if (!Number.isFinite(pid) || pid <= 0) return;
+    const nextHome = side === 'home'
+      ? (unavailableIdsHome.includes(pid) ? unavailableIdsHome.filter((id) => id !== pid) : [...unavailableIdsHome, pid])
+      : unavailableIdsHome;
+    const nextAway = side === 'away'
+      ? (unavailableIdsAway.includes(pid) ? unavailableIdsAway.filter((id) => id !== pid) : [...unavailableIdsAway, pid])
+      : unavailableIdsAway;
+    setUnavailableIdsHome(nextHome);
+    setUnavailableIdsAway(nextAway);
+    void saveUnavailablePlayers(nextHome, nextAway);
   };
 
   const fillMatchEndDefaults = () => {
@@ -1439,13 +1558,14 @@ export default function MatchDetailScreen({ navigation, route }) {
           </View>
         )}
         {activeTab === 'lineup' && (
-          <View style={[styles.card, styles.cardLineup]}>
-            <View style={styles.twoCol}>
+          <View style={[styles.card, styles.cardLineup, lineupEditMode && styles.cardLineupCompact]}>
+            <View style={[styles.twoCol, lineupEditMode && styles.twoColCompact]}>
               <View style={styles.col}>
                 {lineupHomeSorted.map((p, idx) => (
                   <LineupPlayerRow
                     key={`h-${p.order}-${p.name}`}
                     player={{ ...p, displayName: lineupHomeDisplayNames[idx] }}
+                    compact={lineupEditMode}
                     jerseyIconColor={homeJerseyColors.icon}
                     teamShirtBaseHex={homeKitBaseHex}
                     onPressName={
@@ -1453,6 +1573,15 @@ export default function MatchDetailScreen({ navigation, route }) {
                         ? () =>
                             openPlayerStatsFromLineup(p, lineupHomeDisplayNames[idx], match.home_league_id)
                         : undefined
+                    }
+                    inlineAction={
+                      lineupEditMode
+                        ? {
+                            type: 'remove',
+                            onPress: () => toggleUnavailableDraft('home', p.id),
+                            disabled: savingUnavailable,
+                          }
+                        : null
                     }
                   />
                 ))}
@@ -1464,6 +1593,7 @@ export default function MatchDetailScreen({ navigation, route }) {
                     key={`a-${p.order}-${p.name}`}
                     variant="away"
                     player={{ ...p, displayName: lineupAwayDisplayNames[idx] }}
+                    compact={lineupEditMode}
                     jerseyIconColor={awayJerseyColors.icon}
                     teamShirtBaseHex={awayKitBaseHex}
                     onPressName={
@@ -1472,10 +1602,82 @@ export default function MatchDetailScreen({ navigation, route }) {
                             openPlayerStatsFromLineup(p, lineupAwayDisplayNames[idx], match.away_league_id)
                         : undefined
                     }
+                    inlineAction={
+                      lineupEditMode
+                        ? {
+                            type: 'remove',
+                            onPress: () => toggleUnavailableDraft('away', p.id),
+                            disabled: savingUnavailable,
+                          }
+                        : null
+                    }
                   />
                 ))}
               </View>
             </View>
+            {hasUnavailablePlayers ? (
+              <>
+                <View style={styles.lineupSectionDivider} />
+                <View style={styles.lineupUnavailableHeader}>
+                  <Text style={styles.unavailableTitle}>Non disponibili</Text>
+                  <View style={styles.lineupUnavailableHeaderLine} />
+                </View>
+                <View style={[styles.twoCol, styles.lineupUnavailableGrid, lineupEditMode && styles.twoColCompact]}>
+                  <View style={styles.col}>
+                    {lineupHomeUnavailableSorted.map((p, idx) => (
+                      <LineupPlayerRow
+                        key={`hu-${p.order}-${p.name}`}
+                        player={{ ...p, displayName: lineupHomeUnavailableDisplayNames[idx] }}
+                        compact={lineupEditMode}
+                        jerseyIconColor={homeJerseyColors.icon}
+                        teamShirtBaseHex={homeKitBaseHex}
+                        onPressName={
+                          p.id
+                            ? () => openPlayerStatsFromLineup(p, lineupHomeUnavailableDisplayNames[idx], match.home_league_id)
+                            : undefined
+                        }
+                        inlineAction={
+                          lineupEditMode
+                            ? {
+                                type: 'add',
+                                onPress: () => toggleUnavailableDraft('home', p.id),
+                                disabled: savingUnavailable,
+                              }
+                            : null
+                        }
+                      />
+                    ))}
+                  </View>
+                  <View style={styles.lineupColDivider} />
+                  <View style={styles.col}>
+                    {lineupAwayUnavailableSorted.map((p, idx) => (
+                      <LineupPlayerRow
+                        key={`au-${p.order}-${p.name}`}
+                        variant="away"
+                        player={{ ...p, displayName: lineupAwayUnavailableDisplayNames[idx] }}
+                        compact={lineupEditMode}
+                        jerseyIconColor={awayJerseyColors.icon}
+                        teamShirtBaseHex={awayKitBaseHex}
+                        onPressName={
+                          p.id
+                            ? () => openPlayerStatsFromLineup(p, lineupAwayUnavailableDisplayNames[idx], match.away_league_id)
+                            : undefined
+                        }
+                        inlineAction={
+                          lineupEditMode
+                            ? {
+                                type: 'add',
+                                onPress: () => toggleUnavailableDraft('away', p.id),
+                                disabled: savingUnavailable,
+                              }
+                            : null
+                        }
+                      />
+                    ))}
+                  </View>
+                </View>
+              </>
+            ) : null}
           </View>
         )}
         {activeTab === 'live' && (
@@ -1656,6 +1858,30 @@ export default function MatchDetailScreen({ navigation, route }) {
           </View>
         )}
       </ScrollView>
+
+      {activeTab === 'lineup' && canManageLive ? (
+        <>
+          <TouchableOpacity
+            style={[styles.liveFab, { bottom: Math.max(insets.bottom, 12) + 8, right: 16 }]}
+            activeOpacity={0.85}
+            onPress={() => {
+              if (!lineupEditMode) {
+                const nextHome = (unavailableLineups.home || []).map((p) => Number(p.id)).filter((n) => Number.isFinite(n) && n > 0);
+                const nextAway = (unavailableLineups.away || []).map((p) => Number(p.id)).filter((n) => Number.isFinite(n) && n > 0);
+                setUnavailableIdsHome(nextHome);
+                setUnavailableIdsAway(nextAway);
+                setLineupEditMode(true);
+                return;
+              }
+              setLineupEditMode(false);
+              void loadDetail({ showLoading: false });
+            }}
+            accessibilityLabel="Modifica non disponibili"
+          >
+            <MaterialCommunityIcons name={lineupEditMode ? 'check' : 'pencil'} size={22} color="#fff" />
+          </TouchableOpacity>
+        </>
+      ) : null}
 
       {activeTab === 'live' && canManageLive ? (
         <>
@@ -2037,6 +2263,7 @@ const styles = StyleSheet.create({
   card: { backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#ececec', padding: 12, marginBottom: 12 },
   /** Formazione: un filo più vicina ai bordi schermo, più padding interno così le maglie non “toccano” il bordo card. */
   cardLineup: { marginHorizontal: -4, paddingLeft: 10, paddingRight: 10, paddingVertical: 12 },
+  cardLineupCompact: { marginHorizontal: -6, paddingLeft: 6, paddingRight: 6, paddingVertical: 10 },
   row: { color: '#333', marginBottom: 10 },
   timingWrap: {
     marginTop: 2,
@@ -2070,6 +2297,7 @@ const styles = StyleSheet.create({
   timingChipLabel: { fontSize: 11, color: '#6b7280', marginBottom: 2 },
   timingChipValue: { fontSize: 14, fontWeight: '700', color: '#111827' },
   twoCol: { flexDirection: 'row', alignItems: 'stretch', gap: 8 },
+  twoColCompact: { gap: 3 },
   col: { flex: 1, minWidth: 0 },
   /** Separatore tra i nomi casa / ospiti. */
   lineupColDivider: {
@@ -2078,12 +2306,68 @@ const styles = StyleSheet.create({
     alignSelf: 'stretch',
     marginVertical: 4,
   },
+  lineupSectionDivider: {
+    marginTop: 4,
+    marginBottom: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#d1d5db',
+  },
+  lineupUnavailableHeader: {
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  lineupUnavailableHeaderLine: {
+    width: '100%',
+    height: 1,
+    backgroundColor: '#d1d5db',
+    marginTop: 6,
+  },
+  lineupUnavailableGrid: {
+    marginTop: 2,
+  },
+  unavailableTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#6b7280',
+    textTransform: 'uppercase',
+    textAlign: 'center',
+  },
+  lineupEditRowWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  lineupEditRowWrapCompact: { gap: 0 },
+  lineupInlineActionBtn: {
+    width: 22,
+    height: 22,
+    flexShrink: 0,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#dc3545',
+    marginBottom: 8,
+  },
+  lineupInlineActionBtnEmbedded: {
+    marginBottom: 0,
+    marginHorizontal: -1,
+  },
+  lineupInlineActionBtnHome: {
+    marginRight: -7,
+  },
+  lineupInlineActionBtnAway: {
+    marginLeft: -7,
+  },
+  lineupInlineActionBtnAdd: {
+    backgroundColor: '#198754',
+  },
   lineupRow: {
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 10,
     gap: 4,
   },
+  lineupRowCompact: { gap: 2, marginBottom: 9 },
   jerseyBadge: {
     width: 40,
     height: 44,
@@ -2095,11 +2379,22 @@ const styles = StyleSheet.create({
   jerseyIcon: {
     position: 'absolute',
   },
+  jerseyBadgeCompact: {
+    width: 34,
+    height: 38,
+  },
+  jerseyIconCompact: {
+    top: 0,
+  },
   jerseyNumber: {
     fontSize: 11,
     fontWeight: '800',
     color: '#111827',
     marginTop: -2,
+  },
+  jerseyNumberCompact: {
+    fontSize: 9,
+    marginTop: -1,
   },
   /** Ruolo discreto: angolo destro in basso sulla maglietta. */
   jerseyRolePill: {
@@ -2122,6 +2417,18 @@ const styles = StyleSheet.create({
     fontSize: 8,
     lineHeight: 10,
   },
+  jerseyRolePillCompact: {
+    minWidth: 12,
+    height: 11,
+    borderRadius: 3,
+    paddingHorizontal: 2,
+    bottom: -1,
+    right: -1,
+  },
+  jerseyRolePillTextCompact: {
+    fontSize: 6,
+    lineHeight: 7,
+  },
   jerseyRolePillMuted: {
     backgroundColor: '#adb5bd',
     borderColor: '#e9ecef',
@@ -2132,13 +2439,23 @@ const styles = StyleSheet.create({
     fontSize: 7,
     lineHeight: 9,
   },
+  jerseyRolePillTextMutedCompact: {
+    fontSize: 6,
+    lineHeight: 7,
+  },
   lineupNamePressable: { flex: 1, minWidth: 0 },
+  lineupNamePressableWithAction: { paddingHorizontal: 2 },
+  lineupNamePressableWithActionHome: { alignItems: 'flex-start' },
+  lineupNamePressableWithActionAway: { alignItems: 'flex-end' },
   lineupPlayerNameText: {
     fontSize: 13,
     fontWeight: '400',
     color: '#222',
     textAlign: 'center',
   },
+  lineupPlayerNameTextWithActionHome: { textAlign: 'left', paddingLeft: 1 },
+  lineupPlayerNameTextWithActionAway: { textAlign: 'right', paddingRight: 1 },
+  lineupPlayerNameTextCompact: { fontSize: 13 },
   editorLabel: { fontSize: 12, color: '#666', marginBottom: 6, marginTop: 6 },
   matchEndScoreHint: { fontSize: 12, color: '#555', marginTop: 8, lineHeight: 18 },
   phaseMinuteLabelBelow: { marginTop: 16 },

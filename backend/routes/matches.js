@@ -9,11 +9,31 @@ function isMissingDbObjectError(err) {
 }
 
 function matchesNotConfigured(res, err) {
-  return res.status(410).json({
-    message: 'Gestione partite non configurata sul DB (tabelle/colonne mancanti)',
+  return res.status(500).json({
+    message: 'Errore configurazione gestione partite sul DB',
     error: err?.message,
     code: err?.code,
   });
+}
+
+let unavailablePlayersTableReady = false;
+async function ensureUnavailablePlayersTable() {
+  if (unavailablePlayersTableReady) return;
+  await query(
+    `CREATE TABLE IF NOT EXISTS official_match_unavailable_players (
+       id BIGSERIAL PRIMARY KEY,
+       match_id INTEGER NOT NULL REFERENCES official_matches(id) ON DELETE CASCADE,
+       player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+       created_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+       UNIQUE (match_id, player_id)
+     )`
+  );
+  await query(
+    `CREATE INDEX IF NOT EXISTS idx_off_match_unavailable_match
+     ON official_match_unavailable_players (match_id)`
+  );
+  unavailablePlayersTableReady = true;
 }
 
 function getInsertRows(result) {
@@ -859,6 +879,18 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
 
     const homeLineup = await getTeamPlayersLineup(Number(match.home_team_id));
     const awayLineup = await getTeamPlayersLineup(Number(match.away_team_id));
+    await ensureUnavailablePlayersTable();
+    const unavailableRows = await query(
+      `SELECT player_id
+       FROM official_match_unavailable_players
+       WHERE match_id = ?`,
+      [matchId]
+    );
+    const unavailableSet = new Set((unavailableRows || []).map((r) => Number(r.player_id)).filter((n) => Number.isFinite(n) && n > 0));
+    const homeAvailable = homeLineup.filter((p) => !unavailableSet.has(Number(p.id)));
+    const awayAvailable = awayLineup.filter((p) => !unavailableSet.has(Number(p.id)));
+    const homeUnavailable = homeLineup.filter((p) => unavailableSet.has(Number(p.id)));
+    const awayUnavailable = awayLineup.filter((p) => unavailableSet.has(Number(p.id)));
 
     // Standings: legacy calcola da lega ufficiale (se home/away nella stessa lega)
     let standings = [];
@@ -878,7 +910,8 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
 
     return res.json({
       match,
-      lineups: { home: homeLineup, away: awayLineup },
+      lineups: { home: homeAvailable, away: awayAvailable },
+      unavailable_lineups: { home: homeUnavailable, away: awayUnavailable },
       team_players: { home: homeLineup, away: awayLineup },
       events: correctedEvents,
       standings,
@@ -892,6 +925,58 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
   } catch (err) {
     if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
     return res.status(500).json({ message: 'Errore caricamento dettaglio partita', error: err.message });
+  }
+});
+
+router.put('/admin/matches/:matchId/unavailable-players', authenticateToken, requireSuperuserLevels([1, 2]), async (req, res) => {
+  try {
+    const matchId = Number(req.params.matchId);
+    const userId = Number(req.user?.userId);
+    if (!matchId || matchId <= 0) return res.status(400).json({ message: 'matchId non valido' });
+
+    const matchRows = await query(
+      `SELECT home_team_id, away_team_id
+       FROM official_matches
+       WHERE id = ?
+       LIMIT 1`,
+      [matchId]
+    );
+    const match = matchRows[0];
+    if (!match) return res.status(404).json({ message: 'Partita non trovata' });
+
+    const homeIdsRaw = Array.isArray(req.body?.home_player_ids) ? req.body.home_player_ids : [];
+    const awayIdsRaw = Array.isArray(req.body?.away_player_ids) ? req.body.away_player_ids : [];
+    const homeIds = [...new Set(homeIdsRaw.map((x) => Number(x)).filter((n) => Number.isFinite(n) && n > 0))];
+    const awayIds = [...new Set(awayIdsRaw.map((x) => Number(x)).filter((n) => Number.isFinite(n) && n > 0))];
+
+    const homeRoster = await getTeamPlayersLineup(Number(match.home_team_id));
+    const awayRoster = await getTeamPlayersLineup(Number(match.away_team_id));
+    const homeAllowed = new Set(homeRoster.map((p) => Number(p.id)));
+    const awayAllowed = new Set(awayRoster.map((p) => Number(p.id)));
+
+    const validHome = homeIds.filter((id) => homeAllowed.has(id));
+    const validAway = awayIds.filter((id) => awayAllowed.has(id));
+    const allValid = [...validHome, ...validAway];
+
+    await ensureUnavailablePlayersTable();
+    await query(`DELETE FROM official_match_unavailable_players WHERE match_id = ?`, [matchId]);
+    for (const pid of allValid) {
+      await query(
+        `INSERT INTO official_match_unavailable_players (match_id, player_id, created_by)
+         VALUES (?, ?, ?)
+         ON CONFLICT (match_id, player_id) DO NOTHING`,
+        [matchId, pid, userId]
+      );
+    }
+
+    return res.json({
+      ok: true,
+      match_id: matchId,
+      unavailable: { home_player_ids: validHome, away_player_ids: validAway },
+    });
+  } catch (err) {
+    if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
+    return res.status(500).json({ message: 'Errore aggiornamento non disponibili', error: err.message });
   }
 });
 

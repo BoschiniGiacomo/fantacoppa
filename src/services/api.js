@@ -526,6 +526,7 @@ export const adminMatchesService = {
   updateMeta: (matchId, payload) => api.put(`admin/matches/${matchId}/meta`, payload),
   addEvent: (matchId, payload) => api.post(`admin/matches/${matchId}/events`, payload),
   updateStats: (matchId, payload) => api.put(`admin/matches/${matchId}/stats`, payload),
+  updateUnavailablePlayers: (matchId, payload) => api.put(`admin/matches/${matchId}/unavailable-players`, payload),
   getStandingsTies: (competitionId) => api.get(`admin/matches/standings/ties?competition_id=${encodeURIComponent(competitionId)}`),
   resolveStandingsTie: (payload) => api.post('admin/matches/standings/ties/resolve', payload),
   remove: (matchId) => api.delete(`admin/matches/${matchId}`),
