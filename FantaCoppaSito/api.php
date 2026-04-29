@@ -4771,7 +4771,7 @@ try {
         $response = [
             'default_deadline_time' => $league['default_deadline_time'] ?? '20:00',
             'access_code' => $league['access_code'] ?? null,
-            'numero_titolari' => $league['numero_titolari'] ?? 11,
+            'numero_titolari' => $league['numero_titolari'] ?? 10,
             'max_portieri' => $league['max_portieri'] ?? 3,
             'max_difensori' => $league['max_difensori'] ?? 8,
             'max_centrocampisti' => $league['max_centrocampisti'] ?? 8,

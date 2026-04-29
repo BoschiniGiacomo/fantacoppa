@@ -280,11 +280,11 @@ export default function SquadScreen({ route, navigation }) {
         <View style={styles.budgetSection}>
           <View style={styles.budgetRow}>
             <Ionicons name="cash-outline" size={18} color="#198754" />
-            <Text style={styles.budgetAmount}>{budgetValue.toFixed(0)}</Text>
+            <Text style={styles.budgetAmount}>{budgetValue.toFixed(1)}</Text>
             <Text style={styles.budgetTotal}>/ {initialBudget}</Text>
             <View style={styles.budgetDivider} />
             <Ionicons name="trending-up" size={16} color="#667eea" />
-            <Text style={styles.totalValueAmount}>{(typeof totalValue === 'number' ? totalValue : 0).toFixed(0)}</Text>
+            <Text style={styles.totalValueAmount}>{(typeof totalValue === 'number' ? totalValue : 0).toFixed(1)}</Text>
             <Text style={styles.totalValueLabel}>valore</Text>
           </View>
           <View style={styles.budgetBarBg}>

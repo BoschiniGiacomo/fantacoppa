@@ -26,7 +26,7 @@ const ALL_MODULES = {
   // 7 titolari
   '2-2-2': [2,2,2], '3-2-1': [3,2,1], '2-3-1': [2,3,1], '1-3-2': [1,3,2], '3-1-2': [3,1,2],
   // 8 titolari
-  '3-2-2': [3,2,2], '2-3-2': [2,3,2], '2-2-3': [2,2,3], '4-2-1': [4,2,1], '3-3-1': [3,3,1], '4-3-1': [4,3,1],
+  '3-2-2': [3,2,2], '2-3-2': [2,3,2], '2-2-3': [2,2,3], '4-2-1': [4,2,1], '3-3-1': [3,3,1],
   // 9 titolari
   '3-3-2': [3,3,2], '3-2-3': [3,2,3], '2-3-3': [2,3,3], '4-2-2': [4,2,2],
   // 10 titolari
@@ -34,9 +34,7 @@ const ALL_MODULES = {
   '4-3-2': [4,3,2], '2-5-2': [2,5,2], '3-5-1': [3,5,1], '4-4-1': [4,4,1],
   // 11 titolari (classici)
   '4-4-2': [4,4,2], '4-3-3': [4,3,3], '3-5-2': [3,5,2], '4-5-1': [4,5,1], '5-3-2': [5,3,2],
-  '5-4-1': [5,4,1], '5-2-3': [5,2,3], '3-4-3': [3,4,3], '3-6-1': [3,6,1],
-  '6-3-1': [6,3,1], '6-2-2': [6,2,2],
-  '2-5-3': [2,5,3], '7-2-1': [7,2,1],
+  '5-4-1': [5,4,1], '5-2-3': [5,2,3], '3-4-3': [3,4,3],
 };
 
 const ROLE_COLOR = { P: '#0d6efd', D: '#198754', C: '#e6a800', A: '#dc3545' };
@@ -75,6 +73,9 @@ export default function FormationScreen({ route }) {
   // Deadline
   const [deadlineStr, setDeadlineStr] = useState(null);
   const [isExpired, setIsExpired] = useState(false);
+  const [canEdit, setCanEdit] = useState(true);
+  const [releaseAt, setReleaseAt] = useState(null);
+  const [formationRecovered, setFormationRecovered] = useState(false);
   const [hasSaved, setHasSaved] = useState(false);   // true se esiste già una formazione salvata
   const [countdown, setCountdown] = useState(null);  // { days, hours, mins, secs } o null
   const parseDeadlineDate = (value) => parseAppDate(value);
@@ -207,6 +208,12 @@ export default function FormationScreen({ route }) {
     return newSlots;
   }, []);
 
+  const buildStarterRoles = useCallback((mod) => {
+    if (!mod || !ALL_MODULES[mod]) return [];
+    const [d, c, a] = ALL_MODULES[mod];
+    return ['P', ...Array(d).fill('D'), ...Array(c).fill('C'), ...Array(a).fill('A')];
+  }, []);
+
   // ============================================================
   // LOAD DATA
   // ============================================================
@@ -231,7 +238,7 @@ export default function FormationScreen({ route }) {
       const players = squadRes?.data?.players || [];
       setSquad(players);
 
-      const nt = settingsRes?.data?.numero_titolari || 11;
+      const nt = settingsRes?.data?.numero_titolari || 10;
       const al = !!(settingsRes?.data?.auto_lineup_mode);
       setNumeroTitolari(nt);
       setAutoLineup(al);
@@ -261,9 +268,19 @@ export default function FormationScreen({ route }) {
       const data = res.data || {};
       setDeadlineStr(data.deadline || null);
       setIsExpired(!!data.isExpired);
+      setCanEdit(data.canEdit !== false);
+      setReleaseAt(data.releaseAt || null);
+      setFormationRecovered(!!data.formation_recovered);
 
       const playersMap = {};
       (squadOverride || squad).forEach(p => { playersMap[p.id] = p; });
+      const formationPlayers = Array.isArray(data.formation_players) ? data.formation_players : [];
+      formationPlayers.forEach((p) => {
+        if (!p || !p.id) return;
+        if (!playersMap[p.id]) {
+          playersMap[p.id] = p;
+        }
+      });
 
       const saved = data.formation;
       if (saved && saved.modulo) {
@@ -439,8 +456,9 @@ export default function FormationScreen({ route }) {
   }), [calcTarget]);
 
   // --- Save ---
-  const doSave = async () => {
-    const titolariIds = starters.map(p => p ? p.id : 0);
+  const doSave = async (startersOverride = null) => {
+    const startersToSave = Array.isArray(startersOverride) ? startersOverride : starters;
+    const titolariIds = startersToSave.map(p => p ? p.id : 0);
     const panchinaIds = bench.map(p => p.id);
     try {
       setSaving(true);
@@ -468,6 +486,53 @@ export default function FormationScreen({ route }) {
       showToast('La scadenza per questa giornata è passata');
       return;
     }
+    if (!canEdit) {
+      showToast('Puoi inserire la formazione da domani dopo la scadenza della giornata precedente');
+      return;
+    }
+
+    const hasAllStarters = starters.length > 0 && starters.every((p) => !!p);
+    if (!hasAllStarters) {
+      setConfirmModal({
+        title: 'Titolari incompleti',
+        message: 'Mancano alcuni titolari. Vuoi completare automaticamente la formazione con giocatori della rosa per i ruoli mancanti?',
+        confirmText: 'Completa',
+        destructive: false,
+        onConfirm: () => {
+          const roles = buildStarterRoles(modulo);
+          if (!roles.length) {
+            setConfirmModal(null);
+            showToast('Modulo non valido');
+            return;
+          }
+
+          const used = new Set();
+          starters.forEach((p) => { if (p?.id) used.add(p.id); });
+          bench.forEach((p) => { if (p?.id) used.add(p.id); });
+          const completed = [...starters];
+
+          for (let i = 0; i < roles.length; i += 1) {
+            if (completed[i]) continue;
+            const neededRole = roles[i];
+            const candidate = squad.find((pl) => pl?.role === neededRole && !used.has(pl.id));
+            if (!candidate) {
+              setConfirmModal(null);
+              showToast(`Nessun ${ROLE_LABEL[neededRole] || 'giocatore'} disponibile per completare la formazione`);
+              return;
+            }
+            completed[i] = candidate;
+            used.add(candidate.id);
+          }
+
+          setStarters(completed);
+          setBench((prev) => prev.filter((b) => !completed.some((s) => s?.id === b?.id)));
+          setConfirmModal(null);
+          doSave(completed);
+        },
+      });
+      return;
+    }
+
     if (hasSaved) {
       setConfirmModal({
         title: 'Sovrascrivere formazione?',
@@ -491,6 +556,19 @@ export default function FormationScreen({ route }) {
     const day = d.toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric', month: 'short' });
     const time = d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
     return `${day} alle ${time}`;
+  };
+
+  const formatReleaseDate = (value) => {
+    if (!value) return '';
+    const d = parseDeadlineDate(value);
+    if (!d) return '';
+    return d.toLocaleString('it-IT', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
   };
 
   // --- Loading ---
@@ -570,6 +648,13 @@ export default function FormationScreen({ route }) {
               <Ionicons name="lock-closed" size={18} color="#c62828" />
               <Text style={s.deadlineExpiredText}>Scadenza passata — formazione bloccata</Text>
             </View>
+          ) : !canEdit ? (
+            <View style={s.deadlineExpired}>
+              <Ionicons name="calendar" size={18} color="#c62828" />
+              <Text style={s.deadlineExpiredText}>
+                Formazione disponibile dal {formatReleaseDate(releaseAt) || 'giorno successivo alla scadenza precedente'}
+              </Text>
+            </View>
           ) : countdown ? (() => {
             const totalMins = countdown.days * 1440 + countdown.hours * 60 + countdown.mins;
             const showSecs = totalMins < 5;
@@ -598,6 +683,13 @@ export default function FormationScreen({ route }) {
           })() : null
         )}
 
+        {!autoLineup && formationRecovered && (
+          <View style={s.bannerRecovered}>
+            <Ionicons name="information-circle-outline" size={16} color="#7a6100" />
+            <Text style={s.bannerRecoveredText}>Formazione recuperata dal sistema</Text>
+          </View>
+        )}
+
         {/* ── Auto lineup: non mostrare il resto ── */}
         {autoLineup ? (
           <View style={s.autoInfo}>
@@ -618,7 +710,7 @@ export default function FormationScreen({ route }) {
                     key={m.key}
                     style={[s.moduleChip, active && s.moduleChipActive]}
                     onPress={() => handleModuleChange(m.key)}
-                    disabled={isExpired}
+                    disabled={isExpired || !canEdit}
                   >
                     <Text style={[s.moduleChipText, active && s.moduleChipTextActive]}>{m.key}</Text>
                   </TouchableOpacity>
@@ -677,8 +769,8 @@ export default function FormationScreen({ route }) {
                               <TouchableOpacity
                                 key={globalIdx}
                                 style={[s.playerSlot, { borderColor: roleColor, backgroundColor: roleColor }, dynSlot]}
-                                onPress={() => !isExpired && removeStarter(globalIdx)}
-                                disabled={isExpired}
+                                onPress={() => !isExpired && canEdit && removeStarter(globalIdx)}
+                                disabled={isExpired || !canEdit}
                               >
                                 <Text style={[s.playerSlotName, { fontSize }]} numberOfLines={1}>{midTruncate(player.last_name, truncLen)}</Text>
                                 <Text style={[s.playerSlotTeam, { fontSize: teamFontSize }]} numberOfLines={1}>{midTruncate(player.team_name, truncLen)}</Text>
@@ -689,8 +781,8 @@ export default function FormationScreen({ route }) {
                             <TouchableOpacity
                               key={globalIdx}
                               style={[s.emptySlot, { borderColor: roleColor }, dynSlot]}
-                              onPress={() => !isExpired && openPicker(row.role, globalIdx)}
-                              disabled={isExpired}
+                              onPress={() => !isExpired && canEdit && openPicker(row.role, globalIdx)}
+                              disabled={isExpired || !canEdit}
                             >
                               <Ionicons name="add" size={iconSize} color={roleColor} />
                               <Text style={[s.emptySlotLabel, { color: roleColor, fontSize: teamFontSize }]}>{row.role}</Text>
@@ -733,8 +825,8 @@ export default function FormationScreen({ route }) {
                     {!isDragging && (
                       <>
                         <TouchableOpacity
-                          onPress={() => !isExpired && removeBench(i)}
-                          disabled={isExpired}
+                          onPress={() => !isExpired && canEdit && removeBench(i)}
+                          disabled={isExpired || !canEdit}
                           style={s.benchRemoveBtn}
                           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                         >
@@ -757,8 +849,8 @@ export default function FormationScreen({ route }) {
               {availableForRole(null).length > 0 && (
                 <TouchableOpacity
                   style={[s.benchAddBtn, { width: BENCH_CARD_W }]}
-                  onPress={() => !isExpired && openPicker(null, 'bench')}
-                  disabled={isExpired}
+                  onPress={() => !isExpired && canEdit && openPicker(null, 'bench')}
+                  disabled={isExpired || !canEdit}
                 >
                   <Ionicons name="add" size={22} color="#999" />
                 </TouchableOpacity>
@@ -800,9 +892,9 @@ export default function FormationScreen({ route }) {
       {!autoLineup && (
         <View style={s.saveBar}>
           <TouchableOpacity
-            style={[s.saveBtn, hasSaved && s.saveBtnSaved, (isExpired || saving) && s.saveBtnDisabled]}
+            style={[s.saveBtn, hasSaved && s.saveBtnSaved, (isExpired || !canEdit || saving) && s.saveBtnDisabled]}
             onPress={handleSave}
-            disabled={isExpired || saving}
+            disabled={isExpired || !canEdit || saving}
           >
             {saving ? (
               <ActivityIndicator size="small" color="#fff" />
@@ -912,6 +1004,8 @@ const s = StyleSheet.create({
   // Banners
   bannerGreen: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#e8f5e9', borderRadius: 10, marginHorizontal: 14, marginTop: 10, padding: 12, gap: 8 },
   bannerGreenText: { fontSize: 13, color: '#2e7d32', fontWeight: '600' },
+  bannerRecovered: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff8e1', borderRadius: 10, marginHorizontal: 14, marginTop: 10, padding: 12, gap: 8, borderWidth: 1, borderColor: '#ffe082' },
+  bannerRecoveredText: { fontSize: 13, color: '#7a6100', fontWeight: '600' },
   // Deadline countdown
   deadlineBox: { marginHorizontal: 14, marginTop: 10, backgroundColor: '#f5f7ff', borderRadius: 12, paddingVertical: 10, paddingHorizontal: 14, borderWidth: 1, borderColor: '#e0e5ff', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   deadlineBoxUrgent: { backgroundColor: '#fff5f5', borderColor: '#fcc' },
@@ -996,10 +1090,10 @@ const s = StyleSheet.create({
   confirmTitle: { fontSize: 20, fontWeight: 'bold', color: '#333', marginBottom: 8, textAlign: 'center' },
   confirmMessage: { fontSize: 14, color: '#666', textAlign: 'center', lineHeight: 20, marginBottom: 20 },
   confirmButtons: { flexDirection: 'row', gap: 12, width: '100%' },
-  confirmBtnCancel: { flex: 1, paddingVertical: 12, borderRadius: 8, alignItems: 'center', backgroundColor: '#f0f0f0' },
-  confirmBtnCancelText: { color: '#333', fontSize: 16, fontWeight: '600' },
-  confirmBtnAction: { flex: 1, paddingVertical: 12, borderRadius: 8, alignItems: 'center', backgroundColor: '#667eea' },
-  confirmBtnActionText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  confirmBtnCancel: { flex: 1, paddingVertical: 12, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: '#f0f0f0' },
+  confirmBtnCancelText: { color: '#333', fontSize: 16, fontWeight: '600', textAlign: 'center' },
+  confirmBtnAction: { flex: 1, paddingVertical: 12, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: '#667eea' },
+  confirmBtnActionText: { color: '#fff', fontSize: 16, fontWeight: '600', textAlign: 'center' },
 
   // Modal
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },

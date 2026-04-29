@@ -305,7 +305,7 @@ export default function MarketScreen({ route, navigation }) {
         <View style={styles.budgetSection}>
           <View style={styles.budgetRow}>
             <Ionicons name="cash-outline" size={18} color="#198754" />
-            <Text style={styles.budgetAmount}>{budgetValue.toFixed(0)}</Text>
+            <Text style={styles.budgetAmount}>{budgetValue.toFixed(1)}</Text>
             <Text style={styles.budgetTotal}>/ {initialBudget}</Text>
           </View>
           <View style={styles.budgetBarBg}>

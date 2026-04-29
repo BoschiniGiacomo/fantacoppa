@@ -242,6 +242,11 @@ export default function StandingsScreen({ route, navigation }) {
                     </View>
                   );
                 })}
+                {formationData.formation_recovered && (
+                  <Text style={styles.recoveredFormationNote}>
+                    Formazione recuperata dal sistema
+                  </Text>
+                )}
               </View>
             ) : (
               <Text style={styles.noFormation}>
@@ -493,6 +498,13 @@ const styles = StyleSheet.create({
   voteSep: { fontSize: 12, color: '#ccc', marginHorizontal: 2 },
   voteFinal: { fontSize: 13, fontWeight: '700', color: '#2e7d32' },
   noFormation: { fontSize: 13, color: '#999', fontStyle: 'italic', textAlign: 'center', paddingVertical: 14 },
+  recoveredFormationNote: {
+    marginTop: 8,
+    fontSize: 12,
+    color: '#666',
+    textAlign: 'right',
+    fontStyle: 'italic',
+  },
 
   /* Empty */
   emptyBox: { alignItems: 'center', paddingVertical: 50 },

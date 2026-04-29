@@ -411,6 +411,9 @@ export const leagueService = {
   calculateMatchday: async (leagueId, giornata, use6Politico = false, force = false) => {
     return api.post(`/leagues/${leagueId}/calculate/${giornata}`, { use_6_politico: use6Politico, force });
   },
+  undoCalculateMatchday: async (leagueId, giornata) => {
+    return api.delete(`/leagues/${leagueId}/calculate/${giornata}`);
+  },
   getLiveScores: async (leagueId, giornata) => {
     return api.get(`/leagues/${leagueId}/live/${giornata}`);
   },

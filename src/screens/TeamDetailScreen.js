@@ -158,7 +158,7 @@ export default function TeamDetailScreen({ route, navigation }) {
 
             {/* Budget */}
             <View style={styles.budgetBox}>
-              <Text style={styles.budgetValue}>{team.budget?.toFixed(0) || '0'}</Text>
+              <Text style={styles.budgetValue}>{team.budget?.toFixed(1) || '0.0'}</Text>
               <Text style={styles.budgetLabel}>{team.budget === 1 ? 'credito' : 'crediti'}</Text>
             </View>
           </View>

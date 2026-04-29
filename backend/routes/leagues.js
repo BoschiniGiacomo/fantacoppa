@@ -307,6 +307,91 @@ async function buildAutoLineupSimple(leagueId, userId, numeroTitolari, votesByPl
     .map((p) => p.id);
 }
 
+async function getClosestPreviousLineup(leagueId, userId, giornata, numeroTitolari) {
+  const rows = await query(
+    `SELECT titolari, panchina
+     FROM user_lineups
+     WHERE league_id = ? AND user_id = ? AND giornata < ?
+     ORDER BY giornata DESC
+     LIMIT 1`,
+    [leagueId, userId, giornata]
+  );
+  if (!rows[0]) return null;
+  return {
+    titolari: parseIdsArray(rows[0].titolari).slice(0, numeroTitolari),
+    panchina: parseIdsArray(rows[0].panchina),
+  };
+}
+
+async function buildFallbackLineupFromRoster(leagueId, userId, numeroTitolari) {
+  const rows = await query(
+    `SELECT p.id, p.role
+     FROM user_players up
+     JOIN players p ON p.id = up.player_id
+     WHERE up.league_id = ? AND up.user_id = ?
+     ORDER BY p.id ASC`,
+    [leagueId, userId]
+  );
+  if (!rows.length) return null;
+
+  const byRole = { P: [], D: [], C: [], A: [] };
+  rows.forEach((r) => {
+    const role = String(r.role || '').trim();
+    if (Object.prototype.hasOwnProperty.call(byRole, role)) {
+      byRole[role].push(Number(r.id));
+    }
+  });
+
+  if (!byRole.P.length) return null;
+
+  const n = Math.max(0, Number(numeroTitolari || 11));
+  if (n <= 0) return null;
+  const movSlots = Math.max(0, n - 1);
+
+  const moduleEntries = Object.entries(AUTO_MODULES)
+    .map(([modulo, arr]) => ({ modulo, d: Number(arr[0] || 0), c: Number(arr[1] || 0), a: Number(arr[2] || 0) }))
+    .filter((m) => (m.d + m.c + m.a) === movSlots)
+    .sort((a, b) => {
+      if (a.d !== b.d) return b.d - a.d;
+      if (a.c !== b.c) return b.c - a.c;
+      return b.a - a.a;
+    });
+
+  const chosenModule = moduleEntries.find((m) =>
+    byRole.D.length >= m.d && byRole.C.length >= m.c && byRole.A.length >= m.a
+  );
+  if (!chosenModule) return null;
+
+  const used = new Set();
+  const pick = (role, count) => {
+    const out = [];
+    for (const pid of byRole[role]) {
+      if (used.has(pid)) continue;
+      out.push(pid);
+      used.add(pid);
+      if (out.length >= count) break;
+    }
+    return out;
+  };
+
+  const titolari = [
+    ...pick('P', 1),
+    ...pick('D', chosenModule.d),
+    ...pick('C', chosenModule.c),
+    ...pick('A', chosenModule.a),
+  ].slice(0, n);
+
+  const panchina = rows
+    .map((r) => Number(r.id))
+    .filter((pid) => Number.isFinite(pid) && pid > 0 && !used.has(pid));
+
+  return {
+    modulo: chosenModule.modulo,
+    titolari,
+    panchina,
+  };
+}
+
 async function getLeagueBonusSettings(leagueId) {
   try {
     const rows = await query(
@@ -1711,6 +1796,18 @@ router.get('/:id/standings/matchday/:giornata/formation/:userId', authenticateTo
     }
 
     const bonusSettings = await getLeagueBonusSettings(leagueId);
+    let isCalculated = false;
+    try {
+      const calcRows = await query(
+        `SELECT COUNT(*)::int AS c
+         FROM matchday_results
+         WHERE league_id = ? AND giornata = ?`,
+        [leagueId, giornata]
+      );
+      isCalculated = Number(calcRows[0]?.c || 0) > 0;
+    } catch (_) {
+      isCalculated = false;
+    }
     const lineRows = await query(
       `SELECT titolari
        FROM user_lineups
@@ -1718,21 +1815,39 @@ router.get('/:id/standings/matchday/:giornata/formation/:userId', authenticateTo
        LIMIT 1`,
       [leagueId, giornata, targetUserId]
     );
-    const titolariRaw = lineRows[0]?.titolari;
-    let playerIds = [];
-    if (typeof titolariRaw === 'string' && titolariRaw.trim() !== '') {
-      try {
-        const p = JSON.parse(titolariRaw);
-        if (Array.isArray(p)) playerIds = p.map((x) => Number(x)).filter((x) => Number.isFinite(x));
-      } catch (_) {
-        playerIds = titolariRaw.split(',').map((x) => Number(x.trim())).filter((x) => Number.isFinite(x));
+    let playerIds = parseIdsArray(lineRows[0]?.titolari);
+    let formationRecovered = false;
+
+    if (playerIds.length < 1 && !isCalculated) {
+      const leagueRows = await query(
+        `SELECT COALESCE(recover_previous_lineup_if_missing, 1) AS recover_previous_lineup_if_missing
+         FROM leagues
+         WHERE id = ?
+         LIMIT 1`,
+        [leagueId]
+      );
+      const recoverPrevious = Number(leagueRows[0]?.recover_previous_lineup_if_missing ?? 1) === 1;
+      if (recoverPrevious) {
+        const previousRows = await query(
+          `SELECT titolari
+           FROM user_lineups
+           WHERE league_id = ? AND user_id = ? AND giornata < ?
+           ORDER BY giornata DESC
+           LIMIT 1`,
+          [leagueId, targetUserId, giornata]
+        );
+        playerIds = parseIdsArray(previousRows[0]?.titolari);
+        formationRecovered = playerIds.length > 0;
       }
-    } else if (Array.isArray(titolariRaw)) {
-      playerIds = titolariRaw.map((x) => Number(x)).filter((x) => Number.isFinite(x));
     }
 
     if (playerIds.length < 1) {
-      return res.json({ formation: [], bonus_enabled: Number(bonusSettings.enable_bonus_malus) === 1, bonus_settings: bonusSettings });
+      return res.json({
+        formation: [],
+        formation_recovered: false,
+        bonus_enabled: Number(bonusSettings.enable_bonus_malus) === 1,
+        bonus_settings: bonusSettings,
+      });
     }
 
     const inParams = playerIds.map(() => '?').join(',');
@@ -1744,6 +1859,23 @@ router.get('/:id/standings/matchday/:giornata/formation/:userId', authenticateTo
     );
     const byId = {};
     pRows.forEach((p) => { byId[Number(p.id)] = p; });
+
+    let scoreMap = {};
+    try {
+      const scoreRows = await query(
+        `SELECT player_id, rating, goals, assists, yellow_cards, red_cards,
+                goals_conceded, own_goals, penalty_missed, penalty_saved, clean_sheet,
+                total_score
+         FROM matchday_player_scores
+         WHERE league_id = ? AND giornata = ? AND user_id = ?`,
+        [leagueId, giornata, targetUserId]
+      );
+      scoreMap = Object.fromEntries(
+        scoreRows.map((s) => [Number(s.player_id), s])
+      );
+    } catch (_) {
+      scoreMap = {};
+    }
 
     let votesMap = {};
     try {
@@ -1762,17 +1894,31 @@ router.get('/:id/standings/matchday/:giornata/formation/:userId', authenticateTo
     const formation = playerIds.map((pid) => {
       const p = byId[pid];
       if (!p) return null;
+      const s = scoreMap[pid] || null;
       const v = votesMap[pid] || {};
-      const rating = Number(v.rating || 0);
-      const goals = Number(v.goals || 0);
-      const assists = Number(v.assists || 0);
-      const yellow_cards = Number(v.yellow_cards || 0);
-      const red_cards = Number(v.red_cards || 0);
-      const final_rating = rating
-        + goals * Number(bonusSettings.bonus_goal || 0)
-        + assists * Number(bonusSettings.bonus_assist || 0)
-        + yellow_cards * Number(bonusSettings.malus_yellow_card || 0)
-        + red_cards * Number(bonusSettings.malus_red_card || 0);
+      const rating = Number((s?.rating != null ? s.rating : v.rating) || 0);
+      const goals = Number((s?.goals != null ? s.goals : v.goals) || 0);
+      const assists = Number((s?.assists != null ? s.assists : v.assists) || 0);
+      const yellow_cards = Number((s?.yellow_cards != null ? s.yellow_cards : v.yellow_cards) || 0);
+      const red_cards = Number((s?.red_cards != null ? s.red_cards : v.red_cards) || 0);
+      const goals_conceded = Number((s?.goals_conceded != null ? s.goals_conceded : v.goals_conceded) || 0);
+      const own_goals = Number((s?.own_goals != null ? s.own_goals : v.own_goals) || 0);
+      const penalty_missed = Number((s?.penalty_missed != null ? s.penalty_missed : v.penalty_missed) || 0);
+      const penalty_saved = Number((s?.penalty_saved != null ? s.penalty_saved : v.penalty_saved) || 0);
+      const clean_sheet = Number((s?.clean_sheet != null ? s.clean_sheet : v.clean_sheet) || 0);
+      const computedFinal = rating + computeBonusTotal({
+        rating,
+        goals,
+        assists,
+        yellow_cards,
+        red_cards,
+        goals_conceded,
+        own_goals,
+        penalty_missed,
+        penalty_saved,
+        clean_sheet,
+      }, bonusSettings);
+      const final_rating = Number((s?.total_score != null ? s.total_score : computedFinal) || 0);
       return {
         id: Number(p.id),
         first_name: p.first_name,
@@ -1784,15 +1930,20 @@ router.get('/:id/standings/matchday/:giornata/formation/:userId', authenticateTo
         assists,
         yellow_cards,
         red_cards,
-        goals_conceded: Number(v.goals_conceded || 0),
-        own_goals: Number(v.own_goals || 0),
-        penalty_missed: Number(v.penalty_missed || 0),
-        penalty_saved: Number(v.penalty_saved || 0),
-        clean_sheet: Number(v.clean_sheet || 0),
+        goals_conceded,
+        own_goals,
+        penalty_missed,
+        penalty_saved,
+        clean_sheet,
       };
     }).filter(Boolean);
 
-    res.json({ formation, bonus_enabled: Number(bonusSettings.enable_bonus_malus) === 1, bonus_settings: bonusSettings });
+    res.json({
+      formation,
+      formation_recovered: formationRecovered,
+      bonus_enabled: Number(bonusSettings.enable_bonus_malus) === 1,
+      bonus_settings: bonusSettings,
+    });
   } catch (error) {
     console.error('Standings formation error:', error);
     res.status(500).json({ message: 'Errore caricamento formazione giornata' });
@@ -2162,13 +2313,18 @@ router.post('/:id/calculate/:giornata', authenticateToken, async (req, res) => {
     }
 
     const leagueRows = await query(
-      `SELECT numero_titolari
+      `SELECT numero_titolari, auto_lineup_mode,
+              COALESCE(recover_previous_lineup_if_missing, 1) AS recover_previous_lineup_if_missing,
+              COALESCE(enable_sv_fallback_vote, 0) AS enable_sv_fallback_vote
        FROM leagues
        WHERE id = ?
        LIMIT 1`,
       [leagueId]
     );
-    const numeroTitolari = Number(leagueRows[0]?.numero_titolari || 11);
+    const numeroTitolari = Number(leagueRows[0]?.numero_titolari || 10);
+    const autoLineupMode = Number(leagueRows[0]?.auto_lineup_mode || 0) === 1;
+    const recoverPreviousLineupIfMissing = Number(leagueRows[0]?.recover_previous_lineup_if_missing ?? 1) === 1;
+    const enableSvFallbackVote = Number(leagueRows[0]?.enable_sv_fallback_vote ?? 0) === 1;
     const bonusSettings = await getLeagueBonusSettings(leagueId);
 
     const members = await query(
@@ -2182,14 +2338,17 @@ router.post('/:id/calculate/:giornata', authenticateToken, async (req, res) => {
     }
 
     const lineupRows = await query(
-      `SELECT user_id, titolari
+      `SELECT user_id, titolari, panchina
        FROM user_lineups
        WHERE league_id = ? AND giornata = ?`,
       [leagueId, giornata]
     );
     const lineupByUser = {};
     lineupRows.forEach((r) => {
-      lineupByUser[Number(r.user_id)] = parseIdsArray(r.titolari).slice(0, numeroTitolari);
+      lineupByUser[Number(r.user_id)] = {
+        titolari: parseIdsArray(r.titolari).slice(0, numeroTitolari),
+        panchina: parseIdsArray(r.panchina),
+      };
     });
 
     const voteRows = await query(
@@ -2245,11 +2404,66 @@ router.post('/:id/calculate/:giornata', authenticateToken, async (req, res) => {
     for (const m of members) {
       const userId = Number(m.user_id);
       let titolari = [];
-      if (lineupByUser[userId] && lineupByUser[userId].length > 0) {
-        titolari = lineupByUser[userId].filter((id) => Number.isFinite(id) && id > 0).slice(0, numeroTitolari);
-      } else {
+      let panchina = [];
+      const currentLineup = lineupByUser[userId];
+      if (currentLineup && currentLineup.titolari.length > 0) {
+        titolari = currentLineup.titolari.filter((id) => Number.isFinite(id) && id > 0).slice(0, numeroTitolari);
+        panchina = currentLineup.panchina.filter((id) => Number.isFinite(id) && id > 0);
+      } else if (recoverPreviousLineupIfMissing) {
+        const previousLineup = await getClosestPreviousLineup(leagueId, userId, giornata, numeroTitolari);
+        if (previousLineup && previousLineup.titolari.length > 0) {
+          titolari = previousLineup.titolari.filter((id) => Number.isFinite(id) && id > 0).slice(0, numeroTitolari);
+          panchina = previousLineup.panchina.filter((id) => Number.isFinite(id) && id > 0);
+        } else {
+          const generated = await buildFallbackLineupFromRoster(leagueId, userId, numeroTitolari);
+          if (generated && generated.titolari.length > 0) {
+            titolari = generated.titolari.filter((id) => Number.isFinite(id) && id > 0).slice(0, numeroTitolari);
+            panchina = generated.panchina.filter((id) => Number.isFinite(id) && id > 0);
+            try {
+              await query(
+                `INSERT INTO user_lineups (user_id, league_id, giornata, modulo, titolari, panchina)
+                 VALUES (?, ?, ?, ?, ?, ?)
+                 ON CONFLICT (user_id, league_id, giornata)
+                 DO UPDATE SET
+                   modulo = EXCLUDED.modulo,
+                   titolari = EXCLUDED.titolari,
+                   panchina = EXCLUDED.panchina`,
+                [
+                  userId,
+                  leagueId,
+                  giornata,
+                  String(generated.modulo || ''),
+                  JSON.stringify(titolari),
+                  JSON.stringify(panchina),
+                ]
+              );
+            } catch (_) {
+              // Se il salvataggio fallisce, prosegue comunque con il calcolo.
+            }
+          }
+        }
+      }
+
+      if (!titolari.length && autoLineupMode) {
         titolari = await buildAutoLineupSimple(leagueId, userId, numeroTitolari, votesByPlayer, bonusSettings, use6Politico);
       }
+
+      if (!Array.isArray(panchina)) {
+        panchina = [];
+      }
+
+      const panchinaByRoleWithVote = { P: false, D: false, C: false, A: false };
+      panchina.forEach((benchPlayerId) => {
+        const vote = votesByPlayer[benchPlayerId] || {};
+        const benchRating = Number(vote.rating || 0);
+        if (benchRating > 0) {
+          const role = playersById[Number(benchPlayerId)]?.role;
+          if (role && Object.prototype.hasOwnProperty.call(panchinaByRoleWithVote, role)) {
+            panchinaByRoleWithVote[role] = true;
+          }
+        }
+      });
+
       let punteggio = 0;
       let hasRealVotes = false;
       const playerScores = [];
@@ -2258,7 +2472,16 @@ router.post('/:id/calculate/:giornata', authenticateToken, async (req, res) => {
         const vote = votesByPlayer[playerId] || {};
         let rating = Number(vote.rating || 0);
         if (rating > 0) hasRealVotes = true;
-        if (rating <= 0 && use6Politico) rating = 6;
+
+        if (rating <= 0 && use6Politico) {
+          rating = 6;
+        } else if (rating <= 0) {
+          const playerRole = playersById[Number(playerId)]?.role || null;
+          const hasBenchSameRoleWithVote = !!(playerRole && panchinaByRoleWithVote[playerRole]);
+          if (enableSvFallbackVote && !hasBenchSameRoleWithVote) {
+            rating = 4.5;
+          }
+        }
         if (rating <= 0) continue;
         const bonusTotal = computeBonusTotal({ ...vote, rating }, bonusSettings);
         const score = rating + bonusTotal;
@@ -2351,6 +2574,71 @@ router.post('/:id/calculate/:giornata', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Calculate matchday error:', error);
     res.status(500).json({ message: 'Errore durante il calcolo giornata' });
+  }
+});
+
+// DELETE /api/leagues/:id/calculate/:giornata
+router.delete('/:id/calculate/:giornata', authenticateToken, async (req, res) => {
+  try {
+    const leagueId = toValidLeagueId(req.params.id);
+    const giornata = Number(req.params.giornata);
+    const currentUserId = Number(req.user.userId);
+    if (!leagueId || !Number.isFinite(giornata) || giornata <= 0) {
+      return res.status(400).json({ message: 'Parametri non validi' });
+    }
+
+    const roleRows = await query(
+      `SELECT role
+       FROM league_members
+       WHERE league_id = ? AND user_id = ?
+       LIMIT 1`,
+      [leagueId, currentUserId]
+    );
+    if (!roleRows[0] || String(roleRows[0].role) !== 'admin') {
+      return res.status(403).json({ message: 'Solo gli amministratori possono annullare il calcolo della giornata' });
+    }
+
+    const existing = await query(
+      `SELECT COUNT(*)::int AS c
+       FROM matchday_results
+       WHERE league_id = ? AND giornata = ?`,
+      [leagueId, giornata]
+    );
+    const hasCalculatedData = Number(existing[0]?.c || 0) > 0;
+    if (!hasCalculatedData) {
+      return res.status(404).json({ message: 'Nessun calcolo presente per questa giornata' });
+    }
+
+    await query(
+      `DELETE FROM matchday_results
+       WHERE league_id = ? AND giornata = ?`,
+      [leagueId, giornata]
+    );
+
+    try {
+      await query(
+        `DELETE FROM matchday_player_scores
+         WHERE league_id = ? AND giornata = ?`,
+        [leagueId, giornata]
+      );
+    } catch (_) {
+      // Tabella opzionale: ignora se non presente.
+    }
+
+    try {
+      await query(
+        `DELETE FROM push_notification_sends
+         WHERE league_id = ? AND giornata = ? AND notification_type = 'matchday_calculated'`,
+        [leagueId, giornata]
+      );
+    } catch (_) {
+      // Tabella opzionale: ignora se non presente.
+    }
+
+    return res.json({ message: 'Calcolo giornata annullato con successo' });
+  } catch (error) {
+    console.error('Undo calculate matchday error:', error);
+    res.status(500).json({ message: 'Errore durante l\'annullamento del calcolo giornata' });
   }
 });
 
@@ -2490,7 +2778,7 @@ router.get('/:id/live/:giornata', authenticateToken, async (req, res) => {
        LIMIT 1`,
       [leagueId]
     );
-    const numeroTitolari = Number(leagueRows[0]?.numero_titolari || 11);
+    const numeroTitolari = Number(leagueRows[0]?.numero_titolari || 10);
 
     const votesByPlayer = {};
     const ratingsByUser = {};
@@ -2572,7 +2860,8 @@ router.get('/:id/settings', authenticateToken, async (req, res) => {
     if (!leagueId) return res.status(400).json({ message: 'League ID non valido' });
     const rows = await query(
       `SELECT id, name, creator_id, initial_budget, default_deadline_time, numero_titolari,
-              max_portieri, max_difensori, max_centrocampisti, max_attaccanti, auto_lineup_mode
+              max_portieri, max_difensori, max_centrocampisti, max_attaccanti, auto_lineup_mode,
+              enable_next_matchday_from_next_day, recover_previous_lineup_if_missing, enable_sv_fallback_vote
        FROM leagues
        WHERE id = ?
        LIMIT 1`,
@@ -2596,14 +2885,37 @@ router.put('/:id/settings', authenticateToken, async (req, res) => {
     const defaultDeadlineTime = req.body?.default_deadline_time != null ? String(req.body.default_deadline_time) : null;
     const numeroTitolari = req.body?.numero_titolari != null ? Number(req.body.numero_titolari) : null;
     const autoLineupMode = req.body?.auto_lineup_mode != null ? Number(req.body.auto_lineup_mode) : null;
+    const enableNextMatchdayFromNextDay =
+      req.body?.enable_next_matchday_from_next_day != null
+        ? Number(req.body.enable_next_matchday_from_next_day)
+        : null;
+    const recoverPreviousLineupIfMissing =
+      req.body?.recover_previous_lineup_if_missing != null
+        ? Number(req.body.recover_previous_lineup_if_missing)
+        : null;
+    const enableSvFallbackVote =
+      req.body?.enable_sv_fallback_vote != null
+        ? Number(req.body.enable_sv_fallback_vote)
+        : null;
 
     await query(
       `UPDATE leagues
        SET default_deadline_time = COALESCE(?, default_deadline_time),
            numero_titolari = COALESCE(?, numero_titolari),
-           auto_lineup_mode = COALESCE(?, auto_lineup_mode)
+           auto_lineup_mode = COALESCE(?, auto_lineup_mode),
+           enable_next_matchday_from_next_day = COALESCE(?, enable_next_matchday_from_next_day),
+           recover_previous_lineup_if_missing = COALESCE(?, recover_previous_lineup_if_missing),
+           enable_sv_fallback_vote = COALESCE(?, enable_sv_fallback_vote)
        WHERE id = ?`,
-      [defaultDeadlineTime, Number.isFinite(numeroTitolari) ? numeroTitolari : null, Number.isFinite(autoLineupMode) ? autoLineupMode : null, leagueId]
+      [
+        defaultDeadlineTime,
+        Number.isFinite(numeroTitolari) ? numeroTitolari : null,
+        Number.isFinite(autoLineupMode) ? autoLineupMode : null,
+        Number.isFinite(enableNextMatchdayFromNextDay) ? enableNextMatchdayFromNextDay : null,
+        Number.isFinite(recoverPreviousLineupIfMissing) ? recoverPreviousLineupIfMissing : null,
+        Number.isFinite(enableSvFallbackVote) ? enableSvFallbackVote : null,
+        leagueId,
+      ]
     );
     res.json({ message: 'Impostazioni lega aggiornate' });
   } catch (error) {

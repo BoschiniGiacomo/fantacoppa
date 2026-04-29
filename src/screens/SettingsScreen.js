@@ -127,6 +127,7 @@ export default function SettingsScreen({ route, navigation }) {
   const [calculating, setCalculating] = useState(false);
   const [calcResult, setCalcResult] = useState(null);
   const [showRecalcModal, setShowRecalcModal] = useState(false);
+  const [showUndoCalcModal, setShowUndoCalcModal] = useState(false);
   const [calcFeedback, setCalcFeedback] = useState('');
   const [toastMsg, setToastMsg] = useState(null); // { text, type: 'success' | 'error' }
   const [confirmModal, setConfirmModal] = useState(null); // { title, message, confirmText, onConfirm, destructive }
@@ -140,11 +141,14 @@ export default function SettingsScreen({ route, navigation }) {
   const [settings, setSettings] = useState({
     default_deadline_time: '20:00',
     access_code: '',
-    numero_titolari: 11,
+    numero_titolari: 10,
     max_portieri: 3,
     max_difensori: 8,
     max_centrocampisti: 8,
     max_attaccanti: 6,
+    enable_next_matchday_from_next_day: 1,
+    recover_previous_lineup_if_missing: 1,
+    enable_sv_fallback_vote: 0,
   });
   
   // Impostazioni bonus/malus
@@ -220,6 +224,12 @@ export default function SettingsScreen({ route, navigation }) {
     }
   }, [activeSection, isAdmin, canViewAdminSections]);
 
+  useEffect(() => {
+    if (autoLineupMode && activeGeneralSubsection === 'formation') {
+      setActiveGeneralSubsection('base');
+    }
+  }, [autoLineupMode, activeGeneralSubsection]);
+
   // Ricarica dati quando la schermata riceve il focus
   useFocusEffect(
     useCallback(() => {
@@ -283,11 +293,17 @@ export default function SettingsScreen({ route, navigation }) {
       setSettings({
         default_deadline_time: defaultTime,
         access_code: data.access_code || '',
-        numero_titolari: data.numero_titolari || 11,
+        numero_titolari: data.numero_titolari || 10,
         max_portieri: data.max_portieri || 3,
         max_difensori: data.max_difensori || 8,
         max_centrocampisti: data.max_centrocampisti || 8,
         max_attaccanti: data.max_attaccanti || 6,
+        enable_next_matchday_from_next_day:
+          data.enable_next_matchday_from_next_day === 0 || data.enable_next_matchday_from_next_day === false ? 0 : 1,
+        recover_previous_lineup_if_missing:
+          data.recover_previous_lineup_if_missing === 0 || data.recover_previous_lineup_if_missing === false ? 0 : 1,
+        enable_sv_fallback_vote:
+          data.enable_sv_fallback_vote === 1 || data.enable_sv_fallback_vote === true ? 1 : 0,
       });
       
       setAutoLineupMode(data.auto_lineup_mode === 1 || data.auto_lineup_mode === true);
@@ -675,6 +691,24 @@ export default function SettingsScreen({ route, navigation }) {
     }
   };
 
+  const handleUndoCalculateMatchday = async () => {
+    if (!selectedCalcMatchday) return;
+    try {
+      setCalculating(true);
+      setShowUndoCalcModal(false);
+      await leagueService.undoCalculateMatchday(leagueId, selectedCalcMatchday);
+      setCalcResult(null);
+      setCalcFeedback('Calcolo giornata annullato!');
+      setTimeout(() => setCalcFeedback(''), 3000);
+      await loadMatchdayStatus();
+    } catch (error) {
+      console.error('Error undo calculating matchday:', error);
+      showToast(error.response?.data?.message || 'Impossibile annullare il calcolo della giornata');
+    } finally {
+      setCalculating(false);
+    }
+  };
+
   const loadMarketSettings = async () => {
     try {
       setLoadingMarket(true);
@@ -793,7 +827,7 @@ export default function SettingsScreen({ route, navigation }) {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container} edges={['top']}>
+      <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#667eea" />
         </View>
@@ -802,7 +836,7 @@ export default function SettingsScreen({ route, navigation }) {
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       <View style={styles.header}>
         <TouchableOpacity
           onPress={() => navigation.goBack()}
@@ -822,7 +856,7 @@ export default function SettingsScreen({ route, navigation }) {
       <ScrollView 
         ref={scrollViewRef}
         style={styles.content}
-        contentContainerStyle={{ paddingBottom: insets.bottom + 120 }}
+        contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 20) + 120 }}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
         onScroll={(e) => { currentScrollY.current = e.nativeEvent.contentOffset.y; }}
@@ -877,6 +911,22 @@ export default function SettingsScreen({ route, navigation }) {
                   Base
                 </Text>
               </TouchableOpacity>
+              {!autoLineupMode && (
+                <TouchableOpacity
+                  style={[styles.generalTab, activeGeneralSubsection === 'formation' && styles.generalTabActive]}
+                  onPress={() => setActiveGeneralSubsection('formation')}
+                >
+                  <Ionicons
+                    name="football-outline"
+                    size={16}
+                    color={activeGeneralSubsection === 'formation' ? '#fff' : '#666'}
+                    style={styles.generalTabIcon}
+                  />
+                  <Text style={[styles.generalTabText, activeGeneralSubsection === 'formation' && styles.generalTabTextActive]}>
+                    Formazione
+                  </Text>
+                </TouchableOpacity>
+              )}
               <TouchableOpacity
                 style={[styles.generalTab, activeGeneralSubsection === 'bonus' && styles.generalTabActive]}
                 onPress={() => setActiveGeneralSubsection('bonus')}
@@ -1127,6 +1177,131 @@ export default function SettingsScreen({ route, navigation }) {
                 <Text style={styles.saveButtonText}>Salva</Text>
               )}
             </TouchableOpacity>
+              </>
+            )}
+
+            {/* Sottosezione Formazione */}
+            {activeGeneralSubsection === 'formation' && !autoLineupMode && (
+              <>
+                <View style={styles.formGroup}>
+                  <View style={styles.labelContainer}>
+                    <Ionicons name="calendar-outline" size={18} color="#667eea" style={styles.labelIcon} />
+                    <Text style={styles.label}>Sblocco formazione giornata successiva</Text>
+                  </View>
+                  <Text style={styles.subtitle}>
+                    {settings.enable_next_matchday_from_next_day === 1
+                      ? 'Inserimento disponibile solo dalle 00:00 del giorno dopo la scadenza precedente'
+                      : 'Inserimento sempre disponibile prima della propria scadenza'}
+                  </Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 6 }}>
+                    <Text
+                      style={{
+                        fontSize: 13,
+                        color: settings.enable_next_matchday_from_next_day === 1 ? '#28a745' : '#999',
+                        flex: 1,
+                      }}
+                    >
+                      {settings.enable_next_matchday_from_next_day === 1 ? 'Attiva' : 'Disattiva'}
+                    </Text>
+                    <Switch
+                      value={settings.enable_next_matchday_from_next_day === 1}
+                      onValueChange={(value) =>
+                        setSettings({
+                          ...settings,
+                          enable_next_matchday_from_next_day: value ? 1 : 0,
+                        })
+                      }
+                      disabled={isReadOnlyObserver}
+                    />
+                  </View>
+                </View>
+
+                <View style={styles.formGroup}>
+                  <View style={styles.labelContainer}>
+                    <Ionicons name="refresh-outline" size={18} color="#667eea" style={styles.labelIcon} />
+                    <Text style={styles.label}>Recupero ultima formazione</Text>
+                  </View>
+                  <Text style={styles.subtitle}>
+                    {settings.recover_previous_lineup_if_missing === 1
+                      ? "Se manca la formazione, usa l'ultima disponibile delle giornate precedenti"
+                      : 'Se manca la formazione, la squadra resta senza formazione per la giornata'}
+                  </Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 6 }}>
+                    <Text
+                      style={{
+                        fontSize: 13,
+                        color: settings.recover_previous_lineup_if_missing === 1 ? '#28a745' : '#999',
+                        flex: 1,
+                      }}
+                    >
+                      {settings.recover_previous_lineup_if_missing === 1 ? 'Attiva' : 'Disattiva'}
+                    </Text>
+                    <Switch
+                      value={settings.recover_previous_lineup_if_missing === 1}
+                      onValueChange={(value) =>
+                        setSettings({
+                          ...settings,
+                          recover_previous_lineup_if_missing: value ? 1 : 0,
+                        })
+                      }
+                      disabled={isReadOnlyObserver}
+                    />
+                  </View>
+                </View>
+
+                <View style={styles.formGroup}>
+                  <View style={styles.labelContainer}>
+                    <Ionicons name="medkit-outline" size={18} color="#667eea" style={styles.labelIcon} />
+                    <Text style={styles.label}>Voto aiuto 4.5 senza sostituto</Text>
+                  </View>
+                  <Text style={styles.subtitle}>
+                    {settings.enable_sv_fallback_vote === 1
+                      ? 'Se un titolare è S.V. e nessun panchinaro dello stesso ruolo ha voto, assegna 4.5'
+                      : 'Se un titolare è S.V. e non ci sono sostituti con voto, gioca in meno (0)'}
+                  </Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 6 }}>
+                    <Text
+                      style={{
+                        fontSize: 13,
+                        color: settings.enable_sv_fallback_vote === 1 ? '#28a745' : '#999',
+                        flex: 1,
+                      }}
+                    >
+                      {settings.enable_sv_fallback_vote === 1 ? 'Attiva' : 'Disattiva'}
+                    </Text>
+                    <Switch
+                      value={settings.enable_sv_fallback_vote === 1}
+                      onValueChange={(value) =>
+                        setSettings({
+                          ...settings,
+                          enable_sv_fallback_vote: value ? 1 : 0,
+                        })
+                      }
+                      disabled={isReadOnlyObserver}
+                    />
+                  </View>
+                </View>
+
+                <TouchableOpacity 
+                  style={[
+                    styles.saveButton, 
+                    saving && styles.saveButtonDisabled,
+                    saved && styles.saveButtonSuccess
+                  ]} 
+                  onPress={handleSaveSettings}
+                  disabled={saving || isReadOnlyObserver}
+                >
+                  {saving ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : saved ? (
+                    <>
+                      <Ionicons name="checkmark-circle" size={20} color="#fff" style={{ marginRight: 8 }} />
+                      <Text style={styles.saveButtonText}>Salvato</Text>
+                    </>
+                  ) : (
+                    <Text style={styles.saveButtonText}>Salva</Text>
+                  )}
+                </TouchableOpacity>
               </>
             )}
 
@@ -1538,6 +1713,17 @@ export default function SettingsScreen({ route, navigation }) {
                   )}
                 </TouchableOpacity>
 
+                {Number(matchdayStatuses.find(m => m.giornata === selectedCalcMatchday)?.is_calculated || 0) === 1 && (
+                  <TouchableOpacity
+                    style={[styles.calcButton, styles.calcButtonDanger, calculating && { opacity: 0.6 }]}
+                    onPress={() => setShowUndoCalcModal(true)}
+                    disabled={calculating || !selectedCalcMatchday || isReadOnlyObserver}
+                  >
+                    <Ionicons name="trash-outline" size={18} color="#fff" />
+                    <Text style={styles.calcButtonText}>Annulla Calcolo Giornata</Text>
+                  </TouchableOpacity>
+                )}
+
                 {/* Feedback */}
                 {calcFeedback !== '' && (
                   <View style={styles.calcFeedback}>
@@ -1567,6 +1753,32 @@ export default function SettingsScreen({ route, navigation }) {
                     >
                       {calculating ? <ActivityIndicator color="#fff" size="small" /> : (
                         <Text style={{ color: '#fff', fontWeight: '600' }}>Ricalcola</Text>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </View>
+            </Modal>
+
+            <Modal visible={showUndoCalcModal} transparent animationType="fade" onRequestClose={() => setShowUndoCalcModal(false)}>
+              <View style={styles.modalOverlayCalc}>
+                <View style={styles.modalCardCalc}>
+                  <Ionicons name="trash-outline" size={36} color="#dc3545" />
+                  <Text style={styles.modalTitleCalc}>Annullare il calcolo?</Text>
+                  <Text style={styles.modalDescCalc}>
+                    Verranno eliminati i risultati calcolati della giornata selezionata. Continuare?
+                  </Text>
+                  <View style={styles.modalButtonsCalc}>
+                    <TouchableOpacity style={styles.modalCancelBtnCalc} onPress={() => setShowUndoCalcModal(false)}>
+                      <Text style={{ color: '#333', fontWeight: '600' }}>Annulla</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.modalConfirmBtnCalc, styles.modalConfirmBtnDangerCalc, calculating && { opacity: 0.6 }]}
+                      onPress={handleUndoCalculateMatchday}
+                      disabled={calculating || isReadOnlyObserver}
+                    >
+                      {calculating ? <ActivityIndicator color="#fff" size="small" /> : (
+                        <Text style={{ color: '#fff', fontWeight: '600' }}>Elimina</Text>
                       )}
                     </TouchableOpacity>
                   </View>
@@ -1847,7 +2059,7 @@ const styles = StyleSheet.create({
   generalTabsContainer: {
     flexDirection: 'row',
     marginBottom: 14,
-    gap: 8,
+    gap: 3,
   },
   generalTab: {
     flex: 1,
@@ -1855,6 +2067,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 10,
+    paddingHorizontal: 8,
     borderRadius: 10,
     backgroundColor: '#fff',
     borderWidth: 1,
@@ -2698,6 +2911,11 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     elevation: 3,
   },
+  calcButtonDanger: {
+    backgroundColor: '#dc3545',
+    marginTop: 10,
+    shadowColor: '#dc3545',
+  },
   calcButtonText: {
     color: '#fff',
     fontWeight: '700',
@@ -2785,6 +3003,9 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     backgroundColor: '#e6a800',
     alignItems: 'center',
+  },
+  modalConfirmBtnDangerCalc: {
+    backgroundColor: '#dc3545',
   },
   // Confirm modal
   confirmOverlay: {
