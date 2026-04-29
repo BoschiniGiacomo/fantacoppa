@@ -70,6 +70,16 @@ function formatOverviewKickoffLine(dateStr) {
   return showTime ? `${dateLabel} ${hm}` : dateLabel;
 }
 
+function isEnabledFlag(v) {
+  if (typeof v === 'boolean') return v;
+  if (typeof v === 'number') return Number.isFinite(v) && v === 1;
+  if (typeof v === 'string') {
+    const n = v.trim().toLowerCase();
+    return n === '1' || n === 'true' || n === 't' || n === 'yes' || n === 'y' || n === 'on';
+  }
+  return false;
+}
+
 /** Segmenti per chip durata partita (tab Panoramica). */
 function getMatchTimingSegments(m) {
   if (!m) return null;
@@ -82,7 +92,7 @@ function getMatchTimingSegments(m) {
       value: `${half}′ · ${half}′`,
     },
   ];
-  if (Number(m.extra_time_enabled) === 1) {
+  if (isEnabledFlag(m.extra_time_enabled)) {
     const x1 = m.extra_first_half_minutes != null ? Number(m.extra_first_half_minutes) : 15;
     const x2 = m.extra_second_half_minutes != null ? Number(m.extra_second_half_minutes) : 15;
     if (Number.isFinite(x1) && Number.isFinite(x2)) {
@@ -93,7 +103,7 @@ function getMatchTimingSegments(m) {
       });
     }
   }
-  if (Number(m.penalties_enabled) === 1) {
+  if (isEnabledFlag(m.penalties_enabled)) {
     out.push({ key: 'pen', label: 'Rigori', value: 'Si' });
   }
   return out;

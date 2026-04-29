@@ -1355,16 +1355,51 @@ router.post('/admin/matches', authenticateToken, requireSuperuserLevels([1, 2]),
     const venue = req.body?.venue != null ? String(req.body.venue).trim() : null;
     const referee = req.body?.referee != null ? String(req.body.referee).trim() : null;
     const matchStage = req.body?.match_stage != null ? String(req.body.match_stage).trim() : null;
+    const regulationHalfMinutesRaw = Number(req.body?.regulation_half_minutes);
+    const regulationHalfMinutes =
+      Number.isFinite(regulationHalfMinutesRaw) && regulationHalfMinutesRaw >= 15 && regulationHalfMinutesRaw <= 60
+        ? Math.trunc(regulationHalfMinutesRaw)
+        : 30;
+    const extraTimeEnabled = Number(req.body?.extra_time_enabled) ? 1 : 0;
+    const extraFirstHalfRaw = Number(req.body?.extra_first_half_minutes);
+    const extraSecondHalfRaw = Number(req.body?.extra_second_half_minutes);
+    const extraFirstHalfMinutes =
+      extraTimeEnabled === 1 && Number.isFinite(extraFirstHalfRaw) && extraFirstHalfRaw >= 1 && extraFirstHalfRaw <= 45
+        ? Math.trunc(extraFirstHalfRaw)
+        : 0;
+    const extraSecondHalfMinutes =
+      extraTimeEnabled === 1 && Number.isFinite(extraSecondHalfRaw) && extraSecondHalfRaw >= 1 && extraSecondHalfRaw <= 45
+        ? Math.trunc(extraSecondHalfRaw)
+        : 0;
+    const penaltiesEnabled = Number(req.body?.penalties_enabled) ? 1 : 0;
 
     const rows = await query(
       `
       INSERT INTO official_matches
-        (competition_id, home_team_id, away_team_id, kickoff_at, status, notes, created_by, venue, referee, match_stage, home_score, away_score, created_at)
+        (
+          competition_id, home_team_id, away_team_id, kickoff_at, status, notes, created_by, venue, referee, match_stage,
+          regulation_half_minutes, extra_time_enabled, extra_first_half_minutes, extra_second_half_minutes, penalties_enabled,
+          home_score, away_score, created_at
+        )
       VALUES
-        (?, ?, ?, (?::timestamp AT TIME ZONE 'Europe/Rome'), 'scheduled', NULL, ?, ?, ?, ?, NULL, NULL, NOW())
+        (?, ?, ?, (?::timestamp AT TIME ZONE 'Europe/Rome'), 'scheduled', NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NOW())
       RETURNING id
       `,
-      [competitionId, homeTeamId, awayTeamId, kickoffAt, userId, venue, referee, matchStage]
+      [
+        competitionId,
+        homeTeamId,
+        awayTeamId,
+        kickoffAt,
+        userId,
+        venue,
+        referee,
+        matchStage,
+        regulationHalfMinutes,
+        extraTimeEnabled,
+        extraFirstHalfMinutes,
+        extraSecondHalfMinutes,
+        penaltiesEnabled,
+      ]
     );
     const id = rows[0]?.id;
     return res.json({ ok: true, id });
@@ -1383,6 +1418,26 @@ router.put('/admin/matches/:matchId', authenticateToken, requireSuperuserLevels(
     const awayScore = req.body?.away_score != null && req.body.away_score !== '' ? Number(req.body.away_score) : null;
     const status = req.body?.status != null ? String(req.body.status).trim() : null;
     const notes = req.body?.notes != null ? String(req.body.notes).trim() : null;
+    const regulationHalfMinutesRaw = Number(req.body?.regulation_half_minutes);
+    const regulationHalfMinutes =
+      Number.isFinite(regulationHalfMinutesRaw) && regulationHalfMinutesRaw >= 15 && regulationHalfMinutesRaw <= 60
+        ? Math.trunc(regulationHalfMinutesRaw)
+        : 30;
+    const extraTimeEnabled = Number(req.body?.extra_time_enabled) ? 1 : 0;
+    const extraFirstHalfRaw = Number(req.body?.extra_first_half_minutes);
+    const extraSecondHalfRaw = Number(req.body?.extra_second_half_minutes);
+    const extraFirstHalfMinutes =
+      extraTimeEnabled === 1 && Number.isFinite(extraFirstHalfRaw) && extraFirstHalfRaw >= 1 && extraFirstHalfRaw <= 45
+        ? Math.trunc(extraFirstHalfRaw)
+        : 0;
+    const extraSecondHalfMinutes =
+      extraTimeEnabled === 1 && Number.isFinite(extraSecondHalfRaw) && extraSecondHalfRaw >= 1 && extraSecondHalfRaw <= 45
+        ? Math.trunc(extraSecondHalfRaw)
+        : 0;
+    const penaltiesEnabled = Number(req.body?.penalties_enabled) ? 1 : 0;
+    const venue = req.body?.venue != null ? String(req.body.venue).trim() : null;
+    const referee = req.body?.referee != null ? String(req.body.referee).trim() : null;
+    const matchStage = req.body?.match_stage != null ? String(req.body.match_stage).trim() : null;
 
     await query(
       `
@@ -1392,10 +1447,33 @@ router.put('/admin/matches/:matchId', authenticateToken, requireSuperuserLevels(
         home_score = ?,
         away_score = ?,
         status = COALESCE(?, status),
-        notes = ?
+        notes = ?,
+        venue = ?,
+        referee = ?,
+        match_stage = ?,
+        regulation_half_minutes = ?,
+        extra_time_enabled = ?,
+        extra_first_half_minutes = ?,
+        extra_second_half_minutes = ?,
+        penalties_enabled = ?
       WHERE id = ?
       `,
-      [kickoffAt, homeScore, awayScore, status, notes, matchId]
+      [
+        kickoffAt,
+        homeScore,
+        awayScore,
+        status,
+        notes,
+        venue,
+        referee,
+        matchStage,
+        regulationHalfMinutes,
+        extraTimeEnabled,
+        extraFirstHalfMinutes,
+        extraSecondHalfMinutes,
+        penaltiesEnabled,
+        matchId,
+      ]
     );
     return res.json({ ok: true });
   } catch (err) {
