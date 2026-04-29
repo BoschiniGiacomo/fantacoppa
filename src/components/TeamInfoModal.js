@@ -41,20 +41,10 @@ export default function TeamInfoModal({ visible, leagueId, defaultTeamName, defa
 
     try {
       setSaving(true);
-      console.log('=== SALVATAGGIO TEAM INFO ===');
-      console.log('League ID:', leagueId);
-      console.log('Team Name:', trimmedTeamName);
-      console.log('Coach Name:', trimmedCoachName);
-      
-      const response = await leagueService.updateTeamInfo(leagueId, trimmedTeamName, trimmedCoachName);
-      console.log('Update team info response:', JSON.stringify(response?.data, null, 2));
-      console.log('Team info salvato con successo');
-      console.log('===========================');
+      await leagueService.updateTeamInfo(leagueId, trimmedTeamName, trimmedCoachName);
       
       onSave(trimmedTeamName, trimmedCoachName);
     } catch (error) {
-      console.error('Error saving team info:', error);
-      console.error('Error response:', error.response?.data);
       const errorMessage = error.response?.data?.message || error.message || 'Impossibile salvare le informazioni';
       showToast(errorMessage);
     } finally {

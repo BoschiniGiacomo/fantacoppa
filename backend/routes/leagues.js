@@ -85,17 +85,47 @@ function parseCsvContent(content) {
     .split('\n')
     .filter((l) => l.trim() !== '');
   if (!lines.length) return [];
-  const headers = parseCsvLine(lines[0]).map((h) => String(h || '').trim().toLowerCase());
+  const headers = parseCsvLine(lines[0]).map((h) => String(h || '').replace(/^\uFEFF/, '').trim().toLowerCase());
   const rows = [];
   for (let i = 1; i < lines.length; i += 1) {
     const values = parseCsvLine(lines[i]);
     const row = {};
     headers.forEach((h, idx) => {
-      row[h] = values[idx] != null ? String(values[idx]).trim() : '';
+      row[h] = values[idx] != null ? normalizePotentialMojibake(String(values[idx]).trim()) : '';
     });
     rows.push(row);
   }
   return rows;
+}
+
+function textDecodeBadness(s) {
+  const str = String(s || '');
+  const replacementCount = (str.match(/\uFFFD/g) || []).length;
+  const mojibakeCount = (str.match(/[ÃÂ]/g) || []).length;
+  return (replacementCount * 10) + mojibakeCount;
+}
+
+function normalizePotentialMojibake(value) {
+  const raw = String(value || '');
+  if (!raw) return '';
+  // Typical mojibake repair: UTF-8 bytes interpreted as latin1/cp1252 (es: "MarcillÃ²")
+  if (/[ÃÂ]/.test(raw)) {
+    try {
+      const repaired = Buffer.from(raw, 'latin1').toString('utf8');
+      if (textDecodeBadness(repaired) < textDecodeBadness(raw)) return repaired;
+    } catch (_) {
+      // keep raw
+    }
+  }
+  return raw;
+}
+
+function decodeCsvBuffer(buffer) {
+  const raw = Buffer.isBuffer(buffer) ? buffer : Buffer.from(String(buffer || ''), 'utf8');
+  const utf8Text = raw.toString('utf8');
+  const latin1Text = raw.toString('latin1');
+  // Pick the least broken decode (handles UTF-8, ANSI, and mixed cases better)
+  return textDecodeBadness(latin1Text) < textDecodeBadness(utf8Text) ? latin1Text : utf8Text;
 }
 
 async function syncLeaguesIdSequence() {
@@ -625,8 +655,17 @@ router.get('/', authenticateToken, async (req, res) => {
               COALESCE(ulp.notifications_enabled, 1) AS notifications_enabled,
               (SELECT COUNT(*)::int FROM league_members lm2 WHERE lm2.league_id = l.id) AS user_count,
               (SELECT COUNT(*)::int FROM league_members lm2 WHERE lm2.league_id = l.id) AS member_count,
-              0 AS market_locked,
-              NULL AS current_matchday
+              COALESCE((
+                SELECT lms.market_locked::int
+                FROM league_market_settings lms
+                WHERE lms.league_id = l.id
+                LIMIT 1
+              ), 0) AS market_locked,
+              (
+                SELECT (MAX(mr.giornata) + 1)::int
+                FROM matchday_results mr
+                WHERE mr.league_id = l.id
+              ) AS current_matchday
        FROM leagues l
        JOIN league_members lm ON lm.league_id = l.id
        LEFT JOIN leagues ll ON ll.id = l.linked_to_league_id
@@ -664,8 +703,17 @@ router.get('/all', authenticateToken, async (req, res) => {
               COALESCE(ulp.notifications_enabled, 1) AS notifications_enabled,
               CASE WHEN my.user_id IS NULL THEN 0 ELSE 1 END AS is_joined,
               (SELECT COUNT(*) FROM league_members lm2 WHERE lm2.league_id = l.id) AS user_count,
-              0 AS market_locked,
-              NULL AS current_matchday
+              COALESCE((
+                SELECT lms.market_locked::int
+                FROM league_market_settings lms
+                WHERE lms.league_id = l.id
+                LIMIT 1
+              ), 0) AS market_locked,
+              (
+                SELECT (MAX(mr.giornata) + 1)::int
+                FROM matchday_results mr
+                WHERE mr.league_id = l.id
+              ) AS current_matchday
        FROM leagues l
        LEFT JOIN leagues ll ON ll.id = l.linked_to_league_id
        LEFT JOIN league_members my ON my.league_id = l.id AND my.user_id = ?
@@ -696,8 +744,17 @@ router.get('/search', authenticateToken, async (req, res) => {
               ll.name AS linked_league_name,
               CASE WHEN my.user_id IS NULL THEN 0 ELSE 1 END AS is_joined,
               (SELECT COUNT(*) FROM league_members lm2 WHERE lm2.league_id = l.id) AS user_count,
-              0 AS market_locked,
-              NULL AS current_matchday
+              COALESCE((
+                SELECT lms.market_locked::int
+                FROM league_market_settings lms
+                WHERE lms.league_id = l.id
+                LIMIT 1
+              ), 0) AS market_locked,
+              (
+                SELECT (MAX(mr.giornata) + 1)::int
+                FROM matchday_results mr
+                WHERE mr.league_id = l.id
+              ) AS current_matchday
        FROM leagues l
        LEFT JOIN leagues ll ON ll.id = l.linked_to_league_id
        LEFT JOIN league_members my ON my.league_id = l.id AND my.user_id = ?
@@ -3136,7 +3193,11 @@ router.get('/:id/settings', authenticateToken, async (req, res) => {
     );
     const row = rows[0];
     if (!row) return res.status(404).json({ message: 'Lega non trovata' });
-    res.json(row);
+    const bonusSettings = await getLeagueBonusSettings(leagueId);
+    res.json({
+      ...row,
+      bonus_settings: bonusSettings,
+    });
   } catch (error) {
     console.error('Get league settings error:', error);
     res.status(500).json({ message: 'Errore recupero impostazioni lega' });
@@ -3361,7 +3422,7 @@ router.post('/:id/csv/import', authenticateToken, csvUpload.single('csv_file'), 
     if (!leagueId) return res.status(400).json({ message: 'League ID non valido' });
     if (!req.file?.buffer) return res.status(400).json({ message: 'File CSV mancante' });
 
-    const rows = parseCsvContent(req.file.buffer.toString('utf8'));
+    const rows = parseCsvContent(decodeCsvBuffer(req.file.buffer));
     if (!rows.length) return res.status(400).json({ message: 'CSV vuoto o non valido' });
 
     const hasPlayersShape = Object.prototype.hasOwnProperty.call(rows[0], 'team_name')
