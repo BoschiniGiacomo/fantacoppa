@@ -575,8 +575,25 @@ async function getEffectiveLeagueId(leagueId) {
 
 let joinRequestsTableReady = false;
 async function ensureJoinRequestsTable() {
+  if (joinRequestsTableReady) return true;
+  await query(
+    `CREATE TABLE IF NOT EXISTS league_join_requests (
+       id BIGSERIAL PRIMARY KEY,
+       league_id INTEGER NOT NULL REFERENCES leagues(id) ON DELETE CASCADE,
+       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+       status TEXT NOT NULL DEFAULT 'pending',
+       requested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+       reviewed_at TIMESTAMPTZ NULL,
+       reviewed_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+       UNIQUE (league_id, user_id)
+     )`
+  );
+  await query(
+    `CREATE INDEX IF NOT EXISTS idx_league_join_requests_league_status
+     ON league_join_requests (league_id, status, requested_at DESC)`
+  );
   joinRequestsTableReady = true;
-  return false;
+  return true;
 }
 
 async function getLeagueByIdForUser(leagueId, userId) {
@@ -1371,19 +1388,137 @@ router.post('/:id/change-role', authenticateToken, async (req, res) => {
   }
 });
 
-// GET /api/leagues/:id/join-requests (compat fallback)
+// GET /api/leagues/:id/join-requests
 router.get('/:id/join-requests', authenticateToken, async (req, res) => {
-  return res.status(410).json({ message: 'Feature join-requests disabilitata' });
+  try {
+    const leagueId = toValidLeagueId(req.params.id);
+    const actorId = Number(req.user.userId);
+    if (!leagueId) return res.status(400).json({ message: 'League ID non valido' });
+
+    const roleRows = await query(
+      `SELECT role FROM league_members WHERE league_id = ? AND user_id = ? LIMIT 1`,
+      [leagueId, actorId]
+    );
+    const isAdmin = !!roleRows[0] && String(roleRows[0].role) === 'admin';
+    if (!isAdmin) {
+      const suLevel = await getUserSuperuserLevel(actorId);
+      if (suLevel !== 1) return res.status(403).json({ message: 'Solo gli admin possono vedere le richieste' });
+    }
+
+    await ensureJoinRequestsTable();
+    const rows = await query(
+      `SELECT r.id, r.user_id, u.username, r.status, r.requested_at
+       FROM league_join_requests r
+       JOIN users u ON u.id = r.user_id
+       WHERE r.league_id = ?
+         AND r.status = 'pending'
+       ORDER BY r.requested_at ASC`,
+      [leagueId]
+    );
+    return res.json({ requests: rows });
+  } catch (error) {
+    console.error('Get join requests error:', error);
+    return res.status(500).json({ message: 'Errore caricamento richieste iscrizione' });
+  }
 });
 
-// POST /api/leagues/:id/join-requests/:requestId/approve (compat fallback)
+// POST /api/leagues/:id/join-requests/:requestId/approve
 router.post('/:id/join-requests/:requestId/approve', authenticateToken, async (req, res) => {
-  return res.status(410).json({ message: 'Feature join-requests disabilitata' });
+  try {
+    const leagueId = toValidLeagueId(req.params.id);
+    const requestId = Number(req.params.requestId);
+    const actorId = Number(req.user.userId);
+    if (!leagueId || !Number.isFinite(requestId) || requestId <= 0) {
+      return res.status(400).json({ message: 'Parametri non validi' });
+    }
+
+    const roleRows = await query(
+      `SELECT role FROM league_members WHERE league_id = ? AND user_id = ? LIMIT 1`,
+      [leagueId, actorId]
+    );
+    if (!roleRows[0] || String(roleRows[0].role) !== 'admin') {
+      return res.status(403).json({ message: 'Solo gli admin possono approvare richieste' });
+    }
+
+    await ensureJoinRequestsTable();
+    const reqRows = await query(
+      `SELECT id, user_id, status
+       FROM league_join_requests
+       WHERE id = ? AND league_id = ?
+       LIMIT 1`,
+      [requestId, leagueId]
+    );
+    const request = reqRows[0];
+    if (!request || String(request.status) !== 'pending') {
+      return res.status(404).json({ message: 'Richiesta non trovata o non più pendente' });
+    }
+
+    const leagueRows = await query(
+      `SELECT initial_budget FROM leagues WHERE id = ? LIMIT 1`,
+      [leagueId]
+    );
+    const initialBudget = Number(leagueRows[0]?.initial_budget || 100);
+    await addUserToLeagueWithInitialBudget(Number(request.user_id), leagueId, initialBudget);
+
+    await query(
+      `UPDATE league_join_requests
+       SET status = 'approved',
+           reviewed_at = NOW(),
+           reviewed_by = ?
+       WHERE id = ?`,
+      [actorId, requestId]
+    );
+    return res.json({ message: 'Richiesta approvata' });
+  } catch (error) {
+    console.error('Approve join request error:', error);
+    return res.status(500).json({ message: 'Errore approvazione richiesta' });
+  }
 });
 
-// POST /api/leagues/:id/join-requests/:requestId/reject (compat fallback)
+// POST /api/leagues/:id/join-requests/:requestId/reject
 router.post('/:id/join-requests/:requestId/reject', authenticateToken, async (req, res) => {
-  return res.status(410).json({ message: 'Feature join-requests disabilitata' });
+  try {
+    const leagueId = toValidLeagueId(req.params.id);
+    const requestId = Number(req.params.requestId);
+    const actorId = Number(req.user.userId);
+    if (!leagueId || !Number.isFinite(requestId) || requestId <= 0) {
+      return res.status(400).json({ message: 'Parametri non validi' });
+    }
+
+    const roleRows = await query(
+      `SELECT role FROM league_members WHERE league_id = ? AND user_id = ? LIMIT 1`,
+      [leagueId, actorId]
+    );
+    if (!roleRows[0] || String(roleRows[0].role) !== 'admin') {
+      return res.status(403).json({ message: 'Solo gli admin possono rifiutare richieste' });
+    }
+
+    await ensureJoinRequestsTable();
+    const reqRows = await query(
+      `SELECT id, status
+       FROM league_join_requests
+       WHERE id = ? AND league_id = ?
+       LIMIT 1`,
+      [requestId, leagueId]
+    );
+    const request = reqRows[0];
+    if (!request || String(request.status) !== 'pending') {
+      return res.status(404).json({ message: 'Richiesta non trovata o non più pendente' });
+    }
+
+    await query(
+      `UPDATE league_join_requests
+       SET status = 'rejected',
+           reviewed_at = NOW(),
+           reviewed_by = ?
+       WHERE id = ?`,
+      [actorId, requestId]
+    );
+    return res.json({ message: 'Richiesta rifiutata' });
+  } catch (error) {
+    console.error('Reject join request error:', error);
+    return res.status(500).json({ message: 'Errore rifiuto richiesta' });
+  }
 });
 
 // GET /api/leagues/:id/teams
@@ -3555,7 +3690,19 @@ router.post('/:id/join', authenticateToken, async (req, res) => {
 
     const requireApproval = await getRequireJoinApproval(leagueId);
     if (requireApproval) {
-      return res.status(410).json({ message: 'Join requests disabilitate: imposta require_approval=0 per questa lega' });
+      await ensureJoinRequestsTable();
+      await query(
+        `INSERT INTO league_join_requests (league_id, user_id, status, requested_at, reviewed_at, reviewed_by)
+         VALUES (?, ?, 'pending', NOW(), NULL, NULL)
+         ON CONFLICT (league_id, user_id)
+         DO UPDATE SET
+           status = 'pending',
+           requested_at = NOW(),
+           reviewed_at = NULL,
+           reviewed_by = NULL`,
+        [leagueId, userId]
+      );
+      return res.status(202).json({ message: 'Richiesta di iscrizione inviata in attesa di approvazione', pending: true, leagueId });
     }
 
     await addUserToLeagueWithInitialBudget(userId, leagueId, Number(league.initial_budget || 100));
@@ -3732,11 +3879,17 @@ router.post('/', authenticateToken, async (req, res) => {
       return res.status(500).json({ message: 'Errore creazione lega: id non restituito dal database' });
     }
 
-    // Allineamento legacy: salva sempre require_approval alla creazione (se colonna disponibile).
+    // Salva approvazione iscrizioni nella tabella corretta usata dal mercato/impostazioni.
     try {
-      await query(`UPDATE leagues SET require_approval = ? WHERE id = ?`, [requireApproval, leagueId]);
+      await query(
+        `INSERT INTO league_market_settings (league_id, market_locked, require_approval)
+         VALUES (?, 0, ?)
+         ON CONFLICT (league_id)
+         DO UPDATE SET require_approval = EXCLUDED.require_approval`,
+        [leagueId, requireApproval]
+      );
     } catch (approvalErr) {
-      console.log('require_approval update skipped:', approvalErr?.message || approvalErr);
+      console.log('league_market_settings require_approval upsert skipped:', approvalErr?.message || approvalErr);
     }
 
     // Allineamento legacy: salva bonusSettings iniziali quando passati dal client.
