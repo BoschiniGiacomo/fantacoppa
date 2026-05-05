@@ -36,6 +36,30 @@ async function ensureUnavailablePlayersTable() {
   unavailablePlayersTableReady = true;
 }
 
+async function resolveMatchStageInput(matchStageIdRaw) {
+  const stageIdInput = Number(matchStageIdRaw);
+  let stageId = Number.isFinite(stageIdInput) && stageIdInput > 0 ? Math.trunc(stageIdInput) : null;
+  let stageName = null;
+
+  if (stageId) {
+    const byId = await query(
+      `SELECT id, name
+       FROM official_match_stages
+       WHERE id = ?
+       LIMIT 1`,
+      [stageId]
+    );
+    const row = byId?.[0];
+    if (row?.id) {
+      stageId = Number(row.id);
+      stageName = row.name != null ? String(row.name).trim() || null : null;
+      return { stageId, stageName };
+    }
+    stageId = null;
+  }
+  return { stageId: null, stageName: null };
+}
+
 function getInsertRows(result) {
   if (Array.isArray(result)) return result;
   if (result && Array.isArray(result.rows)) return result.rows;
@@ -524,6 +548,7 @@ async function computeStandingsFromMatches({ leagueId, groupId }) {
     WHERE m.competition_id = ?
       AND m.home_team_id IN (SELECT id FROM teams WHERE league_id = ?)
       AND m.away_team_id IN (SELECT id FROM teams WHERE league_id = ?)
+      AND m.match_stage_id = 1
     `,
     [groupId, leagueId, leagueId]
   );
@@ -731,7 +756,8 @@ router.get('/matches', authenticateToken, async (req, res) => {
         m.notes,
         m.venue,
         m.referee,
-        m.match_stage,
+        ms.name AS match_stage,
+        NULLIF(to_jsonb(m)->>'match_stage_id','')::int AS match_stage_id,
         m.home_team_id,
         ht.name AS home_team_name,
         ht.logo_path AS home_team_logo_path,
@@ -751,6 +777,7 @@ router.get('/matches', authenticateToken, async (req, res) => {
       INNER JOIN official_league_groups og ON og.id = m.competition_id
       LEFT JOIN teams ht ON ht.id = m.home_team_id
       LEFT JOIN teams at ON at.id = m.away_team_id
+      LEFT JOIN official_match_stages ms ON ms.id = NULLIF(to_jsonb(m)->>'match_stage_id','')::int
       LEFT JOIN ev_scores evs ON evs.match_id = m.id
       LEFT JOIN last_phase lp ON lp.match_id = m.id
       LEFT JOIN phase_events pe ON pe.match_id = m.id
@@ -800,7 +827,8 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
         COALESCE(m.status, 'scheduled') AS status,
         m.venue,
         m.referee,
-        m.match_stage,
+        ms.name AS match_stage,
+        NULLIF(to_jsonb(m)->>'match_stage_id','')::int AS match_stage_id,
         m.home_score,
         m.away_score,
         NULLIF(to_jsonb(m)->>'regulation_half_minutes','')::int AS regulation_half_minutes,
@@ -817,8 +845,9 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
         COALESCE(mn.enabled, 0) AS notifications_enabled
       FROM official_matches m
       INNER JOIN official_league_groups og ON og.id = m.competition_id
-      INNER JOIN teams ht ON ht.id = m.home_team_id
-      INNER JOIN teams at ON at.id = m.away_team_id
+      LEFT JOIN teams ht ON ht.id = m.home_team_id
+      LEFT JOIN teams at ON at.id = m.away_team_id
+      LEFT JOIN official_match_stages ms ON ms.id = NULLIF(to_jsonb(m)->>'match_stage_id','')::int
       LEFT JOIN user_official_match_favorites fm ON fm.user_id = ? AND fm.match_id = m.id
       LEFT JOIN user_official_match_notifications mn ON mn.user_id = ? AND mn.match_id = m.id
       WHERE m.id = ?
@@ -908,6 +937,98 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
       standings = [];
     }
 
+    let knockout = { semifinals: [], final: null };
+    try {
+      const knockoutRows = await query(
+        `
+        SELECT
+          m.id,
+          NULLIF(to_jsonb(m)->>'match_stage_id','')::int AS match_stage_id,
+          ms.name AS stage_name,
+          m.kickoff_at,
+          m.home_team_id,
+          ht.name AS home_team_name,
+          ht.logo_path AS home_team_logo_path,
+          m.away_team_id,
+          at.name AS away_team_name,
+          at.logo_path AS away_team_logo_path,
+          m.home_score,
+          m.away_score
+        FROM official_matches m
+        LEFT JOIN official_match_stages ms ON ms.id = NULLIF(to_jsonb(m)->>'match_stage_id','')::int
+        LEFT JOIN teams ht ON ht.id = m.home_team_id
+        LEFT JOIN teams at ON at.id = m.away_team_id
+        WHERE m.competition_id = ?
+          AND NULLIF(to_jsonb(m)->>'match_stage_id','')::int IN (2, 3)
+        ORDER BY
+          NULLIF(to_jsonb(m)->>'match_stage_id','')::int ASC,
+          m.kickoff_at ASC NULLS LAST,
+          m.id ASC
+        `,
+        [Number(match.competition_id)]
+      );
+
+      const knockoutIds = (Array.isArray(knockoutRows) ? knockoutRows : [])
+        .map((r) => Number(r.id))
+        .filter((n) => Number.isFinite(n) && n > 0);
+      const liveScoreByMatch = new Map();
+      if (knockoutIds.length > 0) {
+        const ph = knockoutIds.map(() => '?').join(', ');
+        const evRows = await query(
+          `
+          SELECT match_id, event_type, team_side
+          FROM official_match_events
+          WHERE match_id IN (${ph}) AND event_type IN ('goal', 'own_goal')
+          ORDER BY id ASC
+          `,
+          knockoutIds
+        );
+        (Array.isArray(evRows) ? evRows : []).forEach((e) => {
+          const mid = Number(e.match_id);
+          if (!liveScoreByMatch.has(mid)) liveScoreByMatch.set(mid, { home: 0, away: 0, hasEvents: false });
+          const s = liveScoreByMatch.get(mid);
+          s.hasEvents = true;
+          if (e.event_type === 'goal') {
+            if (e.team_side === 'home') s.home += 1;
+            if (e.team_side === 'away') s.away += 1;
+          } else if (e.event_type === 'own_goal') {
+            if (e.team_side === 'home') s.away += 1;
+            if (e.team_side === 'away') s.home += 1;
+          }
+        });
+      }
+
+      const mapped = (Array.isArray(knockoutRows) ? knockoutRows : []).map((r) => {
+        const live = liveScoreByMatch.get(Number(r.id)) || null;
+        const hs = live?.hasEvents ? Number(live.home) : (r.home_score != null ? Number(r.home_score) : null);
+        const as = live?.hasEvents ? Number(live.away) : (r.away_score != null ? Number(r.away_score) : null);
+        const homeLogoPath = normalizeTeamLogoPathForApi(r?.home_team_logo_path);
+        const awayLogoPath = normalizeTeamLogoPathForApi(r?.away_team_logo_path);
+        return {
+          id: Number(r.id),
+          stage_id: Number(r.match_stage_id),
+          stage_name: r.stage_name != null ? String(r.stage_name) : null,
+          kickoff_at: r.kickoff_at,
+          home_team_id: r.home_team_id != null ? Number(r.home_team_id) : null,
+          home_team_name: r.home_team_name != null ? String(r.home_team_name) : null,
+          home_team_logo_path: homeLogoPath,
+          home_team_logo_url: logoUrlForPath(homeLogoPath),
+          away_team_id: r.away_team_id != null ? Number(r.away_team_id) : null,
+          away_team_name: r.away_team_name != null ? String(r.away_team_name) : null,
+          away_team_logo_path: awayLogoPath,
+          away_team_logo_url: logoUrlForPath(awayLogoPath),
+          home_score: Number.isFinite(hs) ? hs : null,
+          away_score: Number.isFinite(as) ? as : null,
+        };
+      });
+      knockout = {
+        semifinals: mapped.filter((m) => m.stage_id === 2),
+        final: mapped.find((m) => m.stage_id === 3) || null,
+      };
+    } catch (_) {
+      knockout = { semifinals: [], final: null };
+    }
+
     return res.json({
       match,
       lineups: { home: homeAvailable, away: awayAvailable },
@@ -915,6 +1036,7 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
       team_players: { home: homeLineup, away: awayLineup },
       events: correctedEvents,
       standings,
+      knockout,
       favorites: {
         match: Number(match.is_favorite_match) ? 1 : 0,
         home_team: 0,
@@ -1275,7 +1397,8 @@ router.get('/admin/matches', authenticateToken, requireSuperuserLevels([1, 2]), 
         COALESCE(m.status, 'scheduled') AS status,
         m.venue,
         m.referee,
-        m.match_stage,
+        ms.name AS match_stage,
+        NULLIF(to_jsonb(m)->>'match_stage_id','')::int AS match_stage_id,
         m.home_score,
         m.away_score,
         NULLIF(to_jsonb(m)->>'notes', '') AS notes,
@@ -1288,6 +1411,7 @@ router.get('/admin/matches', authenticateToken, requireSuperuserLevels([1, 2]), 
       INNER JOIN official_league_groups og ON og.id = m.competition_id
       LEFT JOIN teams ht ON ht.id = m.home_team_id
       LEFT JOIN teams at ON at.id = m.away_team_id
+      LEFT JOIN official_match_stages ms ON ms.id = NULLIF(to_jsonb(m)->>'match_stage_id','')::int
       WHERE (m.kickoff_at AT TIME ZONE 'Europe/Rome')::date = ?::date
       ORDER BY m.kickoff_at ASC, m.id ASC
       `,
@@ -1354,7 +1478,7 @@ router.post('/admin/matches', authenticateToken, requireSuperuserLevels([1, 2]),
 
     const venue = req.body?.venue != null ? String(req.body.venue).trim() : null;
     const referee = req.body?.referee != null ? String(req.body.referee).trim() : null;
-    const matchStage = req.body?.match_stage != null ? String(req.body.match_stage).trim() : null;
+    const { stageId: matchStageId } = await resolveMatchStageInput(req.body?.match_stage_id);
     const regulationHalfMinutesRaw = Number(req.body?.regulation_half_minutes);
     const regulationHalfMinutes =
       Number.isFinite(regulationHalfMinutesRaw) && regulationHalfMinutesRaw >= 15 && regulationHalfMinutesRaw <= 60
@@ -1377,7 +1501,7 @@ router.post('/admin/matches', authenticateToken, requireSuperuserLevels([1, 2]),
       `
       INSERT INTO official_matches
         (
-          competition_id, home_team_id, away_team_id, kickoff_at, status, notes, created_by, venue, referee, match_stage,
+          competition_id, home_team_id, away_team_id, kickoff_at, status, notes, created_by, venue, referee, match_stage_id,
           regulation_half_minutes, extra_time_enabled, extra_first_half_minutes, extra_second_half_minutes, penalties_enabled,
           home_score, away_score, created_at
         )
@@ -1393,7 +1517,7 @@ router.post('/admin/matches', authenticateToken, requireSuperuserLevels([1, 2]),
         userId,
         venue,
         referee,
-        matchStage,
+        matchStageId,
         regulationHalfMinutes,
         extraTimeEnabled,
         extraFirstHalfMinutes,
@@ -1437,7 +1561,7 @@ router.put('/admin/matches/:matchId', authenticateToken, requireSuperuserLevels(
     const penaltiesEnabled = Number(req.body?.penalties_enabled) ? 1 : 0;
     const venue = req.body?.venue != null ? String(req.body.venue).trim() : null;
     const referee = req.body?.referee != null ? String(req.body.referee).trim() : null;
-    const matchStage = req.body?.match_stage != null ? String(req.body.match_stage).trim() : null;
+    const { stageId: matchStageId } = await resolveMatchStageInput(req.body?.match_stage_id);
 
     await query(
       `
@@ -1450,7 +1574,7 @@ router.put('/admin/matches/:matchId', authenticateToken, requireSuperuserLevels(
         notes = ?,
         venue = ?,
         referee = ?,
-        match_stage = ?,
+        match_stage_id = ?,
         regulation_half_minutes = ?,
         extra_time_enabled = ?,
         extra_first_half_minutes = ?,
@@ -1466,7 +1590,7 @@ router.put('/admin/matches/:matchId', authenticateToken, requireSuperuserLevels(
         notes,
         venue,
         referee,
-        matchStage,
+        matchStageId,
         regulationHalfMinutes,
         extraTimeEnabled,
         extraFirstHalfMinutes,
@@ -1488,10 +1612,10 @@ router.put('/admin/matches/:matchId/meta', authenticateToken, requireSuperuserLe
     const matchId = Number(req.params.matchId);
     const venue = req.body?.venue != null ? String(req.body.venue).trim() : null;
     const referee = req.body?.referee != null ? String(req.body.referee).trim() : null;
-    const matchStage = req.body?.match_stage != null ? String(req.body.match_stage).trim() : null;
+    const { stageId: matchStageId } = await resolveMatchStageInput(req.body?.match_stage_id);
     await query(
-      `UPDATE official_matches SET venue = ?, referee = ?, match_stage = ? WHERE id = ?`,
-      [venue, referee, matchStage, matchId]
+      `UPDATE official_matches SET venue = ?, referee = ?, match_stage_id = ? WHERE id = ?`,
+      [venue, referee, matchStageId, matchId]
     );
     return res.json({ ok: true });
   } catch (err) {

@@ -82,7 +82,7 @@ export default function ManageMatchesScreen() {
   const [editingMatchId, setEditingMatchId] = useState(null);
   const [venue, setVenue] = useState('');
   const [referee, setReferee] = useState('');
-  const [matchStage, setMatchStage] = useState('');
+  const [matchStageId, setMatchStageId] = useState(null);
   const [regulationHalfMinutes, setRegulationHalfMinutes] = useState('30');
   const [extraTimeEnabled, setExtraTimeEnabled] = useState(false);
   const [extraFirstMinutes, setExtraFirstMinutes] = useState('15');
@@ -262,13 +262,15 @@ export default function ManageMatchesScreen() {
     setPenaltiesEnabled(!!Number(stage.default_penalties_enabled));
   };
 
-  const selectMatchStageName = (name) => {
-    setMatchStage(name);
-    if (!name) {
+  const selectMatchStageId = (stageIdRaw) => {
+    const stageId = Number(stageIdRaw);
+    const nextId = Number.isFinite(stageId) && stageId > 0 ? stageId : null;
+    setMatchStageId(nextId);
+    if (!nextId) {
       resetMatchTimingFields();
       return;
     }
-    const st = (matchDetailsOptions.stages || []).find((s) => s.name === name);
+    const st = (matchDetailsOptions.stages || []).find((s) => Number(s.id) === nextId);
     applyStageDefaultsToMatchForm(st || null);
   };
 
@@ -397,14 +399,14 @@ export default function ManageMatchesScreen() {
         status: 'scheduled',
         venue,
         referee,
-        match_stage: matchStage,
+        match_stage_id: matchStageId,
         ...buildMatchTimingPayload(),
       });
       setHomeTeamId(null);
       setAwayTeamId(null);
       setVenue('');
       setReferee('');
-      setMatchStage('');
+      setMatchStageId(null);
       resetMatchTimingFields();
       await loadMatches();
       showToast('Partita creata', 'success');
@@ -434,7 +436,7 @@ export default function ManageMatchesScreen() {
       setMatchesSubtab('existing');
       setVenue(match?.venue || '');
       setReferee(match?.referee || '');
-      setMatchStage(match?.match_stage || '');
+      setMatchStageId(match?.match_stage_id != null ? Number(match.match_stage_id) : null);
       setRegulationHalfMinutes(String(match?.regulation_half_minutes ?? 30));
       setExtraTimeEnabled(!!Number(match?.extra_time_enabled));
       setExtraFirstMinutes(String(match?.extra_first_half_minutes ?? 15));
@@ -462,7 +464,7 @@ export default function ManageMatchesScreen() {
         status: 'scheduled',
         venue,
         referee,
-        match_stage: matchStage,
+        match_stage_id: matchStageId,
         ...buildMatchTimingPayload(),
       });
       setEditingMatchId(null);
@@ -482,7 +484,7 @@ export default function ManageMatchesScreen() {
     setKickoffAt(formatSqlDateTime(base));
     setVenue('');
     setReferee('');
-    setMatchStage('');
+    setMatchStageId(null);
     resetMatchTimingFields();
     setHomeScore('');
     setAwayScore('');
@@ -613,7 +615,7 @@ export default function ManageMatchesScreen() {
       await adminMatchesService.updateMeta(editingMatchId, {
         venue,
         referee,
-        match_stage: matchStage,
+        match_stage_id: matchStageId,
         home_score: homeScore === '' ? null : Number(homeScore),
         away_score: awayScore === '' ? null : Number(awayScore),
         ...buildMatchTimingPayload(),
@@ -859,16 +861,16 @@ export default function ManageMatchesScreen() {
                 <Text style={styles.muted}>Scegliendo una tipologia si applica il preset (modificabile sotto).</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                   <View style={styles.rowWrap}>
-                    <TouchableOpacity style={[styles.chip, !matchStage && styles.chipActive]} onPress={() => selectMatchStageName('')}>
-                      <Text style={[styles.chipText, !matchStage && styles.chipTextActive]}>-</Text>
+                    <TouchableOpacity style={[styles.chip, !matchStageId && styles.chipActive]} onPress={() => selectMatchStageId(null)}>
+                      <Text style={[styles.chipText, !matchStageId && styles.chipTextActive]}>-</Text>
                     </TouchableOpacity>
                     {(matchDetailsOptions.stages || []).map((s) => (
                       <TouchableOpacity
                         key={`stage-create-${s.id}`}
-                        style={[styles.chip, matchStage === s.name && styles.chipActive]}
-                        onPress={() => selectMatchStageName(s.name)}
+                        style={[styles.chip, Number(matchStageId) === Number(s.id) && styles.chipActive]}
+                        onPress={() => selectMatchStageId(s.id)}
                       >
-                        <Text style={[styles.chipText, matchStage === s.name && styles.chipTextActive]}>{s.name}</Text>
+                        <Text style={[styles.chipText, Number(matchStageId) === Number(s.id) && styles.chipTextActive]}>{s.name}</Text>
                       </TouchableOpacity>
                     ))}
                   </View>
@@ -1050,16 +1052,16 @@ export default function ManageMatchesScreen() {
                     <Text style={styles.muted}>Scegliendo una tipologia si applica il preset (modificabile sotto).</Text>
                     <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                       <View style={styles.rowWrap}>
-                        <TouchableOpacity style={[styles.chip, !matchStage && styles.chipActive]} onPress={() => selectMatchStageName('')}>
-                          <Text style={[styles.chipText, !matchStage && styles.chipTextActive]}>-</Text>
+                        <TouchableOpacity style={[styles.chip, !matchStageId && styles.chipActive]} onPress={() => selectMatchStageId(null)}>
+                          <Text style={[styles.chipText, !matchStageId && styles.chipTextActive]}>-</Text>
                         </TouchableOpacity>
                         {(matchDetailsOptions.stages || []).map((s) => (
                           <TouchableOpacity
                             key={`stage-edit-${s.id}`}
-                            style={[styles.chip, matchStage === s.name && styles.chipActive]}
-                            onPress={() => selectMatchStageName(s.name)}
+                            style={[styles.chip, Number(matchStageId) === Number(s.id) && styles.chipActive]}
+                            onPress={() => selectMatchStageId(s.id)}
                           >
-                            <Text style={[styles.chipText, matchStage === s.name && styles.chipTextActive]}>{s.name}</Text>
+                            <Text style={[styles.chipText, Number(matchStageId) === Number(s.id) && styles.chipTextActive]}>{s.name}</Text>
                           </TouchableOpacity>
                         ))}
                       </View>

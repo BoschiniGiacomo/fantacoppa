@@ -1003,6 +1003,7 @@ export default function MatchDetailScreen({ navigation, route }) {
   const teamPlayers = data?.team_players || { home: [], away: [] };
   const liveEvents = data?.events || [];
   const standings = data?.standings || [];
+  const knockout = data?.knockout || { semifinals: [], final: null };
   const timerAnchorPhaseId = useMemo(() => getLastLivePhaseEvent(liveEvents)?.id ?? null, [liveEvents]);
 
   const liveEventsTimelineSorted = useMemo(() => {
@@ -1843,29 +1844,116 @@ export default function MatchDetailScreen({ navigation, route }) {
           </>
         )}
         {activeTab === 'standings' && (
-          <View style={styles.card}>
-            <View style={styles.tableHeader}>
-              <Text style={[styles.th, { width: 38, textAlign: 'center' }]}>Pos</Text>
-              <Text style={[styles.th, { flex: 1 }]}>Squadra</Text>
-              <Text style={[styles.th, { width: 40, textAlign: 'center' }]}>PG</Text>
-              <Text style={[styles.th, { width: 40, textAlign: 'center' }]}>DR</Text>
-              <Text style={[styles.th, { width: 40, textAlign: 'center' }]}>Pt</Text>
-            </View>
-            {standings.map((r, i) => (
-              <View key={`st-${i}`} style={styles.tableRow}>
-                <Text style={[styles.td, { width: 38, textAlign: 'center' }]}>{r.position}</Text>
-                <View style={[styles.teamCell, { flex: 1 }]}>
-                  <TableTeamLogo logoUrl={r.team_logo_url} logoPath={r.team_logo_path} />
-                  <Text style={[styles.td, styles.tdTeamName]} numberOfLines={2}>
-                    {r.team_name_display}
-                  </Text>
+          <>
+            {(Array.isArray(knockout.semifinals) && knockout.semifinals.length > 0) || knockout.final ? (
+              <View style={styles.card}>
+                <Text style={styles.knockoutTitle}>Fase Finale</Text>
+                <View style={styles.knockoutBracketRow}>
+                  <View style={styles.knockoutSemisCol}>
+                    {[0, 1].map((idx) => {
+                      const semi = knockout.semifinals?.[idx] || null;
+                      return (
+                        <View key={`semi-${idx}`} style={styles.knockoutSemiBlock}>
+                          <Text style={styles.knockoutStageLabel}>Semifinale {idx + 1}</Text>
+                          <View style={styles.knockoutMatchStack}>
+                            <View style={styles.knockoutTeamBox}>
+                              <View style={styles.knockoutTeamRow}>
+                                {semi?.home_team_name ? (
+                                  <TableTeamLogo logoUrl={semi?.home_team_logo_url} logoPath={semi?.home_team_logo_path} size={18} />
+                                ) : (
+                                  <View style={styles.knockoutLogoPlaceholder} />
+                                )}
+                                <Text style={styles.knockoutTeamText} numberOfLines={1}>{semi?.home_team_name || '-'}</Text>
+                                <View style={styles.knockoutScoreBox}>
+                                  <Text style={styles.knockoutScoreText}>{semi?.home_score != null ? String(semi.home_score) : ''}</Text>
+                                </View>
+                              </View>
+                            </View>
+                            <View style={styles.knockoutTeamBox}>
+                              <View style={styles.knockoutTeamRow}>
+                                {semi?.away_team_name ? (
+                                  <TableTeamLogo logoUrl={semi?.away_team_logo_url} logoPath={semi?.away_team_logo_path} size={18} />
+                                ) : (
+                                  <View style={styles.knockoutLogoPlaceholder} />
+                                )}
+                                <Text style={styles.knockoutTeamText} numberOfLines={1}>{semi?.away_team_name || '-'}</Text>
+                                <View style={styles.knockoutScoreBox}>
+                                  <Text style={styles.knockoutScoreText}>{semi?.away_score != null ? String(semi.away_score) : ''}</Text>
+                                </View>
+                              </View>
+                            </View>
+                          </View>
+                        </View>
+                      );
+                    })}
+                  </View>
+
+                  <View style={styles.knockoutConnectorCol}>
+                    <View style={styles.knockoutConnectorTopArm} />
+                    <View style={styles.knockoutConnectorVertical} />
+                    <View style={styles.knockoutConnectorBottomArm} />
+                    <View style={styles.knockoutConnectorToFinal} />
+                  </View>
+
+                  <View style={styles.knockoutFinalCol}>
+                    <Text style={styles.knockoutStageLabel}>Finale</Text>
+                    <View style={styles.knockoutMatchStack}>
+                      <View style={styles.knockoutTeamBox}>
+                        <View style={styles.knockoutTeamRow}>
+                          {knockout.final?.home_team_name ? (
+                            <TableTeamLogo logoUrl={knockout.final?.home_team_logo_url} logoPath={knockout.final?.home_team_logo_path} size={18} />
+                          ) : (
+                            <View style={styles.knockoutLogoPlaceholder} />
+                          )}
+                          <Text style={styles.knockoutTeamText} numberOfLines={1}>{knockout.final?.home_team_name || '-'}</Text>
+                          <View style={styles.knockoutScoreBox}>
+                            <Text style={styles.knockoutScoreText}>{knockout.final?.home_score != null ? String(knockout.final.home_score) : ''}</Text>
+                          </View>
+                        </View>
+                      </View>
+                      <View style={styles.knockoutTeamBox}>
+                        <View style={styles.knockoutTeamRow}>
+                          {knockout.final?.away_team_name ? (
+                            <TableTeamLogo logoUrl={knockout.final?.away_team_logo_url} logoPath={knockout.final?.away_team_logo_path} size={18} />
+                          ) : (
+                            <View style={styles.knockoutLogoPlaceholder} />
+                          )}
+                          <Text style={styles.knockoutTeamText} numberOfLines={1}>{knockout.final?.away_team_name || '-'}</Text>
+                          <View style={styles.knockoutScoreBox}>
+                            <Text style={styles.knockoutScoreText}>{knockout.final?.away_score != null ? String(knockout.final.away_score) : ''}</Text>
+                          </View>
+                        </View>
+                      </View>
+                    </View>
+                  </View>
                 </View>
-                <Text style={[styles.td, { width: 40, textAlign: 'center' }]}>{r.played}</Text>
-                <Text style={[styles.td, { width: 40, textAlign: 'center' }]}>{r.goal_diff}</Text>
-                <Text style={[styles.td, { width: 40, textAlign: 'center' }]}>{r.points}</Text>
               </View>
-            ))}
-          </View>
+            ) : null}
+
+            <View style={styles.card}>
+              <View style={styles.tableHeader}>
+                <Text style={[styles.th, { width: 38, textAlign: 'center' }]}>Pos</Text>
+                <Text style={[styles.th, { flex: 1 }]}>Squadra</Text>
+                <Text style={[styles.th, { width: 40, textAlign: 'center' }]}>PG</Text>
+                <Text style={[styles.th, { width: 40, textAlign: 'center' }]}>DR</Text>
+                <Text style={[styles.th, { width: 40, textAlign: 'center' }]}>Pt</Text>
+              </View>
+              {standings.map((r, i) => (
+                <View key={`st-${i}`} style={styles.tableRow}>
+                  <Text style={[styles.td, { width: 38, textAlign: 'center' }]}>{r.position}</Text>
+                  <View style={[styles.teamCell, { flex: 1 }]}>
+                    <TableTeamLogo logoUrl={r.team_logo_url} logoPath={r.team_logo_path} />
+                    <Text style={[styles.td, styles.tdTeamName]} numberOfLines={2}>
+                      {r.team_name_display || r.team_name || '-'}
+                    </Text>
+                  </View>
+                  <Text style={[styles.td, { width: 40, textAlign: 'center' }]}>{r.played}</Text>
+                  <Text style={[styles.td, { width: 40, textAlign: 'center' }]}>{r.goal_diff}</Text>
+                  <Text style={[styles.td, { width: 40, textAlign: 'center' }]}>{r.points}</Text>
+                </View>
+              ))}
+            </View>
+          </>
         )}
       </ScrollView>
 
@@ -2573,6 +2661,90 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#f3f3f3',
   },
+  knockoutTitle: { fontSize: 16, fontWeight: '800', color: '#111827', textAlign: 'center', marginBottom: 10 },
+  knockoutBracketRow: { flexDirection: 'row', alignItems: 'stretch', gap: 10 },
+  knockoutSemisCol: { flex: 1.2, gap: 10 },
+  knockoutSemiBlock: { flex: 1 },
+  knockoutFinalCol: { flex: 1, justifyContent: 'center' },
+  knockoutFinalWrap: { alignItems: 'center' },
+  knockoutStageLabel: { fontSize: 12, fontWeight: '700', color: '#6b7280', textTransform: 'uppercase', marginBottom: 6 },
+  knockoutMatchRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, width: '100%' },
+  knockoutMatchStack: { gap: 6, width: '100%' },
+  knockoutTeamRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  knockoutLogoPlaceholder: { width: 18, height: 18 },
+  knockoutTeamBox: {
+    flex: 1,
+    minWidth: 0,
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    backgroundColor: '#fff',
+  },
+  knockoutTeamText: { flex: 1, minWidth: 0, fontSize: 13, fontWeight: '700', color: '#111827' },
+  knockoutScoreBox: {
+    width: 22,
+    height: 22,
+    borderRadius: 5,
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  knockoutScoreText: { fontSize: 12, fontWeight: '800', color: '#111827' },
+  knockoutVs: { width: 28, textAlign: 'center', fontSize: 12, fontWeight: '800', color: '#6b7280' },
+  knockoutConnectorCol: {
+    width: 34,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  knockoutConnectorTopArm: {
+    position: 'absolute',
+    left: 0,
+    top: '25%',
+    width: 16,
+    height: 1,
+    backgroundColor: '#d1d5db',
+  },
+  knockoutConnectorBottomArm: {
+    position: 'absolute',
+    left: 0,
+    bottom: '25%',
+    width: 16,
+    height: 1,
+    backgroundColor: '#d1d5db',
+  },
+  knockoutConnectorVertical: {
+    width: 1,
+    height: '52%',
+    backgroundColor: '#d1d5db',
+  },
+  knockoutConnectorToFinal: {
+    position: 'absolute',
+    right: 0,
+    width: 16,
+    height: 1,
+    backgroundColor: '#d1d5db',
+  },
+  knockoutBranchTopLine: {
+    marginTop: 10,
+    alignSelf: 'center',
+    width: '86%',
+    height: 1,
+    backgroundColor: '#d1d5db',
+  },
+  knockoutBranchVertical: {
+    alignSelf: 'center',
+    width: 1,
+    height: 14,
+    backgroundColor: '#d1d5db',
+    marginBottom: 8,
+  },
+  knockoutSemisRow: { flexDirection: 'row', gap: 10 },
+  knockoutSemiCol: { flex: 1, minWidth: 0, alignItems: 'center' },
   teamCell: { flexDirection: 'row', alignItems: 'center', gap: 12, flexShrink: 1 },
   tableLogo: { width: 36, height: 36, borderRadius: 8, backgroundColor: '#f7f7f7' },
   tableLogoFallback: { width: 36, height: 36, borderRadius: 8, backgroundColor: '#eef2ff', alignItems: 'center', justifyContent: 'center' },
