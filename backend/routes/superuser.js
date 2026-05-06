@@ -336,11 +336,12 @@ router.get('/official-groups/:id/leagues', authenticateToken, requireSuperuser, 
 
     const leagues = await query(
       `SELECT l.id, l.name, l.access_code, l.created_at,
+              NULLIF(to_jsonb(l)->>'reference_year','')::int AS reference_year,
               COUNT(DISTINCT lm.user_id)::int AS member_count
        FROM leagues l
        LEFT JOIN league_members lm ON lm.league_id = l.id
        WHERE l.official_group_id = ?
-       GROUP BY l.id, l.name, l.access_code, l.created_at
+       GROUP BY l.id, l.name, l.access_code, l.created_at, NULLIF(to_jsonb(l)->>'reference_year','')::int
        ORDER BY l.created_at DESC, l.id DESC`,
       [groupId]
     );
@@ -350,6 +351,40 @@ router.get('/official-groups/:id/leagues', authenticateToken, requireSuperuser, 
     });
   } catch (error) {
     return res.status(500).json({ message: 'Errore caricamento leghe del gruppo', error: error.message });
+  }
+});
+
+router.put('/official-groups/:groupId/leagues/:leagueId/reference-year', authenticateToken, requireSuperuser, async (req, res) => {
+  try {
+    const groupId = Number(req.params.groupId);
+    const leagueId = Number(req.params.leagueId);
+    if (!groupId || groupId <= 0) return res.status(400).json({ message: 'ID gruppo non valido' });
+    if (!leagueId || leagueId <= 0) return res.status(400).json({ message: 'ID lega non valido' });
+
+    const hasField = Object.prototype.hasOwnProperty.call(req.body || {}, 'reference_year');
+    if (!hasField) return res.status(400).json({ message: 'reference_year mancante' });
+    const rawYear = req.body?.reference_year;
+    const year =
+      rawYear == null || String(rawYear).trim() === ''
+        ? null
+        : Number(rawYear);
+    if (year != null && (!Number.isFinite(year) || year < 1900 || year > 2500)) {
+      return res.status(400).json({ message: 'Anno riferimento non valido (1900-2500)' });
+    }
+
+    const belongs = await query(
+      `SELECT id
+       FROM leagues
+       WHERE id = ? AND official_group_id = ?
+       LIMIT 1`,
+      [leagueId, groupId]
+    );
+    if (!belongs.length) return res.status(404).json({ message: 'Lega non trovata nel gruppo selezionato' });
+
+    await query(`UPDATE leagues SET reference_year = ? WHERE id = ?`, [year == null ? null : Math.trunc(year), leagueId]);
+    return res.json({ ok: true, league_id: leagueId, reference_year: year == null ? null : Math.trunc(year) });
+  } catch (error) {
+    return res.status(500).json({ message: 'Errore aggiornamento anno di riferimento', error: error.message });
   }
 });
 

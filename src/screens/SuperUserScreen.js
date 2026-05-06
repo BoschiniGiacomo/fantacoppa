@@ -42,6 +42,9 @@ export default function SuperUserScreen() {
   const [newGroupDescription, setNewGroupDescription] = useState('');
   const [selectedGroupForEdit, setSelectedGroupForEdit] = useState(null);
   const [showGroupDetailModal, setShowGroupDetailModal] = useState(false);
+  const [referenceYearDrafts, setReferenceYearDrafts] = useState({});
+  const [savingReferenceYearByLeague, setSavingReferenceYearByLeague] = useState({});
+  const [yearPickerLeague, setYearPickerLeague] = useState(null);
   const [toastMsg, setToastMsg] = useState(null);
   const [confirmModal, setConfirmModal] = useState(null);
   
@@ -695,6 +698,46 @@ export default function SuperUserScreen() {
       showToast(error.response?.data?.message || 'Errore durante la creazione del gruppo');
     }
   };
+
+  const handleSaveLeagueReferenceYear = async (groupId, leagueId, overrideDraft = null) => {
+    const draft = String(overrideDraft ?? referenceYearDrafts[String(leagueId)] ?? '').trim();
+    if (draft !== '') {
+      const n = Number(draft);
+      if (!Number.isFinite(n) || n < 1900 || n > 2500) {
+        showToast('Anno riferimento non valido (1900-2500)');
+        return false;
+      }
+    }
+    try {
+      setSavingReferenceYearByLeague((prev) => ({ ...prev, [leagueId]: true }));
+      const payloadYear = draft === '' ? null : Math.trunc(Number(draft));
+      await superuserService.updateOfficialLeagueReferenceYear(groupId, leagueId, payloadYear);
+      setSelectedGroupForEdit((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          leagues: (prev.leagues || []).map((l) =>
+            Number(l.id) === Number(leagueId) ? { ...l, reference_year: payloadYear } : l
+          ),
+        };
+      });
+      showToast('Anno riferimento salvato', 'success');
+      return true;
+    } catch (error) {
+      console.error('Error saving league reference year:', error);
+      showToast(error?.response?.data?.message || 'Errore salvataggio anno riferimento');
+      return false;
+    } finally {
+      setSavingReferenceYearByLeague((prev) => ({ ...prev, [leagueId]: false }));
+    }
+  };
+
+  const selectableReferenceYears = useMemo(() => {
+    const nowYear = new Date().getFullYear();
+    const years = [];
+    for (let y = nowYear + 2; y >= nowYear - 25; y -= 1) years.push(y);
+    return years;
+  }, []);
   
   // Gestisce il toggle "visibile per collegamento"
   const handleToggleVisibleForLinking = async (league) => {
@@ -1230,7 +1273,13 @@ export default function SuperUserScreen() {
                     onPress={async () => {
                       try {
                         const response = await superuserService.getOfficialGroupLeagues(item.id);
-                        setSelectedGroupForEdit({ ...item, leagues: response.data.leagues || [] });
+                        const leaguesInGroup = response.data.leagues || [];
+                        setSelectedGroupForEdit({ ...item, leagues: leaguesInGroup });
+                        const nextDrafts = {};
+                        leaguesInGroup.forEach((lg) => {
+                          nextDrafts[String(lg.id)] = lg?.reference_year != null ? String(lg.reference_year) : '';
+                        });
+                        setReferenceYearDrafts(nextDrafts);
                         setShowGroupDetailModal(true);
                       } catch (error) {
                         console.error('Error loading group leagues:', error);
@@ -1458,6 +1507,7 @@ export default function SuperUserScreen() {
         onRequestClose={() => {
           setShowGroupDetailModal(false);
           setSelectedGroupForEdit(null);
+          setReferenceYearDrafts({});
         }}
       >
         <View style={styles.modalOverlay}>
@@ -1470,6 +1520,7 @@ export default function SuperUserScreen() {
                 onPress={() => {
                   setShowGroupDetailModal(false);
                   setSelectedGroupForEdit(null);
+                  setReferenceYearDrafts({});
                 }}
               >
                 <Ionicons name="close" size={24} color="#666" />
@@ -1495,6 +1546,23 @@ export default function SuperUserScreen() {
                       <Text style={styles.groupLeagueDetails}>
                         {league.member_count} membri • {formatDateTime(league.created_at)}
                       </Text>
+                      <View style={styles.groupLeagueReferenceYearRow}>
+                        <TouchableOpacity
+                          style={styles.groupLeagueReferenceYearPickerBtn}
+                          onPress={() => setYearPickerLeague(league)}
+                        >
+                          <Ionicons name="calendar-outline" size={16} color="#667eea" />
+                          <Text style={styles.groupLeagueReferenceYearPickerBtnText}>
+                            {String(referenceYearDrafts[String(league.id)] ?? '').trim() || 'Seleziona anno'}
+                          </Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={styles.groupLeagueReferenceYearClearBtn}
+                          onPress={() => setReferenceYearDrafts((prev) => ({ ...prev, [String(league.id)]: '' }))}
+                        >
+                          <Ionicons name="close-circle-outline" size={18} color="#999" />
+                        </TouchableOpacity>
+                      </View>
                     </View>
                   ))
                 ) : (
@@ -1551,6 +1619,73 @@ export default function SuperUserScreen() {
                 </View>
               </ScrollView>
             )}
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={!!yearPickerLeague}
+        animationType="fade"
+        transparent={true}
+        onRequestClose={() => setYearPickerLeague(null)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.yearPickerModalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Seleziona Anno</Text>
+              <TouchableOpacity onPress={() => setYearPickerLeague(null)}>
+                <Ionicons name="close" size={24} color="#666" />
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.yearPickerModalSubtitle}>
+              {yearPickerLeague?.name || 'Lega ufficiale'}
+            </Text>
+            <ScrollView style={styles.yearPickerScroll} contentContainerStyle={styles.yearPickerGrid}>
+              {selectableReferenceYears.map((year) => {
+                const selected = String(referenceYearDrafts[String(yearPickerLeague?.id)] ?? '') === String(year);
+                return (
+                  <TouchableOpacity
+                    key={year}
+                    style={[styles.yearChip, selected ? styles.yearChipActive : null]}
+                    onPress={() =>
+                      setReferenceYearDrafts((prev) => ({ ...prev, [String(yearPickerLeague?.id)]: String(year) }))
+                    }
+                  >
+                    <Text style={[styles.yearChipText, selected ? styles.yearChipTextActive : null]}>{year}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+            <View style={styles.yearPickerActions}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.modalButtonSecondary, styles.yearPickerActionButton]}
+                onPress={() => {
+                  if (!yearPickerLeague) return;
+                  setReferenceYearDrafts((prev) => ({ ...prev, [String(yearPickerLeague.id)]: '' }));
+                  setYearPickerLeague(null);
+                }}
+              >
+                <Text style={[styles.modalButtonText, styles.yearPickerActionButtonText, { color: '#667eea' }]}>Nessun anno</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.modalButtonPrimary, styles.yearPickerActionButton]}
+                disabled={!!savingReferenceYearByLeague[yearPickerLeague?.id]}
+                onPress={async () => {
+                  if (!yearPickerLeague || !selectedGroupForEdit?.id) return;
+                  const leagueId = yearPickerLeague.id;
+                  const groupId = selectedGroupForEdit.id;
+                  const draft = String(referenceYearDrafts[String(leagueId)] ?? '').trim();
+                  const ok = await handleSaveLeagueReferenceYear(groupId, leagueId, draft);
+                  if (ok !== false) setYearPickerLeague(null);
+                }}
+              >
+                {savingReferenceYearByLeague[yearPickerLeague?.id] ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={[styles.modalButtonText, styles.yearPickerActionButtonText]}>Salva anno</Text>
+                )}
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -2645,6 +2780,101 @@ const styles = StyleSheet.create({
   groupLeagueDetails: {
     fontSize: 13,
     color: '#666',
+  },
+  groupLeagueReferenceYearRow: {
+    marginTop: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  groupLeagueReferenceYearPickerBtn: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#d6dcff',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    backgroundColor: '#f7f8ff',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  groupLeagueReferenceYearPickerBtnText: {
+    fontSize: 14,
+    color: '#333',
+  },
+  groupLeagueReferenceYearClearBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  yearPickerModalContent: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    overflow: 'hidden',
+  },
+  yearPickerScroll: {
+    flex: 1,
+  },
+  yearPickerModalSubtitle: {
+    fontSize: 14,
+    color: '#666',
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+  },
+  yearPickerGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+  },
+  yearChip: {
+    width: '31%',
+    borderWidth: 1,
+    borderColor: '#d9d9d9',
+    borderRadius: 8,
+    paddingVertical: 10,
+    alignItems: 'center',
+    backgroundColor: '#fafafa',
+  },
+  yearChipActive: {
+    borderColor: '#667eea',
+    backgroundColor: '#eef1ff',
+  },
+  yearChipText: {
+    fontSize: 14,
+    color: '#444',
+    fontWeight: '600',
+  },
+  yearChipTextActive: {
+    color: '#3e57d0',
+  },
+  yearPickerActions: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingTop: 6,
+    paddingBottom: 12,
+  },
+  yearPickerActionButton: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    marginHorizontal: 0,
+    marginTop: 0,
+    borderRadius: 10,
+  },
+  yearPickerActionButtonText: {
+    fontSize: 16,
   },
   groupDetailEmpty: {
     fontSize: 14,

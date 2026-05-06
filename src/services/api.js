@@ -492,6 +492,37 @@ export const matchesService = {
     }),
   getCompetitions: () => api.get('competitions'),
   getDetail: (matchId) => api.get(`matches/${matchId}/detail`),
+  getOfficialTeamDetail: (teamId, competitionId) =>
+    api.get(`matches/teams/${teamId}/detail`, {
+      params: { competition_id: competitionId },
+    }),
+  getOfficialTeamMatches: (teamId, competitionId) =>
+    api.get(`matches/teams/${teamId}/matches`, {
+      params: { competition_id: competitionId },
+    }),
+  getOfficialTeamSeasonStandings: (teamId, competitionId, referenceYear = null) =>
+    api.get(`matches/teams/${teamId}/season-standings`, {
+      params: {
+        competition_id: competitionId,
+        ...(referenceYear != null ? { reference_year: referenceYear } : {}),
+      },
+    }),
+  getOfficialTeamSeasonSquad: (teamId, competitionId, referenceYear = null) =>
+    api.get(`matches/teams/${teamId}/season-squad`, {
+      params: {
+        competition_id: competitionId,
+        ...(referenceYear != null ? { reference_year: referenceYear } : {}),
+      },
+    }),
+  getOfficialTeamSeasonStats: (teamId, competitionId, referenceYear = null) =>
+    api.get(`matches/teams/${teamId}/season-stats`, {
+      params: {
+        competition_id: competitionId,
+        ...(referenceYear === 'absolute'
+          ? { mode: 'absolute' }
+          : (referenceYear != null ? { reference_year: referenceYear } : {})),
+      },
+    }),
   toggleMatchNotifications: (matchId, enabled) =>
     api.post('matches/notifications/toggle', { match_id: matchId, enabled: enabled ? 1 : 0 }),
   setFavoriteMatch: (matchId, isFavorite) =>
@@ -501,6 +532,12 @@ export const matchesService = {
       official_group_id: officialGroupId,
       team_name: teamName,
       is_favorite: isFavorite ? 1 : 0,
+    }),
+  setTeamNotifications: (officialGroupId, teamName, enabled) =>
+    api.post('matches/favorites/team-notifications', {
+      official_group_id: officialGroupId,
+      team_name: teamName,
+      enabled: enabled ? 1 : 0,
     }),
   /** Competizioni, squadre ufficiali e preferenze utente (stellina + notifiche squadra) */
   getFollowSetup: () => api.get('matches/follow-setup'),
@@ -572,6 +609,10 @@ export const superuserService = {
   updateOfficialGroup: (groupId, data) => api.put(`/superuser/official-groups/${groupId}`, data),
   deleteOfficialGroup: (groupId) => api.delete(`/superuser/official-groups/${groupId}`),
   getOfficialGroupLeagues: (groupId) => api.get(`/superuser/official-groups/${groupId}/leagues`),
+  updateOfficialLeagueReferenceYear: (groupId, leagueId, referenceYear) =>
+    api.put(`/superuser/official-groups/${groupId}/leagues/${leagueId}/reference-year`, {
+      reference_year: referenceYear,
+    }),
   setLeagueOfficial: (leagueId, data) => api.put(`/superuser/leagues/${leagueId}/official`, data),
   toggleVisibleForLinking: (leagueId) => api.put(`/superuser/leagues/${leagueId}/visible-for-linking`),
 

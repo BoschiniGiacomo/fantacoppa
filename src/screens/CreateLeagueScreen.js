@@ -676,6 +676,8 @@ export default function CreateLeagueScreen({ navigation }) {
             placeholderTextColor="#999"
             value={formData.accessCode}
             onChangeText={(text) => setFormData({ ...formData, accessCode: text })}
+            autoCapitalize="none"
+            autoCorrect={false}
             returnKeyType="next"
             onSubmitEditing={() => inputRefs.step1.initialBudget.current?.focus()}
             onLayout={(event) => {

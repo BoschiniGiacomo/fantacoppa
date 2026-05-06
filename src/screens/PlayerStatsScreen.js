@@ -219,7 +219,7 @@ export default function PlayerStatsScreen({ route, navigation }) {
         <View style={styles.headerInfo}>
           <Text style={styles.headerName} numberOfLines={1}>{playerName || 'Giocatore'}</Text>
           <Text style={styles.headerMeta}>
-            {ROLE_NAMES[playerRole] || playerRole}  ·  {playerRating?.toFixed(1) || '0.0'} {playerRating === 1 ? 'credito' : 'crediti'}
+            {ROLE_NAMES[playerRole] || playerRole}
           </Text>
         </View>
       </View>

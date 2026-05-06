@@ -206,7 +206,8 @@ export default function SearchLeaguesScreen({ navigation }) {
                     placeholderTextColor="#bbb"
                     value={accessCode}
                     onChangeText={setAccessCode}
-                    autoCapitalize="characters"
+                    autoCapitalize="none"
+                    autoCorrect={false}
                   />
                 </View>
               </View>

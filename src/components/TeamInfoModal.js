@@ -16,6 +16,8 @@ export default function TeamInfoModal({ visible, leagueId, defaultTeamName, defa
   const [coachName, setCoachName] = useState('');
   const [saving, setSaving] = useState(false);
   const [toastMsg, setToastMsg] = useState(null);
+  const [teamError, setTeamError] = useState('');
+  const [coachError, setCoachError] = useState('');
   
   const showToast = (text, type = 'error') => {
     setToastMsg({ text, type });
@@ -27,15 +29,37 @@ export default function TeamInfoModal({ visible, leagueId, defaultTeamName, defa
       // Imposta i valori di default quando il modal viene mostrato
       setTeamName(defaultTeamName || '');
       setCoachName(defaultCoachName || '');
+      setTeamError('');
+      setCoachError('');
     }
   }, [visible, defaultTeamName, defaultCoachName]);
 
   const handleSave = async () => {
     const trimmedTeamName = teamName.trim();
     const trimmedCoachName = coachName.trim();
+    const defaultTeam = String(defaultTeamName || '').trim();
+    const defaultCoach = String(defaultCoachName || '').trim();
 
-    if (!trimmedTeamName || !trimmedCoachName) {
-      showToast('Nome squadra e nome allenatore sono obbligatori');
+    let nextTeamError = '';
+    let nextCoachError = '';
+
+    if (!trimmedTeamName) {
+      nextTeamError = 'Inserisci un nome squadra';
+    } else if (defaultTeam && trimmedTeamName.toLowerCase() === defaultTeam.toLowerCase()) {
+      nextTeamError = 'Cambia il nome squadra di default';
+    }
+
+    if (!trimmedCoachName) {
+      nextCoachError = 'Inserisci un nome allenatore';
+    } else if (defaultCoach && trimmedCoachName.toLowerCase() === defaultCoach.toLowerCase()) {
+      nextCoachError = 'Cambia il nome allenatore di default';
+    }
+
+    setTeamError(nextTeamError);
+    setCoachError(nextCoachError);
+
+    if (nextTeamError || nextCoachError) {
+      showToast('Correggi i campi evidenziati');
       return;
     }
 
@@ -61,31 +85,39 @@ export default function TeamInfoModal({ visible, leagueId, defaultTeamName, defa
     >
       <View style={styles.overlay}>
         <View style={styles.modalContainer}>
-          <Text style={styles.title}>Inserisci Nome Squadra e Allenatore</Text>
+          <Text style={styles.title}>Completa il tuo profilo lega</Text>
           <Text style={styles.subtitle}>
-            Per partecipare a questa lega, devi inserire il nome della tua squadra e del tuo allenatore.
+            Scegli un nome squadra e un allenatore personalizzati.
           </Text>
 
           <View style={styles.formGroup}>
             <Text style={styles.label}>Nome Squadra *</Text>
             <TextInput
-              style={styles.input}
+              style={[styles.input, teamError ? styles.inputError : null]}
               value={teamName}
-              onChangeText={setTeamName}
+              onChangeText={(value) => {
+                setTeamName(value);
+                if (teamError) setTeamError('');
+              }}
               placeholder="Es. Squadra 3"
               autoCapitalize="words"
             />
+            {teamError ? <Text style={styles.fieldError}>{teamError}</Text> : null}
           </View>
 
           <View style={styles.formGroup}>
             <Text style={styles.label}>Nome Allenatore *</Text>
             <TextInput
-              style={styles.input}
+              style={[styles.input, coachError ? styles.inputError : null]}
               value={coachName}
-              onChangeText={setCoachName}
+              onChangeText={(value) => {
+                setCoachName(value);
+                if (coachError) setCoachError('');
+              }}
               placeholder="Es. Allenatore 3"
               autoCapitalize="words"
             />
+            {coachError ? <Text style={styles.fieldError}>{coachError}</Text> : null}
           </View>
 
           <TouchableOpacity
@@ -155,6 +187,16 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: 12,
     fontSize: 16,
+  },
+  inputError: {
+    borderColor: '#e53935',
+    backgroundColor: '#fff5f5',
+  },
+  fieldError: {
+    marginTop: 6,
+    fontSize: 12,
+    color: '#e53935',
+    fontWeight: '600',
   },
   saveButton: {
     backgroundColor: '#667eea',

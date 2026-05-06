@@ -285,8 +285,20 @@ export default function MatchesScreen() {
   }, [isFocused, selectedDate, load]);
 
   const goToMatchDetail = (matchId) => {
-    navigation.navigate('MatchDetail', { matchId });
+    navigation.navigate('MatchDetail', { matchId, from: 'matches-main' });
   };
+
+  const goToOfficialTeamDetailFromModal = useCallback((teamId, competitionId, teamName) => {
+    const tid = Number(teamId);
+    const cid = Number(competitionId);
+    if (!tid || !cid) return;
+    setFollowModalVisible(false);
+    navigation.navigate('OfficialTeamDetail', {
+      teamId: tid,
+      competitionId: cid,
+      teamName: String(teamName || '').trim() || undefined,
+    });
+  }, [navigation]);
 
   const goToManageMatches = () => {
     navigation.navigate('ManageMatches');
@@ -529,14 +541,24 @@ export default function MatchesScreen() {
                     {(c.teams || []).length === 0 ? (
                       <Text style={styles.mutedSmall}>Nessuna squadra in elenco</Text>
                     ) : (
-                      (c.teams || []).map((tname) => {
+                      (c.teams || []).map((t) => {
+                        const team = typeof t === 'string' ? { name: t } : (t || {});
+                        const tname = String(team.name || '').trim();
+                        if (!tname) return null;
                         const isHeart = (c.heart_team_names || []).includes(tname);
                         const isNotify = (c.notify_team_names || []).includes(tname);
                         return (
                           <View key={`${c.id}-${tname}`} style={styles.followTeamRow}>
-                            <Text style={styles.followTeamName} numberOfLines={1}>
-                              {tname}
-                            </Text>
+                            <TouchableOpacity
+                              style={styles.followTeamMain}
+                              activeOpacity={0.75}
+                              onPress={() => goToOfficialTeamDetailFromModal(team.id, c.id, tname)}
+                            >
+                              <TeamRowLogo logoUrl={team.logo_url} logoPath={team.logo_path} />
+                              <Text style={styles.followTeamName} numberOfLines={1}>
+                                {tname}
+                              </Text>
+                            </TouchableOpacity>
                             <View style={styles.followIcons}>
                               <TouchableOpacity
                                 style={[styles.followIconBtn, isHeart && styles.followIconBtnActive]}
@@ -620,16 +642,16 @@ const styles = StyleSheet.create({
   daysRow: { paddingHorizontal: 12, paddingVertical: 6, gap: 8, alignItems: 'center' },
   dayChip: {
     backgroundColor: '#fff',
-    borderRadius: 16,
-    paddingHorizontal: 14,
-    paddingVertical: 6,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
     borderWidth: 1,
-    borderColor: '#e0e0e0',
+    borderColor: '#e2e8f0',
     alignSelf: 'center',
   },
-  dayChipActive: { backgroundColor: '#667eea', borderColor: '#667eea' },
-  dayText: { color: '#333', fontWeight: '600' },
-  dayTextActive: { color: '#fff' },
+  dayChipActive: { borderColor: '#667eea', backgroundColor: '#eef2ff' },
+  dayText: { color: '#475569', fontWeight: '700', fontSize: 13 },
+  dayTextActive: { color: '#667eea' },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   list: { flex: 1, paddingHorizontal: 12 },
   errorText: { color: '#dc3545', margin: 12 },
@@ -771,7 +793,8 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: '#f0f0f0',
   },
-  followTeamName: { flex: 1, fontSize: 14, fontWeight: '600', color: '#222', marginRight: 8 },
+  followTeamMain: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 8, marginRight: 8 },
+  followTeamName: { flex: 1, minWidth: 0, fontSize: 14, fontWeight: '600', color: '#222' },
   followIcons: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   followIconBtn: {
     width: 40,

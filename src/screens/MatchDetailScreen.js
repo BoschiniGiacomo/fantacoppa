@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  BackHandler,
   Image,
   Keyboard,
   Modal,
@@ -928,6 +929,10 @@ export default function MatchDetailScreen({ navigation, route }) {
   const superuserLevel = Number(user?.is_superuser || 0);
   const canManageLive = superuserLevel === 1 || superuserLevel === 2;
   const matchId = route?.params?.matchId;
+  const from = String(route?.params?.from || '').trim();
+  const fromTeamId = Number(route?.params?.teamId);
+  const fromCompetitionId = Number(route?.params?.competitionId);
+  const fromTeamName = route?.params?.teamName != null ? String(route.params.teamName) : undefined;
   const [activeTab, setActiveTab] = useState('overview');
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState(null);
@@ -970,6 +975,27 @@ export default function MatchDetailScreen({ navigation, route }) {
     [matchId]
   );
 
+  const handleBackNavigation = useCallback(() => {
+    if (from === 'official-team' && fromTeamId > 0 && fromCompetitionId > 0) {
+      navigation.navigate('OfficialTeamDetail', {
+        teamId: fromTeamId,
+        competitionId: fromCompetitionId,
+        teamName: fromTeamName || '-',
+      });
+      return true;
+    }
+    if (from === 'matches-main') {
+      navigation.navigate('MainTabs', { screen: 'Partite' });
+      return true;
+    }
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+      return true;
+    }
+    navigation.navigate('MainTabs', { screen: 'Partite' });
+    return true;
+  }, [navigation, from, fromTeamId, fromCompetitionId, fromTeamName, route?.params, matchId]);
+
   useEffect(() => {
     const t = setInterval(() => setTick((v) => v + 1), 1000);
     return () => clearInterval(t);
@@ -985,8 +1011,12 @@ export default function MatchDetailScreen({ navigation, route }) {
       if (!matchId) return undefined;
       void loadDetail({ showLoading: false });
       const poll = setInterval(() => void loadDetail({ showLoading: false }), DETAIL_POLL_MS);
-      return () => clearInterval(poll);
-    }, [matchId, loadDetail])
+      const backSub = BackHandler.addEventListener('hardwareBackPress', () => handleBackNavigation());
+      return () => {
+        clearInterval(poll);
+        backSub.remove();
+      };
+    }, [matchId, loadDetail, handleBackNavigation, from, fromTeamId, fromCompetitionId, fromTeamName, route?.params])
   );
 
   useEffect(() => {
@@ -1228,6 +1258,17 @@ export default function MatchDetailScreen({ navigation, route }) {
     });
   };
 
+  const openOfficialTeamDetail = (teamId, teamName) => {
+    const tid = Number(teamId);
+    const competitionId = Number(match.competition_id);
+    if (!tid || !competitionId) return;
+    navigation.replace('OfficialTeamDetail', {
+      teamId: tid,
+      competitionId,
+      teamName: String(teamName || '').trim() || '-',
+    });
+  };
+
   const toggleFavoriteMatch = async () => {
     await matchesService.setFavoriteMatch(match.id, Number(favorites.match) !== 1);
     await loadDetail({ showLoading: false });
@@ -1431,7 +1472,7 @@ export default function MatchDetailScreen({ navigation, route }) {
   return (
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: Math.max(insets.top + 6, 12) }]}>
-        <TouchableOpacity style={styles.iconBtn} onPress={() => navigation.goBack()}>
+        <TouchableOpacity style={styles.iconBtn} onPress={handleBackNavigation}>
           <Ionicons name="arrow-back" size={20} color="#333" />
         </TouchableOpacity>
         <View style={styles.headerRight}>
@@ -1447,7 +1488,9 @@ export default function MatchDetailScreen({ navigation, route }) {
       <View style={[styles.heroColumn, showHeroScorerList && styles.heroColumnWithScorersBelow]}>
         <View style={[styles.heroTopRow, showHeroScorerList && styles.heroTopRowWithScorersBelow]}>
           <View style={styles.teamSlot}>
-            <HeroTeamLogo logoUrl={match.home_team_logo_url} logoPath={match.home_team_logo_path} />
+            <TouchableOpacity activeOpacity={0.75} onPress={() => openOfficialTeamDetail(match.home_team_id, match.home_team_name)}>
+              <HeroTeamLogo logoUrl={match.home_team_logo_url} logoPath={match.home_team_logo_path} />
+            </TouchableOpacity>
             <Text style={styles.team} numberOfLines={2}>
               {match.home_team_name || '-'}
             </Text>
@@ -1491,7 +1534,9 @@ export default function MatchDetailScreen({ navigation, route }) {
             {heroClock.showSub && heroClock.sub ? <Text style={styles.kickoff}>{heroClock.sub}</Text> : null}
           </View>
           <View style={styles.teamSlot}>
-            <HeroTeamLogo logoUrl={match.away_team_logo_url} logoPath={match.away_team_logo_path} />
+            <TouchableOpacity activeOpacity={0.75} onPress={() => openOfficialTeamDetail(match.away_team_id, match.away_team_name)}>
+              <HeroTeamLogo logoUrl={match.away_team_logo_url} logoPath={match.away_team_logo_path} />
+            </TouchableOpacity>
             <Text style={styles.team} numberOfLines={2}>
               {match.away_team_name || '-'}
             </Text>
@@ -1950,7 +1995,7 @@ export default function MatchDetailScreen({ navigation, route }) {
               </View>
             ) : null}
 
-            <View style={styles.card}>
+            <View style={[styles.card, styles.knockoutCard]}>
               <View style={styles.tableHeader}>
                 <Text style={[styles.th, { width: 38, textAlign: 'center' }]}>Pos</Text>
                 <Text style={[styles.th, { flex: 1 }]}>Squadra</Text>
@@ -2371,12 +2416,20 @@ const styles = StyleSheet.create({
     opacity: 0.55,
     backgroundColor: '#9ca3af',
   },
-  tabsScroll: { flexGrow: 0, paddingTop: 8, maxHeight: 52 },
-  tabsScrollContent: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingRight: 20 },
-  tabBtn: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 16, borderWidth: 1, borderColor: '#ddd', backgroundColor: '#fff', flexShrink: 0 },
-  tabBtnActive: { backgroundColor: '#667eea', borderColor: '#667eea' },
-  tabText: { color: '#333', fontWeight: '700' },
-  tabTextActive: { color: '#fff' },
+  tabsScroll: { marginTop: 8, maxHeight: 46 },
+  tabsScrollContent: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingBottom: 4 },
+  tabBtn: {
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    paddingVertical: 5,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    flexShrink: 0,
+  },
+  tabBtnActive: { borderColor: '#667eea', backgroundColor: '#eef2ff' },
+  tabText: { color: '#475569', fontWeight: '700', fontSize: 13 },
+  tabTextActive: { color: '#667eea' },
   content: { flex: 1, paddingHorizontal: 12, paddingTop: 8 },
   card: { backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#ececec', padding: 12, marginBottom: 12 },
   /** Formazione: un filo più vicina ai bordi schermo, più padding interno così le maglie non “toccano” il bordo card. */

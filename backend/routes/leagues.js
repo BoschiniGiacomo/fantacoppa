@@ -3318,7 +3318,7 @@ router.get('/:id/settings', authenticateToken, async (req, res) => {
     const leagueId = toValidLeagueId(req.params.id);
     if (!leagueId) return res.status(400).json({ message: 'League ID non valido' });
     const rows = await query(
-      `SELECT id, name, creator_id, initial_budget, default_deadline_time, numero_titolari,
+      `SELECT id, name, creator_id, initial_budget, access_code, default_deadline_time, numero_titolari,
               max_portieri, max_difensori, max_centrocampisti, max_attaccanti, auto_lineup_mode,
               enable_next_matchday_from_next_day, recover_previous_lineup_if_missing, enable_sv_fallback_vote
        FROM leagues
@@ -3346,6 +3346,10 @@ router.put('/:id/settings', authenticateToken, async (req, res) => {
     if (!leagueId) return res.status(400).json({ message: 'League ID non valido' });
 
     const defaultDeadlineTime = req.body?.default_deadline_time != null ? String(req.body.default_deadline_time) : null;
+    const hasAccessCodeField = Object.prototype.hasOwnProperty.call(req.body || {}, 'access_code');
+    const accessCodeRaw = req.body?.access_code;
+    const accessCode =
+      accessCodeRaw == null ? null : String(accessCodeRaw).trim() === '' ? null : String(accessCodeRaw).trim();
     const numeroTitolari = req.body?.numero_titolari != null ? Number(req.body.numero_titolari) : null;
     const autoLineupMode = req.body?.auto_lineup_mode != null ? Number(req.body.auto_lineup_mode) : null;
     const enableNextMatchdayFromNextDay =
@@ -3363,7 +3367,8 @@ router.put('/:id/settings', authenticateToken, async (req, res) => {
 
     await query(
       `UPDATE leagues
-       SET default_deadline_time = COALESCE(?, default_deadline_time),
+       SET access_code = CASE WHEN ? THEN ? ELSE access_code END,
+           default_deadline_time = COALESCE(?, default_deadline_time),
            numero_titolari = COALESCE(?, numero_titolari),
            auto_lineup_mode = COALESCE(?, auto_lineup_mode),
            enable_next_matchday_from_next_day = COALESCE(?, enable_next_matchday_from_next_day),
@@ -3371,6 +3376,8 @@ router.put('/:id/settings', authenticateToken, async (req, res) => {
            enable_sv_fallback_vote = COALESCE(?, enable_sv_fallback_vote)
        WHERE id = ?`,
       [
+        hasAccessCodeField,
+        accessCode,
         defaultDeadlineTime,
         Number.isFinite(numeroTitolari) ? numeroTitolari : null,
         Number.isFinite(autoLineupMode) ? autoLineupMode : null,

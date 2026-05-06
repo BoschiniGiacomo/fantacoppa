@@ -275,7 +275,8 @@ export default function LeaguesScreen({ navigation }) {
                     placeholderTextColor="#bbb"
                     value={accessCode}
                     onChangeText={setAccessCode}
-                    autoCapitalize="characters"
+                    autoCapitalize="none"
+                    autoCorrect={false}
                   />
                 </View>
               </View>

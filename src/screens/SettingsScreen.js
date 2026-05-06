@@ -250,6 +250,13 @@ export default function SettingsScreen({ route, navigation }) {
       const leagueData = Array.isArray(res.data) ? res.data[0] : res.data;
       setLeague(leagueData);
       setIsAdmin(leagueData.role === 'admin');
+      setSettings((prev) => ({
+        ...prev,
+        access_code:
+          leagueData?.access_code != null
+            ? String(leagueData.access_code)
+            : prev.access_code || '',
+      }));
       
       // Carica dati squadra utente (team_name e coach_name sono già inclusi nella risposta)
       if (leagueData.team_name) {
@@ -292,7 +299,12 @@ export default function SettingsScreen({ route, navigation }) {
       
       setSettings({
         default_deadline_time: defaultTime,
-        access_code: data.access_code || '',
+        access_code:
+          data?.access_code != null
+            ? String(data.access_code)
+            : league?.access_code != null
+              ? String(league.access_code)
+              : '',
         numero_titolari: data.numero_titolari || 10,
         max_portieri: data.max_portieri || 3,
         max_difensori: data.max_difensori || 8,
@@ -1032,6 +1044,8 @@ export default function SettingsScreen({ route, navigation }) {
                 value={settings.access_code}
                 onChangeText={(text) => setSettings({...settings, access_code: text})}
                 placeholder="Codice di accesso"
+                autoCapitalize="none"
+                autoCorrect={false}
                 maxLength={20}
                 editable={!isReadOnlyObserver}
               />

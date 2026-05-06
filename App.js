@@ -25,6 +25,7 @@ import FormationScreen from './src/screens/FormationScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
 import MatchesScreen from './src/screens/MatchesScreen';
 import MatchDetailScreen from './src/screens/MatchDetailScreen';
+import OfficialTeamDetailScreen from './src/screens/OfficialTeamDetailScreen';
 import ManageMatchesScreen from './src/screens/ManageMatchesScreen';
 import DeleteAccountScreen from './src/screens/DeleteAccountScreen';
 import TeamsScreen from './src/screens/TeamsScreen';
@@ -277,6 +278,11 @@ function AppNavigator() {
                 <Stack.Screen
                   name="MatchDetail"
                   component={MatchDetailScreen}
+                  options={{ headerShown: false }}
+                />
+                <Stack.Screen
+                  name="OfficialTeamDetail"
+                  component={OfficialTeamDetailScreen}
                   options={{ headerShown: false }}
                 />
               </>
