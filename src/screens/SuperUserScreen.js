@@ -732,6 +732,29 @@ export default function SuperUserScreen() {
     }
   };
 
+  const handleToggleOfficialSquadPublic = async (groupId, league) => {
+    try {
+      const res = await superuserService.toggleOfficialSquadPublic(groupId, league.id);
+      const next = Number(res?.data?.is_official_squad_public ?? 0);
+      setSelectedGroupForEdit((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          leagues: (prev.leagues || []).map((l) =>
+            Number(l.id) === Number(league.id) ? { ...l, is_official_squad_public: next } : l
+          ),
+        };
+      });
+      showToast(
+        next ? 'Rosa e statistiche ufficiali visibili nella app' : 'Rosa e statistiche nascoste (bozza)',
+        'success'
+      );
+    } catch (error) {
+      console.error('Error toggling official squad public:', error);
+      showToast(error?.response?.data?.message || 'Errore durante l\'operazione');
+    }
+  };
+
   const selectableReferenceYears = useMemo(() => {
     const nowYear = new Date().getFullYear();
     const years = [];
@@ -746,6 +769,16 @@ export default function SuperUserScreen() {
       await loadLeagues();
     } catch (error) {
       console.error('Error toggling visible for linking:', error);
+      showToast(error.response?.data?.message || 'Errore durante l\'operazione');
+    }
+  };
+
+  const handleToggleHiddenFromDiscovery = async (league) => {
+    try {
+      await superuserService.toggleLeagueHiddenFromDiscovery(league.id);
+      await loadLeagues();
+    } catch (error) {
+      console.error('Error toggling hidden from discovery:', error);
       showToast(error.response?.data?.message || 'Errore durante l\'operazione');
     }
   };
@@ -935,6 +968,7 @@ export default function SuperUserScreen() {
   
   const renderLeagueItem = ({ item }) => {
     const isOfficial = Number(item?.is_official || 0) > 0;
+    const isHiddenFromDiscovery = Number(item?.is_hidden_from_discovery || 0) === 1;
     return (
     <View style={styles.leagueItem}>
       <View style={styles.leagueInfo}>
@@ -995,6 +1029,47 @@ export default function SuperUserScreen() {
             />
           </TouchableOpacity>
         )}
+        <TouchableOpacity
+          onPress={() => handleToggleHiddenFromDiscovery(item)}
+          activeOpacity={0.7}
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            marginTop: 8,
+            marginBottom: 4,
+            paddingVertical: 8,
+            paddingHorizontal: 12,
+            borderRadius: 8,
+            backgroundColor: isHiddenFromDiscovery ? '#fff3e0' : '#f5f5f5',
+            borderWidth: 1,
+            borderColor: isHiddenFromDiscovery ? '#ffcc80' : '#ddd',
+            alignSelf: 'flex-start',
+          }}
+        >
+          <Ionicons
+            name={isHiddenFromDiscovery ? 'eye-off-outline' : 'eye-outline'}
+            size={18}
+            color={isHiddenFromDiscovery ? '#e65100' : '#666'}
+          />
+          <Text style={{
+            fontSize: 13,
+            fontWeight: '600',
+            color: isHiddenFromDiscovery ? '#e65100' : '#555',
+            marginLeft: 6,
+            flexShrink: 1,
+          }}
+          >
+            {isHiddenFromDiscovery
+              ? 'Nascosta: solo chi inscritto la vede'
+              : 'Visibile: la vede anche chi non è iscritto'}
+          </Text>
+          <Ionicons
+            name={isHiddenFromDiscovery ? 'toggle' : 'toggle-outline'}
+            size={22}
+            color={isHiddenFromDiscovery ? '#e65100' : '#bbb'}
+            style={{ marginLeft: 8 }}
+          />
+        </TouchableOpacity>
         <Text style={styles.leagueDetails}>
           {item.member_count} membri • {item.access_code ? 'Privata' : 'Pubblica'}
         </Text>
@@ -1563,6 +1638,63 @@ export default function SuperUserScreen() {
                           <Ionicons name="close-circle-outline" size={18} color="#999" />
                         </TouchableOpacity>
                       </View>
+                      <TouchableOpacity
+                        onPress={() =>
+                          handleToggleOfficialSquadPublic(selectedGroupForEdit.id, league)
+                        }
+                        activeOpacity={0.7}
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          marginTop: 10,
+                          paddingVertical: 8,
+                          paddingHorizontal: 10,
+                          borderRadius: 8,
+                          backgroundColor:
+                            Number(league.is_official_squad_public || 0) === 1 ? '#e8f5e9' : '#fff8e1',
+                          borderWidth: 1,
+                          borderColor:
+                            Number(league.is_official_squad_public || 0) === 1 ? '#a5d6a7' : '#ffe082',
+                          alignSelf: 'stretch',
+                        }}
+                      >
+                        <Ionicons
+                          name={
+                            Number(league.is_official_squad_public || 0) === 1
+                              ? 'people'
+                              : 'people-outline'
+                          }
+                          size={18}
+                          color={
+                            Number(league.is_official_squad_public || 0) === 1 ? '#2e7d32' : '#f57f17'
+                          }
+                        />
+                        <Text
+                          style={{
+                            flex: 1,
+                            fontSize: 12,
+                            fontWeight: '600',
+                            color:
+                              Number(league.is_official_squad_public || 0) === 1 ? '#2e7d32' : '#e65100',
+                            marginLeft: 8,
+                          }}
+                        >
+                          {Number(league.is_official_squad_public || 0) === 1
+                            ? 'Pubblicata: rosa, classifica girone e stats visibili negli anni della squadra ufficiale'
+                            : 'Bozza: anno non compare nei selettori (anti-spoiler)'}
+                        </Text>
+                        <Ionicons
+                          name={
+                            Number(league.is_official_squad_public || 0) === 1
+                              ? 'toggle'
+                              : 'toggle-outline'
+                          }
+                          size={22}
+                          color={
+                            Number(league.is_official_squad_public || 0) === 1 ? '#2e7d32' : '#bbb'
+                          }
+                        />
+                      </TouchableOpacity>
                     </View>
                   ))
                 ) : (

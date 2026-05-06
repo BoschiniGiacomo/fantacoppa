@@ -11,6 +11,7 @@ router.get('/available', authenticateToken, async (_req, res) => {
        FROM leagues
        WHERE COALESCE(is_official, 0) = 1
          AND COALESCE(is_visible_for_linking, 1) = 1
+         AND COALESCE(is_hidden_from_discovery, 0) = 0
        ORDER BY name ASC, id ASC`
     );
     return res.json(rows);

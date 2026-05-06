@@ -157,6 +157,7 @@ router.get('/leagues', authenticateToken, requireSuperuser, async (_req, res) =>
     await ensureSuperuserTables();
     const rows = await query(
       `SELECT l.id, l.name, COALESCE(l.is_official, 0) AS is_official, l.official_group_id, COALESCE(l.is_visible_for_linking, 1) AS is_visible_for_linking,
+              COALESCE(l.is_hidden_from_discovery, 0) AS is_hidden_from_discovery,
               og.name AS official_group_name
        FROM leagues l
        LEFT JOIN official_league_groups og ON og.id = l.official_group_id
@@ -224,6 +225,22 @@ router.put('/leagues/:id/visible-for-linking', authenticateToken, requireSuperus
     return res.json({ success: true, is_visible_for_linking: next });
   } catch (error) {
     return res.status(500).json({ message: 'Errore aggiornamento visibilità', error: error.message });
+  }
+});
+
+// Nascosta dall'elenco leghe disponibili per chi non è iscritto (toggle 0/1)
+router.put('/leagues/:id/hidden-from-discovery', authenticateToken, requireSuperuser, async (req, res) => {
+  try {
+    await ensureSuperuserTables();
+    const leagueId = Number(req.params.id);
+    if (!leagueId || leagueId <= 0) return res.status(400).json({ message: 'ID lega non valido' });
+    const rows = await query(`SELECT COALESCE(is_hidden_from_discovery, 0) AS current FROM leagues WHERE id = ? LIMIT 1`, [leagueId]);
+    if (!Array.isArray(rows) || rows.length === 0) return res.status(404).json({ message: 'Lega non trovata' });
+    const next = Number(rows[0]?.current || 0) ? 0 : 1;
+    await query(`UPDATE leagues SET is_hidden_from_discovery = ? WHERE id = ?`, [next, leagueId]);
+    return res.json({ success: true, is_hidden_from_discovery: next });
+  } catch (error) {
+    return res.status(500).json({ message: 'Errore aggiornamento nascosta', error: error.message });
   }
 });
 
@@ -337,11 +354,12 @@ router.get('/official-groups/:id/leagues', authenticateToken, requireSuperuser, 
     const leagues = await query(
       `SELECT l.id, l.name, l.access_code, l.created_at,
               NULLIF(to_jsonb(l)->>'reference_year','')::int AS reference_year,
+              COALESCE(l.is_official_squad_public, 0) AS is_official_squad_public,
               COUNT(DISTINCT lm.user_id)::int AS member_count
        FROM leagues l
        LEFT JOIN league_members lm ON lm.league_id = l.id
        WHERE l.official_group_id = ?
-       GROUP BY l.id, l.name, l.access_code, l.created_at, NULLIF(to_jsonb(l)->>'reference_year','')::int
+       GROUP BY l.id, l.name, l.access_code, l.created_at, NULLIF(to_jsonb(l)->>'reference_year','')::int, l.is_official_squad_public
        ORDER BY l.created_at DESC, l.id DESC`,
       [groupId]
     );
@@ -387,6 +405,40 @@ router.put('/official-groups/:groupId/leagues/:leagueId/reference-year', authent
     return res.status(500).json({ message: 'Errore aggiornamento anno di riferimento', error: error.message });
   }
 });
+
+// Pubblica rosa/classifica/stats squadra ufficiale per questo reference_year (toggle 0/1)
+router.put(
+  '/official-groups/:groupId/leagues/:leagueId/official-squad-public',
+  authenticateToken,
+  requireSuperuser,
+  async (req, res) => {
+    try {
+      const groupId = Number(req.params.groupId);
+      const leagueId = Number(req.params.leagueId);
+      if (!groupId || groupId <= 0) return res.status(400).json({ message: 'ID gruppo non valido' });
+      if (!leagueId || leagueId <= 0) return res.status(400).json({ message: 'ID lega non valido' });
+
+      const belongs = await query(
+        `SELECT id
+         FROM leagues
+         WHERE id = ? AND official_group_id = ?
+         LIMIT 1`,
+        [leagueId, groupId]
+      );
+      if (!belongs.length) return res.status(404).json({ message: 'Lega non trovata nel gruppo selezionato' });
+
+      const rows = await query(
+        `SELECT COALESCE(is_official_squad_public, 0) AS current FROM leagues WHERE id = ? LIMIT 1`,
+        [leagueId]
+      );
+      const next = Number(rows[0]?.current || 0) ? 0 : 1;
+      await query(`UPDATE leagues SET is_official_squad_public = ? WHERE id = ?`, [next, leagueId]);
+      return res.json({ ok: true, league_id: leagueId, is_official_squad_public: next });
+    } catch (error) {
+      return res.status(500).json({ message: 'Errore aggiornamento pubblicazione rosa ufficiale', error: error.message });
+    }
+  }
+);
 
 router.get('/player-clusters/suggestions/:groupId', authenticateToken, requireSuperuser, async (req, res) => {
   try {

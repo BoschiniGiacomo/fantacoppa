@@ -16,6 +16,17 @@ function matchesNotConfigured(res, err) {
   });
 }
 
+function parseBooleanishInt(value, fallback = 0) {
+  if (value == null || value === '') return fallback ? 1 : 0;
+  if (typeof value === 'boolean') return value ? 1 : 0;
+  const normalized = String(value).trim().toLowerCase();
+  if (['1', 'true', 't', 'yes', 'y', 'on'].includes(normalized)) return 1;
+  if (['0', 'false', 'f', 'no', 'n', 'off'].includes(normalized)) return 0;
+  const numeric = Number(value);
+  if (Number.isFinite(numeric)) return numeric ? 1 : 0;
+  return fallback ? 1 : 0;
+}
+
 let unavailablePlayersTableReady = false;
 async function ensureUnavailablePlayersTable() {
   if (unavailablePlayersTableReady) return;
@@ -188,6 +199,36 @@ async function safeQuery(sql, params = [], fallback = []) {
   }
 }
 
+const ITALY_TZ = 'Europe/Rome';
+
+/** Data calendario YYYY-MM-DD nel fuso Italia (stesso criterio di "giornata" per utenti IT). */
+function calendarYmdItaly(isoLike) {
+  try {
+    const d = new Date(isoLike);
+    if (!Number.isFinite(d.getTime())) return null;
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: ITALY_TZ,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(d);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Nessuna push per eventi aggiunti/modificati dopo la giornata della partita (es. correzioni su match già passati).
+ * Confronto solo su data calendario, non sull'orario esatto.
+ */
+function isOfficialMatchKickoffBeforeTodayItaly(kickoffAt) {
+  if (kickoffAt == null || String(kickoffAt).trim() === '') return false;
+  const matchYmd = calendarYmdItaly(kickoffAt);
+  const todayYmd = calendarYmdItaly(Date.now());
+  if (!matchYmd || !todayYmd) return false;
+  return matchYmd < todayYmd;
+}
+
 async function sendExpoMessages(messages) {
   if (!Array.isArray(messages) || messages.length <= 0) return { sent: 0, invalidated: 0, errors: 0 };
   let sent = 0;
@@ -238,7 +279,7 @@ async function sendExpoMessages(messages) {
 
 async function notifyUsersForOfficialMatchEvent({ eventId, matchId, eventType, payload, teamSide }) {
   const matchRows = await safeQuery(
-    `SELECT m.id, m.competition_id, m.home_team_id, m.away_team_id,
+    `SELECT m.id, m.competition_id, m.home_team_id, m.away_team_id, m.kickoff_at,
             ht.name AS home_team_name, at.name AS away_team_name
      FROM official_matches m
      LEFT JOIN teams ht ON ht.id = m.home_team_id
@@ -249,6 +290,10 @@ async function notifyUsersForOfficialMatchEvent({ eventId, matchId, eventType, p
   );
   const match = matchRows[0];
   if (!match) return { targeted_users: 0, reserved: 0, sent: 0, invalidated: 0, errors: 0 };
+
+  if (isOfficialMatchKickoffBeforeTodayItaly(match.kickoff_at)) {
+    return { targeted_users: 0, reserved: 0, sent: 0, invalidated: 0, errors: 0 };
+  }
 
   const compId = Number(match.competition_id || 0);
   const homeNorm = normalizeTeamNameForFavorite(match.home_team_name || '');
@@ -712,6 +757,8 @@ router.get('/competitions', authenticateToken, async (_req, res) => {
 router.get('/matches', authenticateToken, async (req, res) => {
   try {
     const userId = Number(req.user?.userId);
+    const su = await getSuperuserLevel(userId);
+    const canSeeAdminOnly = su === 1 || su === 2 ? 1 : 0;
     const date = String(req.query?.date || '').trim();
     if (!date) return res.status(400).json({ message: 'date mancante' });
 
@@ -779,6 +826,8 @@ router.get('/matches', authenticateToken, async (req, res) => {
       SELECT
         m.id,
         m.competition_id,
+        m.league_id,
+        lg.name AS league_name,
         og.name AS competition_name,
         m.kickoff_at,
         COALESCE(m.status, 'scheduled') AS status,
@@ -804,6 +853,7 @@ router.get('/matches', authenticateToken, async (req, res) => {
         COALESCE(pe.live_phase_events, '[]'::json) AS live_phase_events
       FROM official_matches m
       INNER JOIN official_league_groups og ON og.id = m.competition_id
+      LEFT JOIN leagues lg ON lg.id = m.league_id
       LEFT JOIN teams ht ON ht.id = m.home_team_id
       LEFT JOIN teams at ON at.id = m.away_team_id
       LEFT JOIN official_match_stages ms ON ms.id = NULLIF(to_jsonb(m)->>'match_stage_id','')::int
@@ -813,9 +863,10 @@ router.get('/matches', authenticateToken, async (req, res) => {
       LEFT JOIN user_official_match_favorites fm ON fm.user_id = ? AND fm.match_id = m.id
       LEFT JOIN user_official_match_notifications mn ON mn.user_id = ? AND mn.match_id = m.id
       WHERE (m.kickoff_at AT TIME ZONE 'Europe/Rome')::date = ?::date
+        AND (? = 1 OR COALESCE(m.is_admin_only, 0) = 0)
       ORDER BY (fm.match_id IS NOT NULL) DESC, m.kickoff_at ASC, m.id ASC
       `,
-      [userId, userId, date]
+      [userId, userId, date, canSeeAdminOnly]
     );
 
     const withLogos = (Array.isArray(rows) ? rows : []).map((r) => {
@@ -1133,6 +1184,7 @@ router.get('/matches/teams/:teamId/detail', authenticateToken, async (req, res) 
       FROM teams t
       INNER JOIN leagues l ON l.id = t.league_id
       WHERE l.official_group_id = ?
+        AND COALESCE(l.is_official_squad_public, 0) = 1
         AND LOWER(TRIM(t.name)) = LOWER(TRIM(?))
       ORDER BY
         CASE WHEN COALESCE(NULLIF(t.logo_path, ''), '') <> '' THEN 0 ELSE 1 END ASC,
@@ -1195,6 +1247,9 @@ router.get('/matches/teams/:teamId/detail', authenticateToken, async (req, res) 
 // GET /matches/teams/:teamId/matches?competition_id=xx — tutte le partite della squadra nel gruppo ufficiale (tutti gli anni)
 router.get('/matches/teams/:teamId/matches', authenticateToken, async (req, res) => {
   try {
+    const userId = Number(req.user?.userId);
+    const su = await getSuperuserLevel(userId);
+    const canSeeAdminOnly = su === 1 || su === 2 ? 1 : 0;
     const teamId = Number(req.params.teamId);
     const competitionId = Number(req.query?.competition_id);
     if (!teamId || teamId <= 0) return res.status(400).json({ message: 'teamId non valido' });
@@ -1267,13 +1322,14 @@ router.get('/matches/teams/:teamId/matches', authenticateToken, async (req, res)
       LEFT JOIN ev_scores evs ON evs.match_id = m.id
       LEFT JOIN last_phase lp ON lp.match_id = m.id
       WHERE m.competition_id = ?
+        AND (? = 1 OR COALESCE(m.is_admin_only, 0) = 0)
         AND (
           LOWER(TRIM(ht.name)) = LOWER(TRIM(?))
           OR LOWER(TRIM(at.name)) = LOWER(TRIM(?))
         )
       ORDER BY m.kickoff_at ASC, m.id ASC
       `,
-      [competitionId, teamName, teamName]
+      [competitionId, canSeeAdminOnly, teamName, teamName]
     );
 
     const matches = (Array.isArray(rows) ? rows : []).map((r) => {
@@ -1338,6 +1394,7 @@ router.get('/matches/teams/:teamId/season-standings', authenticateToken, async (
       INNER JOIN teams t ON t.league_id = l.id
       WHERE l.official_group_id = ?
         AND COALESCE(l.is_official, 0) = 1
+        AND COALESCE(l.is_official_squad_public, 0) = 1
         AND LOWER(TRIM(t.name)) = LOWER(TRIM(?))
       GROUP BY l.id, NULLIF(to_jsonb(l)->>'reference_year','')::int
       ORDER BY NULLIF(to_jsonb(l)->>'reference_year','')::int DESC NULLS LAST, l.id DESC
@@ -1422,6 +1479,7 @@ router.get('/matches/teams/:teamId/season-squad', authenticateToken, async (req,
       INNER JOIN teams t ON t.league_id = l.id
       WHERE l.official_group_id = ?
         AND COALESCE(l.is_official, 0) = 1
+        AND COALESCE(l.is_official_squad_public, 0) = 1
         AND LOWER(TRIM(t.name)) = LOWER(TRIM(?))
       GROUP BY l.id, NULLIF(to_jsonb(l)->>'reference_year','')::int
       ORDER BY NULLIF(to_jsonb(l)->>'reference_year','')::int DESC NULLS LAST, l.id DESC
@@ -1524,6 +1582,7 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
       INNER JOIN teams t ON t.league_id = l.id
       WHERE l.official_group_id = ?
         AND COALESCE(l.is_official, 0) = 1
+        AND COALESCE(l.is_official_squad_public, 0) = 1
         AND LOWER(TRIM(t.name)) = LOWER(TRIM(?))
       GROUP BY l.id, NULLIF(to_jsonb(l)->>'reference_year','')::int
       ORDER BY NULLIF(to_jsonb(l)->>'reference_year','')::int DESC NULLS LAST, l.id DESC
@@ -2019,6 +2078,7 @@ router.get('/matches/follow-setup', authenticateToken, async (req, res) => {
           INNER JOIN teams t ON t.id = m.home_team_id
           LEFT JOIN leagues l ON l.id = t.league_id
           WHERE m.competition_id IN (${compIds.map(() => '?').join(', ')})
+            AND (l.id IS NULL OR COALESCE(l.is_official_squad_public, 0) = 1)
 
           UNION ALL
 
@@ -2032,6 +2092,7 @@ router.get('/matches/follow-setup', authenticateToken, async (req, res) => {
           INNER JOIN teams t ON t.id = m.away_team_id
           LEFT JOIN leagues l ON l.id = t.league_id
           WHERE m.competition_id IN (${compIds.map(() => '?').join(', ')})
+            AND (l.id IS NULL OR COALESCE(l.is_official_squad_public, 0) = 1)
         ),
         ranked AS (
           SELECT
@@ -2222,17 +2283,19 @@ router.put('/admin/competitions/:competitionId', authenticateToken, requireSuper
 router.get('/admin/matches', authenticateToken, requireSuperuserLevels([1, 2]), async (req, res) => {
   try {
     const date = String(req.query?.date || '').trim();
-    if (!date) return res.status(400).json({ message: 'date mancante' });
 
     const rows = await query(
       `
       SELECT
         m.id,
         m.competition_id,
+        COALESCE(NULLIF(to_jsonb(m)->>'is_admin_only','')::int, COALESCE(m.is_admin_only, 0), 0) AS is_admin_only,
         og.name AS competition_name,
         m.home_team_id,
+        ht.league_id AS home_league_id,
         ht.name AS home_team_name,
         m.away_team_id,
+        at.league_id AS away_league_id,
         at.name AS away_team_name,
         m.kickoff_at,
         COALESCE(m.status, 'scheduled') AS status,
@@ -2253,10 +2316,10 @@ router.get('/admin/matches', authenticateToken, requireSuperuserLevels([1, 2]), 
       LEFT JOIN teams ht ON ht.id = m.home_team_id
       LEFT JOIN teams at ON at.id = m.away_team_id
       LEFT JOIN official_match_stages ms ON ms.id = NULLIF(to_jsonb(m)->>'match_stage_id','')::int
-      WHERE (m.kickoff_at AT TIME ZONE 'Europe/Rome')::date = ?::date
+      WHERE (NULLIF(?, '') IS NULL OR (m.kickoff_at AT TIME ZONE 'Europe/Rome')::date = NULLIF(?, '')::date)
       ORDER BY m.kickoff_at ASC, m.id ASC
       `,
-      [date]
+      [date, date]
     );
     return res.json({ date, matches: rows });
   } catch (err) {
@@ -2273,7 +2336,12 @@ router.get('/admin/matches/competition/:competitionId/teams', authenticateToken,
     const leagueIdsCsv = String(req.query?.league_ids || '').trim();
 
     const officialLeagues = await query(
-      `SELECT id, name, official_group_id, access_code
+      `SELECT
+         id,
+         name,
+         official_group_id,
+         access_code,
+         NULLIF(to_jsonb(leagues)->>'reference_year','')::int AS reference_year
        FROM leagues
        WHERE official_group_id = ? AND COALESCE(is_official, 0) = 1
        ORDER BY name ASC, id ASC`,
@@ -2310,16 +2378,54 @@ router.post('/admin/matches', authenticateToken, requireSuperuserLevels([1, 2]),
   try {
     const userId = Number(req.user?.userId);
     const competitionId = Number(req.body?.competition_id);
-    const homeTeamId = Number(req.body?.home_team_id);
-    const awayTeamId = Number(req.body?.away_team_id);
+    const leagueId = Number(req.body?.league_id);
+    const homeTeamRaw = req.body?.home_team_id;
+    const awayTeamRaw = req.body?.away_team_id;
+    const homeTeamId =
+      homeTeamRaw == null || String(homeTeamRaw).trim() === '' ? null : Number(homeTeamRaw);
+    const awayTeamId =
+      awayTeamRaw == null || String(awayTeamRaw).trim() === '' ? null : Number(awayTeamRaw);
     const kickoffAt = String(req.body?.kickoff_at || '').trim();
-    if (!competitionId || !homeTeamId || !awayTeamId || !kickoffAt) {
+    const homeTeamValid = homeTeamId == null || (Number.isFinite(homeTeamId) && homeTeamId > 0);
+    const awayTeamValid = awayTeamId == null || (Number.isFinite(awayTeamId) && awayTeamId > 0);
+    if (!competitionId || !leagueId || !kickoffAt || !homeTeamValid || !awayTeamValid) {
       return res.status(400).json({ message: 'Dati partita non validi' });
+    }
+    if (homeTeamId != null && awayTeamId != null && Number(homeTeamId) === Number(awayTeamId)) {
+      return res.status(400).json({ message: 'Squadra casa e ospite non possono coincidere' });
+    }
+
+    const leagueRows = await query(
+      `SELECT id FROM leagues WHERE id = ? AND official_group_id = ? LIMIT 1`,
+      [leagueId, competitionId]
+    );
+    if (!Array.isArray(leagueRows) || leagueRows.length === 0) {
+      return res.status(400).json({ message: 'Lega non valida per la competizione selezionata' });
     }
 
     const venue = req.body?.venue != null ? String(req.body.venue).trim() : null;
     const referee = req.body?.referee != null ? String(req.body.referee).trim() : null;
+    const isAdminOnly = parseBooleanishInt(req.body?.is_admin_only, 0);
     const { stageId: matchStageId } = await resolveMatchStageInput(req.body?.match_stage_id);
+    if (Number(matchStageId) === 3) {
+      const finalRows = await query(
+        `
+        SELECT id
+        FROM official_matches
+        WHERE league_id = ?
+          AND NULLIF(to_jsonb(official_matches)->>'match_stage_id','')::int = 3
+        ORDER BY id ASC
+        LIMIT 1
+        `,
+        [leagueId]
+      );
+      if (Array.isArray(finalRows) && finalRows.length > 0) {
+        return res.status(400).json({
+          message:
+            'Esiste già una Finale per questa lega. Modifica prima la partita Finale esistente.',
+        });
+      }
+    }
     const regulationHalfMinutesRaw = Number(req.body?.regulation_half_minutes);
     const regulationHalfMinutes =
       Number.isFinite(regulationHalfMinutesRaw) && regulationHalfMinutesRaw >= 15 && regulationHalfMinutesRaw <= 60
@@ -2342,16 +2448,17 @@ router.post('/admin/matches', authenticateToken, requireSuperuserLevels([1, 2]),
       `
       INSERT INTO official_matches
         (
-          competition_id, home_team_id, away_team_id, kickoff_at, status, notes, created_by, venue, referee, match_stage_id,
+          competition_id, league_id, home_team_id, away_team_id, kickoff_at, status, notes, created_by, venue, referee, match_stage_id,
           regulation_half_minutes, extra_time_enabled, extra_first_half_minutes, extra_second_half_minutes, penalties_enabled,
-          home_score, away_score, created_at
+          home_score, away_score, is_admin_only, created_at
         )
       VALUES
-        (?, ?, ?, (?::timestamp AT TIME ZONE 'Europe/Rome'), 'scheduled', NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NOW())
+        (?, ?, ?, ?, (?::timestamp AT TIME ZONE 'Europe/Rome'), 'scheduled', NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, NOW())
       RETURNING id
       `,
       [
         competitionId,
+        leagueId,
         homeTeamId,
         awayTeamId,
         kickoffAt,
@@ -2364,13 +2471,44 @@ router.post('/admin/matches', authenticateToken, requireSuperuserLevels([1, 2]),
         extraFirstHalfMinutes,
         extraSecondHalfMinutes,
         penaltiesEnabled,
+        isAdminOnly,
       ]
     );
     const id = rows[0]?.id;
     return res.json({ ok: true, id });
   } catch (err) {
+    if (
+      String(err?.code || '') === '23502' &&
+      (String(err?.column || '') === 'home_team_id' || String(err?.column || '') === 'away_team_id')
+    ) {
+      return res.status(400).json({
+        message:
+          'Il database richiede ancora squadra casa/ospite. Applica la migrazione per consentire partite con squadre non definite.',
+      });
+    }
     if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
     return res.status(500).json({ message: 'Errore creazione partita', error: err.message });
+  }
+});
+
+// PUT /admin/matches/publish-hidden — rende visibili tutte le partite nascoste (deve stare prima di /admin/matches/:matchId)
+router.put('/admin/matches/publish-hidden', authenticateToken, requireSuperuserLevels([1, 2]), async (_req, res) => {
+  try {
+    const rows = await query(
+      `
+      UPDATE official_matches
+      SET is_admin_only = 0
+      WHERE COALESCE(is_admin_only, 0) = 1
+      RETURNING id
+      `
+    );
+    return res.json({
+      ok: true,
+      updated: Array.isArray(rows) ? rows.length : 0,
+    });
+  } catch (err) {
+    if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
+    return res.status(500).json({ message: 'Errore pubblicazione partite nascoste', error: err.message });
   }
 });
 
@@ -2378,6 +2516,12 @@ router.post('/admin/matches', authenticateToken, requireSuperuserLevels([1, 2]),
 router.put('/admin/matches/:matchId', authenticateToken, requireSuperuserLevels([1, 2]), async (req, res) => {
   try {
     const matchId = Number(req.params.matchId);
+    const competitionId = Number(req.body?.competition_id);
+    const leagueId = Number(req.body?.league_id);
+    const homeTeamRaw = req.body?.home_team_id;
+    const awayTeamRaw = req.body?.away_team_id;
+    const homeTeamId = homeTeamRaw == null || String(homeTeamRaw).trim() === '' ? null : Number(homeTeamRaw);
+    const awayTeamId = awayTeamRaw == null || String(awayTeamRaw).trim() === '' ? null : Number(awayTeamRaw);
     const kickoffAt = req.body?.kickoff_at != null ? String(req.body.kickoff_at).trim() : null;
     const homeScore = req.body?.home_score != null && req.body.home_score !== '' ? Number(req.body.home_score) : null;
     const awayScore = req.body?.away_score != null && req.body.away_score !== '' ? Number(req.body.away_score) : null;
@@ -2402,12 +2546,55 @@ router.put('/admin/matches/:matchId', authenticateToken, requireSuperuserLevels(
     const penaltiesEnabled = Number(req.body?.penalties_enabled) ? 1 : 0;
     const venue = req.body?.venue != null ? String(req.body.venue).trim() : null;
     const referee = req.body?.referee != null ? String(req.body.referee).trim() : null;
+    const isAdminOnly = parseBooleanishInt(req.body?.is_admin_only, 0);
     const { stageId: matchStageId } = await resolveMatchStageInput(req.body?.match_stage_id);
+    if (!matchId || !competitionId || !leagueId || !kickoffAt) {
+      return res.status(400).json({ message: 'Dati partita non validi' });
+    }
+    const homeTeamValid = homeTeamId == null || (Number.isFinite(homeTeamId) && homeTeamId > 0);
+    const awayTeamValid = awayTeamId == null || (Number.isFinite(awayTeamId) && awayTeamId > 0);
+    if (!homeTeamValid || !awayTeamValid) {
+      return res.status(400).json({ message: 'Squadre non valide' });
+    }
+    if (homeTeamId != null && awayTeamId != null && Number(homeTeamId) === Number(awayTeamId)) {
+      return res.status(400).json({ message: 'Squadra casa e ospite non possono coincidere' });
+    }
+    const leagueRows = await query(
+      `SELECT id FROM leagues WHERE id = ? AND official_group_id = ? LIMIT 1`,
+      [leagueId, competitionId]
+    );
+    if (!Array.isArray(leagueRows) || leagueRows.length === 0) {
+      return res.status(400).json({ message: 'Lega non valida per la competizione selezionata' });
+    }
+    if (Number(matchStageId) === 3) {
+      const finalRows = await query(
+        `
+        SELECT id
+        FROM official_matches
+        WHERE league_id = ?
+          AND id <> ?
+          AND NULLIF(to_jsonb(official_matches)->>'match_stage_id','')::int = 3
+        ORDER BY id ASC
+        LIMIT 1
+        `,
+        [leagueId, matchId]
+      );
+      if (Array.isArray(finalRows) && finalRows.length > 0) {
+        return res.status(400).json({
+          message:
+            'Esiste già una Finale per questa lega. Modifica prima la partita Finale esistente.',
+        });
+      }
+    }
 
-    await query(
+    const updatedRows = await query(
       `
       UPDATE official_matches
       SET
+        competition_id = ?,
+        league_id = ?,
+        home_team_id = ?,
+        away_team_id = ?,
         kickoff_at = COALESCE((?::timestamp AT TIME ZONE 'Europe/Rome'), kickoff_at),
         home_score = ?,
         away_score = ?,
@@ -2416,14 +2603,20 @@ router.put('/admin/matches/:matchId', authenticateToken, requireSuperuserLevels(
         venue = ?,
         referee = ?,
         match_stage_id = ?,
+        is_admin_only = ?,
         regulation_half_minutes = ?,
         extra_time_enabled = ?,
         extra_first_half_minutes = ?,
         extra_second_half_minutes = ?,
         penalties_enabled = ?
       WHERE id = ?
+      RETURNING id, COALESCE(is_admin_only, 0) AS is_admin_only
       `,
       [
+        competitionId,
+        leagueId,
+        homeTeamId,
+        awayTeamId,
         kickoffAt,
         homeScore,
         awayScore,
@@ -2432,6 +2625,7 @@ router.put('/admin/matches/:matchId', authenticateToken, requireSuperuserLevels(
         venue,
         referee,
         matchStageId,
+        isAdminOnly,
         regulationHalfMinutes,
         extraTimeEnabled,
         extraFirstHalfMinutes,
@@ -2440,7 +2634,7 @@ router.put('/admin/matches/:matchId', authenticateToken, requireSuperuserLevels(
         matchId,
       ]
     );
-    return res.json({ ok: true });
+    return res.json({ ok: true, match: updatedRows?.[0] || null });
   } catch (err) {
     if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
     return res.status(500).json({ message: 'Errore aggiornamento partita', error: err.message });
@@ -2578,10 +2772,21 @@ router.post('/admin/matches/:matchId/events', authenticateToken, requireSuperuse
 router.delete('/admin/matches/:matchId', authenticateToken, requireSuperuserLevels([1, 2]), async (req, res) => {
   try {
     const matchId = Number(req.params.matchId);
+    if (!Number.isFinite(matchId) || matchId <= 0) {
+      return res.status(400).json({ message: 'matchId non valido' });
+    }
+
+    await query('BEGIN');
+    await query(`DELETE FROM user_official_match_notifications WHERE match_id = ?`, [matchId]);
+    await query(`DELETE FROM user_official_match_favorites WHERE match_id = ?`, [matchId]);
     await query(`DELETE FROM official_match_events WHERE match_id = ?`, [matchId]);
     await query(`DELETE FROM official_matches WHERE id = ?`, [matchId]);
+    await query('COMMIT');
     return res.json({ ok: true });
   } catch (err) {
+    try {
+      await query('ROLLBACK');
+    } catch (_rollbackErr) {}
     if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
     return res.status(500).json({ message: 'Errore eliminazione partita', error: err.message });
   }

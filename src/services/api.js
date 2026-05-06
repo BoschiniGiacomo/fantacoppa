@@ -546,7 +546,10 @@ export const matchesService = {
 };
 
 export const adminMatchesService = {
-  getByDate: (dateYmd) => api.get(`admin/matches?date=${encodeURIComponent(dateYmd)}`),
+  getByDate: (dateYmd) => {
+    const cleanDate = String(dateYmd || '').trim();
+    return api.get(cleanDate ? `admin/matches?date=${encodeURIComponent(cleanDate)}` : 'admin/matches');
+  },
   /** Solo elenco leghe: onlyLeagues=true. Squadre: passa leagueIds con almeno un id (stessa lega = nomi univoci, niente dedup lato client). */
   getCompetitionTeams: (competitionId, leagueIds = [], onlyLeagues = false) => {
     const params = new URLSearchParams();
@@ -563,6 +566,7 @@ export const adminMatchesService = {
   updateMeta: (matchId, payload) => api.put(`admin/matches/${matchId}/meta`, payload),
   addEvent: (matchId, payload) => api.post(`admin/matches/${matchId}/events`, payload),
   updateStats: (matchId, payload) => api.put(`admin/matches/${matchId}/stats`, payload),
+  publishHidden: () => api.put('admin/matches/publish-hidden'),
   updateUnavailablePlayers: (matchId, payload) => api.put(`admin/matches/${matchId}/unavailable-players`, payload),
   getStandingsTies: (competitionId) => api.get(`admin/matches/standings/ties?competition_id=${encodeURIComponent(competitionId)}`),
   resolveStandingsTie: (payload) => api.post('admin/matches/standings/ties/resolve', payload),
@@ -613,8 +617,11 @@ export const superuserService = {
     api.put(`/superuser/official-groups/${groupId}/leagues/${leagueId}/reference-year`, {
       reference_year: referenceYear,
     }),
+  toggleOfficialSquadPublic: (groupId, leagueId) =>
+    api.put(`/superuser/official-groups/${groupId}/leagues/${leagueId}/official-squad-public`),
   setLeagueOfficial: (leagueId, data) => api.put(`/superuser/leagues/${leagueId}/official`, data),
   toggleVisibleForLinking: (leagueId) => api.put(`/superuser/leagues/${leagueId}/visible-for-linking`),
+  toggleLeagueHiddenFromDiscovery: (leagueId) => api.put(`/superuser/leagues/${leagueId}/hidden-from-discovery`),
 
   // Player cluster management
   getPlayerClusterSuggestions: (groupId) => api.get(`/superuser/player-clusters/suggestions/${groupId}`),

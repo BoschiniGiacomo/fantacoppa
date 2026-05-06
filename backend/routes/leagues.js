@@ -736,6 +736,7 @@ router.get('/all', authenticateToken, async (req, res) => {
        LEFT JOIN league_members my ON my.league_id = l.id AND my.user_id = ?
        LEFT JOIN user_league_prefs ulp ON ulp.league_id = l.id AND ulp.user_id = ?
        WHERE my.user_id IS NULL
+         AND COALESCE(l.is_hidden_from_discovery, 0) = 0
        ORDER BY l.created_at DESC, l.id DESC`,
       [userId, userId]
     );
@@ -777,6 +778,7 @@ router.get('/search', authenticateToken, async (req, res) => {
        LEFT JOIN league_members my ON my.league_id = l.id AND my.user_id = ?
        WHERE l.name ILIKE ?
          AND my.user_id IS NULL
+         AND COALESCE(l.is_hidden_from_discovery, 0) = 0
        ORDER BY l.created_at DESC, l.id DESC
        LIMIT 50`,
       [userId, `%${q}%`]
@@ -3830,8 +3832,8 @@ router.post('/', authenticateToken, async (req, res) => {
     try {
       insertLeague = await query(
         `INSERT INTO leagues
-          (name, access_code, creator_id, initial_budget, default_deadline_time, max_portieri, max_difensori, max_centrocampisti, max_attaccanti, numero_titolari, auto_lineup_mode, linked_to_league_id, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+          (name, access_code, creator_id, initial_budget, default_deadline_time, max_portieri, max_difensori, max_centrocampisti, max_attaccanti, numero_titolari, auto_lineup_mode, linked_to_league_id, is_hidden_from_discovery, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NOW())
          RETURNING id`,
         [
           String(name).trim(),
@@ -3853,8 +3855,8 @@ router.post('/', authenticateToken, async (req, res) => {
         await syncLeaguesIdSequence();
         insertLeague = await query(
           `INSERT INTO leagues
-            (name, access_code, creator_id, initial_budget, default_deadline_time, max_portieri, max_difensori, max_centrocampisti, max_attaccanti, numero_titolari, auto_lineup_mode, linked_to_league_id, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+            (name, access_code, creator_id, initial_budget, default_deadline_time, max_portieri, max_difensori, max_centrocampisti, max_attaccanti, numero_titolari, auto_lineup_mode, linked_to_league_id, is_hidden_from_discovery, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NOW())
            RETURNING id`,
           [
             String(name).trim(),

@@ -151,7 +151,9 @@ router.get('/:playerId/stats/aggregated/:leagueId', authenticateToken, async (re
     const groupLeagueRows = await query(
       `SELECT id
        FROM leagues
-       WHERE official_group_id = ? AND COALESCE(is_official, 0) = 1`,
+       WHERE official_group_id = ?
+         AND COALESCE(is_official, 0) = 1
+         AND COALESCE(is_official_squad_public, 0) = 1`,
       [groupId]
     );
     const groupLeagueIds = groupLeagueRows.map((r) => Number(r.id)).filter((n) => Number.isFinite(n) && n > 0);
@@ -179,6 +181,7 @@ router.get('/:playerId/stats/aggregated/:leagueId', authenticateToken, async (re
          JOIN leagues l ON l.id = t.league_id
          WHERE l.official_group_id = ?
            AND COALESCE(l.is_official, 0) = 1
+           AND COALESCE(l.is_official_squad_public, 0) = 1
            AND p.role = ?
            AND LOWER(TRIM(COALESCE(p.first_name, ''))) = LOWER(TRIM(COALESCE(?, '')))
            AND LOWER(TRIM(COALESCE(p.last_name, ''))) = LOWER(TRIM(COALESCE(?, '')))`,

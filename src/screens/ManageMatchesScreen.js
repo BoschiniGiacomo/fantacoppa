@@ -19,12 +19,21 @@ import { useAuth } from '../context/AuthContext';
 import { adminCompetitionsService, adminMatchDetailsService, adminMatchesService, superuserService } from '../services/api';
 import { parseAppDate } from '../utils/dateTime';
 
+const TOAST_DURATION_MS = 2400;
+
 function todayYmd() {
   const d = new Date();
   const y = d.getFullYear();
   const m = `${d.getMonth() + 1}`.padStart(2, '0');
   const day = `${d.getDate()}`.padStart(2, '0');
   return `${y}-${m}-${day}`;
+}
+
+function toYmd(dateObj) {
+  const y = dateObj.getFullYear();
+  const m = `${dateObj.getMonth() + 1}`.padStart(2, '0');
+  const d = `${dateObj.getDate()}`.padStart(2, '0');
+  return `${y}-${m}-${d}`;
 }
 
 function parseSqlDateTime(value) {
@@ -62,12 +71,26 @@ export default function ManageMatchesScreen() {
   const canManageMatchDetails = su === 1;
 
   const [activeTab, setActiveTab] = useState('matches');
-  const [matchesSubtab, setMatchesSubtab] = useState('create');
+  const [showCreateMatchForm, setShowCreateMatchForm] = useState(false);
+  const [createMatchStep, setCreateMatchStep] = useState(1);
+  const [showCreateTimingDetails, setShowCreateTimingDetails] = useState(false);
+  const [showEditMatchForm, setShowEditMatchForm] = useState(false);
+  const [editMatchStep, setEditMatchStep] = useState(1);
+  const [showEditTimingDetails, setShowEditTimingDetails] = useState(false);
+  const [editOriginal, setEditOriginal] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [date, setDate] = useState(todayYmd());
+  const [date, setDate] = useState('');
   const [competitions, setCompetitions] = useState([]); // gruppi ufficiali usati come competizioni
   const [officialGroups, setOfficialGroups] = useState([]);
   const [matches, setMatches] = useState([]);
+  const [filterCompetitionId, setFilterCompetitionId] = useState(null);
+  const [filterLeagueId, setFilterLeagueId] = useState(null);
+  const [filterTeamId, setFilterTeamId] = useState(null);
+  const [filterTeams, setFilterTeams] = useState([]);
+  const [filterMissingTeamsOnly, setFilterMissingTeamsOnly] = useState(false);
+  const [filterVisibility, setFilterVisibility] = useState('all');
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+  const [showVisibilityFilters, setShowVisibilityFilters] = useState(false);
   const [teamsByComp, setTeamsByComp] = useState({});
   const [leaguesByComp, setLeaguesByComp] = useState({});
   const [selectedLeagueIdByComp, setSelectedLeagueIdByComp] = useState({});
@@ -75,10 +98,12 @@ export default function ManageMatchesScreen() {
   const [competitionId, setCompetitionId] = useState(null);
   const [homeTeamId, setHomeTeamId] = useState(null);
   const [awayTeamId, setAwayTeamId] = useState(null);
+  const [isAdminOnly, setIsAdminOnly] = useState(false);
   const [kickoffAt, setKickoffAt] = useState(`${todayYmd()} 20:45:00`);
   const [kickoffDateObj, setKickoffDateObj] = useState(parseSqlDateTime(`${todayYmd()} 20:45:00`));
   const [showKickoffPicker, setShowKickoffPicker] = useState(false);
   const [kickoffPickerMode, setKickoffPickerMode] = useState('date');
+  const [showFilterDatePicker, setShowFilterDatePicker] = useState(false);
   const [editingMatchId, setEditingMatchId] = useState(null);
   const [venue, setVenue] = useState('');
   const [referee, setReferee] = useState('');
@@ -107,9 +132,15 @@ export default function ManageMatchesScreen() {
   const [standingsTies, setStandingsTies] = useState([]);
   const [tieOrders, setTieOrders] = useState({});
 
+  const toAdminOnlyFlag = (value) => {
+    if (typeof value === 'boolean') return value;
+    const normalized = String(value ?? '').trim().toLowerCase();
+    return normalized === '1' || normalized === 'true' || normalized === 't' || normalized === 'yes';
+  };
+
   const showToast = (text, type = 'error') => {
     setToastMsg({ text, type });
-    setTimeout(() => setToastMsg(null), 2400);
+    setTimeout(() => setToastMsg(null), TOAST_DURATION_MS);
   };
 
   const selectedLeagueIdForForm = competitionId ? Number(selectedLeagueIdByComp[competitionId] || 0) : 0;
@@ -120,14 +151,124 @@ export default function ManageMatchesScreen() {
     return [...rawTeams].sort((a, b) => String(a.name).localeCompare(String(b.name), 'it'));
   }, [teamsByComp, competitionId]);
 
+  const filteredMatches = useMemo(() => {
+    const competitionIdNum = Number(filterCompetitionId || 0);
+    const leagueIdNum = Number(filterLeagueId || 0);
+    const teamIdNum = Number(filterTeamId || 0);
+    return (matches || []).filter((m) => {
+      const compOk = !competitionIdNum || Number(m.competition_id) === competitionIdNum;
+      if (!compOk) return false;
+      const leagueOk =
+        !leagueIdNum || Number(m.home_league_id) === leagueIdNum || Number(m.away_league_id) === leagueIdNum;
+      if (!leagueOk) return false;
+      const teamOk = !teamIdNum || Number(m.home_team_id) === teamIdNum || Number(m.away_team_id) === teamIdNum;
+      if (!teamOk) return false;
+      if (!filterMissingTeamsOnly) return true;
+      const hasHome = Number.isFinite(Number(m.home_team_id)) && Number(m.home_team_id) > 0;
+      const hasAway = Number.isFinite(Number(m.away_team_id)) && Number(m.away_team_id) > 0;
+      return !hasHome || !hasAway;
+    });
+  }, [matches, filterCompetitionId, filterLeagueId, filterTeamId, filterMissingTeamsOnly]);
+
+  const filteredMatchesWithVisibility = useMemo(() => {
+    return filteredMatches.filter((m) => {
+      const adminOnly = Number(m?.is_admin_only || 0) === 1;
+      if (filterVisibility === 'hidden') return adminOnly;
+      if (filterVisibility === 'all') return true;
+      return !adminOnly;
+    });
+  }, [filteredMatches, filterVisibility]);
+
   const canSubmitMatch = Boolean(
     competitionId &&
       selectedLeagueIdForForm > 0 &&
-      homeTeamId &&
-      awayTeamId &&
       kickoffAt &&
-      homeTeamId !== awayTeamId
+      !(homeTeamId && awayTeamId && homeTeamId === awayTeamId)
   );
+  const canCreateStep1 = Boolean(kickoffAt && competitionId && selectedLeagueIdForForm > 0);
+  const canCreateStep2 = !(homeTeamId && awayTeamId && homeTeamId === awayTeamId);
+  const canCreateStep3 = true;
+
+  const selectedCompetitionName = useMemo(
+    () => competitions.find((c) => Number(c.id) === Number(competitionId))?.name || '-',
+    [competitions, competitionId]
+  );
+  const selectedLeagueName = useMemo(
+    () => (leaguesByComp[competitionId] || []).find((l) => Number(l.id) === Number(selectedLeagueIdForForm))?.name || '-',
+    [leaguesByComp, competitionId, selectedLeagueIdForForm]
+  );
+  const selectedHomeTeamName = useMemo(
+    () => selectedTeams.find((t) => Number(t.id) === Number(homeTeamId))?.name || '-',
+    [selectedTeams, homeTeamId]
+  );
+  const selectedAwayTeamName = useMemo(
+    () => selectedTeams.find((t) => Number(t.id) === Number(awayTeamId))?.name || '-',
+    [selectedTeams, awayTeamId]
+  );
+  const selectedStageName = useMemo(
+    () => (matchDetailsOptions.stages || []).find((s) => Number(s.id) === Number(matchStageId))?.name || '-',
+    [matchDetailsOptions.stages, matchStageId]
+  );
+  const selectedEditCompetitionName = useMemo(
+    () => competitions.find((c) => Number(c.id) === Number(competitionId))?.name || '-',
+    [competitions, competitionId]
+  );
+  const selectedEditLeagueName = useMemo(
+    () => (leaguesByComp[competitionId] || []).find((l) => Number(l.id) === Number(selectedLeagueIdForForm))?.name || '-',
+    [leaguesByComp, competitionId, selectedLeagueIdForForm]
+  );
+  const selectedEditHomeTeamName = useMemo(
+    () => selectedTeams.find((t) => Number(t.id) === Number(homeTeamId))?.name || '-',
+    [selectedTeams, homeTeamId]
+  );
+  const selectedEditAwayTeamName = useMemo(
+    () => selectedTeams.find((t) => Number(t.id) === Number(awayTeamId))?.name || '-',
+    [selectedTeams, awayTeamId]
+  );
+  const editChangeRows = useMemo(() => {
+    if (!editOriginal) return [];
+    const rows = [];
+    const pushRow = (label, beforeValue, afterValue) => {
+      if (String(beforeValue) !== String(afterValue)) {
+        rows.push({ label, before: String(beforeValue), after: String(afterValue) });
+      }
+    };
+    pushRow('Data e ora', editOriginal.kickoffLabel, formatDisplayDateTime(kickoffAt));
+    pushRow('Competizione', editOriginal.competitionName, selectedEditCompetitionName);
+    pushRow('Lega', editOriginal.leagueName, selectedEditLeagueName);
+    pushRow('Squadra casa', editOriginal.homeTeamName, selectedEditHomeTeamName);
+    pushRow('Squadra ospite', editOriginal.awayTeamName, selectedEditAwayTeamName);
+    pushRow('Luogo', editOriginal.venue || '-', venue || '-');
+    pushRow('Arbitro', editOriginal.referee || '-', referee || '-');
+    pushRow('Tipologia giornata', editOriginal.stageName || '-', selectedStageName || '-');
+    pushRow(
+      'Visibilita',
+      editOriginal.isAdminOnly ? 'Nascosta' : 'Visibile a tutti',
+      isAdminOnly ? 'Nascosta' : 'Visibile a tutti'
+    );
+    pushRow('Tempo regolamentare', `${editOriginal.regulationHalfMinutes || 30}'`, `${regulationHalfMinutes || 30}'`);
+    pushRow('Supplementari', editOriginal.extraTimeEnabled ? 'Si' : 'No', extraTimeEnabled ? 'Si' : 'No');
+    pushRow('1° supp.', `${editOriginal.extraFirstMinutes || 0}'`, `${extraFirstMinutes || 0}'`);
+    pushRow('2° supp.', `${editOriginal.extraSecondMinutes || 0}'`, `${extraSecondMinutes || 0}'`);
+    pushRow('Rigori', editOriginal.penaltiesEnabled ? 'Si' : 'No', penaltiesEnabled ? 'Si' : 'No');
+    return rows;
+  }, [
+    editOriginal,
+    kickoffAt,
+    selectedEditCompetitionName,
+    selectedEditLeagueName,
+    selectedEditHomeTeamName,
+    selectedEditAwayTeamName,
+    venue,
+    referee,
+    selectedStageName,
+    isAdminOnly,
+    regulationHalfMinutes,
+    extraTimeEnabled,
+    extraFirstMinutes,
+    extraSecondMinutes,
+    penaltiesEnabled,
+  ]);
 
   const loadCompetitions = async () => {
     const res = await adminCompetitionsService.getAll();
@@ -204,6 +345,20 @@ export default function ManageMatchesScreen() {
     }
     setTeamsByComp((prev) => ({ ...prev, [compId]: teams }));
     return teams;
+  };
+
+  const loadFilterTeamsForLeague = async (compId, leagueId) => {
+    if (!compId || !leagueId) {
+      setFilterTeams([]);
+      return;
+    }
+    try {
+      const res = await adminMatchesService.getCompetitionTeams(compId, [leagueId]);
+      const teams = Array.isArray(res?.data?.teams) ? res.data.teams : [];
+      setFilterTeams(teams);
+    } catch (_) {
+      setFilterTeams([]);
+    }
   };
 
   const loadAll = async () => {
@@ -387,14 +542,16 @@ export default function ManageMatchesScreen() {
 
   const createMatch = async () => {
     if (!canSubmitMatch) {
-      showToast('Completa competizione, squadre e kickoff.');
+      showToast('Completa competizione, lega e kickoff.');
       return;
     }
     try {
       await adminMatchesService.create({
         competition_id: competitionId,
+        league_id: selectedLeagueIdForForm,
         home_team_id: homeTeamId,
         away_team_id: awayTeamId,
+        is_admin_only: isAdminOnly ? 1 : 0,
         kickoff_at: kickoffAt,
         status: 'scheduled',
         venue,
@@ -404,11 +561,15 @@ export default function ManageMatchesScreen() {
       });
       setHomeTeamId(null);
       setAwayTeamId(null);
+      setIsAdminOnly(false);
       setVenue('');
       setReferee('');
       setMatchStageId(null);
       resetMatchTimingFields();
       await loadMatches();
+      setShowCreateMatchForm(false);
+      setCreateMatchStep(1);
+      setShowCreateTimingDetails(false);
       showToast('Partita creata', 'success');
     } catch (e) {
       showToast(e?.response?.data?.message || e?.message || 'Creazione non riuscita');
@@ -418,22 +579,64 @@ export default function ManageMatchesScreen() {
   const startEditMatch = async (match) => {
     try {
       const compId = Number(match.competition_id);
+      const storedLeagueIdRaw = match?.league_id;
+      const storedLeagueId =
+        storedLeagueIdRaw == null || String(storedLeagueIdRaw).trim() === ''
+          ? 0
+          : Number(storedLeagueIdRaw);
+      const storedLeagueName = String(match?.league_name || '').trim();
       const homeLeagueId = Number(match.home_league_id || 0);
+      const awayLeagueId = Number(match.away_league_id || 0);
+      let preselectedLeagueId = storedLeagueId > 0 ? storedLeagueId : (homeLeagueId > 0 ? homeLeagueId : (awayLeagueId > 0 ? awayLeagueId : 0));
       setCompetitionId(compId);
-      setSelectedLeagueIdByComp((prev) => ({ ...prev, [compId]: homeLeagueId > 0 ? homeLeagueId : 0 }));
-      await loadLeaguesForCompetition(compId);
-      if (homeLeagueId > 0) {
-        await loadTeamsForCompetition(compId, homeLeagueId);
+      const loadedLeagues = await loadLeaguesForCompetition(compId);
+      if ((!preselectedLeagueId || preselectedLeagueId <= 0) && storedLeagueName) {
+        const byName = (loadedLeagues || []).find(
+          (l) => String(l?.name || '').trim().toLowerCase() === storedLeagueName.toLowerCase()
+        );
+        if (byName?.id) preselectedLeagueId = Number(byName.id);
+      }
+      if (!preselectedLeagueId || preselectedLeagueId <= 0) {
+        const kickoffYear = parseSqlDateTime(String(match?.kickoff_at || '')).getFullYear();
+        const leaguesWithYear = (loadedLeagues || [])
+          .map((l) => ({
+            id: Number(l?.id || 0),
+            referenceYear: Number(l?.reference_year),
+          }))
+          .filter((x) => x.id > 0 && Number.isFinite(x.referenceYear));
+        if (leaguesWithYear.length > 0 && Number.isFinite(kickoffYear)) {
+          const notFuture = leaguesWithYear
+            .filter((x) => x.referenceYear <= kickoffYear)
+            .sort((a, b) => b.referenceYear - a.referenceYear);
+          const pick = (notFuture[0] || leaguesWithYear.sort((a, b) => b.referenceYear - a.referenceYear)[0] || null);
+          if (pick?.id) preselectedLeagueId = Number(pick.id);
+        }
+      }
+      setSelectedLeagueIdByComp((prev) => ({ ...prev, [compId]: preselectedLeagueId > 0 ? preselectedLeagueId : 0 }));
+      if (preselectedLeagueId > 0) {
+        await loadTeamsForCompetition(compId, preselectedLeagueId);
       } else {
         setTeamsByComp((prev) => ({ ...prev, [compId]: [] }));
       }
-      setHomeTeamId(Number(match.home_team_id));
-      setAwayTeamId(Number(match.away_team_id));
+      setHomeTeamId(
+        match?.home_team_id == null || String(match.home_team_id).trim() === ''
+          ? null
+          : Number(match.home_team_id)
+      );
+      setAwayTeamId(
+        match?.away_team_id == null || String(match.away_team_id).trim() === ''
+          ? null
+          : Number(match.away_team_id)
+      );
+      const matchAdminOnly =
+        toAdminOnlyFlag(match?.is_admin_only) ||
+        toAdminOnlyFlag(match?.isAdminOnly) ||
+        toAdminOnlyFlag(match?.admin_only);
+      setIsAdminOnly(matchAdminOnly);
       const parsedKickoff = parseSqlDateTime(String(match.kickoff_at || ''));
       setKickoffDateObj(parsedKickoff);
       setKickoffAt(formatSqlDateTime(parsedKickoff));
       setEditingMatchId(Number(match.id));
-      setMatchesSubtab('existing');
       setVenue(match?.venue || '');
       setReferee(match?.referee || '');
       setMatchStageId(match?.match_stage_id != null ? Number(match.match_stage_id) : null);
@@ -444,6 +647,28 @@ export default function ManageMatchesScreen() {
       setPenaltiesEnabled(!!Number(match?.penalties_enabled));
       setHomeScore(match?.home_score === null || typeof match?.home_score === 'undefined' ? '' : String(match.home_score));
       setAwayScore(match?.away_score === null || typeof match?.away_score === 'undefined' ? '' : String(match.away_score));
+      setEditOriginal({
+        kickoffLabel: formatDisplayDateTime(String(match.kickoff_at || '')),
+        competitionName: String(match?.competition_name || '-'),
+        leagueName:
+          (loadedLeagues || []).find((l) => Number(l.id) === Number(preselectedLeagueId))?.name ||
+          String(match?.league_name || '-') ||
+          '-',
+        homeTeamName: String(match?.home_team_name || '-'),
+        awayTeamName: String(match?.away_team_name || '-'),
+        venue: String(match?.venue || ''),
+        referee: String(match?.referee || ''),
+        stageName: String(match?.match_stage || '-'),
+        isAdminOnly: matchAdminOnly,
+        regulationHalfMinutes: Number(match?.regulation_half_minutes || 30),
+        extraTimeEnabled: !!Number(match?.extra_time_enabled),
+        extraFirstMinutes: Number(match?.extra_first_half_minutes || 0),
+        extraSecondMinutes: Number(match?.extra_second_half_minutes || 0),
+        penaltiesEnabled: !!Number(match?.penalties_enabled),
+      });
+      setEditMatchStep(1);
+      setShowEditTimingDetails(false);
+      setShowEditMatchForm(true);
     } catch (e) {
       showToast(e?.response?.data?.message || e?.message || 'Impossibile preparare modifica');
     }
@@ -452,24 +677,29 @@ export default function ManageMatchesScreen() {
   const saveEditedMatch = async () => {
     if (!editingMatchId) return;
     if (!canSubmitMatch) {
-      showToast('Completa competizione, squadre e kickoff.');
+      showToast('Completa competizione, lega e kickoff.');
       return;
     }
     try {
-      await adminMatchesService.update(editingMatchId, {
+      const payload = {
         competition_id: competitionId,
+        league_id: selectedLeagueIdForForm,
         home_team_id: homeTeamId,
         away_team_id: awayTeamId,
+        is_admin_only: isAdminOnly ? 1 : 0,
         kickoff_at: kickoffAt,
         status: 'scheduled',
         venue,
         referee,
         match_stage_id: matchStageId,
         ...buildMatchTimingPayload(),
-      });
-      setEditingMatchId(null);
+      };
+      const res = await adminMatchesService.update(editingMatchId, payload);
       await loadMatches();
       showToast('Partita aggiornata', 'success');
+      setTimeout(() => {
+        cancelEdit();
+      }, TOAST_DURATION_MS);
     } catch (e) {
       showToast(e?.response?.data?.message || e?.message || 'Aggiornamento non riuscito');
     }
@@ -477,8 +707,13 @@ export default function ManageMatchesScreen() {
 
   const cancelEdit = () => {
     setEditingMatchId(null);
+    setShowEditMatchForm(false);
+    setEditMatchStep(1);
+    setShowEditTimingDetails(false);
+    setEditOriginal(null);
     setHomeTeamId(null);
     setAwayTeamId(null);
+    setIsAdminOnly(false);
     const base = parseSqlDateTime(`${todayYmd()} 20:45:00`);
     setKickoffDateObj(base);
     setKickoffAt(formatSqlDateTime(base));
@@ -488,7 +723,6 @@ export default function ManageMatchesScreen() {
     resetMatchTimingFields();
     setHomeScore('');
     setAwayScore('');
-    setStandingsText('');
   };
 
   const parseStandingsText = (text) =>
@@ -536,6 +770,15 @@ export default function ManageMatchesScreen() {
     setKickoffAt(formatSqlDateTime(next));
   };
 
+  const onFilterDateChange = (event, selectedDate) => {
+    if (Platform.OS === 'android') {
+      setShowFilterDatePicker(false);
+      if (event?.type === 'dismissed') return;
+    }
+    if (!selectedDate) return;
+    setDate(toYmd(selectedDate));
+  };
+
   const deleteMatch = async (id) => {
     setConfirmModal({
       title: 'Elimina partita',
@@ -550,6 +793,29 @@ export default function ManageMatchesScreen() {
           showToast('Partita eliminata', 'success');
         } catch (e) {
           showToast(e?.response?.data?.message || e?.message || 'Eliminazione non riuscita');
+        }
+      },
+    });
+  };
+
+  const publishAllHiddenMatches = async () => {
+    setConfirmModal({
+      title: 'Pubblica partite nascoste',
+      message: 'Vuoi rendere visibili a tutti tutte le partite attualmente nascoste?',
+      confirmText: 'Pubblica tutte',
+      destructive: false,
+      onConfirm: async () => {
+        setConfirmModal(null);
+        try {
+          const res = await adminMatchesService.publishHidden();
+          const updated = Number(res?.data?.updated || 0);
+          await loadMatches();
+          showToast(
+            updated > 0 ? `${updated} partite pubblicate` : 'Nessuna partita nascosta da pubblicare',
+            'success'
+          );
+        } catch (e) {
+          showToast(e?.response?.data?.message || e?.message || 'Pubblicazione non riuscita');
         }
       },
     });
@@ -724,187 +990,219 @@ export default function ManageMatchesScreen() {
       >
         {activeTab === 'matches' && (
           <>
-            <View style={styles.subtabsRowInner}>
-              <TouchableOpacity style={[styles.subtabBtn, matchesSubtab === 'create' && styles.subtabBtnActive]} onPress={() => setMatchesSubtab('create')}>
-                <Text style={[styles.subtabText, matchesSubtab === 'create' && styles.subtabTextActive]}>Nuova partita</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.subtabBtn, matchesSubtab === 'existing' && styles.subtabBtnActive]} onPress={() => setMatchesSubtab('existing')}>
-                <Text style={[styles.subtabText, matchesSubtab === 'existing' && styles.subtabTextActive]}>Partite esistenti</Text>
+            <View style={styles.matchesTopBar}>
+              <Text style={styles.matchesTopBarTitle}>Partite esistenti</Text>
+              <TouchableOpacity
+                style={styles.matchesPlusBtn}
+                onPress={() => {
+                  const nextVisible = !showCreateMatchForm;
+                  setShowCreateMatchForm(nextVisible);
+                  if (nextVisible) {
+                    setCreateMatchStep(1);
+                    setShowCreateTimingDetails(false);
+                    setIsAdminOnly(false);
+                  }
+                }}
+              >
+                <Ionicons name={showCreateMatchForm ? 'close' : 'add'} size={20} color="#667eea" />
               </TouchableOpacity>
             </View>
 
-            {matchesSubtab === 'create' && (
-              <View style={styles.card}>
-                <Text style={styles.sectionTitle}>{editingMatchId ? 'Modifica partita' : 'Nuova partita'}</Text>
-                <Text style={styles.label}>Competizione (gruppo leghe ufficiali)</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                  <View style={styles.rowWrap}>
-                    {competitions.length === 0 ? <Text style={styles.muted}>Nessuna competizione visibile</Text> : null}
-                    {competitions.map((c) => (
-                      <TouchableOpacity
-                        key={c.id}
-                        style={[styles.chip, competitionId === c.id && styles.chipActive]}
-                        onPress={() => {
-                          setCompetitionId(c.id);
-                          setHomeTeamId(null);
-                          setAwayTeamId(null);
-                          setSelectedLeagueIdByComp((prev) => ({ ...prev, [c.id]: 0 }));
-                          setTeamsByComp((prev) => ({ ...prev, [c.id]: [] }));
-                          loadLeaguesForCompetition(c.id).catch(() => {});
-                        }}
-                      >
-                        <Text style={[styles.chipText, competitionId === c.id && styles.chipTextActive]}>{c.name}</Text>
-                      </TouchableOpacity>
-                    ))}
+            {showCreateMatchForm ? null : null}
+
+            <>
+                <View style={styles.card}>
+                  <Text style={styles.label}>Filtri</Text>
+                  <View style={styles.filtersIconRow}>
+                    <TouchableOpacity
+                      style={[styles.iconFilterBtn, String(date || '').trim() && styles.iconFilterBtnActive]}
+                      onPress={() => {
+                        if (String(date || '').trim()) {
+                          setDate('');
+                          return;
+                        }
+                        setShowFilterDatePicker(true);
+                      }}
+                    >
+                      <Ionicons name="calendar-outline" size={18} color={String(date || '').trim() ? '#4f46e5' : '#475569'} />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.iconFilterBtn, showAdvancedFilters && styles.iconFilterBtnActive]}
+                      onPress={() => setShowAdvancedFilters((v) => !v)}
+                    >
+                      <Ionicons name="filter-outline" size={18} color={showAdvancedFilters ? '#4f46e5' : '#475569'} />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.iconFilterBtn, showVisibilityFilters && styles.iconFilterBtnActive]}
+                      onPress={() => setShowVisibilityFilters((v) => !v)}
+                    >
+                      <Ionicons name="eye-outline" size={18} color={showVisibilityFilters ? '#4f46e5' : '#475569'} />
+                    </TouchableOpacity>
                   </View>
-                </ScrollView>
-                {!!competitionId && (leaguesByComp[competitionId] || []).length > 0 ? (
-                  <>
-                    <Text style={styles.label}>Seleziona lega ufficiale</Text>
+                </View>
+
+                {showAdvancedFilters ? (
+                  <View style={styles.card}>
+                    <Text style={styles.label}>Filtro competizione</Text>
                     <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                       <View style={styles.rowWrap}>
-                        {(leaguesByComp[competitionId] || []).map((l) => {
-                          const enabled = Number(selectedLeagueIdByComp[competitionId] || 0) === Number(l.id);
-                          return (
-                            <TouchableOpacity
-                              key={`filter-league-${l.id}`}
-                              style={[styles.chip, enabled && styles.chipActive]}
-                              onPress={() => selectLeagueForTeams(competitionId, Number(l.id))}
-                            >
-                              <Text style={[styles.chipText, enabled && styles.chipTextActive]}>{l.name}</Text>
-                            </TouchableOpacity>
-                          );
-                        })}
+                        <TouchableOpacity
+                          style={[styles.chip, !filterCompetitionId && styles.chipActive]}
+                          onPress={() => {
+                            setFilterCompetitionId(null);
+                            setFilterLeagueId(null);
+                            setFilterTeamId(null);
+                            setFilterTeams([]);
+                            setFilterMissingTeamsOnly(false);
+                          }}
+                        >
+                          <Text style={[styles.chipText, !filterCompetitionId && styles.chipTextActive]}>Tutte</Text>
+                        </TouchableOpacity>
+                        {competitions.map((c) => (
+                          <TouchableOpacity
+                            key={`filter-comp-existing-${c.id}`}
+                            style={[styles.chip, Number(filterCompetitionId) === Number(c.id) && styles.chipActive]}
+                            onPress={() => {
+                              setFilterCompetitionId(Number(c.id));
+                              setFilterLeagueId(null);
+                              setFilterTeamId(null);
+                              setFilterTeams([]);
+                              loadLeaguesForCompetition(Number(c.id)).catch(() => {});
+                            }}
+                          >
+                            <Text style={[styles.chipText, Number(filterCompetitionId) === Number(c.id) && styles.chipTextActive]}>
+                              {c.name}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
                       </View>
                     </ScrollView>
-                  </>
+
+                    <Text style={styles.label}>Filtro lega</Text>
+                    {!filterCompetitionId ? <Text style={styles.muted}>Seleziona prima una competizione</Text> : null}
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                      <View style={styles.rowWrap}>
+                        <TouchableOpacity
+                          style={[styles.chip, !filterLeagueId && styles.chipActive, !filterCompetitionId && styles.chipDisabled]}
+                          disabled={!filterCompetitionId}
+                          onPress={() => {
+                            setFilterLeagueId(null);
+                            setFilterTeamId(null);
+                            setFilterTeams([]);
+                          }}
+                        >
+                          <Text style={[styles.chipText, !filterLeagueId && styles.chipTextActive]}>Tutte</Text>
+                        </TouchableOpacity>
+                        {filterCompetitionId
+                          ? ((leaguesByComp[filterCompetitionId] || []).map((l) => (
+                              <TouchableOpacity
+                                key={`filter-league-existing-${l.id}`}
+                                style={[styles.chip, Number(filterLeagueId) === Number(l.id) && styles.chipActive]}
+                                onPress={() => {
+                                  setFilterLeagueId(Number(l.id));
+                                  setFilterTeamId(null);
+                                  loadFilterTeamsForLeague(Number(filterCompetitionId), Number(l.id));
+                                }}
+                              >
+                                <Text style={[styles.chipText, Number(filterLeagueId) === Number(l.id) && styles.chipTextActive]}>
+                                  {l.name}
+                                </Text>
+                              </TouchableOpacity>
+                            )))
+                          : null}
+                      </View>
+                    </ScrollView>
+
+                    <Text style={styles.label}>Filtro squadra</Text>
+                    {!filterCompetitionId || !filterLeagueId ? <Text style={styles.muted}>Seleziona prima competizione e lega</Text> : null}
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                      <View style={styles.rowWrap}>
+                        <TouchableOpacity
+                          style={[
+                            styles.chip,
+                            !filterTeamId && styles.chipActive,
+                            (!filterCompetitionId || !filterLeagueId) && styles.chipDisabled,
+                          ]}
+                          disabled={!filterCompetitionId || !filterLeagueId}
+                          onPress={() => setFilterTeamId(null)}
+                        >
+                          <Text style={[styles.chipText, !filterTeamId && styles.chipTextActive]}>Tutte</Text>
+                        </TouchableOpacity>
+                        {filterCompetitionId && filterLeagueId
+                          ? (filterTeams.map((t) => (
+                              <TouchableOpacity
+                                key={`filter-team-existing-${t.id}`}
+                                style={[styles.chip, Number(filterTeamId) === Number(t.id) && styles.chipActive]}
+                                onPress={() => setFilterTeamId(Number(t.id))}
+                              >
+                                <Text style={[styles.chipText, Number(filterTeamId) === Number(t.id) && styles.chipTextActive]}>
+                                  {t.name}
+                                </Text>
+                              </TouchableOpacity>
+                            )))
+                          : null}
+                      </View>
+                    </ScrollView>
+
+                  </View>
                 ) : null}
 
-                <Text style={styles.label}>Squadra casa</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                  <View style={styles.rowWrap}>
-                    {selectedTeams.length === 0 ? <Text style={styles.muted}>Seleziona prima una lega ufficiale</Text> : null}
-                    {selectedTeams.map((t) => (
+                {showVisibilityFilters ? (
+                  <View style={styles.card}>
+                    <Text style={styles.label}>Filtro stato squadre</Text>
+                    <View style={styles.rowWrap}>
                       <TouchableOpacity
-                        key={`h-${t.id}`}
-                        style={[styles.chip, homeTeamId === t.id && styles.chipActive, awayTeamId === t.id && styles.chipDisabled]}
-                        disabled={awayTeamId === t.id}
-                        onPress={() => setHomeTeamId(t.id)}
+                        style={[styles.chip, !filterMissingTeamsOnly && styles.chipActive]}
+                        onPress={() => setFilterMissingTeamsOnly(false)}
                       >
-                        <Text style={[styles.chipText, homeTeamId === t.id && styles.chipTextActive]}>{t.name}</Text>
+                        <Text style={[styles.chipText, !filterMissingTeamsOnly && styles.chipTextActive]}>Tutte</Text>
                       </TouchableOpacity>
-                    ))}
-                  </View>
-                </ScrollView>
-
-                <Text style={styles.label}>Squadra trasferta</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                  <View style={styles.rowWrap}>
-                    {selectedTeams.length === 0 ? <Text style={styles.muted}>Seleziona prima una lega ufficiale</Text> : null}
-                    {selectedTeams.map((t) => (
                       <TouchableOpacity
-                        key={`a-${t.id}`}
-                        style={[styles.chip, awayTeamId === t.id && styles.chipActive, homeTeamId === t.id && styles.chipDisabled]}
-                        disabled={homeTeamId === t.id}
-                        onPress={() => setAwayTeamId(t.id)}
+                        style={[styles.chip, filterMissingTeamsOnly && styles.chipActive]}
+                        onPress={() => setFilterMissingTeamsOnly(true)}
                       >
-                        <Text style={[styles.chipText, awayTeamId === t.id && styles.chipTextActive]}>{t.name}</Text>
+                        <Text style={[styles.chipText, filterMissingTeamsOnly && styles.chipTextActive]}>
+                          Almeno una squadra da definire
+                        </Text>
                       </TouchableOpacity>
-                    ))}
-                  </View>
-                </ScrollView>
-
-                <Text style={styles.label}>Calcio d'inizio</Text>
-                <View style={styles.datetimeRow}>
-                  <TouchableOpacity style={styles.datetimeBtn} onPress={() => openKickoffPicker('date')}>
-                    <Text style={styles.datetimeBtnText}>Data: {kickoffAt.slice(0, 10)}</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.datetimeBtn} onPress={() => openKickoffPicker('time')}>
-                    <Text style={styles.datetimeBtnText}>Ora: {kickoffAt.slice(11, 16)}</Text>
-                  </TouchableOpacity>
-                </View>
-                <Text style={styles.label}>Luogo</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                  <View style={styles.rowWrap}>
-                    <TouchableOpacity style={[styles.chip, !venue && styles.chipActive]} onPress={() => setVenue('')}>
-                      <Text style={[styles.chipText, !venue && styles.chipTextActive]}>-</Text>
-                    </TouchableOpacity>
-                    {(matchDetailsOptions.venues || []).map((v) => (
+                    </View>
+                    <Text style={styles.label}>Filtro visibilita</Text>
+                    <View style={styles.rowWrap}>
                       <TouchableOpacity
-                        key={`venue-create-${v.id}`}
-                        style={[styles.chip, venue === v.name && styles.chipActive]}
-                        onPress={() => setVenue(v.name)}
+                        style={[styles.chip, filterVisibility === 'visible' && styles.chipActive]}
+                        onPress={() => setFilterVisibility('visible')}
                       >
-                        <Text style={[styles.chipText, venue === v.name && styles.chipTextActive]}>{v.name}</Text>
+                        <Text style={[styles.chipText, filterVisibility === 'visible' && styles.chipTextActive]}>
+                          Visibili a tutti
+                        </Text>
                       </TouchableOpacity>
-                    ))}
-                  </View>
-                </ScrollView>
-                <Text style={styles.label}>Arbitro</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                  <View style={styles.rowWrap}>
-                    <TouchableOpacity style={[styles.chip, !referee && styles.chipActive]} onPress={() => setReferee('')}>
-                      <Text style={[styles.chipText, !referee && styles.chipTextActive]}>-</Text>
-                    </TouchableOpacity>
-                    {(matchDetailsOptions.referees || []).map((r) => (
                       <TouchableOpacity
-                        key={`ref-create-${r.id}`}
-                        style={[styles.chip, referee === r.name && styles.chipActive]}
-                        onPress={() => setReferee(r.name)}
+                        style={[styles.chip, filterVisibility === 'hidden' && styles.chipActive]}
+                        onPress={() => setFilterVisibility('hidden')}
                       >
-                        <Text style={[styles.chipText, referee === r.name && styles.chipTextActive]}>{r.name}</Text>
+                        <Text style={[styles.chipText, filterVisibility === 'hidden' && styles.chipTextActive]}>
+                          Nascoste
+                        </Text>
                       </TouchableOpacity>
-                    ))}
-                  </View>
-                </ScrollView>
-                <Text style={styles.label}>Tipologia giornata</Text>
-                <Text style={styles.muted}>Scegliendo una tipologia si applica il preset (modificabile sotto).</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                  <View style={styles.rowWrap}>
-                    <TouchableOpacity style={[styles.chip, !matchStageId && styles.chipActive]} onPress={() => selectMatchStageId(null)}>
-                      <Text style={[styles.chipText, !matchStageId && styles.chipTextActive]}>-</Text>
-                    </TouchableOpacity>
-                    {(matchDetailsOptions.stages || []).map((s) => (
                       <TouchableOpacity
-                        key={`stage-create-${s.id}`}
-                        style={[styles.chip, Number(matchStageId) === Number(s.id) && styles.chipActive]}
-                        onPress={() => selectMatchStageId(s.id)}
+                        style={[styles.chip, filterVisibility === 'all' && styles.chipActive]}
+                        onPress={() => setFilterVisibility('all')}
                       >
-                        <Text style={[styles.chipText, Number(matchStageId) === Number(s.id) && styles.chipTextActive]}>{s.name}</Text>
+                        <Text style={[styles.chipText, filterVisibility === 'all' && styles.chipTextActive]}>
+                          Tutte
+                        </Text>
                       </TouchableOpacity>
-                    ))}
-                  </View>
-                </ScrollView>
-                {matchTimingEditor}
-
-                {!editingMatchId ? (
-                  <TouchableOpacity style={[styles.primaryBtn, !canSubmitMatch && styles.primaryBtnDisabled]} disabled={!canSubmitMatch} onPress={createMatch}>
-                    <Text style={styles.primaryBtnText}>Crea partita</Text>
-                  </TouchableOpacity>
-                ) : (
-                  <View style={styles.actionsRow}>
-                    <TouchableOpacity style={[styles.primaryBtn, { flex: 1, marginTop: 0 }, !canSubmitMatch && styles.primaryBtnDisabled]} disabled={!canSubmitMatch} onPress={saveEditedMatch}>
-                      <Text style={styles.primaryBtnText}>Salva modifica</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={styles.secondaryBtn} onPress={cancelEdit}>
-                      <Text style={styles.secondaryBtnText}>Annulla</Text>
+                    </View>
+                    <TouchableOpacity style={[styles.primaryBtn, { marginTop: 10 }]} onPress={publishAllHiddenMatches}>
+                      <Text style={styles.primaryBtnText}>Pubblica tutte</Text>
                     </TouchableOpacity>
                   </View>
-                )}
-              </View>
-            )}
-
-            {matchesSubtab === 'existing' && (
-              <>
-                <View style={styles.card}>
-                  <Text style={styles.label}>Data (YYYY-MM-DD)</Text>
-                  <TextInput style={styles.input} value={date} onChangeText={setDate} />
-                </View>
+                ) : null}
 
                 <View style={styles.card}>
-                  <Text style={styles.sectionTitle}>Partite del giorno</Text>
-                  {matches.length === 0 ? <Text style={styles.muted}>Nessuna partita</Text> : null}
-                  {matches.map((m) => (
+                  <Text style={styles.sectionTitle}>{String(date || '').trim() ? 'Partite del giorno' : 'Tutte le partite'}</Text>
+                  {filteredMatchesWithVisibility.length === 0 ? <Text style={styles.muted}>Nessuna partita</Text> : null}
+                  {filteredMatchesWithVisibility.map((m) => (
                     <View key={m.id} style={styles.matchRow}>
                       <View style={{ flex: 1 }}>
                         <Text style={styles.compText}>{m.competition_name}</Text>
@@ -922,169 +1220,8 @@ export default function ManageMatchesScreen() {
                     </View>
                   ))}
                 </View>
-                {editingMatchId ? (
-                  <View style={styles.card}>
-                    <Text style={styles.sectionTitle}>Modifica partita</Text>
-                    <Text style={styles.label}>Competizione</Text>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                      <View style={styles.rowWrap}>
-                        {competitions.map((c) => (
-                          <TouchableOpacity
-                            key={`edit-comp-${c.id}`}
-                            style={[styles.chip, competitionId === c.id && styles.chipActive]}
-                            onPress={() => {
-                              setCompetitionId(c.id);
-                              setHomeTeamId(null);
-                              setAwayTeamId(null);
-                              setSelectedLeagueIdByComp((prev) => ({ ...prev, [c.id]: 0 }));
-                              setTeamsByComp((prev) => ({ ...prev, [c.id]: [] }));
-                              loadLeaguesForCompetition(c.id).catch(() => {});
-                            }}
-                          >
-                            <Text style={[styles.chipText, competitionId === c.id && styles.chipTextActive]}>{c.name}</Text>
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    </ScrollView>
-                    {!!competitionId && (leaguesByComp[competitionId] || []).length > 0 ? (
-                      <>
-                        <Text style={styles.label}>Seleziona lega ufficiale</Text>
-                        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                          <View style={styles.rowWrap}>
-                            {(leaguesByComp[competitionId] || []).map((l) => {
-                              const enabled = Number(selectedLeagueIdByComp[competitionId] || 0) === Number(l.id);
-                              return (
-                                <TouchableOpacity
-                                  key={`edit-filter-league-${l.id}`}
-                                  style={[styles.chip, enabled && styles.chipActive]}
-                                  onPress={() => selectLeagueForTeams(competitionId, Number(l.id))}
-                                >
-                                  <Text style={[styles.chipText, enabled && styles.chipTextActive]}>{l.name}</Text>
-                                </TouchableOpacity>
-                              );
-                            })}
-                          </View>
-                        </ScrollView>
-                      </>
-                    ) : null}
-                    <Text style={styles.label}>Squadra casa</Text>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                      <View style={styles.rowWrap}>
-                        {selectedTeams.map((t) => (
-                          <TouchableOpacity
-                            key={`edit-h-${t.id}`}
-                            style={[styles.chip, homeTeamId === t.id && styles.chipActive, awayTeamId === t.id && styles.chipDisabled]}
-                            disabled={awayTeamId === t.id}
-                            onPress={() => setHomeTeamId(t.id)}
-                          >
-                            <Text style={[styles.chipText, homeTeamId === t.id && styles.chipTextActive]}>{t.name}</Text>
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    </ScrollView>
-                    <Text style={styles.label}>Squadra trasferta</Text>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                      <View style={styles.rowWrap}>
-                        {selectedTeams.map((t) => (
-                          <TouchableOpacity
-                            key={`edit-a-${t.id}`}
-                            style={[styles.chip, awayTeamId === t.id && styles.chipActive, homeTeamId === t.id && styles.chipDisabled]}
-                            disabled={homeTeamId === t.id}
-                            onPress={() => setAwayTeamId(t.id)}
-                          >
-                            <Text style={[styles.chipText, awayTeamId === t.id && styles.chipTextActive]}>{t.name}</Text>
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    </ScrollView>
-                    <Text style={styles.label}>Kickoff</Text>
-                    <View style={styles.datetimeRow}>
-                      <TouchableOpacity style={styles.datetimeBtn} onPress={() => openKickoffPicker('date')}>
-                        <Text style={styles.datetimeBtnText}>Data: {kickoffAt.slice(0, 10)}</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity style={styles.datetimeBtn} onPress={() => openKickoffPicker('time')}>
-                        <Text style={styles.datetimeBtnText}>Ora: {kickoffAt.slice(11, 16)}</Text>
-                      </TouchableOpacity>
-                    </View>
-                    <View style={styles.actionsRow}>
-                      <TouchableOpacity style={[styles.primaryBtn, { flex: 1, marginTop: 0 }]} onPress={saveEditedMatch}>
-                        <Text style={styles.primaryBtnText}>Salva modifica</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity style={styles.secondaryBtn} onPress={cancelEdit}>
-                        <Text style={styles.secondaryBtnText}>Annulla</Text>
-                      </TouchableOpacity>
-                    </View>
-                    <Text style={styles.label}>Luogo</Text>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                      <View style={styles.rowWrap}>
-                        <TouchableOpacity style={[styles.chip, !venue && styles.chipActive]} onPress={() => setVenue('')}>
-                          <Text style={[styles.chipText, !venue && styles.chipTextActive]}>-</Text>
-                        </TouchableOpacity>
-                        {(matchDetailsOptions.venues || []).map((v) => (
-                          <TouchableOpacity
-                            key={`venue-edit-${v.id}`}
-                            style={[styles.chip, venue === v.name && styles.chipActive]}
-                            onPress={() => setVenue(v.name)}
-                          >
-                            <Text style={[styles.chipText, venue === v.name && styles.chipTextActive]}>{v.name}</Text>
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    </ScrollView>
-                    <Text style={styles.label}>Arbitro</Text>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                      <View style={styles.rowWrap}>
-                        <TouchableOpacity style={[styles.chip, !referee && styles.chipActive]} onPress={() => setReferee('')}>
-                          <Text style={[styles.chipText, !referee && styles.chipTextActive]}>-</Text>
-                        </TouchableOpacity>
-                        {(matchDetailsOptions.referees || []).map((r) => (
-                          <TouchableOpacity
-                            key={`ref-edit-${r.id}`}
-                            style={[styles.chip, referee === r.name && styles.chipActive]}
-                            onPress={() => setReferee(r.name)}
-                          >
-                            <Text style={[styles.chipText, referee === r.name && styles.chipTextActive]}>{r.name}</Text>
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    </ScrollView>
-                    <Text style={styles.label}>Tipologia giornata</Text>
-                    <Text style={styles.muted}>Scegliendo una tipologia si applica il preset (modificabile sotto).</Text>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                      <View style={styles.rowWrap}>
-                        <TouchableOpacity style={[styles.chip, !matchStageId && styles.chipActive]} onPress={() => selectMatchStageId(null)}>
-                          <Text style={[styles.chipText, !matchStageId && styles.chipTextActive]}>-</Text>
-                        </TouchableOpacity>
-                        {(matchDetailsOptions.stages || []).map((s) => (
-                          <TouchableOpacity
-                            key={`stage-edit-${s.id}`}
-                            style={[styles.chip, Number(matchStageId) === Number(s.id) && styles.chipActive]}
-                            onPress={() => selectMatchStageId(s.id)}
-                          >
-                            <Text style={[styles.chipText, Number(matchStageId) === Number(s.id) && styles.chipTextActive]}>{s.name}</Text>
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    </ScrollView>
-                    {matchTimingEditor}
-                    <View style={styles.actionsRow}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.label}>Gol casa</Text>
-                        <TextInput style={styles.input} value={homeScore} onChangeText={setHomeScore} keyboardType="number-pad" />
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.label}>Gol trasferta</Text>
-                        <TextInput style={styles.input} value={awayScore} onChangeText={setAwayScore} keyboardType="number-pad" />
-                      </View>
-                    </View>
-                    <Text style={styles.label}>Classifica (righe: posizione;nome;pg;dr;pt)</Text>
-                    <TouchableOpacity style={styles.primaryBtn} onPress={saveMetaLineupsStandings}>
-                      <Text style={styles.primaryBtnText}>Salva dettagli tab</Text>
-                    </TouchableOpacity>
-                  </View>
-                ) : null}
-              </>
-            )}
+                {editingMatchId ? null : null}
+            </>
           </>
         )}
 
@@ -1298,6 +1435,460 @@ export default function ManageMatchesScreen() {
           </View>
         )}
       </ScrollView>
+      <Modal
+        visible={showCreateMatchForm}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowCreateMatchForm(false)}
+      >
+        <TouchableOpacity
+          style={styles.confirmOverlay}
+          activeOpacity={1}
+          onPress={() => setShowCreateMatchForm(false)}
+        >
+          <TouchableOpacity activeOpacity={1} onPress={(e) => e.stopPropagation()} style={styles.createMatchModalBox}>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <Text style={styles.sectionTitle}>Nuova partita</Text>
+              <Text style={styles.muted}>Step {createMatchStep} di 4</Text>
+
+              {createMatchStep === 1 ? (
+                <>
+                  <View style={styles.switchRow}>
+                    <Text style={styles.switchLabel}>Nascondi partita</Text>
+                    <Switch
+                      value={isAdminOnly}
+                      onValueChange={setIsAdminOnly}
+                      trackColor={{ false: '#ccc', true: '#a5b4fc' }}
+                      thumbColor={isAdminOnly ? '#667eea' : '#f4f3f4'}
+                    />
+                  </View>
+                  <Text style={styles.label}>Data e ora inizio</Text>
+                  <View style={styles.datetimeRow}>
+                    <TouchableOpacity style={styles.datetimeBtn} onPress={() => openKickoffPicker('date')}>
+                      <Text style={styles.datetimeBtnText}>Data: {kickoffAt.slice(0, 10)}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.datetimeBtn} onPress={() => openKickoffPicker('time')}>
+                      <Text style={styles.datetimeBtnText}>Ora: {kickoffAt.slice(11, 16)}</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <Text style={styles.label}>Competizione</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    <View style={styles.rowWrap}>
+                      {competitions.length === 0 ? <Text style={styles.muted}>Nessuna competizione visibile</Text> : null}
+                      {competitions.map((c) => (
+                        <TouchableOpacity
+                          key={c.id}
+                          style={[styles.chip, competitionId === c.id && styles.chipActive]}
+                          onPress={() => {
+                            setCompetitionId(c.id);
+                            setHomeTeamId(null);
+                            setAwayTeamId(null);
+                            setSelectedLeagueIdByComp((prev) => ({ ...prev, [c.id]: 0 }));
+                            setTeamsByComp((prev) => ({ ...prev, [c.id]: [] }));
+                            loadLeaguesForCompetition(c.id).catch(() => {});
+                          }}
+                        >
+                          <Text style={[styles.chipText, competitionId === c.id && styles.chipTextActive]}>{c.name}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </ScrollView>
+                  <Text style={styles.label}>Lega</Text>
+                  {!!competitionId && (leaguesByComp[competitionId] || []).length > 0 ? (
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                      <View style={styles.rowWrap}>
+                        {(leaguesByComp[competitionId] || []).map((l) => {
+                          const enabled = Number(selectedLeagueIdByComp[competitionId] || 0) === Number(l.id);
+                          return (
+                            <TouchableOpacity
+                              key={`filter-league-${l.id}`}
+                              style={[styles.chip, enabled && styles.chipActive]}
+                              onPress={() => selectLeagueForTeams(competitionId, Number(l.id))}
+                            >
+                              <Text style={[styles.chipText, enabled && styles.chipTextActive]}>{l.name}</Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    </ScrollView>
+                  ) : (
+                    <Text style={styles.muted}>Seleziona prima una competizione</Text>
+                  )}
+                </>
+              ) : null}
+
+              {createMatchStep === 2 ? (
+                <>
+                  <Text style={styles.muted}>Se vuoi, puoi lasciare una o entrambe le squadre non definite.</Text>
+                  <Text style={styles.label}>Squadra casa</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    <View style={styles.rowWrap}>
+                      {selectedTeams.length === 0 ? <Text style={styles.muted}>Seleziona prima una lega ufficiale</Text> : null}
+                      {selectedTeams.map((t) => (
+                        <TouchableOpacity
+                          key={`h-${t.id}`}
+                          style={[styles.chip, homeTeamId === t.id && styles.chipActive, awayTeamId === t.id && styles.chipDisabled]}
+                          disabled={awayTeamId === t.id}
+                          onPress={() => setHomeTeamId(t.id)}
+                        >
+                          <Text style={[styles.chipText, homeTeamId === t.id && styles.chipTextActive]}>{t.name}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </ScrollView>
+                  <Text style={styles.label}>Squadra ospite</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    <View style={styles.rowWrap}>
+                      {selectedTeams.length === 0 ? <Text style={styles.muted}>Seleziona prima una lega ufficiale</Text> : null}
+                      {selectedTeams.map((t) => (
+                        <TouchableOpacity
+                          key={`a-${t.id}`}
+                          style={[styles.chip, awayTeamId === t.id && styles.chipActive, homeTeamId === t.id && styles.chipDisabled]}
+                          disabled={homeTeamId === t.id}
+                          onPress={() => setAwayTeamId(t.id)}
+                        >
+                          <Text style={[styles.chipText, awayTeamId === t.id && styles.chipTextActive]}>{t.name}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </ScrollView>
+                </>
+              ) : null}
+
+              {createMatchStep === 3 ? (
+                <>
+                  <Text style={styles.label}>Luogo</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    <View style={styles.rowWrap}>
+                      <TouchableOpacity style={[styles.chip, !venue && styles.chipActive]} onPress={() => setVenue('')}>
+                        <Text style={[styles.chipText, !venue && styles.chipTextActive]}>-</Text>
+                      </TouchableOpacity>
+                      {(matchDetailsOptions.venues || []).map((v) => (
+                        <TouchableOpacity
+                          key={`venue-create-${v.id}`}
+                          style={[styles.chip, venue === v.name && styles.chipActive]}
+                          onPress={() => setVenue(v.name)}
+                        >
+                          <Text style={[styles.chipText, venue === v.name && styles.chipTextActive]}>{v.name}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </ScrollView>
+                  <Text style={styles.label}>Arbitro</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    <View style={styles.rowWrap}>
+                      <TouchableOpacity style={[styles.chip, !referee && styles.chipActive]} onPress={() => setReferee('')}>
+                        <Text style={[styles.chipText, !referee && styles.chipTextActive]}>-</Text>
+                      </TouchableOpacity>
+                      {(matchDetailsOptions.referees || []).map((r) => (
+                        <TouchableOpacity
+                          key={`ref-create-${r.id}`}
+                          style={[styles.chip, referee === r.name && styles.chipActive]}
+                          onPress={() => setReferee(r.name)}
+                        >
+                          <Text style={[styles.chipText, referee === r.name && styles.chipTextActive]}>{r.name}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </ScrollView>
+                  <Text style={styles.label}>Tipologia giornata</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    <View style={styles.rowWrap}>
+                      <TouchableOpacity style={[styles.chip, !matchStageId && styles.chipActive]} onPress={() => selectMatchStageId(null)}>
+                        <Text style={[styles.chipText, !matchStageId && styles.chipTextActive]}>-</Text>
+                      </TouchableOpacity>
+                      {(matchDetailsOptions.stages || []).map((s) => (
+                        <TouchableOpacity
+                          key={`stage-create-${s.id}`}
+                          style={[styles.chip, Number(matchStageId) === Number(s.id) && styles.chipActive]}
+                          onPress={() => selectMatchStageId(s.id)}
+                        >
+                          <Text style={[styles.chipText, Number(matchStageId) === Number(s.id) && styles.chipTextActive]}>{s.name}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </ScrollView>
+                  <TouchableOpacity style={styles.inlineLinkBtn} onPress={() => setShowCreateTimingDetails((v) => !v)}>
+                    <Text style={styles.inlineLinkBtnText}>
+                      {showCreateTimingDetails ? 'Nascondi dettagli durata' : 'Modifica durata / supplementari / rigori'}
+                    </Text>
+                  </TouchableOpacity>
+                  {showCreateTimingDetails ? matchTimingEditor : null}
+                </>
+              ) : null}
+
+              {createMatchStep === 4 ? (
+                <View style={styles.summaryBox}>
+                  <Text style={styles.label}>Data e ora</Text>
+                  <Text style={styles.summaryValue}>{formatDisplayDateTime(kickoffAt)}</Text>
+                  <Text style={styles.label}>Competizione / Lega</Text>
+                  <Text style={styles.summaryValue}>{selectedCompetitionName} - {selectedLeagueName}</Text>
+                  <Text style={styles.label}>Partita</Text>
+                  <Text style={styles.summaryValue}>{selectedHomeTeamName} vs {selectedAwayTeamName}</Text>
+                  <Text style={styles.label}>Luogo / Arbitro</Text>
+                  <Text style={styles.summaryValue}>{venue || '-'} / {referee || '-'}</Text>
+                  <Text style={styles.label}>Tipologia giornata</Text>
+                  <Text style={styles.summaryValue}>{selectedStageName}</Text>
+                  <TouchableOpacity
+                    style={[styles.primaryBtn, !canSubmitMatch && styles.primaryBtnDisabled]}
+                    disabled={!canSubmitMatch}
+                    onPress={createMatch}
+                  >
+                    <Text style={styles.primaryBtnText}>Crea partita</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : null}
+
+              <View style={styles.actionsRow}>
+                <TouchableOpacity
+                  style={[styles.secondaryBtn, createMatchStep <= 1 && styles.primaryBtnDisabled]}
+                  disabled={createMatchStep <= 1}
+                  onPress={() => setCreateMatchStep((s) => Math.max(1, s - 1))}
+                >
+                  <Text style={styles.secondaryBtnText}>Indietro</Text>
+                </TouchableOpacity>
+                {createMatchStep < 4 ? (
+                  <TouchableOpacity
+                    style={[
+                      styles.primaryBtn,
+                      {
+                        flex: 1,
+                        marginTop: 0,
+                      },
+                      ((createMatchStep === 1 && !canCreateStep1) || (createMatchStep === 2 && !canCreateStep2) || (createMatchStep === 3 && !canCreateStep3))
+                        && styles.primaryBtnDisabled,
+                    ]}
+                    disabled={(createMatchStep === 1 && !canCreateStep1) || (createMatchStep === 2 && !canCreateStep2) || (createMatchStep === 3 && !canCreateStep3)}
+                    onPress={() => setCreateMatchStep((s) => Math.min(4, s + 1))}
+                  >
+                    <Text style={styles.primaryBtnText}>Avanti</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+            </ScrollView>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+      <Modal
+        visible={showEditMatchForm}
+        transparent
+        animationType="fade"
+        onRequestClose={cancelEdit}
+      >
+        <TouchableOpacity style={styles.confirmOverlay} activeOpacity={1} onPress={cancelEdit}>
+          <TouchableOpacity activeOpacity={1} onPress={(e) => e.stopPropagation()} style={styles.createMatchModalBox}>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <Text style={styles.sectionTitle}>Modifica partita</Text>
+              <Text style={styles.muted}>Step {editMatchStep} di 4</Text>
+
+              {editMatchStep === 1 ? (
+                <>
+                  <View style={styles.switchRow}>
+                    <Text style={styles.switchLabel}>Nascondi partita</Text>
+                    <Switch
+                      value={isAdminOnly}
+                      onValueChange={setIsAdminOnly}
+                      trackColor={{ false: '#ccc', true: '#a5b4fc' }}
+                      thumbColor={isAdminOnly ? '#667eea' : '#f4f3f4'}
+                    />
+                  </View>
+                  <Text style={styles.label}>Kickoff</Text>
+                  <View style={styles.datetimeRow}>
+                    <TouchableOpacity style={styles.datetimeBtn} onPress={() => openKickoffPicker('date')}>
+                      <Text style={styles.datetimeBtnText}>Data: {kickoffAt.slice(0, 10)}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.datetimeBtn} onPress={() => openKickoffPicker('time')}>
+                      <Text style={styles.datetimeBtnText}>Ora: {kickoffAt.slice(11, 16)}</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <Text style={styles.label}>Competizione</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    <View style={styles.rowWrap}>
+                      {competitions.map((c) => (
+                        <TouchableOpacity
+                          key={`edit-comp-${c.id}`}
+                          style={[styles.chip, competitionId === c.id && styles.chipActive]}
+                          onPress={() => {
+                            setCompetitionId(c.id);
+                            setHomeTeamId(null);
+                            setAwayTeamId(null);
+                            setSelectedLeagueIdByComp((prev) => ({ ...prev, [c.id]: 0 }));
+                            setTeamsByComp((prev) => ({ ...prev, [c.id]: [] }));
+                            loadLeaguesForCompetition(c.id).catch(() => {});
+                          }}
+                        >
+                          <Text style={[styles.chipText, competitionId === c.id && styles.chipTextActive]}>{c.name}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </ScrollView>
+                  {!!competitionId && (leaguesByComp[competitionId] || []).length > 0 ? (
+                    <>
+                      <Text style={styles.label}>Lega</Text>
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                        <View style={styles.rowWrap}>
+                          {(leaguesByComp[competitionId] || []).map((l) => {
+                            const enabled = Number(selectedLeagueIdByComp[competitionId] || 0) === Number(l.id);
+                            return (
+                              <TouchableOpacity
+                                key={`edit-filter-league-${l.id}`}
+                                style={[styles.chip, enabled && styles.chipActive]}
+                                onPress={() => selectLeagueForTeams(competitionId, Number(l.id))}
+                              >
+                                <Text style={[styles.chipText, enabled && styles.chipTextActive]}>{l.name}</Text>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </View>
+                      </ScrollView>
+                    </>
+                  ) : null}
+                </>
+              ) : null}
+
+              {editMatchStep === 2 ? (
+                <>
+                  <Text style={styles.label}>Squadra casa</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    <View style={styles.rowWrap}>
+                      {selectedTeams.map((t) => (
+                        <TouchableOpacity
+                          key={`edit-h-${t.id}`}
+                          style={[styles.chip, homeTeamId === t.id && styles.chipActive, awayTeamId === t.id && styles.chipDisabled]}
+                          disabled={awayTeamId === t.id}
+                          onPress={() => setHomeTeamId(t.id)}
+                        >
+                          <Text style={[styles.chipText, homeTeamId === t.id && styles.chipTextActive]}>{t.name}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </ScrollView>
+                  <Text style={styles.label}>Squadra trasferta</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    <View style={styles.rowWrap}>
+                      {selectedTeams.map((t) => (
+                        <TouchableOpacity
+                          key={`edit-a-${t.id}`}
+                          style={[styles.chip, awayTeamId === t.id && styles.chipActive, homeTeamId === t.id && styles.chipDisabled]}
+                          disabled={homeTeamId === t.id}
+                          onPress={() => setAwayTeamId(t.id)}
+                        >
+                          <Text style={[styles.chipText, awayTeamId === t.id && styles.chipTextActive]}>{t.name}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </ScrollView>
+                </>
+              ) : null}
+
+              {editMatchStep === 3 ? (
+                <>
+                  <Text style={styles.label}>Luogo</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    <View style={styles.rowWrap}>
+                      <TouchableOpacity style={[styles.chip, !venue && styles.chipActive]} onPress={() => setVenue('')}>
+                        <Text style={[styles.chipText, !venue && styles.chipTextActive]}>-</Text>
+                      </TouchableOpacity>
+                      {(matchDetailsOptions.venues || []).map((v) => (
+                        <TouchableOpacity
+                          key={`venue-edit-${v.id}`}
+                          style={[styles.chip, venue === v.name && styles.chipActive]}
+                          onPress={() => setVenue(v.name)}
+                        >
+                          <Text style={[styles.chipText, venue === v.name && styles.chipTextActive]}>{v.name}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </ScrollView>
+                  <Text style={styles.label}>Arbitro</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    <View style={styles.rowWrap}>
+                      <TouchableOpacity style={[styles.chip, !referee && styles.chipActive]} onPress={() => setReferee('')}>
+                        <Text style={[styles.chipText, !referee && styles.chipTextActive]}>-</Text>
+                      </TouchableOpacity>
+                      {(matchDetailsOptions.referees || []).map((r) => (
+                        <TouchableOpacity
+                          key={`ref-edit-${r.id}`}
+                          style={[styles.chip, referee === r.name && styles.chipActive]}
+                          onPress={() => setReferee(r.name)}
+                        >
+                          <Text style={[styles.chipText, referee === r.name && styles.chipTextActive]}>{r.name}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </ScrollView>
+                  <Text style={styles.label}>Tipologia giornata</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    <View style={styles.rowWrap}>
+                      <TouchableOpacity style={[styles.chip, !matchStageId && styles.chipActive]} onPress={() => selectMatchStageId(null)}>
+                        <Text style={[styles.chipText, !matchStageId && styles.chipTextActive]}>-</Text>
+                      </TouchableOpacity>
+                      {(matchDetailsOptions.stages || []).map((s) => (
+                        <TouchableOpacity
+                          key={`stage-edit-${s.id}`}
+                          style={[styles.chip, Number(matchStageId) === Number(s.id) && styles.chipActive]}
+                          onPress={() => selectMatchStageId(s.id)}
+                        >
+                          <Text style={[styles.chipText, Number(matchStageId) === Number(s.id) && styles.chipTextActive]}>{s.name}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </ScrollView>
+                  <TouchableOpacity style={styles.inlineLinkBtn} onPress={() => setShowEditTimingDetails((v) => !v)}>
+                    <Text style={styles.inlineLinkBtnText}>
+                      {showEditTimingDetails ? 'Nascondi dettagli durata' : 'Modifica durata / supplementari / rigori'}
+                    </Text>
+                  </TouchableOpacity>
+                  {showEditTimingDetails ? matchTimingEditor : null}
+                </>
+              ) : null}
+
+              {editMatchStep === 4 ? (
+                <>
+                  <Text style={styles.label}>Riepilogo modifiche</Text>
+                  {editChangeRows.length === 0 ? (
+                    <Text style={styles.muted}>Nessuna modifica rispetto ai valori originali.</Text>
+                  ) : (
+                    <View style={styles.summaryBox}>
+                      {editChangeRows.map((r, idx) => (
+                        <View key={`edit-diff-${idx}`} style={styles.editDiffRow}>
+                          <Text style={styles.editDiffLabel}>{r.label}</Text>
+                          <View style={styles.editDiffValuesRow}>
+                            <Text style={styles.editDiffBefore}>{r.before}</Text>
+                            <Ionicons name="arrow-forward" size={14} color="#64748b" />
+                            <Text style={styles.editDiffAfter}>{r.after}</Text>
+                          </View>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+                  <TouchableOpacity style={[styles.primaryBtn, { marginTop: 10 }]} onPress={saveEditedMatch}>
+                    <Text style={styles.primaryBtnText}>Salva modifica partita</Text>
+                  </TouchableOpacity>
+                </>
+              ) : null}
+
+              <View style={styles.actionsRow}>
+                <TouchableOpacity
+                  style={[styles.secondaryBtn, editMatchStep <= 1 && styles.primaryBtnDisabled]}
+                  disabled={editMatchStep <= 1}
+                  onPress={() => setEditMatchStep((s) => Math.max(1, s - 1))}
+                >
+                  <Text style={styles.secondaryBtnText}>Indietro</Text>
+                </TouchableOpacity>
+                {editMatchStep < 4 ? (
+                  <TouchableOpacity
+                    style={[styles.primaryBtn, { flex: 1, marginTop: 0 }]}
+                    onPress={() => setEditMatchStep((s) => Math.min(4, s + 1))}
+                  >
+                    <Text style={styles.primaryBtnText}>Avanti</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+            </ScrollView>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
       {showKickoffPicker ? (
         <DateTimePicker
           value={kickoffDateObj}
@@ -1307,8 +1898,23 @@ export default function ManageMatchesScreen() {
           onChange={onKickoffChange}
         />
       ) : null}
+      {showFilterDatePicker ? (
+        <DateTimePicker
+          value={String(date || '').trim() ? parseSqlDateTime(`${date} 00:00:00`) : new Date()}
+          mode="date"
+          is24Hour
+          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+          onChange={onFilterDateChange}
+        />
+      ) : null}
       {toastMsg ? (
-        <View style={[styles.toast, toastMsg.type === 'success' ? styles.toastSuccess : styles.toastError]}>
+        <View
+          style={[
+            styles.toast,
+            { bottom: Math.max(insets.bottom + 12, 84) },
+            toastMsg.type === 'success' ? styles.toastSuccess : styles.toastError,
+          ]}
+        >
           <Ionicons name={toastMsg.type === 'success' ? 'checkmark-circle' : 'alert-circle'} size={18} color="#fff" />
           <Text style={styles.toastText}>{toastMsg.text}</Text>
         </View>
@@ -1467,6 +2073,101 @@ const styles = StyleSheet.create({
     gap: 8,
     marginTop: 8,
   },
+  matchesTopBar: {
+    marginTop: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  matchesTopBarTitle: { fontSize: 14, fontWeight: '800', color: '#334155' },
+  matchesPlusBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    borderWidth: 1,
+    borderColor: '#c7d2fe',
+    backgroundColor: '#eef2ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  filtersIconRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 4,
+  },
+  iconFilterBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    borderWidth: 1,
+    borderColor: '#dbe3ef',
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  iconFilterBtnActive: {
+    borderColor: '#c7d2fe',
+    backgroundColor: '#eef2ff',
+  },
+  inlineLinkBtn: {
+    marginTop: 8,
+    alignSelf: 'flex-start',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  inlineLinkBtnText: {
+    color: '#475569',
+    fontWeight: '700',
+    fontSize: 12,
+  },
+  summaryBox: {
+    marginTop: 4,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 10,
+    padding: 10,
+    backgroundColor: '#f8fafc',
+  },
+  summaryValue: {
+    color: '#0f172a',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  editDiffRow: {
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
+  },
+  editDiffLabel: {
+    color: '#334155',
+    fontSize: 12,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  editDiffValuesRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  editDiffBefore: {
+    flex: 1,
+    minWidth: 0,
+    color: '#64748b',
+    fontSize: 12,
+    textDecorationLine: 'line-through',
+  },
+  editDiffAfter: {
+    flex: 1,
+    minWidth: 0,
+    color: '#0f766e',
+    fontSize: 12,
+    fontWeight: '700',
+  },
   content: { flex: 1, paddingHorizontal: 14 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   denied: { color: '#d9534f', fontWeight: '700' },
@@ -1559,6 +2260,15 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderRadius: 14,
     padding: 16,
+  },
+  createMatchModalBox: {
+    width: '100%',
+    maxHeight: '90%',
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
   },
   confirmTitle: { fontSize: 18, fontWeight: '700', color: '#222', marginBottom: 8 },
   confirmMessage: { fontSize: 14, color: '#555' },
