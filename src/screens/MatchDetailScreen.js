@@ -399,20 +399,27 @@ function HeroTeamLogo({ logoUrl, logoPath }) {
   return <Image source={{ uri }} style={styles.heroLogo} onError={() => setFailed(true)} resizeMode="contain" />;
 }
 
-function TableTeamLogo({ logoUrl, logoPath }) {
+function TableTeamLogo({ logoUrl, logoPath, size = 36 }) {
   const uri = logoUrl || publicAssetUrl(logoPath);
   const [failed, setFailed] = useState(false);
+  const safeSize = Number.isFinite(Number(size)) && Number(size) > 0 ? Number(size) : 36;
+  const boxStyle = {
+    width: safeSize,
+    height: safeSize,
+    borderRadius: Math.max(4, Math.round(safeSize / 4)),
+  };
+  const iconSize = Math.max(10, Math.round(safeSize * 0.56));
   useEffect(() => {
     setFailed(false);
   }, [uri]);
   if (!uri || failed) {
     return (
-      <View style={styles.tableLogoFallback}>
-        <Ionicons name="shield-outline" size={20} color="#667eea" />
+      <View style={[styles.tableLogoFallback, boxStyle]}>
+        <Ionicons name="shield-outline" size={iconSize} color="#667eea" />
       </View>
     );
   }
-  return <Image source={{ uri }} style={styles.tableLogo} onError={() => setFailed(true)} resizeMode="contain" />;
+  return <Image source={{ uri }} style={[styles.tableLogo, boxStyle]} onError={() => setFailed(true)} resizeMode="contain" />;
 }
 
 /** Allineato a Mia Rosa (`SquadScreen`): colori ruolo P/D/C/A. */
@@ -1204,6 +1211,8 @@ export default function MatchDetailScreen({ navigation, route }) {
       ? insets.bottom + 72
       : activeTab === 'lineup'
         ? Math.max(insets.bottom, 28) + (canManageLive ? 88 : 32)
+        : activeTab === 'standings'
+          ? Math.max(insets.bottom, 28) + 18
         : undefined;
 
   const openPlayerStatsFromLineup = (p, displayName, leagueIdRaw) => {
@@ -1846,39 +1855,48 @@ export default function MatchDetailScreen({ navigation, route }) {
         {activeTab === 'standings' && (
           <>
             {(Array.isArray(knockout.semifinals) && knockout.semifinals.length > 0) || knockout.final ? (
-              <View style={styles.card}>
+              <View style={[styles.card, styles.knockoutCard]}>
                 <Text style={styles.knockoutTitle}>Fase Finale</Text>
+                <View style={styles.knockoutHeaderRow}>
+                  <Text style={styles.knockoutColumnTitle}>Semifinale</Text>
+                  <Text style={styles.knockoutColumnTitleSpacer} />
+                  <Text style={styles.knockoutColumnTitle}>Finale</Text>
+                </View>
                 <View style={styles.knockoutBracketRow}>
                   <View style={styles.knockoutSemisCol}>
                     {[0, 1].map((idx) => {
                       const semi = knockout.semifinals?.[idx] || null;
                       return (
                         <View key={`semi-${idx}`} style={styles.knockoutSemiBlock}>
-                          <Text style={styles.knockoutStageLabel}>Semifinale {idx + 1}</Text>
-                          <View style={styles.knockoutMatchStack}>
-                            <View style={styles.knockoutTeamBox}>
-                              <View style={styles.knockoutTeamRow}>
-                                {semi?.home_team_name ? (
-                                  <TableTeamLogo logoUrl={semi?.home_team_logo_url} logoPath={semi?.home_team_logo_path} size={18} />
-                                ) : (
-                                  <View style={styles.knockoutLogoPlaceholder} />
-                                )}
-                                <Text style={styles.knockoutTeamText} numberOfLines={1}>{semi?.home_team_name || '-'}</Text>
-                                <View style={styles.knockoutScoreBox}>
-                                  <Text style={styles.knockoutScoreText}>{semi?.home_score != null ? String(semi.home_score) : ''}</Text>
+                          <View style={styles.knockoutSemiLabelRow}>
+                            <Text style={styles.knockoutSemiSmallLabel}>SF {idx + 1}</Text>
+                          </View>
+                          <View style={styles.knockoutMatchStackMeasure}>
+                            <View style={styles.knockoutMatchStack}>
+                              <View style={styles.knockoutTeamBox}>
+                                <View style={styles.knockoutTeamRow}>
+                                  {semi?.home_team_name ? (
+                                    <TableTeamLogo logoUrl={semi?.home_team_logo_url} logoPath={semi?.home_team_logo_path} size={30} />
+                                  ) : (
+                                    <View style={styles.knockoutLogoPlaceholder} />
+                                  )}
+                                  <Text style={styles.knockoutTeamText} numberOfLines={1}>{semi?.home_team_name || '-'}</Text>
+                                  <View style={styles.knockoutScoreBox}>
+                                    <Text style={styles.knockoutScoreText}>{semi?.home_score != null ? String(semi.home_score) : ''}</Text>
+                                  </View>
                                 </View>
                               </View>
-                            </View>
-                            <View style={styles.knockoutTeamBox}>
-                              <View style={styles.knockoutTeamRow}>
-                                {semi?.away_team_name ? (
-                                  <TableTeamLogo logoUrl={semi?.away_team_logo_url} logoPath={semi?.away_team_logo_path} size={18} />
-                                ) : (
-                                  <View style={styles.knockoutLogoPlaceholder} />
-                                )}
-                                <Text style={styles.knockoutTeamText} numberOfLines={1}>{semi?.away_team_name || '-'}</Text>
-                                <View style={styles.knockoutScoreBox}>
-                                  <Text style={styles.knockoutScoreText}>{semi?.away_score != null ? String(semi.away_score) : ''}</Text>
+                              <View style={styles.knockoutTeamBox}>
+                                <View style={styles.knockoutTeamRow}>
+                                  {semi?.away_team_name ? (
+                                    <TableTeamLogo logoUrl={semi?.away_team_logo_url} logoPath={semi?.away_team_logo_path} size={30} />
+                                  ) : (
+                                    <View style={styles.knockoutLogoPlaceholder} />
+                                  )}
+                                  <Text style={styles.knockoutTeamText} numberOfLines={1}>{semi?.away_team_name || '-'}</Text>
+                                  <View style={styles.knockoutScoreBox}>
+                                    <Text style={styles.knockoutScoreText}>{semi?.away_score != null ? String(semi.away_score) : ''}</Text>
+                                  </View>
                                 </View>
                               </View>
                             </View>
@@ -1888,39 +1906,41 @@ export default function MatchDetailScreen({ navigation, route }) {
                     })}
                   </View>
 
-                  <View style={styles.knockoutConnectorCol}>
-                    <View style={styles.knockoutConnectorTopArm} />
-                    <View style={styles.knockoutConnectorVertical} />
-                    <View style={styles.knockoutConnectorBottomArm} />
-                    <View style={styles.knockoutConnectorToFinal} />
+                  <View style={styles.knockoutFlowCol}>
+                    <View style={styles.knockoutBracketTopArm} />
+                    <View style={styles.knockoutBracketBottomArm} />
+                    <View style={styles.knockoutBracketVertical} />
+                    <View style={styles.knockoutBracketMiddleArm} />
                   </View>
 
                   <View style={styles.knockoutFinalCol}>
-                    <Text style={styles.knockoutStageLabel}>Finale</Text>
-                    <View style={styles.knockoutMatchStack}>
-                      <View style={styles.knockoutTeamBox}>
-                        <View style={styles.knockoutTeamRow}>
-                          {knockout.final?.home_team_name ? (
-                            <TableTeamLogo logoUrl={knockout.final?.home_team_logo_url} logoPath={knockout.final?.home_team_logo_path} size={18} />
-                          ) : (
-                            <View style={styles.knockoutLogoPlaceholder} />
-                          )}
-                          <Text style={styles.knockoutTeamText} numberOfLines={1}>{knockout.final?.home_team_name || '-'}</Text>
-                          <View style={styles.knockoutScoreBox}>
-                            <Text style={styles.knockoutScoreText}>{knockout.final?.home_score != null ? String(knockout.final.home_score) : ''}</Text>
+                    <View style={styles.knockoutFinalLabelRow} />
+                    <View style={styles.knockoutMatchStackMeasure}>
+                      <View style={styles.knockoutMatchStack}>
+                        <View style={styles.knockoutTeamBox}>
+                          <View style={styles.knockoutTeamRow}>
+                            {knockout.final?.home_team_name ? (
+                              <TableTeamLogo logoUrl={knockout.final?.home_team_logo_url} logoPath={knockout.final?.home_team_logo_path} size={30} />
+                            ) : (
+                              <View style={styles.knockoutLogoPlaceholder} />
+                            )}
+                            <Text style={styles.knockoutTeamText} numberOfLines={1}>{knockout.final?.home_team_name || '-'}</Text>
+                            <View style={styles.knockoutScoreBox}>
+                              <Text style={styles.knockoutScoreText}>{knockout.final?.home_score != null ? String(knockout.final.home_score) : ''}</Text>
+                            </View>
                           </View>
                         </View>
-                      </View>
-                      <View style={styles.knockoutTeamBox}>
-                        <View style={styles.knockoutTeamRow}>
-                          {knockout.final?.away_team_name ? (
-                            <TableTeamLogo logoUrl={knockout.final?.away_team_logo_url} logoPath={knockout.final?.away_team_logo_path} size={18} />
-                          ) : (
-                            <View style={styles.knockoutLogoPlaceholder} />
-                          )}
-                          <Text style={styles.knockoutTeamText} numberOfLines={1}>{knockout.final?.away_team_name || '-'}</Text>
-                          <View style={styles.knockoutScoreBox}>
-                            <Text style={styles.knockoutScoreText}>{knockout.final?.away_score != null ? String(knockout.final.away_score) : ''}</Text>
+                        <View style={styles.knockoutTeamBox}>
+                          <View style={styles.knockoutTeamRow}>
+                            {knockout.final?.away_team_name ? (
+                              <TableTeamLogo logoUrl={knockout.final?.away_team_logo_url} logoPath={knockout.final?.away_team_logo_path} size={30} />
+                            ) : (
+                              <View style={styles.knockoutLogoPlaceholder} />
+                            )}
+                            <Text style={styles.knockoutTeamText} numberOfLines={1}>{knockout.final?.away_team_name || '-'}</Text>
+                            <View style={styles.knockoutScoreBox}>
+                              <Text style={styles.knockoutScoreText}>{knockout.final?.away_score != null ? String(knockout.final.away_score) : ''}</Text>
+                            </View>
                           </View>
                         </View>
                       </View>
@@ -2661,28 +2681,76 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#f3f3f3',
   },
-  knockoutTitle: { fontSize: 16, fontWeight: '800', color: '#111827', textAlign: 'center', marginBottom: 10 },
-  knockoutBracketRow: { flexDirection: 'row', alignItems: 'stretch', gap: 10 },
-  knockoutSemisCol: { flex: 1.2, gap: 10 },
-  knockoutSemiBlock: { flex: 1 },
-  knockoutFinalCol: { flex: 1, justifyContent: 'center' },
+  knockoutCard: { marginHorizontal: -8, paddingHorizontal: 5, paddingBottom: 6 },
+  knockoutTitle: { fontSize: 16, fontWeight: '800', color: '#111827', textAlign: 'center', marginBottom: 6 },
+  knockoutHeaderRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
+  knockoutColumnTitle: { flex: 1.2, fontSize: 12, fontWeight: '800', color: '#6b7280', textTransform: 'uppercase' },
+  knockoutColumnTitleSpacer: { width: 56 },
+  knockoutBracketRow: { flexDirection: 'row', alignItems: 'stretch', gap: 0 },
+  knockoutSemisCol: { flex: 1.2, gap: 6, alignSelf: 'flex-start', marginRight: -2 },
+  knockoutSemiBlock: { flexGrow: 0, flexShrink: 0 },
+  knockoutFinalCol: { flex: 1.08, alignSelf: 'stretch', justifyContent: 'center', paddingTop: 20, marginLeft: -2 },
   knockoutFinalWrap: { alignItems: 'center' },
-  knockoutStageLabel: { fontSize: 12, fontWeight: '700', color: '#6b7280', textTransform: 'uppercase', marginBottom: 6 },
+  knockoutSemiLabelRow: { marginBottom: 2 },
+  knockoutSemiSmallLabel: { fontSize: 11, fontWeight: '800', color: '#6b7280', textTransform: 'uppercase' },
+  knockoutFlowCol: {
+    width: 56,
+    height: 112,
+    marginTop: 46,
+    position: 'relative',
+  },
+  knockoutBracketTopArm: {
+    position: 'absolute',
+    left: 6,
+    top: 10,
+    width: 32,
+    height: 1,
+    backgroundColor: '#d1d5db',
+  },
+  knockoutBracketBottomArm: {
+    position: 'absolute',
+    left: 6,
+    bottom: 10,
+    width: 32,
+    height: 1,
+    backgroundColor: '#d1d5db',
+  },
+  knockoutBracketVertical: {
+    position: 'absolute',
+    left: 38,
+    top: 10,
+    width: 1,
+    height: 92,
+    backgroundColor: '#d1d5db',
+  },
+  knockoutBracketMiddleArm: {
+    position: 'absolute',
+    left: 38,
+    top: 56,
+    width: 14,
+    height: 1,
+    backgroundColor: '#d1d5db',
+  },
+  knockoutFinalLabelRow: { height: 0, marginBottom: 0 },
+  knockoutStageLabel: { fontSize: 12, fontWeight: '700', color: '#6b7280', textTransform: 'uppercase', marginBottom: 4 },
   knockoutMatchRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, width: '100%' },
+  knockoutMatchStackMeasure: { width: '100%' },
   knockoutMatchStack: { gap: 6, width: '100%' },
-  knockoutTeamRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  knockoutLogoPlaceholder: { width: 18, height: 18 },
+  knockoutTeamRow: { flexDirection: 'row', alignItems: 'center', gap: 4, minHeight: 18 },
+  knockoutLogoPlaceholder: { width: 30, height: 30 },
   knockoutTeamBox: {
     flex: 1,
     minWidth: 0,
     borderWidth: 1,
     borderColor: '#d1d5db',
-    borderRadius: 8,
-    paddingVertical: 8,
-    paddingHorizontal: 8,
+    borderRadius: 7,
+    minHeight: 32,
+    paddingVertical: 0,
+    paddingLeft: 0,
+    paddingRight: 6,
     backgroundColor: '#fff',
   },
-  knockoutTeamText: { flex: 1, minWidth: 0, fontSize: 13, fontWeight: '700', color: '#111827' },
+  knockoutTeamText: { flex: 1, minWidth: 0, fontSize: 14, fontWeight: '700', color: '#111827' },
   knockoutScoreBox: {
     width: 22,
     height: 22,
@@ -2695,40 +2763,6 @@ const styles = StyleSheet.create({
   },
   knockoutScoreText: { fontSize: 12, fontWeight: '800', color: '#111827' },
   knockoutVs: { width: 28, textAlign: 'center', fontSize: 12, fontWeight: '800', color: '#6b7280' },
-  knockoutConnectorCol: {
-    width: 34,
-    alignItems: 'center',
-    justifyContent: 'center',
-    position: 'relative',
-  },
-  knockoutConnectorTopArm: {
-    position: 'absolute',
-    left: 0,
-    top: '25%',
-    width: 16,
-    height: 1,
-    backgroundColor: '#d1d5db',
-  },
-  knockoutConnectorBottomArm: {
-    position: 'absolute',
-    left: 0,
-    bottom: '25%',
-    width: 16,
-    height: 1,
-    backgroundColor: '#d1d5db',
-  },
-  knockoutConnectorVertical: {
-    width: 1,
-    height: '52%',
-    backgroundColor: '#d1d5db',
-  },
-  knockoutConnectorToFinal: {
-    position: 'absolute',
-    right: 0,
-    width: 16,
-    height: 1,
-    backgroundColor: '#d1d5db',
-  },
   knockoutBranchTopLine: {
     marginTop: 10,
     alignSelf: 'center',
