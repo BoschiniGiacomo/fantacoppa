@@ -469,9 +469,17 @@ async function getTeamMeta(teamId) {
 
 function buildEventPayloadForDb(body) {
   const playerName = body?.player_name != null ? String(body.player_name).trim() : '';
+  const assistPlayerName = body?.assist_player_name != null ? String(body.assist_player_name).trim() : '';
   const clockTime = body?.clock_time != null ? String(body.clock_time).trim() : '';
+  const teamId = Number(body?.team_id);
+  const playerId = Number(body?.player_id);
+  const assistPlayerId = Number(body?.assist_player_id);
   const out = {};
   if (playerName) out.player_name = playerName;
+  if (assistPlayerName) out.assist_player_name = assistPlayerName;
+  if (Number.isFinite(teamId) && teamId > 0) out.team_id = teamId;
+  if (Number.isFinite(playerId) && playerId > 0) out.player_id = playerId;
+  if (Number.isFinite(assistPlayerId) && assistPlayerId > 0) out.assist_player_id = assistPlayerId;
   if (clockTime) out.clock_time = clockTime;
   // Permetti payload custom aggiuntivo (compat)
   if (body?.payload_json && typeof body.payload_json === 'object') {
@@ -512,6 +520,11 @@ function enrichEventForApi(ev) {
   }
   const nextPayload = payload && typeof payload === 'object' ? { ...payload } : {};
   if (playerName) nextPayload.player_name = playerName;
+  if (ev.team_id != null && Number.isFinite(Number(ev.team_id)) && Number(ev.team_id) > 0) nextPayload.team_id = Number(ev.team_id);
+  if (ev.player_id != null && Number.isFinite(Number(ev.player_id)) && Number(ev.player_id) > 0) nextPayload.player_id = Number(ev.player_id);
+  if (ev.assist_player_id != null && Number.isFinite(Number(ev.assist_player_id)) && Number(ev.assist_player_id) > 0) {
+    nextPayload.assist_player_id = Number(ev.assist_player_id);
+  }
   const title = ev.title || buildEventTitleForDb(ev.event_type, ev.team_side, nextPayload);
   return {
     id: Number(ev.id),
@@ -519,6 +532,9 @@ function enrichEventForApi(ev) {
     event_type: ev.event_type,
     minute: ev.minute != null ? Number(ev.minute) : null,
     team_side: ev.team_side,
+    team_id: ev.team_id != null ? Number(ev.team_id) : null,
+    player_id: ev.player_id != null ? Number(ev.player_id) : null,
+    assist_player_id: ev.assist_player_id != null ? Number(ev.assist_player_id) : null,
     title,
     payload: Object.keys(nextPayload).length ? nextPayload : null,
     created_at: ev.created_at,
@@ -968,7 +984,7 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
 
     const rawEvents = await query(
       `
-      SELECT id, match_id, event_type, minute, team_side, title, payload_json, created_at
+      SELECT id, match_id, event_type, minute, team_side, team_id, player_id, assist_player_id, title, payload_json, created_at
       FROM official_match_events
       WHERE match_id = ?
       ORDER BY minute ASC, id ASC
@@ -1679,7 +1695,6 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
       SELECT id, home_team_id, away_team_id, home_score, away_score
       FROM official_matches
       WHERE competition_id = ?
-        AND match_stage_id = 1
         AND home_team_id IN (SELECT id FROM teams WHERE league_id IN (${phLeagueIds}))
         AND away_team_id IN (SELECT id FROM teams WHERE league_id IN (${phLeagueIds}))
       ORDER BY id ASC
@@ -1704,16 +1719,25 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
     const playerIds = Array.from(
       new Set(
         (evRows || [])
-          .flatMap((e) => [Number(e.player_id), Number(e.assist_player_id)])
+          .flatMap((e) => {
+            const payload = safeJsonParse(e.payload_json) || {};
+            return [
+              Number(e.player_id),
+              Number(e.assist_player_id),
+              Number(payload.player_id),
+              Number(payload.assist_player_id),
+            ];
+          })
           .filter((n) => Number.isFinite(n) && n > 0)
       )
     );
     let playerNameMap = new Map();
+    let playerTeamMap = new Map();
     if (playerIds.length > 0) {
       const phPlayers = playerIds.map(() => '?').join(', ');
       const pRows = await query(
         `
-        SELECT id, first_name, last_name
+        SELECT id, first_name, last_name, team_id
         FROM players
         WHERE id IN (${phPlayers})
         `,
@@ -1725,6 +1749,7 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
           String(`${p.first_name || ''} ${p.last_name || ''}`).trim(),
         ])
       );
+      playerTeamMap = new Map((pRows || []).map((p) => [Number(p.id), Number(p.team_id)]));
     }
     const evByMatch = new Map();
     for (const ev of evRows || []) {
@@ -1754,7 +1779,8 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
       let awayGoals = 0;
       let hasGoalEvents = false;
       for (const e of events) {
-        const evTeamId = Number(e.team_id);
+        const payload = safeJsonParse(e.payload_json) || {};
+        const evTeamId = Number(e.team_id) || Number(payload.team_id);
         if (e.event_type === 'goal') {
           hasGoalEvents = true;
           if (Number.isFinite(evTeamId) && evTeamId > 0) {
@@ -1777,6 +1803,36 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
       }
       const hs = hasGoalEvents ? homeGoals : (m.home_score != null ? Number(m.home_score) : null);
       const as = hasGoalEvents ? awayGoals : (m.away_score != null ? Number(m.away_score) : null);
+
+      for (const e of events) {
+        const payload = safeJsonParse(e.payload_json) || {};
+        const evTeamId = Number(e.team_id) || Number(payload.team_id);
+        const side = String(e.team_side || '').trim();
+        const mine =
+          (Number.isFinite(evTeamId) && evTeamId > 0)
+            ? seasonTeamIds.includes(evTeamId)
+            : ((isHome && side === 'home') || (isAway && side === 'away'));
+        if (!mine) continue;
+        if (e.event_type === 'yellow_card') yellowCards += 1;
+        if (e.event_type === 'red_card') redCards += 1;
+        if (e.event_type === 'goal') {
+          const pid = Number(e.player_id) || Number(payload?.player_id);
+          const aid = Number(e.assist_player_id) || Number(payload?.assist_player_id);
+          const scorerMine =
+            (Number.isFinite(pid) && pid > 0 && seasonTeamIds.includes(Number(playerTeamMap.get(pid)))) || mine;
+          const assistMine =
+            (Number.isFinite(aid) && aid > 0 && seasonTeamIds.includes(Number(playerTeamMap.get(aid)))) || mine;
+          const pn =
+            (Number.isFinite(pid) && pid > 0 ? String(playerNameMap.get(pid) || '').trim() : '') ||
+            String(payload?.player_name || '').trim();
+          if (scorerMine && pn) scorersMap.set(pn, Number(scorersMap.get(pn) || 0) + 1);
+          const an =
+            (Number.isFinite(aid) && aid > 0 ? String(playerNameMap.get(aid) || '').trim() : '') ||
+            String(payload?.assist_player_name || payload?.assist_name || '').trim();
+          if (assistMine && an) assistsMap.set(an, Number(assistsMap.get(an) || 0) + 1);
+        }
+      }
+
       if (!Number.isFinite(hs) || !Number.isFinite(as)) continue;
 
       played += 1;
@@ -1787,31 +1843,6 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
       if (gf > ga) wins += 1;
       else if (gf === ga) draws += 1;
       else losses += 1;
-
-      for (const e of events) {
-        const evTeamId = Number(e.team_id);
-        const side = String(e.team_side || '').trim();
-        const mine =
-          (Number.isFinite(evTeamId) && evTeamId > 0)
-            ? seasonTeamIds.includes(evTeamId)
-            : ((isHome && side === 'home') || (isAway && side === 'away'));
-        if (!mine) continue;
-        if (e.event_type === 'yellow_card') yellowCards += 1;
-        if (e.event_type === 'red_card') redCards += 1;
-        if (e.event_type === 'goal') {
-          const payload = safeJsonParse(e.payload_json);
-          const pid = Number(e.player_id);
-          const aid = Number(e.assist_player_id);
-          const pn =
-            (Number.isFinite(pid) && pid > 0 ? String(playerNameMap.get(pid) || '').trim() : '') ||
-            String(payload?.player_name || '').trim();
-          if (pn) scorersMap.set(pn, Number(scorersMap.get(pn) || 0) + 1);
-          const an =
-            (Number.isFinite(aid) && aid > 0 ? String(playerNameMap.get(aid) || '').trim() : '') ||
-            String(payload?.assist_player_name || payload?.assist_name || '').trim();
-          if (an) assistsMap.set(an, Number(assistsMap.get(an) || 0) + 1);
-        }
-      }
     }
 
     const pct = (x) => (played > 0 ? Math.round((x / played) * 1000) / 10 : 0);
@@ -2689,14 +2720,32 @@ router.post('/admin/matches/:matchId/events', authenticateToken, requireSuperuse
     const eventType = String(req.body?.event_type || '').trim();
     const minute = req.body?.minute != null && req.body.minute !== '' ? Number(req.body.minute) : null;
     const teamSide = req.body?.team_side != null ? String(req.body.team_side).trim() : null;
+    const teamId = Number(req.body?.team_id);
+    const playerId = Number(req.body?.player_id);
+    const assistPlayerId = Number(req.body?.assist_player_id);
+    const teamIdDb = Number.isFinite(teamId) && teamId > 0 ? teamId : null;
+    const playerIdDb = Number.isFinite(playerId) && playerId > 0 ? playerId : null;
+    const assistPlayerIdDb = Number.isFinite(assistPlayerId) && assistPlayerId > 0 ? assistPlayerId : null;
     const payloadObj = buildEventPayloadForDb(req.body);
     const title = buildEventTitleForDb(eventType, teamSide, payloadObj);
     const payloadJson = payloadObj ? JSON.stringify(payloadObj) : null;
     if (!eventType) return res.status(400).json({ message: 'event_type mancante' });
 
     let rows;
-    const insertWithoutCreatedBy = async () =>
-      await query(
+    const insertWithoutCreatedBy = async (withStructuredColumns = true) => {
+      if (withStructuredColumns) {
+        return await query(
+          `
+          INSERT INTO official_match_events
+            (match_id, event_type, minute, team_side, team_id, player_id, assist_player_id, title, payload_json, created_at)
+          VALUES
+            (?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, NOW())
+          RETURNING id
+          `,
+          [matchId, eventType, minute, teamSide, teamIdDb, playerIdDb, assistPlayerIdDb, title, payloadJson]
+        );
+      }
+      return await query(
         `
         INSERT INTO official_match_events
           (match_id, event_type, minute, team_side, title, payload_json, created_at)
@@ -2706,22 +2755,25 @@ router.post('/admin/matches/:matchId/events', authenticateToken, requireSuperuse
         `,
         [matchId, eventType, minute, teamSide, title, payloadJson]
       );
+    };
 
     try {
       // nessun created_by sugli eventi. Se la colonna non esiste, non deve bloccare l'inserimento.
-      rows = await insertWithoutCreatedBy();
+      rows = await insertWithoutCreatedBy(true);
     } catch (err2) {
+      if (err2 && err2.code === '42703' && /(team_id|player_id|assist_player_id)/i.test(String(err2.message || ''))) {
+        rows = await insertWithoutCreatedBy(false);
       // Se qualcuno ha aggiunto la colonna created_by sul DB, prova a valorizzarla.
-      if (err2 && err2.code === '42703' && /created_by/i.test(String(err2.message || ''))) {
+      } else if (err2 && err2.code === '42703' && /created_by/i.test(String(err2.message || ''))) {
         rows = await query(
           `
           INSERT INTO official_match_events
-            (match_id, event_type, minute, team_side, title, payload_json, created_by, created_at)
+            (match_id, event_type, minute, team_side, team_id, player_id, assist_player_id, title, payload_json, created_by, created_at)
           VALUES
-            (?, ?, ?, ?, ?, ?::jsonb, ?, NOW())
+            (?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, NOW())
           RETURNING id
           `,
-          [matchId, eventType, minute, teamSide, title, payloadJson, userId]
+          [matchId, eventType, minute, teamSide, teamIdDb, playerIdDb, assistPlayerIdDb, title, payloadJson, userId]
         );
       } else if (err2 && err2.code === '23505' && String(err2.constraint || '') === 'official_match_events_pkey') {
         // Sequence id sfalsata (es. dopo import dati). Riallinea e ritenta una volta.
@@ -2734,7 +2786,7 @@ router.post('/admin/matches/:matchId/events', authenticateToken, requireSuperuse
           )
           `
         );
-        rows = await insertWithoutCreatedBy();
+        rows = await insertWithoutCreatedBy(true);
       } else {
         throw err2;
       }
@@ -2773,6 +2825,70 @@ router.post('/admin/matches/:matchId/events', authenticateToken, requireSuperuse
   } catch (err) {
     if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
     return res.status(500).json({ message: 'Errore inserimento evento', error: err.message });
+  }
+});
+
+// PUT /admin/matches/:matchId/events/:eventId — update single live event
+router.put('/admin/matches/:matchId/events/:eventId', authenticateToken, requireSuperuserLevels([1, 2]), async (req, res) => {
+  try {
+    const matchId = Number(req.params.matchId);
+    const eventId = Number(req.params.eventId);
+    const eventType = String(req.body?.event_type || '').trim();
+    const minute = req.body?.minute != null && req.body.minute !== '' ? Number(req.body.minute) : null;
+    const teamSide = req.body?.team_side != null ? String(req.body.team_side).trim() : null;
+    const teamId = Number(req.body?.team_id);
+    const playerId = Number(req.body?.player_id);
+    const assistPlayerId = Number(req.body?.assist_player_id);
+    const teamIdDb = Number.isFinite(teamId) && teamId > 0 ? teamId : null;
+    const playerIdDb = Number.isFinite(playerId) && playerId > 0 ? playerId : null;
+    const assistPlayerIdDb = Number.isFinite(assistPlayerId) && assistPlayerId > 0 ? assistPlayerId : null;
+    if (!matchId || !eventId || !eventType) return res.status(400).json({ message: 'Parametri evento non validi' });
+
+    const payloadObj = buildEventPayloadForDb(req.body);
+    const title = buildEventTitleForDb(eventType, teamSide, payloadObj);
+    const payloadJson = payloadObj ? JSON.stringify(payloadObj) : null;
+
+    try {
+      await query(
+        `
+        UPDATE official_match_events
+        SET event_type = ?, minute = ?, team_side = ?, team_id = ?, player_id = ?, assist_player_id = ?, title = ?, payload_json = ?::jsonb
+        WHERE id = ? AND match_id = ?
+        `,
+        [eventType, minute, teamSide, teamIdDb, playerIdDb, assistPlayerIdDb, title, payloadJson, eventId, matchId]
+      );
+    } catch (err2) {
+      if (err2 && err2.code === '42703' && /(team_id|player_id|assist_player_id)/i.test(String(err2.message || ''))) {
+        await query(
+          `
+          UPDATE official_match_events
+          SET event_type = ?, minute = ?, team_side = ?, title = ?, payload_json = ?::jsonb
+          WHERE id = ? AND match_id = ?
+          `,
+          [eventType, minute, teamSide, title, payloadJson, eventId, matchId]
+        );
+      } else {
+        throw err2;
+      }
+    }
+    return res.json({ ok: true });
+  } catch (err) {
+    if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
+    return res.status(500).json({ message: 'Errore aggiornamento evento', error: err.message });
+  }
+});
+
+// DELETE /admin/matches/:matchId/events/:eventId — delete single live event
+router.delete('/admin/matches/:matchId/events/:eventId', authenticateToken, requireSuperuserLevels([1, 2]), async (req, res) => {
+  try {
+    const matchId = Number(req.params.matchId);
+    const eventId = Number(req.params.eventId);
+    if (!matchId || !eventId) return res.status(400).json({ message: 'Parametri evento non validi' });
+    await query(`DELETE FROM official_match_events WHERE id = ? AND match_id = ?`, [eventId, matchId]);
+    return res.json({ ok: true });
+  } catch (err) {
+    if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
+    return res.status(500).json({ message: 'Errore eliminazione evento', error: err.message });
   }
 });
 

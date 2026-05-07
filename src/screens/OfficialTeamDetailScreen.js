@@ -801,7 +801,7 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
                       <View style={[styles.statsTableRow, styles.statsTableHeaderRow]}>
                         <Text style={[styles.statsTableCell, styles.statsTablePos, styles.statsTableHeaderCell]}>Pos.</Text>
                         <Text style={[styles.statsTableCell, styles.statsTablePlayer, styles.statsTableHeaderCell]}>Giocatore</Text>
-                        <Text style={[styles.statsTableCell, styles.statsTableValue, styles.statsTableHeaderCell]}>Goal</Text>
+                        <Text style={[styles.statsTableCell, styles.statsTableValue, styles.statsTableHeaderCell]}>Assist</Text>
                       </View>
                       {statsAssistmen.map((s, i) => (
                         <View key={`as-${i}`} style={styles.statsTableRow}>

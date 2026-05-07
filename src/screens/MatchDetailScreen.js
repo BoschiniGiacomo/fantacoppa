@@ -752,6 +752,24 @@ function LineupPlayerRow({
 
 /** Stessi tipi di BonusIcon (bonus/malus) — vedi `BONUS_ICONS` in BonusIcon.js */
 const LIVE_EVENT_BONUS_TYPES = new Set(['goal', 'yellow_card', 'red_card', 'penalty_missed', 'own_goal']);
+const EDITABLE_LIVE_EVENT_TYPES = new Set(['goal', 'own_goal', 'yellow_card', 'red_card', 'penalty_missed']);
+const LIVE_EVENT_TYPE_LABELS = {
+  goal: 'Goal',
+  own_goal: 'Autogol',
+  yellow_card: 'Giallo',
+  red_card: 'Rosso',
+  penalty_missed: 'Rigore sbagliato',
+  match_start: 'Inizio partita',
+  half_time: 'Fine primo tempo',
+  second_half_start: 'Inizio secondo tempo',
+  second_half_end: 'Fine secondo tempo',
+  extra_first_half_start: 'Inizio supplementari',
+  extra_half_time: 'Fine primo tempo supplementari',
+  extra_second_half_start: 'Inizio secondo tempo supplementari',
+  extra_second_half_end: 'Fine secondo tempo supplementari',
+  penalties_start: 'Rigori',
+  match_end: 'Fine partita',
+};
 
 function computeLiveScoreFromEvents(events) {
   let home = 0;
@@ -966,6 +984,9 @@ export default function MatchDetailScreen({ navigation, route }) {
   const [eventTeamSide, setEventTeamSide] = useState('home');
   const [eventMinute, setEventMinute] = useState('');
   const [eventPlayerName, setEventPlayerName] = useState('');
+  const [eventPlayerId, setEventPlayerId] = useState(null);
+  const [eventAssistPlayerName, setEventAssistPlayerName] = useState('');
+  const [eventAssistPlayerId, setEventAssistPlayerId] = useState(null);
   const [matchEndClock, setMatchEndClock] = useState('');
   const [timingOpen, setTimingOpen] = useState(false);
   const [editorModalTab, setEditorModalTab] = useState('events');
@@ -980,6 +1001,8 @@ export default function MatchDetailScreen({ navigation, route }) {
   /** Tab Classifica: fase finale pieghevole (gironi) / classifica pieghevole (semifinale-finale). */
   const [standingsKnockoutExpanded, setStandingsKnockoutExpanded] = useState(false);
   const [standingsTableFoldedOpen, setStandingsTableFoldedOpen] = useState(false);
+  const [editingLiveEventId, setEditingLiveEventId] = useState(null);
+  const [editingLiveEventDraft, setEditingLiveEventDraft] = useState(null);
 
   /** showLoading: solo al primo caricamento; refresh in background per focus/polling. */
   const loadDetail = useCallback(
@@ -1377,6 +1400,11 @@ export default function MatchDetailScreen({ navigation, route }) {
     setConfirmEndMatchOpen(false);
     setConfirmAdvancePhase(null);
     setEventMinuteDirty(false);
+    setEventPlayerId(null);
+    setEventAssistPlayerName('');
+    setEventAssistPlayerId(null);
+    setEditingLiveEventId(null);
+    setEditingLiveEventDraft(null);
   }, []);
 
   const submitEvent = async () => {
@@ -1390,11 +1418,81 @@ export default function MatchDetailScreen({ navigation, route }) {
       event_type: eventType,
       team_side: eventTeamSide,
       minute: minuteNum,
+      team_id: eventTeamSide === 'home' ? match.home_team_id : match.away_team_id,
+      player_id: eventPlayerId || null,
+      assist_player_id: eventType === 'goal' ? (eventAssistPlayerId || null) : null,
       player_name: eventPlayerName.trim() || null,
+      assist_player_name: eventType === 'goal' ? (eventAssistPlayerName.trim() || null) : null,
     });
     setEventPlayerName('');
+    setEventPlayerId(null);
+    setEventAssistPlayerName('');
+    setEventAssistPlayerId(null);
     await loadDetail({ showLoading: false });
     closeEventModal();
+  };
+
+  const draftFromLiveEvent = (ev) => {
+    const payload = ev?.payload || {};
+    const side = String(ev?.team_side || 'home').trim() || 'home';
+    const playerId = Number(ev?.player_id || payload.player_id || 0);
+    const assistId = Number(ev?.assist_player_id || payload.assist_player_id || 0);
+    return {
+      event_type: String(ev?.event_type || 'goal'),
+      team_side: side === 'away' ? 'away' : 'home',
+      minute: ev?.minute != null ? String(ev.minute) : '',
+      player_id: Number.isFinite(playerId) && playerId > 0 ? playerId : null,
+      player_name: String(payload.player_name || '').trim(),
+      assist_player_id: Number.isFinite(assistId) && assistId > 0 ? assistId : null,
+      assist_player_name: String(payload.assist_player_name || '').trim(),
+    };
+  };
+
+  const beginEditLiveEvent = (ev) => {
+    setEditingLiveEventId(Number(ev?.id) || null);
+    setEditingLiveEventDraft(draftFromLiveEvent(ev));
+  };
+
+  const saveEditedLiveEvent = async () => {
+    if (!editingLiveEventId || !editingLiveEventDraft) return;
+    const minuteNum = parseTimelineMinuteToInt(editingLiveEventDraft.minute);
+    if (!Number.isFinite(minuteNum) || minuteNum < 0) {
+      Alert.alert('Errore', 'Indica un minuto valido.');
+      return;
+    }
+    const side = editingLiveEventDraft.team_side === 'away' ? 'away' : 'home';
+    await adminMatchesService.updateEvent(match.id, editingLiveEventId, {
+      event_type: editingLiveEventDraft.event_type,
+      team_side: side,
+      team_id: side === 'home' ? match.home_team_id : match.away_team_id,
+      minute: minuteNum,
+      player_id: editingLiveEventDraft.player_id || null,
+      assist_player_id: editingLiveEventDraft.event_type === 'goal' ? (editingLiveEventDraft.assist_player_id || null) : null,
+      player_name: editingLiveEventDraft.player_name || null,
+      assist_player_name: editingLiveEventDraft.event_type === 'goal' ? (editingLiveEventDraft.assist_player_name || null) : null,
+    });
+    setEditingLiveEventId(null);
+    setEditingLiveEventDraft(null);
+    await loadDetail({ showLoading: false });
+  };
+
+  const deleteLiveEvent = (ev) => {
+    const label = LIVE_EVENT_TYPE_LABELS[ev?.event_type] || ev?.event_type || 'evento';
+    Alert.alert('Elimina evento', `Vuoi eliminare "${label}"?`, [
+      { text: 'Annulla', style: 'cancel' },
+      {
+        text: 'Elimina',
+        style: 'destructive',
+        onPress: async () => {
+          await adminMatchesService.deleteEvent(match.id, ev.id);
+          if (Number(editingLiveEventId) === Number(ev.id)) {
+            setEditingLiveEventId(null);
+            setEditingLiveEventDraft(null);
+          }
+          await loadDetail({ showLoading: false });
+        },
+      },
+    ]);
   };
 
   const submitPhaseEvent = async (phaseType) => {
@@ -1697,12 +1795,17 @@ export default function MatchDetailScreen({ navigation, route }) {
         {standings.map((r, i) => (
           <View key={`st-${i}`} style={styles.tableRow}>
             <Text style={[styles.td, { width: 38, textAlign: 'center' }]}>{r.position}</Text>
-            <View style={[styles.teamCell, { flex: 1 }]}>
+            <TouchableOpacity
+              style={[styles.teamCell, { flex: 1 }]}
+              activeOpacity={0.75}
+              disabled={!Number(r.team_id)}
+              onPress={() => openOfficialTeamDetail(r.team_id, r.team_name_display || r.team_name)}
+            >
               <TableTeamLogo logoUrl={r.team_logo_url} logoPath={r.team_logo_path} />
               <Text style={[styles.td, styles.tdTeamName]} numberOfLines={2}>
                 {r.team_name_display || r.team_name || '-'}
               </Text>
-            </View>
+            </TouchableOpacity>
             <Text style={[styles.td, { width: 40, textAlign: 'center' }]}>{r.played}</Text>
             <Text style={[styles.td, { width: 40, textAlign: 'center' }]}>{r.goal_diff}</Text>
             <Text style={[styles.td, { width: 40, textAlign: 'center' }]}>{r.points}</Text>
@@ -1710,7 +1813,7 @@ export default function MatchDetailScreen({ navigation, route }) {
         ))}
       </>
     ),
-    [standings]
+    [openOfficialTeamDetail, standings]
   );
 
   if (loading) {
@@ -2146,6 +2249,10 @@ export default function MatchDetailScreen({ navigation, route }) {
                   }
                   const layoutHome = ev.event_type === 'own_goal' ? ev.team_side === 'away' : ev.team_side === 'home';
                   const playerName = ev?.payload?.player_name || '-';
+                  const assistPlayerName =
+                    ev.event_type === 'goal' && ev?.payload?.assist_player_name
+                      ? String(ev.payload.assist_player_name).trim()
+                      : '';
                   const bonusType = LIVE_EVENT_BONUS_TYPES.has(ev.event_type) ? ev.event_type : null;
                   const iconEl = bonusType ? (
                     <BonusIcon type={bonusType} size={16} />
@@ -2157,9 +2264,16 @@ export default function MatchDetailScreen({ navigation, route }) {
                     <Text style={styles.eventMinute}>{formatStoredEventMinuteLabel(ev.minute, phaseCtx, match)}</Text>
                   );
                   const playerEl = (
-                    <Text style={[styles.eventPlayer, layoutHome ? styles.eventPlayerHome : styles.eventPlayerAway]} numberOfLines={2}>
-                      {playerName}
-                    </Text>
+                    <View style={[styles.eventPlayerBlock, layoutHome ? styles.eventPlayerHome : styles.eventPlayerAway]}>
+                      <Text style={[styles.eventPlayer, layoutHome ? styles.eventPlayerHome : styles.eventPlayerAway]} numberOfLines={1}>
+                        {playerName}
+                      </Text>
+                      {assistPlayerName ? (
+                        <Text style={[styles.eventAssist, layoutHome ? styles.eventPlayerHome : styles.eventPlayerAway]} numberOfLines={1}>
+                          Assist: {assistPlayerName}
+                        </Text>
+                      ) : null}
+                    </View>
                   );
                   return (
                     <View key={`ev-${ev.id}`} style={[styles.eventRow, layoutHome ? styles.eventLeft : styles.eventRight]}>
@@ -2301,7 +2415,7 @@ export default function MatchDetailScreen({ navigation, route }) {
                     style={[styles.editorTabBtn, editorModalTab === 'events' && styles.editorTabBtnActive]}
                     onPress={() => setEditorModalTab('events')}
                   >
-                    <Text style={[styles.editorTabBtnText, editorModalTab === 'events' && styles.editorTabBtnTextActive]}>Eventi partita</Text>
+                    <Text style={[styles.editorTabBtnText, editorModalTab === 'events' && styles.editorTabBtnTextActive]}>Eventi</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={[styles.editorTabBtn, editorModalTab === 'phases' && styles.editorTabBtnActive]}
@@ -2311,6 +2425,12 @@ export default function MatchDetailScreen({ navigation, route }) {
                     }}
                   >
                     <Text style={[styles.editorTabBtnText, editorModalTab === 'phases' && styles.editorTabBtnTextActive]}>Fasi di gioco</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.editorTabBtn, editorModalTab === 'editEvents' && styles.editorTabBtnActive]}
+                    onPress={() => setEditorModalTab('editEvents')}
+                  >
+                    <Text style={[styles.editorTabBtnText, editorModalTab === 'editEvents' && styles.editorTabBtnTextActive]}>Modifica eventi</Text>
                   </TouchableOpacity>
                 </View>
                 <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
@@ -2449,6 +2569,160 @@ export default function MatchDetailScreen({ navigation, route }) {
                         </>
                       ) : null}
                     </>
+                  ) : editorModalTab === 'editEvents' ? (
+                    <>
+                      <Text style={styles.phaseHint}>Tocca “Modifica” per eventi partita. Le fasi di gioco si possono solo eliminare.</Text>
+                      {liveEventsTimelineSorted.length === 0 ? (
+                        <Text style={styles.phaseDoneHint}>Nessun evento registrato.</Text>
+                      ) : (
+                        liveEventsTimelineSorted.map((ev) => {
+                          const editable = EDITABLE_LIVE_EVENT_TYPES.has(ev.event_type);
+                          const isEditing = Number(editingLiveEventId) === Number(ev.id);
+                          const label = LIVE_EVENT_TYPE_LABELS[ev.event_type] || ev.event_type;
+                          const name = ev?.payload?.player_name ? ` - ${ev.payload.player_name}` : '';
+                          return (
+                            <View key={`edit-ev-${ev.id}`} style={styles.liveEditEventCard}>
+                              <View style={styles.liveEditEventHeader}>
+                                <View style={styles.liveEditEventInfo}>
+                                  <Text style={styles.liveEditEventTitle}>{label}{name}</Text>
+                                  <Text style={styles.liveEditEventMeta}>
+                                    {ev.minute != null ? `${formatStoredEventMinuteLabel(ev.minute, phaseContextForTimelineEvent(ev, match), match)} · ` : ''}
+                                    {ev.team_side === 'home' ? match.home_team_name : ev.team_side === 'away' ? match.away_team_name : 'Fase'}
+                                  </Text>
+                                </View>
+                                <View style={styles.liveEditEventActions}>
+                                  {editable ? (
+                                    <TouchableOpacity style={styles.liveEditEventActionBtn} onPress={() => beginEditLiveEvent(ev)}>
+                                      <Text style={styles.liveEditEventActionText}>Modifica</Text>
+                                    </TouchableOpacity>
+                                  ) : null}
+                                  <TouchableOpacity style={[styles.liveEditEventActionBtn, styles.liveEditEventDeleteBtn]} onPress={() => deleteLiveEvent(ev)}>
+                                    <Text style={[styles.liveEditEventActionText, styles.liveEditEventDeleteText]}>Elimina</Text>
+                                  </TouchableOpacity>
+                                </View>
+                              </View>
+                              {isEditing && editingLiveEventDraft ? (
+                                <View style={styles.liveEditForm}>
+                                  <Text style={styles.editorLabel}>Tipo evento</Text>
+                                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                                    <View style={styles.rowChips}>
+                                      {[
+                                        { id: 'goal', label: 'Goal' },
+                                        { id: 'own_goal', label: 'Autogol' },
+                                        { id: 'yellow_card', label: 'Giallo' },
+                                        { id: 'red_card', label: 'Rosso' },
+                                        { id: 'penalty_missed', label: 'Rigore sbagliato' },
+                                      ].map((et) => (
+                                        <TouchableOpacity
+                                          key={`edit-type-${et.id}`}
+                                          style={[styles.chip, editingLiveEventDraft.event_type === et.id && styles.chipActive]}
+                                          onPress={() =>
+                                            setEditingLiveEventDraft((d) => ({
+                                              ...d,
+                                              event_type: et.id,
+                                              ...(et.id !== 'goal' ? { assist_player_id: null, assist_player_name: '' } : null),
+                                            }))
+                                          }
+                                        >
+                                          <Text style={[styles.chipText, editingLiveEventDraft.event_type === et.id && styles.chipTextActive]}>{et.label}</Text>
+                                        </TouchableOpacity>
+                                      ))}
+                                    </View>
+                                  </ScrollView>
+
+                                  <Text style={styles.editorLabel}>Squadra</Text>
+                                  <View style={styles.rowChips}>
+                                    {[
+                                      { id: 'home', label: match.home_team_name },
+                                      { id: 'away', label: match.away_team_name },
+                                    ].map((side) => (
+                                      <TouchableOpacity
+                                        key={`edit-side-${side.id}`}
+                                        style={[styles.chip, editingLiveEventDraft.team_side === side.id && styles.chipActive]}
+                                        onPress={() =>
+                                          setEditingLiveEventDraft((d) => ({
+                                            ...d,
+                                            team_side: side.id,
+                                            player_id: null,
+                                            player_name: '',
+                                            assist_player_id: null,
+                                            assist_player_name: '',
+                                          }))
+                                        }
+                                      >
+                                        <Text style={[styles.chipText, editingLiveEventDraft.team_side === side.id && styles.chipTextActive]}>{side.label}</Text>
+                                      </TouchableOpacity>
+                                    ))}
+                                  </View>
+
+                                  <Text style={styles.editorLabel}>Minuto</Text>
+                                  <TextInput
+                                    style={styles.input}
+                                    keyboardType="number-pad"
+                                    maxLength={3}
+                                    value={editingLiveEventDraft.minute}
+                                    onChangeText={(t) => setEditingLiveEventDraft((d) => ({ ...d, minute: t.replace(/\D/g, '').slice(0, 3) }))}
+                                  />
+
+                                  <Text style={styles.editorLabel}>Giocatore</Text>
+                                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                                    <View style={styles.rowChips}>
+                                      {(teamPlayers[editingLiveEventDraft.team_side] || []).map((p) => (
+                                        <TouchableOpacity
+                                          key={`edit-player-${p.id || p.order}`}
+                                          style={[styles.chip, Number(editingLiveEventDraft.player_id) === Number(p.id) && styles.chipActive]}
+                                          onPress={() => setEditingLiveEventDraft((d) => ({ ...d, player_id: Number(p.id) || null, player_name: p.name }))}
+                                        >
+                                          <Text style={[styles.chipText, Number(editingLiveEventDraft.player_id) === Number(p.id) && styles.chipTextActive]}>
+                                            #{p.shirt_number ?? '-'} {p.name}
+                                          </Text>
+                                        </TouchableOpacity>
+                                      ))}
+                                    </View>
+                                  </ScrollView>
+
+                                  {editingLiveEventDraft.event_type === 'goal' ? (
+                                    <>
+                                      <Text style={styles.editorLabel}>Assist</Text>
+                                      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                                        <View style={styles.rowChips}>
+                                          <TouchableOpacity
+                                            style={[styles.chip, !editingLiveEventDraft.assist_player_id && styles.chipActive]}
+                                            onPress={() => setEditingLiveEventDraft((d) => ({ ...d, assist_player_id: null, assist_player_name: '' }))}
+                                          >
+                                            <Text style={[styles.chipText, !editingLiveEventDraft.assist_player_id && styles.chipTextActive]}>Nessuno</Text>
+                                          </TouchableOpacity>
+                                          {(teamPlayers[editingLiveEventDraft.team_side] || []).map((p) => (
+                                            <TouchableOpacity
+                                              key={`edit-assist-${p.id || p.order}`}
+                                              style={[styles.chip, Number(editingLiveEventDraft.assist_player_id) === Number(p.id) && styles.chipActive]}
+                                              onPress={() => setEditingLiveEventDraft((d) => ({ ...d, assist_player_id: Number(p.id) || null, assist_player_name: p.name }))}
+                                            >
+                                              <Text style={[styles.chipText, Number(editingLiveEventDraft.assist_player_id) === Number(p.id) && styles.chipTextActive]}>
+                                                #{p.shirt_number ?? '-'} {p.name}
+                                              </Text>
+                                            </TouchableOpacity>
+                                          ))}
+                                        </View>
+                                      </ScrollView>
+                                    </>
+                                  ) : null}
+
+                                  <View style={styles.liveEditFormActions}>
+                                    <TouchableOpacity style={styles.secondaryBtnLite} onPress={() => { setEditingLiveEventId(null); setEditingLiveEventDraft(null); }}>
+                                      <Text style={styles.secondaryBtnLiteText}>Annulla</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity style={styles.primaryBtnInline} onPress={saveEditedLiveEvent}>
+                                      <Text style={styles.primaryBtnText}>Salva</Text>
+                                    </TouchableOpacity>
+                                  </View>
+                                </View>
+                              ) : null}
+                            </View>
+                          );
+                        })
+                      )}
+                    </>
                   ) : (
                     <>
                       <Text style={styles.editorLabel}>Tipo evento</Text>
@@ -2469,7 +2743,13 @@ export default function MatchDetailScreen({ navigation, route }) {
                           <TouchableOpacity
                             key={et.id}
                             style={[styles.chip, eventType === et.id && styles.chipActive]}
-                            onPress={() => setEventType(et.id)}
+                            onPress={() => {
+                              setEventType(et.id);
+                              if (et.id !== 'goal') {
+                                setEventAssistPlayerName('');
+                                setEventAssistPlayerId(null);
+                              }
+                            }}
                           >
                             <Text style={[styles.chipText, eventType === et.id && styles.chipTextActive]}>{et.label}</Text>
                           </TouchableOpacity>
@@ -2477,10 +2757,10 @@ export default function MatchDetailScreen({ navigation, route }) {
                       </ScrollView>
                       <Text style={styles.editorLabel}>Squadra (autogol: chi lo commette)</Text>
                       <View style={styles.rowChips}>
-                        <TouchableOpacity style={[styles.chip, eventTeamSide === 'home' && styles.chipActive]} onPress={() => { setEventTeamSide('home'); setEventPlayerName(''); }}>
+                        <TouchableOpacity style={[styles.chip, eventTeamSide === 'home' && styles.chipActive]} onPress={() => { setEventTeamSide('home'); setEventPlayerName(''); setEventPlayerId(null); setEventAssistPlayerName(''); setEventAssistPlayerId(null); }}>
                           <Text style={[styles.chipText, eventTeamSide === 'home' && styles.chipTextActive]}>{match.home_team_name}</Text>
                         </TouchableOpacity>
-                        <TouchableOpacity style={[styles.chip, eventTeamSide === 'away' && styles.chipActive]} onPress={() => { setEventTeamSide('away'); setEventPlayerName(''); }}>
+                        <TouchableOpacity style={[styles.chip, eventTeamSide === 'away' && styles.chipActive]} onPress={() => { setEventTeamSide('away'); setEventPlayerName(''); setEventPlayerId(null); setEventAssistPlayerName(''); setEventAssistPlayerId(null); }}>
                           <Text style={[styles.chipText, eventTeamSide === 'away' && styles.chipTextActive]}>{match.away_team_name}</Text>
                         </TouchableOpacity>
                       </View>
@@ -2501,12 +2781,51 @@ export default function MatchDetailScreen({ navigation, route }) {
                       <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                         <View style={styles.rowChips}>
                           {(teamPlayers[eventTeamSide] || []).map((p) => (
-                            <TouchableOpacity key={`${eventTeamSide}-p-${p.order}-${p.name}`} style={[styles.chip, eventPlayerName === p.name && styles.chipActive]} onPress={() => setEventPlayerName(p.name)}>
-                              <Text style={[styles.chipText, eventPlayerName === p.name && styles.chipTextActive]}>#{p.shirt_number ?? '-'} {p.name}</Text>
+                            <TouchableOpacity
+                              key={`${eventTeamSide}-p-${p.id || p.order}-${p.name}`}
+                              style={[styles.chip, Number(eventPlayerId) === Number(p.id) && styles.chipActive]}
+                              onPress={() => {
+                                setEventPlayerName(p.name);
+                                setEventPlayerId(Number(p.id) || null);
+                              }}
+                            >
+                              <Text style={[styles.chipText, Number(eventPlayerId) === Number(p.id) && styles.chipTextActive]}>#{p.shirt_number ?? '-'} {p.name}</Text>
                             </TouchableOpacity>
                           ))}
                         </View>
                       </ScrollView>
+                      {eventType === 'goal' ? (
+                        <>
+                          <Text style={styles.editorLabel}>Assist (opzionale)</Text>
+                          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                            <View style={styles.rowChips}>
+                              <TouchableOpacity
+                                style={[styles.chip, eventAssistPlayerName === '' && styles.chipActive]}
+                                onPress={() => {
+                                  setEventAssistPlayerName('');
+                                  setEventAssistPlayerId(null);
+                                }}
+                              >
+                                <Text style={[styles.chipText, eventAssistPlayerName === '' && styles.chipTextActive]}>Nessuno</Text>
+                              </TouchableOpacity>
+                              {(teamPlayers[eventTeamSide] || []).map((p) => (
+                                <TouchableOpacity
+                                  key={`${eventTeamSide}-assist-${p.order}-${p.name}`}
+                                  style={[styles.chip, Number(eventAssistPlayerId) === Number(p.id) && styles.chipActive]}
+                                  onPress={() => {
+                                    setEventAssistPlayerName(p.name);
+                                    setEventAssistPlayerId(Number(p.id) || null);
+                                  }}
+                                >
+                                  <Text style={[styles.chipText, Number(eventAssistPlayerId) === Number(p.id) && styles.chipTextActive]}>
+                                    #{p.shirt_number ?? '-'} {p.name}
+                                  </Text>
+                                </TouchableOpacity>
+                              ))}
+                            </View>
+                          </ScrollView>
+                        </>
+                      ) : null}
                       <TouchableOpacity style={styles.primaryBtn} onPress={submitEvent}>
                         <Text style={styles.primaryBtnText}>Inserisci evento</Text>
                       </TouchableOpacity>
@@ -2963,7 +3282,29 @@ const styles = StyleSheet.create({
   chipText: { color: '#333', fontSize: 12, fontWeight: '600' },
   chipTextActive: { color: '#fff' },
   primaryBtn: { backgroundColor: '#667eea', borderRadius: 8, alignItems: 'center', paddingVertical: 10, marginTop: 10 },
+  primaryBtnInline: { flex: 1, backgroundColor: '#667eea', borderRadius: 8, alignItems: 'center', paddingVertical: 10 },
   primaryBtnText: { color: '#fff', fontWeight: '700' },
+  secondaryBtnLite: { flex: 1, backgroundColor: '#f3f4f6', borderRadius: 8, alignItems: 'center', paddingVertical: 10 },
+  secondaryBtnLiteText: { color: '#374151', fontWeight: '700' },
+  liveEditEventCard: {
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 12,
+    backgroundColor: '#fafafa',
+    padding: 10,
+    marginBottom: 10,
+  },
+  liveEditEventHeader: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  liveEditEventInfo: { flex: 1, minWidth: 0 },
+  liveEditEventTitle: { color: '#111827', fontSize: 13, fontWeight: '800' },
+  liveEditEventMeta: { color: '#6b7280', fontSize: 11, marginTop: 2 },
+  liveEditEventActions: { flexDirection: 'row', gap: 6 },
+  liveEditEventActionBtn: { borderRadius: 8, backgroundColor: '#eef2ff', paddingHorizontal: 8, paddingVertical: 6 },
+  liveEditEventActionText: { color: '#4f46e5', fontSize: 11, fontWeight: '800' },
+  liveEditEventDeleteBtn: { backgroundColor: '#fee2e2' },
+  liveEditEventDeleteText: { color: '#b91c1c' },
+  liveEditForm: { marginTop: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#e5e7eb', paddingTop: 8 },
+  liveEditFormActions: { flexDirection: 'row', gap: 8, marginTop: 10 },
   liveFab: {
     position: 'absolute',
     zIndex: 20,
@@ -3024,10 +3365,11 @@ const styles = StyleSheet.create({
   eventModalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, paddingTop: 4 },
   eventModalTitle: { fontSize: 18, fontWeight: '800', color: '#222' },
   eventModalClose: { padding: 4 },
-  editorTabRow: { flexDirection: 'row', gap: 8, marginBottom: 12 },
+  editorTabRow: { flexDirection: 'row', gap: 5, marginBottom: 12 },
   editorTabBtn: {
     flex: 1,
-    paddingVertical: 10,
+    paddingVertical: 9,
+    paddingHorizontal: 3,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: '#ddd',
@@ -3035,7 +3377,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   editorTabBtnActive: { backgroundColor: '#667eea', borderColor: '#667eea' },
-  editorTabBtnText: { fontSize: 14, fontWeight: '700', color: '#374151' },
+  editorTabBtnText: { fontSize: 12, fontWeight: '700', color: '#374151', textAlign: 'center' },
   editorTabBtnTextActive: { color: '#fff' },
   phaseHint: { fontSize: 13, color: '#4b5563', lineHeight: 19, marginBottom: 12 },
   phaseDoneHint: { fontSize: 13, color: '#6b7280', lineHeight: 19, marginBottom: 14, fontStyle: 'italic' },
@@ -3084,7 +3426,9 @@ const styles = StyleSheet.create({
   eventLeft: { alignSelf: 'flex-start' },
   eventRight: { alignSelf: 'flex-end' },
   eventMinute: { fontWeight: '700', color: '#333' },
+  eventPlayerBlock: { flexShrink: 1, minWidth: 0 },
   eventPlayer: { color: '#333', flexShrink: 1 },
+  eventAssist: { color: '#555', fontSize: 10, marginTop: 1, flexShrink: 1 },
   eventPlayerHome: { textAlign: 'left' },
   eventPlayerAway: { textAlign: 'right' },
   matchEndBanner: { flexDirection: 'row', alignItems: 'center', alignSelf: 'stretch', width: '100%', marginVertical: 8, paddingVertical: 4 },
