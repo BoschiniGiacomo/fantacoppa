@@ -2834,12 +2834,26 @@ router.get('/admin/match-details', authenticateToken, requireSuperuserLevels([1]
 
 router.post('/admin/match-details/venues', authenticateToken, requireSuperuserLevels([1]), async (req, res) => {
   try {
+    const userId = Number(req.user?.userId);
     const name = String(req.body?.name || '').trim();
     if (!name) return res.status(400).json({ message: 'name mancante' });
-    const rows = await query(`INSERT INTO official_match_venues (name) VALUES (?) RETURNING id`, [name]);
+    let rows;
+    try {
+      rows = await query(
+        `INSERT INTO official_match_venues (name, created_by, created_at) VALUES (?, ?, NOW()) RETURNING id`,
+        [name, userId]
+      );
+    } catch (err2) {
+      if (err2 && err2.code === '42703' && /created_by/i.test(String(err2.message || ''))) {
+        rows = await query(`INSERT INTO official_match_venues (name, created_at) VALUES (?, NOW()) RETURNING id`, [name]);
+      } else {
+        throw err2;
+      }
+    }
     return res.json({ ok: true, id: rows[0]?.id });
   } catch (err) {
     if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
+    if (err?.code === '23505') return res.status(409).json({ message: 'Luogo già presente' });
     return res.status(500).json({ message: 'Errore creazione venue', error: err.message });
   }
 });
@@ -2861,10 +2875,13 @@ router.post('/admin/match-details/referees', authenticateToken, requireSuperuser
     if (!name) return res.status(400).json({ message: 'name mancante' });
     let rows;
     try {
-      rows = await query(`INSERT INTO official_match_referees (name, created_by) VALUES (?, ?) RETURNING id`, [name, userId]);
+      rows = await query(
+        `INSERT INTO official_match_referees (name, created_by, created_at) VALUES (?, ?, NOW()) RETURNING id`,
+        [name, userId]
+      );
     } catch (err2) {
       if (err2 && err2.code === '42703' && /created_by/i.test(String(err2.message || ''))) {
-        rows = await query(`INSERT INTO official_match_referees (name) VALUES (?) RETURNING id`, [name]);
+        rows = await query(`INSERT INTO official_match_referees (name, created_at) VALUES (?, NOW()) RETURNING id`, [name]);
       } else {
         throw err2;
       }
@@ -2898,19 +2915,38 @@ router.post('/admin/match-details/stages', authenticateToken, requireSuperuserLe
     const dExtra2 = safeInt(req.body?.default_extra_second_half_minutes, 15);
     const dPens = Number(req.body?.default_penalties_enabled) ? 1 : 0;
 
-    const rows = await query(
-      `
-      INSERT INTO official_match_stages
-        (name, created_by, default_regulation_half_minutes, default_extra_time_enabled, default_extra_first_half_minutes, default_extra_second_half_minutes, default_penalties_enabled)
-      VALUES
-        (?, ?, ?, ?, ?, ?, ?)
-      RETURNING id
-      `,
-      [name, userId, dHalf, dExtraEnabled, dExtra1, dExtra2, dPens]
-    );
+    let rows;
+    try {
+      rows = await query(
+        `
+        INSERT INTO official_match_stages
+          (name, created_by, created_at, default_regulation_half_minutes, default_extra_time_enabled, default_extra_first_half_minutes, default_extra_second_half_minutes, default_penalties_enabled)
+        VALUES
+          (?, ?, NOW(), ?, ?, ?, ?, ?)
+        RETURNING id
+        `,
+        [name, userId, dHalf, dExtraEnabled, dExtra1, dExtra2, dPens]
+      );
+    } catch (err2) {
+      if (err2 && err2.code === '42703' && /created_by/i.test(String(err2.message || ''))) {
+        rows = await query(
+          `
+          INSERT INTO official_match_stages
+            (name, created_at, default_regulation_half_minutes, default_extra_time_enabled, default_extra_first_half_minutes, default_extra_second_half_minutes, default_penalties_enabled)
+          VALUES
+            (?, NOW(), ?, ?, ?, ?, ?)
+          RETURNING id
+          `,
+          [name, dHalf, dExtraEnabled, dExtra1, dExtra2, dPens]
+        );
+      } else {
+        throw err2;
+      }
+    }
     return res.json({ ok: true, id: rows[0]?.id });
   } catch (err) {
     if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
+    if (err?.code === '23505') return res.status(409).json({ message: 'Tipologia giornata già presente' });
     return res.status(500).json({ message: 'Errore creazione stage', error: err.message });
   }
 });
