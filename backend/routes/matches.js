@@ -47,6 +47,29 @@ async function ensureUnavailablePlayersTable() {
   unavailablePlayersTableReady = true;
 }
 
+let standingsTieOrderTableReady = false;
+async function ensureStandingsTieOrderTable() {
+  if (standingsTieOrderTableReady) return;
+  await query(
+    `CREATE TABLE IF NOT EXISTS official_standings_tie_orders (
+       id BIGSERIAL PRIMARY KEY,
+       competition_id INTEGER NOT NULL,
+       league_id INTEGER NOT NULL REFERENCES leagues(id) ON DELETE CASCADE,
+       points INTEGER NOT NULL,
+       ordered_team_ids JSONB NOT NULL,
+       created_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+       UNIQUE (competition_id, league_id, points)
+     )`
+  );
+  await query(
+    `CREATE INDEX IF NOT EXISTS idx_official_standings_tie_orders_scope
+     ON official_standings_tie_orders (competition_id, league_id, points)`
+  );
+  standingsTieOrderTableReady = true;
+}
+
 async function resolveMatchStageInput(matchStageIdRaw) {
   const stageIdInput = Number(matchStageIdRaw);
   let stageId = Number.isFinite(stageIdInput) && stageIdInput > 0 ? Math.trunc(stageIdInput) : null;
@@ -500,6 +523,8 @@ function buildEventTitleForDb(eventType, teamSide, payload) {
   if (eventType === 'yellow_card') return pn ? `Ammonizione - ${pn}` : 'Ammonizione';
   if (eventType === 'red_card') return pn ? `Espulsione - ${pn}` : 'Espulsione';
   if (eventType === 'penalty_missed') return pn ? `Rigore sbagliato - ${pn}` : 'Rigore sbagliato';
+  if (eventType === 'shootout_goal') return pn ? `Rigore segnato - ${pn}` : 'Rigore segnato';
+  if (eventType === 'shootout_missed') return pn ? `Rigore no goal - ${pn}` : 'Rigore no goal';
   if (eventType === 'match_start') return 'Inizio partita';
   if (eventType === 'match_end') return 'Fine partita';
   if (eventType === 'half_time') return 'Fine primo tempo';
@@ -599,6 +624,33 @@ async function getTeamPlayersLineup(teamId) {
     .filter(Boolean);
 }
 
+async function getManualTieOrderMap({ leagueId, groupId }) {
+  try {
+    await ensureStandingsTieOrderTable();
+    const rows = await query(
+      `
+      SELECT points, ordered_team_ids
+      FROM official_standings_tie_orders
+      WHERE competition_id = ? AND league_id = ?
+      `,
+      [Number(groupId), Number(leagueId)]
+    );
+    const out = new Map();
+    for (const r of rows || []) {
+      const points = Number(r.points);
+      const raw = safeJsonParse(r.ordered_team_ids) || r.ordered_team_ids;
+      const ids = Array.isArray(raw)
+        ? raw.map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0)
+        : [];
+      if (Number.isFinite(points) && ids.length > 1) out.set(points, ids);
+    }
+    return out;
+  } catch (err) {
+    if (isMissingDbObjectError(err)) return new Map();
+    throw err;
+  }
+}
+
 async function computeStandingsFromMatches({ leagueId, groupId }) {
   const teams = await query(
     `
@@ -686,6 +738,7 @@ async function computeStandingsFromMatches({ leagueId, groupId }) {
     return { home: h, away: a, has: evs.length > 0 };
   };
 
+  const playedMatches = [];
   for (const m of Array.isArray(matches) ? matches : []) {
     const homeId = Number(m.home_team_id);
     const awayId = Number(m.away_team_id);
@@ -695,6 +748,7 @@ async function computeStandingsFromMatches({ leagueId, groupId }) {
     const hs = evScore.has ? evScore.home : (m.home_score != null ? Number(m.home_score) : null);
     const as = evScore.has ? evScore.away : (m.away_score != null ? Number(m.away_score) : null);
     if (hs == null || as == null) continue; // non giocata/risultato non disponibile
+    playedMatches.push({ homeId, awayId, hs, as });
 
     const home = table.get(homeId);
     const away = table.get(awayId);
@@ -714,8 +768,48 @@ async function computeStandingsFromMatches({ leagueId, groupId }) {
   }
 
   const rows = Array.from(table.values()).map((r) => ({ ...r, goal_diff: r.gf - r.ga }));
+  const manualTieOrderMap = await getManualTieOrderMap({ leagueId, groupId });
+  const manualTieCompare = (a, b) => {
+    if (a.points !== b.points) return null;
+    const order = manualTieOrderMap.get(Number(a.points));
+    if (!Array.isArray(order) || order.length < 2) return null;
+    const ai = order.indexOf(Number(a.team_id));
+    const bi = order.indexOf(Number(b.team_id));
+    if (ai >= 0 && bi >= 0 && ai !== bi) return ai - bi;
+    if (ai >= 0 && bi < 0) return -1;
+    if (ai < 0 && bi >= 0) return 1;
+    return null;
+  };
+  const headToHeadCompare = (a, b) => {
+    if (a.points !== b.points) return null;
+    const aId = Number(a.team_id);
+    const bId = Number(b.team_id);
+    let aGoals = 0;
+    let bGoals = 0;
+    let found = false;
+    for (const m of playedMatches) {
+      const direct =
+        (m.homeId === aId && m.awayId === bId) ||
+        (m.homeId === bId && m.awayId === aId);
+      if (!direct) continue;
+      found = true;
+      if (m.homeId === aId) {
+        aGoals += Number(m.hs);
+        bGoals += Number(m.as);
+      } else {
+        aGoals += Number(m.as);
+        bGoals += Number(m.hs);
+      }
+    }
+    if (!found || aGoals === bGoals) return null;
+    return aGoals > bGoals ? -1 : 1;
+  };
   rows.sort((a, b) => {
     if (b.points !== a.points) return b.points - a.points;
+    const manual = manualTieCompare(a, b);
+    if (manual != null) return manual;
+    const h2h = headToHeadCompare(a, b);
+    if (h2h != null) return h2h;
     if (b.goal_diff !== a.goal_diff) return b.goal_diff - a.goal_diff;
     if (b.gf !== a.gf) return b.gf - a.gf;
     return String(a.team_name).localeCompare(String(b.team_name), 'it');
@@ -729,6 +823,7 @@ async function computeStandingsFromMatches({ leagueId, groupId }) {
       team_id: Number(r.team_id),
       team_name: r.team_name,
       played: Number(r.played),
+      gf: Number(r.gf),
       goal_diff: Number(r.goal_diff),
       points: Number(r.points),
       team_logo_path: lp,
@@ -2921,12 +3016,98 @@ router.delete('/admin/matches/:matchId', authenticateToken, requireSuperuserLeve
   }
 });
 
-// Standings ties endpoints (placeholder compatibile UI)
-router.get('/admin/matches/standings/ties', authenticateToken, requireSuperuserLevels([1]), async (_req, res) => {
-  return res.json({ ties: [] });
+// Standings ties: ordini manuali admin per parimerito.
+router.get('/admin/matches/standings/ties', authenticateToken, requireSuperuserLevels([1]), async (req, res) => {
+  try {
+    const competitionId = Number(req.query?.competition_id);
+    if (!Number.isFinite(competitionId) || competitionId <= 0) return res.json({ ties: [] });
+
+    await ensureStandingsTieOrderTable();
+    const leagues = await query(
+      `
+      SELECT id, name
+      FROM leagues
+      WHERE official_group_id = ?
+        AND COALESCE(is_official, 0) = 1
+      ORDER BY NULLIF(to_jsonb(leagues)->>'reference_year','')::int DESC NULLS LAST, id DESC
+      `,
+      [competitionId]
+    );
+
+    const ties = [];
+    for (const l of leagues || []) {
+      const leagueId = Number(l.id);
+      if (!Number.isFinite(leagueId) || leagueId <= 0) continue;
+      const standings = await computeStandingsFromMatches({ leagueId, groupId: competitionId });
+      const byPoints = new Map();
+      for (const row of standings || []) {
+        const pts = Number(row.points);
+        if (!Number.isFinite(pts)) continue;
+        if (!byPoints.has(pts)) byPoints.set(pts, []);
+        byPoints.get(pts).push(row);
+      }
+      for (const [points, teams] of byPoints.entries()) {
+        if (!Array.isArray(teams) || teams.length < 2) continue;
+        ties.push({
+          league_id: leagueId,
+          league_name: l.name || `Lega ${leagueId}`,
+          points,
+          teams: teams.map((t) => ({
+            team_id: Number(t.team_id),
+            team_name: t.team_name,
+            goal_diff: Number(t.goal_diff),
+            goals_for: Number(t.gf || 0),
+            points: Number(t.points),
+          })),
+        });
+      }
+    }
+    return res.json({ ties });
+  } catch (err) {
+    if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
+    return res.status(500).json({ message: 'Errore caricamento parimerito', error: err.message });
+  }
 });
-router.post('/admin/matches/standings/ties/resolve', authenticateToken, requireSuperuserLevels([1]), async (_req, res) => {
-  return res.json({ ok: true });
+router.post('/admin/matches/standings/ties/resolve', authenticateToken, requireSuperuserLevels([1]), async (req, res) => {
+  try {
+    const userId = Number(req.user?.userId);
+    const leagueId = Number(req.body?.league_id);
+    const points = Number(req.body?.points);
+    const orderedTeamIds = Array.isArray(req.body?.ordered_team_ids)
+      ? req.body.ordered_team_ids.map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0)
+      : [];
+    if (!Number.isFinite(leagueId) || leagueId <= 0 || !Number.isFinite(points) || orderedTeamIds.length < 2) {
+      return res.status(400).json({ message: 'Ordine parimerito non valido' });
+    }
+
+    const leagueRows = await query(
+      `SELECT official_group_id FROM leagues WHERE id = ? LIMIT 1`,
+      [leagueId]
+    );
+    const competitionId = Number(req.body?.competition_id || leagueRows[0]?.official_group_id);
+    if (!Number.isFinite(competitionId) || competitionId <= 0) {
+      return res.status(400).json({ message: 'Competizione non valida' });
+    }
+
+    await ensureStandingsTieOrderTable();
+    await query(
+      `
+      INSERT INTO official_standings_tie_orders
+        (competition_id, league_id, points, ordered_team_ids, created_by, created_at, updated_at)
+      VALUES
+        (?, ?, ?, ?::jsonb, ?, NOW(), NOW())
+      ON CONFLICT (competition_id, league_id, points)
+      DO UPDATE SET
+        ordered_team_ids = EXCLUDED.ordered_team_ids,
+        updated_at = NOW()
+      `,
+      [competitionId, leagueId, Math.trunc(points), JSON.stringify(orderedTeamIds), userId || null]
+    );
+    return res.json({ ok: true });
+  } catch (err) {
+    if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
+    return res.status(500).json({ message: 'Errore salvataggio ordine parimerito', error: err.message });
+  }
 });
 
 // Match details options: venues/referees/stages

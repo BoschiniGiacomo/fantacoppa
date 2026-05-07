@@ -354,7 +354,7 @@ function stoppagePeriodEndsForMatch(match) {
   const et1 = extraFirstHalfMinutes(match);
   const et2 = extraSecondHalfMinutes(match);
   const ends = [H, 2 * H];
-  if (Number(match?.extra_time_enabled) === 1) {
+  if (isEnabledFlag(match?.extra_time_enabled)) {
     if (et1 > 0) ends.push(2 * H + et1);
     if (et2 > 0) ends.push(2 * H + et1 + et2);
   }
@@ -374,6 +374,57 @@ function eventStoppagePeriodEnd(ev, match) {
   return stoppagePeriodEndsForMatch(match).includes(payloadEnd) && minute > payloadEnd && minute <= payloadEnd + 10
     ? payloadEnd
     : null;
+}
+
+function isStoppageEditableEventType(eventType) {
+  return ['goal', 'own_goal', 'yellow_card', 'red_card', 'penalty_missed'].includes(eventType);
+}
+
+function isShootoutEventType(eventType) {
+  return eventType === 'shootout_goal' || eventType === 'shootout_missed';
+}
+
+function computeShootoutScoreThroughEvent(events, targetEv) {
+  const score = { home: 0, away: 0 };
+  if (!Array.isArray(events) || !targetEv) return score;
+  const targetId = Number(targetEv.id);
+  const shootoutEvents = events
+    .filter((ev) => ev && isShootoutEventType(ev.event_type))
+    .sort((a, b) => (Number(a.id) || 0) - (Number(b.id) || 0));
+  for (const ev of shootoutEvents) {
+    if (ev.event_type === 'shootout_goal') {
+      if (ev.team_side === 'home') score.home += 1;
+      if (ev.team_side === 'away') score.away += 1;
+    }
+    if (Number(ev.id) === targetId) break;
+  }
+  return score;
+}
+
+function computeShootoutState(events) {
+  const state = { homeGoals: 0, awayGoals: 0, homeTaken: 0, awayTaken: 0 };
+  if (!Array.isArray(events)) return state;
+  for (const ev of events) {
+    if (!ev || !isShootoutEventType(ev.event_type)) continue;
+    if (ev.team_side === 'home') {
+      state.homeTaken += 1;
+      if (ev.event_type === 'shootout_goal') state.homeGoals += 1;
+    } else if (ev.team_side === 'away') {
+      state.awayTaken += 1;
+      if (ev.event_type === 'shootout_goal') state.awayGoals += 1;
+    }
+  }
+  return state;
+}
+
+function shootoutCanEnd(events) {
+  const s = computeShootoutState(events);
+  const maxRegularKicks = 5;
+  const homeRemaining = Math.max(0, maxRegularKicks - s.homeTaken);
+  const awayRemaining = Math.max(0, maxRegularKicks - s.awayTaken);
+  if (s.homeGoals > s.awayGoals + awayRemaining) return true;
+  if (s.awayGoals > s.homeGoals + homeRemaining) return true;
+  return s.homeTaken >= maxRegularKicks && s.awayTaken >= maxRegularKicks && s.homeGoals !== s.awayGoals;
 }
 
 /**
@@ -779,13 +830,15 @@ function LineupPlayerRow({
 
 /** Stessi tipi di BonusIcon (bonus/malus) — vedi `BONUS_ICONS` in BonusIcon.js */
 const LIVE_EVENT_BONUS_TYPES = new Set(['goal', 'yellow_card', 'red_card', 'penalty_missed', 'own_goal']);
-const EDITABLE_LIVE_EVENT_TYPES = new Set(['goal', 'own_goal', 'yellow_card', 'red_card', 'penalty_missed']);
+const EDITABLE_LIVE_EVENT_TYPES = new Set(['goal', 'own_goal', 'yellow_card', 'red_card', 'penalty_missed', 'shootout_goal', 'shootout_missed']);
 const LIVE_EVENT_TYPE_LABELS = {
   goal: 'Goal',
   own_goal: 'Autogol',
   yellow_card: 'Giallo',
   red_card: 'Rosso',
   penalty_missed: 'Rigore sbagliato',
+  shootout_goal: 'Rigore segnato',
+  shootout_missed: 'Rigore no goal',
   match_start: 'Inizio partita',
   half_time: 'Fine primo tempo',
   second_half_start: 'Inizio secondo tempo',
@@ -858,6 +911,7 @@ function timelineDisplaySortKey(ev, match) {
   if (!ev) return Number.POSITIVE_INFINITY;
   if (ev.event_type === 'match_start') return Number.NEGATIVE_INFINITY;
   if (ev.event_type === 'match_end') return 1e15;
+  if (isShootoutEventType(ev.event_type)) return 1e15 - 0.5;
   if (ev.event_type === 'penalties_start') return 1e15 - 1;
   const H = regulationHalfMinutes(match);
   const et1 = extraFirstHalfMinutes(match);
@@ -1025,6 +1079,12 @@ export default function MatchDetailScreen({ navigation, route }) {
   const [eventAssistPlayerName, setEventAssistPlayerName] = useState('');
   const [eventAssistPlayerId, setEventAssistPlayerId] = useState(null);
   const [eventGoalInStoppage, setEventGoalInStoppage] = useState(false);
+  const [savingEvent, setSavingEvent] = useState(false);
+  const [savingPhase, setSavingPhase] = useState(false);
+  const [shootoutTeamSide, setShootoutTeamSide] = useState('home');
+  const [shootoutPlayerName, setShootoutPlayerName] = useState('');
+  const [shootoutPlayerId, setShootoutPlayerId] = useState(null);
+  const shootoutPlayersScrollRef = useRef(null);
   const [matchEndClock, setMatchEndClock] = useState('');
   const [timingOpen, setTimingOpen] = useState(false);
   const [editorModalTab, setEditorModalTab] = useState('events');
@@ -1335,6 +1395,35 @@ export default function MatchDetailScreen({ navigation, route }) {
     () => phaseStepOffersMatchEndShortcut(nextPhaseStep, match),
     [nextPhaseStep, match?.extra_time_enabled, match?.penalties_enabled]
   );
+  const showShootoutEditorTab = useMemo(
+    () => liveEvents.some((e) => e.event_type === 'penalties_start') && !liveEvents.some((e) => e.event_type === 'match_end'),
+    [liveEvents]
+  );
+  const nextShootoutTeamSide = useMemo(() => {
+    const shootoutEvents = (liveEvents || [])
+      .filter((e) => e && isShootoutEventType(e.event_type))
+      .sort((a, b) => (Number(a.id) || 0) - (Number(b.id) || 0));
+    const last = shootoutEvents[shootoutEvents.length - 1];
+    return last?.team_side === 'home' ? 'away' : 'home';
+  }, [liveEvents]);
+  const shootoutPlayersOrdered = useMemo(() => {
+    const takenIds = new Set(
+      (liveEvents || [])
+        .filter((e) => e && isShootoutEventType(e.event_type) && e.team_side === shootoutTeamSide)
+        .map((e) => Number(e.player_id || e.payload?.player_id || 0))
+        .filter((id) => Number.isFinite(id) && id > 0)
+    );
+    return [...(teamPlayers[shootoutTeamSide] || [])].sort((a, b) => {
+      const aTaken = takenIds.has(Number(a.id));
+      const bTaken = takenIds.has(Number(b.id));
+      if (aTaken !== bTaken) return aTaken ? 1 : -1;
+      return Number(a.order || 0) - Number(b.order || 0);
+    });
+  }, [liveEvents, shootoutTeamSide, teamPlayers]);
+  const showShootoutEndMatchAction = useMemo(
+    () => showShootoutEditorTab && shootoutCanEnd(liveEvents),
+    [showShootoutEditorTab, liveEvents]
+  );
   const timingSegments = useMemo(() => getMatchTimingSegments(match), [
     match.regulation_half_minutes,
     match.extra_time_enabled,
@@ -1456,40 +1545,89 @@ export default function MatchDetailScreen({ navigation, route }) {
     setEventPlayerId(null);
     setEventAssistPlayerName('');
     setEventAssistPlayerId(null);
+    setShootoutPlayerName('');
+    setShootoutPlayerId(null);
     setEditingLiveEventId(null);
     setEditingLiveEventDraft(null);
   }, []);
 
   const submitEvent = async () => {
+    if (savingEvent) return;
     const rawMin = (eventMinute || '').trim();
     const minuteNum = parseTimelineMinuteToInt(rawMin);
     if (!Number.isFinite(minuteNum) || minuteNum < 0) {
       Alert.alert('Errore', 'Indica un minuto valido (es. 31 o 30+1)');
       return;
     }
-    const stoppageEnd = eventType === 'goal' && eventGoalInStoppage ? stoppagePeriodEndForMinute(minuteNum, match) : null;
-    if (eventType === 'goal' && eventGoalInStoppage && stoppageEnd == null) {
-      Alert.alert('Errore', 'Il goal nel recupero deve essere entro 10 minuti dalla fine di un tempo.');
+    const stoppageEnd = isStoppageEditableEventType(eventType) && eventGoalInStoppage ? stoppagePeriodEndForMinute(minuteNum, match) : null;
+    if (isStoppageEditableEventType(eventType) && eventGoalInStoppage && stoppageEnd == null) {
+      Alert.alert('Errore', 'L\'evento nel recupero deve essere entro 10 minuti dalla fine di un tempo.');
       return;
     }
-    await adminMatchesService.addEvent(match.id, {
-      event_type: eventType,
-      team_side: eventTeamSide,
-      minute: minuteNum,
-      team_id: eventTeamSide === 'home' ? match.home_team_id : match.away_team_id,
-      player_id: eventPlayerId || null,
-      assist_player_id: eventType === 'goal' ? (eventAssistPlayerId || null) : null,
-      player_name: eventPlayerName.trim() || null,
-      assist_player_name: eventType === 'goal' ? (eventAssistPlayerName.trim() || null) : null,
-      stoppage_period_end: stoppageEnd,
-    });
-    setEventPlayerName('');
-    setEventPlayerId(null);
-    setEventAssistPlayerName('');
-    setEventAssistPlayerId(null);
-    setEventGoalInStoppage(false);
-    await loadDetail({ showLoading: false });
-    closeEventModal();
+    try {
+      setSavingEvent(true);
+      await adminMatchesService.addEvent(match.id, {
+        event_type: eventType,
+        team_side: eventTeamSide,
+        minute: minuteNum,
+        team_id: eventTeamSide === 'home' ? match.home_team_id : match.away_team_id,
+        player_id: eventPlayerId || null,
+        assist_player_id: eventType === 'goal' ? (eventAssistPlayerId || null) : null,
+        player_name: eventPlayerName.trim() || null,
+        assist_player_name: eventType === 'goal' ? (eventAssistPlayerName.trim() || null) : null,
+        stoppage_period_end: stoppageEnd,
+      });
+      setEventPlayerName('');
+      setEventPlayerId(null);
+      setEventAssistPlayerName('');
+      setEventAssistPlayerId(null);
+      setEventGoalInStoppage(false);
+      await loadDetail({ showLoading: false });
+      closeEventModal();
+    } catch (err) {
+      const body = err?.response?.data;
+      const msg =
+        (typeof body === 'string' ? body : null) ||
+        body?.message ||
+        body?.error ||
+        err?.message ||
+        'Operazione non riuscita';
+      Alert.alert('Errore', String(msg));
+    } finally {
+      setSavingEvent(false);
+    }
+  };
+
+  const submitShootoutEvent = async (eventType) => {
+    if (savingEvent) return;
+    if (!isShootoutEventType(eventType)) return;
+    try {
+      setSavingEvent(true);
+      await adminMatchesService.addEvent(match.id, {
+        event_type: eventType,
+        team_side: shootoutTeamSide,
+        minute: null,
+        team_id: shootoutTeamSide === 'home' ? match.home_team_id : match.away_team_id,
+        player_id: shootoutPlayerId || null,
+        player_name: shootoutPlayerName.trim() || null,
+      });
+      setShootoutPlayerName('');
+      setShootoutPlayerId(null);
+      setShootoutTeamSide(shootoutTeamSide === 'home' ? 'away' : 'home');
+      setTimeout(() => shootoutPlayersScrollRef.current?.scrollTo?.({ x: 0, animated: false }), 0);
+      await loadDetail({ showLoading: false });
+    } catch (err) {
+      const body = err?.response?.data;
+      const msg =
+        (typeof body === 'string' ? body : null) ||
+        body?.message ||
+        body?.error ||
+        err?.message ||
+        'Operazione non riuscita';
+      Alert.alert('Errore', String(msg));
+    } finally {
+      setSavingEvent(false);
+    }
   };
 
   const draftFromLiveEvent = (ev) => {
@@ -1516,18 +1654,20 @@ export default function MatchDetailScreen({ navigation, route }) {
 
   const saveEditedLiveEvent = async () => {
     if (!editingLiveEventId || !editingLiveEventDraft) return;
-    const minuteNum = parseTimelineMinuteToInt(editingLiveEventDraft.minute);
-    if (!Number.isFinite(minuteNum) || minuteNum < 0) {
+    const minuteNum = isShootoutEventType(editingLiveEventDraft.event_type)
+      ? null
+      : parseTimelineMinuteToInt(editingLiveEventDraft.minute);
+    if (!isShootoutEventType(editingLiveEventDraft.event_type) && (!Number.isFinite(minuteNum) || minuteNum < 0)) {
       Alert.alert('Errore', 'Indica un minuto valido.');
       return;
     }
     const side = editingLiveEventDraft.team_side === 'away' ? 'away' : 'home';
     const editStoppageEnd =
-      editingLiveEventDraft.event_type === 'goal' && editingLiveEventDraft.goal_in_stoppage
+      isStoppageEditableEventType(editingLiveEventDraft.event_type) && editingLiveEventDraft.goal_in_stoppage
         ? stoppagePeriodEndForMinute(minuteNum, match)
         : null;
-    if (editingLiveEventDraft.event_type === 'goal' && editingLiveEventDraft.goal_in_stoppage && editStoppageEnd == null) {
-      Alert.alert('Errore', 'Il goal nel recupero deve essere entro 10 minuti dalla fine di un tempo.');
+    if (isStoppageEditableEventType(editingLiveEventDraft.event_type) && editingLiveEventDraft.goal_in_stoppage && editStoppageEnd == null) {
+      Alert.alert('Errore', 'L\'evento nel recupero deve essere entro 10 minuti dalla fine di un tempo.');
       return;
     }
     await adminMatchesService.updateEvent(match.id, editingLiveEventId, {
@@ -1566,8 +1706,10 @@ export default function MatchDetailScreen({ navigation, route }) {
   };
 
   const submitPhaseEvent = async (phaseType) => {
+    if (savingPhase) return;
     if (phaseType === 'match_end') {
       try {
+        setSavingPhase(true);
         await adminMatchesService.addEvent(match.id, {
           event_type: 'match_end',
           clock_time: matchEndClock.trim() || undefined,
@@ -1584,6 +1726,8 @@ export default function MatchDetailScreen({ navigation, route }) {
           err?.message ||
           'Operazione non riuscita';
         Alert.alert('Errore', String(msg));
+      } finally {
+        setSavingPhase(false);
       }
       return;
     }
@@ -1608,6 +1752,7 @@ export default function MatchDetailScreen({ navigation, route }) {
         return;
       }
       try {
+        setSavingPhase(true);
         await adminMatchesService.addEvent(match.id, { event_type: phaseType, minute: m });
         try {
           await tryAutoMatchEndAfterPhase(adminMatchesService, match.id, phaseType, match);
@@ -1627,12 +1772,15 @@ export default function MatchDetailScreen({ navigation, route }) {
           err?.message ||
           'Operazione non riuscita';
         Alert.alert('Errore', String(msg));
+      } finally {
+        setSavingPhase(false);
       }
       return;
     }
 
     if (phaseType === 'match_start') {
       try {
+        setSavingPhase(true);
         await adminMatchesService.addEvent(match.id, { event_type: phaseType, minute: 0 });
         await loadDetail({ showLoading: false });
       } catch (err) {
@@ -1644,6 +1792,8 @@ export default function MatchDetailScreen({ navigation, route }) {
           err?.message ||
           'Operazione non riuscita';
         Alert.alert('Errore', String(msg));
+      } finally {
+        setSavingPhase(false);
       }
       return;
     }
@@ -1654,6 +1804,7 @@ export default function MatchDetailScreen({ navigation, route }) {
       return;
     }
     try {
+      setSavingPhase(true);
       await adminMatchesService.addEvent(match.id, { event_type: phaseType, minute: m });
       try {
         await tryAutoMatchEndAfterPhase(adminMatchesService, match.id, phaseType, match);
@@ -1673,6 +1824,8 @@ export default function MatchDetailScreen({ navigation, route }) {
         err?.message ||
         'Operazione non riuscita';
       Alert.alert('Errore', String(msg));
+    } finally {
+      setSavingPhase(false);
     }
   };
 
@@ -2318,19 +2471,27 @@ export default function MatchDetailScreen({ navigation, route }) {
                     );
                   }
                   const layoutHome = ev.event_type === 'own_goal' ? ev.team_side === 'away' : ev.team_side === 'home';
-                  const playerName = ev?.payload?.player_name || '-';
+                  const shootoutScore = isShootoutEventType(ev.event_type) ? computeShootoutScoreThroughEvent(liveEvents, ev) : null;
+                  const shootoutSubtext = isShootoutEventType(ev.event_type)
+                    ? `${ev.event_type === 'shootout_goal' ? 'Goal' : 'Sbagliato'} (${shootoutScore.home}-${shootoutScore.away})`
+                    : '';
+                  const playerName = ev?.payload?.player_name || (isShootoutEventType(ev.event_type) ? 'Tiratore non scelto' : '-');
                   const assistPlayerName =
                     ev.event_type === 'goal' && ev?.payload?.assist_player_name
                       ? String(ev.payload.assist_player_name).trim()
                       : '';
                   const bonusType = LIVE_EVENT_BONUS_TYPES.has(ev.event_type) ? ev.event_type : null;
-                  const iconEl = bonusType ? (
+                  const iconEl = ev.event_type === 'shootout_goal' ? (
+                    <Ionicons name="checkmark-circle" size={28} color="#198754" />
+                  ) : ev.event_type === 'shootout_missed' ? (
+                    <Ionicons name="close-circle" size={28} color="#e53935" />
+                  ) : bonusType ? (
                     <BonusIcon type={bonusType} size={16} />
                   ) : (
                     <MaterialCommunityIcons name="alert-circle-outline" size={16} color="#667eea" />
                   );
                   const phaseCtx = phaseContextForTimelineEvent(ev, match);
-                  const minuteEl = (
+                  const minuteEl = isShootoutEventType(ev.event_type) ? null : (
                     <Text style={styles.eventMinute}>{formatStoredEventMinuteLabel(ev.minute, phaseCtx, match)}</Text>
                   );
                   const playerEl = (
@@ -2338,7 +2499,11 @@ export default function MatchDetailScreen({ navigation, route }) {
                       <Text style={[styles.eventPlayer, layoutHome ? styles.eventPlayerHome : styles.eventPlayerAway]} numberOfLines={1}>
                         {playerName}
                       </Text>
-                      {assistPlayerName ? (
+                      {shootoutSubtext ? (
+                        <Text style={[styles.eventAssist, layoutHome ? styles.eventPlayerHome : styles.eventPlayerAway]} numberOfLines={1}>
+                          {shootoutSubtext}
+                        </Text>
+                      ) : assistPlayerName ? (
                         <Text style={[styles.eventAssist, layoutHome ? styles.eventPlayerHome : styles.eventPlayerAway]} numberOfLines={1}>
                           Assist: {assistPlayerName}
                         </Text>
@@ -2458,7 +2623,12 @@ export default function MatchDetailScreen({ navigation, route }) {
               style={[styles.liveFab, { bottom: Math.max(insets.bottom, 12) + 8, right: 16 }]}
               activeOpacity={0.85}
               onPress={() => {
-                setEditorModalTab('events');
+                setEditorModalTab(showShootoutEditorTab ? 'shootout' : 'events');
+                if (showShootoutEditorTab) {
+                  setShootoutTeamSide(nextShootoutTeamSide);
+                  setShootoutPlayerName('');
+                  setShootoutPlayerId(null);
+                }
                 setEventMinuteDirty(false);
                 setShowEventEditor(true);
                 setEventMinute(suggestedTimelineMinuteStr);
@@ -2480,7 +2650,12 @@ export default function MatchDetailScreen({ navigation, route }) {
                     <Ionicons name="close" size={26} color="#333" />
                   </TouchableOpacity>
                 </View>
-                <View style={styles.editorTabRow}>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  style={styles.editorTabScroll}
+                  contentContainerStyle={styles.editorTabRow}
+                >
                   <TouchableOpacity
                     style={[styles.editorTabBtn, editorModalTab === 'events' && styles.editorTabBtnActive]}
                     onPress={() => setEditorModalTab('events')}
@@ -2496,13 +2671,26 @@ export default function MatchDetailScreen({ navigation, route }) {
                   >
                     <Text style={[styles.editorTabBtnText, editorModalTab === 'phases' && styles.editorTabBtnTextActive]}>Fasi di gioco</Text>
                   </TouchableOpacity>
+                  {showShootoutEditorTab ? (
+                    <TouchableOpacity
+                      style={[styles.editorTabBtn, editorModalTab === 'shootout' && styles.editorTabBtnActive]}
+                      onPress={() => {
+                        setEditorModalTab('shootout');
+                        setShootoutTeamSide(nextShootoutTeamSide);
+                        setShootoutPlayerName('');
+                        setShootoutPlayerId(null);
+                      }}
+                    >
+                      <Text style={[styles.editorTabBtnText, editorModalTab === 'shootout' && styles.editorTabBtnTextActive]}>Rigori</Text>
+                    </TouchableOpacity>
+                  ) : null}
                   <TouchableOpacity
                     style={[styles.editorTabBtn, editorModalTab === 'editEvents' && styles.editorTabBtnActive]}
                     onPress={() => setEditorModalTab('editEvents')}
                   >
                     <Text style={[styles.editorTabBtnText, editorModalTab === 'editEvents' && styles.editorTabBtnTextActive]}>Modifica eventi</Text>
                   </TouchableOpacity>
-                </View>
+                </ScrollView>
                 <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
                   {editorModalTab === 'phases' ? (
                     <>
@@ -2519,16 +2707,18 @@ export default function MatchDetailScreen({ navigation, route }) {
                         showPhaseShortcutMatchEnd ? (
                           <>
                             <TouchableOpacity
-                              style={styles.phaseActionBtn}
+                              style={[styles.phaseActionBtn, savingPhase && styles.actionBtnDisabled]}
+                              disabled={savingPhase}
                               onPress={() => {
                                 Keyboard.dismiss();
                                 requestSubmitPhaseEvent(nextPhaseStep.type);
                               }}
                             >
-                              <Text style={styles.phaseActionBtnText}>{nextPhaseStep.label}</Text>
+                              <Text style={styles.phaseActionBtnText}>{savingPhase ? 'Salvataggio...' : nextPhaseStep.label}</Text>
                             </TouchableOpacity>
                             <TouchableOpacity
-                              style={styles.phaseActionBtnOutline}
+                              style={[styles.phaseActionBtnOutline, savingPhase && styles.actionBtnDisabled]}
+                              disabled={savingPhase}
                               onPress={() => {
                                 Keyboard.dismiss();
                                 setConfirmEndMatchOpen(true);
@@ -2540,14 +2730,17 @@ export default function MatchDetailScreen({ navigation, route }) {
                           </>
                         ) : (
                           <TouchableOpacity
-                            style={styles.phaseActionBtn}
+                            style={[styles.phaseActionBtn, savingPhase && styles.actionBtnDisabled]}
+                            disabled={savingPhase}
                             onPress={() => {
                               Keyboard.dismiss();
                               requestSubmitPhaseEvent(nextPhaseStep.type);
                             }}
                           >
                             <Text style={styles.phaseActionBtnText}>
-                              {nextPhaseStep.type === 'match_end' && liveEvents.some((e) => e.event_type === 'match_end')
+                              {savingPhase
+                                ? 'Salvataggio...'
+                                : nextPhaseStep.type === 'match_end' && liveEvents.some((e) => e.event_type === 'match_end')
                                 ? 'Aggiorna fine partita'
                                 : nextPhaseStep.label}
                             </Text>
@@ -2639,6 +2832,74 @@ export default function MatchDetailScreen({ navigation, route }) {
                         </>
                       ) : null}
                     </>
+                  ) : editorModalTab === 'shootout' ? (
+                    <>
+                      <Text style={styles.phaseHint}>Il tiratore è opzionale: puoi inserirlo dopo.</Text>
+                      <Text style={styles.editorLabel}>Squadra</Text>
+                      <View style={styles.rowChips}>
+                        <TouchableOpacity
+                          style={[styles.chip, shootoutTeamSide === 'home' && styles.chipActive]}
+                          onPress={() => { setShootoutTeamSide('home'); setShootoutPlayerName(''); setShootoutPlayerId(null); }}
+                        >
+                          <Text style={[styles.chipText, shootoutTeamSide === 'home' && styles.chipTextActive]}>{match.home_team_name}</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[styles.chip, shootoutTeamSide === 'away' && styles.chipActive]}
+                          onPress={() => { setShootoutTeamSide('away'); setShootoutPlayerName(''); setShootoutPlayerId(null); }}
+                        >
+                          <Text style={[styles.chipText, shootoutTeamSide === 'away' && styles.chipTextActive]}>{match.away_team_name}</Text>
+                        </TouchableOpacity>
+                      </View>
+                      <Text style={styles.editorLabel}>Tiratore (opzionale)</Text>
+                      <ScrollView ref={shootoutPlayersScrollRef} horizontal showsHorizontalScrollIndicator={false}>
+                        <View style={styles.rowChips}>
+                          <TouchableOpacity
+                            style={[styles.chip, !shootoutPlayerId && styles.chipActive]}
+                            onPress={() => { setShootoutPlayerName(''); setShootoutPlayerId(null); }}
+                          >
+                            <Text style={[styles.chipText, !shootoutPlayerId && styles.chipTextActive]}>Non scelto</Text>
+                          </TouchableOpacity>
+                          {shootoutPlayersOrdered.map((p) => (
+                            <TouchableOpacity
+                              key={`shootout-player-${p.id || p.order}`}
+                              style={[styles.chip, Number(shootoutPlayerId) === Number(p.id) && styles.chipActive]}
+                              onPress={() => { setShootoutPlayerName(p.name); setShootoutPlayerId(Number(p.id) || null); }}
+                            >
+                              <Text style={[styles.chipText, Number(shootoutPlayerId) === Number(p.id) && styles.chipTextActive]}>
+                                #{p.shirt_number ?? '-'} {p.name}
+                              </Text>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      </ScrollView>
+                      <View style={styles.shootoutActionsRow}>
+                        <TouchableOpacity
+                          style={[styles.shootoutActionBtn, savingEvent && styles.actionBtnDisabled]}
+                          disabled={savingEvent}
+                          onPress={() => submitShootoutEvent('shootout_goal')}
+                        >
+                          <BonusIcon type="goal" size={26} />
+                          <Text style={styles.shootoutActionText}>{savingEvent ? 'Salvo...' : 'Goal'}</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[styles.shootoutActionBtn, styles.shootoutActionBtnMissed, savingEvent && styles.actionBtnDisabled]}
+                          disabled={savingEvent}
+                          onPress={() => submitShootoutEvent('shootout_missed')}
+                        >
+                          <BonusIcon type="goals_conceded" size={26} />
+                          <Text style={styles.shootoutActionText}>{savingEvent ? 'Salvo...' : 'No goal'}</Text>
+                        </TouchableOpacity>
+                      </View>
+                      {showShootoutEndMatchAction ? (
+                        <TouchableOpacity
+                          style={[styles.shootoutEndMatchBtn, savingPhase && styles.actionBtnDisabled]}
+                          disabled={savingPhase}
+                          onPress={() => submitPhaseEvent('match_end')}
+                        >
+                          <Text style={styles.shootoutEndMatchText}>{savingPhase ? 'Salvataggio...' : 'Fine partita'}</Text>
+                        </TouchableOpacity>
+                      ) : null}
+                    </>
                   ) : editorModalTab === 'editEvents' ? (
                     <>
                       <Text style={styles.phaseHint}>Tocca “Modifica” per eventi partita. Le fasi di gioco si possono solo eliminare.</Text>
@@ -2693,7 +2954,8 @@ export default function MatchDetailScreen({ navigation, route }) {
                                             setEditingLiveEventDraft((d) => ({
                                               ...d,
                                               event_type: et.id,
-                                              ...(et.id !== 'goal' ? { assist_player_id: null, assist_player_name: '', goal_in_stoppage: false } : null),
+                                              ...(et.id !== 'goal' ? { assist_player_id: null, assist_player_name: '' } : null),
+                                              ...(!isStoppageEditableEventType(et.id) ? { goal_in_stoppage: false } : null),
                                             }))
                                           }
                                         >
@@ -2728,16 +2990,20 @@ export default function MatchDetailScreen({ navigation, route }) {
                                     ))}
                                   </View>
 
-                                  <Text style={styles.editorLabel}>Minuto</Text>
-                                  <TextInput
-                                    style={styles.input}
-                                    keyboardType="number-pad"
-                                    maxLength={3}
-                                    value={editingLiveEventDraft.minute}
-                                    onChangeText={(t) => setEditingLiveEventDraft((d) => ({ ...d, minute: t.replace(/\D/g, '').slice(0, 3) }))}
-                                  />
+                                  {!isShootoutEventType(editingLiveEventDraft.event_type) ? (
+                                    <>
+                                      <Text style={styles.editorLabel}>Minuto</Text>
+                                      <TextInput
+                                        style={styles.input}
+                                        keyboardType="number-pad"
+                                        maxLength={3}
+                                        value={editingLiveEventDraft.minute}
+                                        onChangeText={(t) => setEditingLiveEventDraft((d) => ({ ...d, minute: t.replace(/\D/g, '').slice(0, 3) }))}
+                                      />
+                                    </>
+                                  ) : null}
 
-                                  {editingLiveEventDraft.event_type === 'goal' && editStoppageEnd != null ? (
+                                  {!isShootoutEventType(editingLiveEventDraft.event_type) && isStoppageEditableEventType(editingLiveEventDraft.event_type) && editStoppageEnd != null ? (
                                     <TouchableOpacity
                                       style={styles.stoppageCheckRow}
                                       activeOpacity={0.75}
@@ -2749,7 +3015,7 @@ export default function MatchDetailScreen({ navigation, route }) {
                                         color={editingLiveEventDraft.goal_in_stoppage ? '#667eea' : '#9ca3af'}
                                       />
                                       <View style={styles.stoppageCheckTextWrap}>
-                                        <Text style={styles.stoppageCheckLabel}>Goal nel recupero</Text>
+                                        <Text style={styles.stoppageCheckLabel}>Evento nel recupero</Text>
                                         <Text style={styles.stoppageCheckHint}>Mostra e ordina come {editStoppageLabel}</Text>
                                       </View>
                                     </TouchableOpacity>
@@ -2839,6 +3105,8 @@ export default function MatchDetailScreen({ navigation, route }) {
                               if (et.id !== 'goal') {
                                 setEventAssistPlayerName('');
                                 setEventAssistPlayerId(null);
+                              }
+                              if (!isStoppageEditableEventType(et.id)) {
                                 setEventGoalInStoppage(false);
                               }
                             }}
@@ -2875,7 +3143,7 @@ export default function MatchDetailScreen({ navigation, route }) {
                         }}
                         placeholder={suggestedTimelineMinuteStr}
                       />
-                      {eventType === 'goal' && eventStoppagePeriodEndValue != null ? (
+                      {isStoppageEditableEventType(eventType) && eventStoppagePeriodEndValue != null ? (
                         <TouchableOpacity
                           style={styles.stoppageCheckRow}
                           activeOpacity={0.75}
@@ -2887,7 +3155,7 @@ export default function MatchDetailScreen({ navigation, route }) {
                             color={eventGoalInStoppage ? '#667eea' : '#9ca3af'}
                           />
                           <View style={styles.stoppageCheckTextWrap}>
-                            <Text style={styles.stoppageCheckLabel}>Goal nel recupero</Text>
+                            <Text style={styles.stoppageCheckLabel}>Evento nel recupero</Text>
                             <Text style={styles.stoppageCheckHint}>Mostra e ordina come {eventStoppageLabel}</Text>
                           </View>
                         </TouchableOpacity>
@@ -2941,8 +3209,12 @@ export default function MatchDetailScreen({ navigation, route }) {
                           </ScrollView>
                         </>
                       ) : null}
-                      <TouchableOpacity style={styles.primaryBtn} onPress={submitEvent}>
-                        <Text style={styles.primaryBtnText}>Inserisci evento</Text>
+                      <TouchableOpacity
+                        style={[styles.primaryBtn, savingEvent && styles.actionBtnDisabled]}
+                        disabled={savingEvent}
+                        onPress={submitEvent}
+                      >
+                        <Text style={styles.primaryBtnText}>{savingEvent ? 'Salvataggio...' : 'Inserisci evento'}</Text>
                       </TouchableOpacity>
                     </>
                   )}
@@ -2966,17 +3238,18 @@ export default function MatchDetailScreen({ navigation, route }) {
                   La partita è terminata e non servono supplementari o rigori?
                 </Text>
                 <View style={styles.confirmButtons}>
-                  <TouchableOpacity style={styles.confirmBtnCancel} onPress={() => setConfirmEndMatchOpen(false)}>
+                  <TouchableOpacity style={styles.confirmBtnCancel} disabled={savingPhase} onPress={() => setConfirmEndMatchOpen(false)}>
                     <Text style={styles.confirmBtnCancelText}>Annulla</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    style={[styles.confirmBtnAction, styles.confirmBtnDestructive]}
+                    style={[styles.confirmBtnAction, styles.confirmBtnDestructive, savingPhase && styles.actionBtnDisabled]}
+                    disabled={savingPhase}
                     onPress={() => {
                       setConfirmEndMatchOpen(false);
                       submitPhaseEvent('match_end');
                     }}
                   >
-                    <Text style={styles.confirmBtnActionText}>Fine partita</Text>
+                    <Text style={styles.confirmBtnActionText}>{savingPhase ? 'Salvataggio...' : 'Fine partita'}</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -2998,23 +3271,24 @@ export default function MatchDetailScreen({ navigation, route }) {
                   {confirmAdvancePhase?.leadingTeamName} è in vantaggio ({confirmAdvancePhase?.score}). Vuoi chiudere la partita o andare avanti comunque?
                 </Text>
                 <View style={styles.confirmButtonsStack}>
-                  <TouchableOpacity style={[styles.confirmBtnAction, styles.confirmBtnFull]} onPress={() => {
+                  <TouchableOpacity style={[styles.confirmBtnAction, styles.confirmBtnFull, savingPhase && styles.actionBtnDisabled]} disabled={savingPhase} onPress={() => {
                     const phaseType = confirmAdvancePhase?.phaseType;
                     setConfirmAdvancePhase(null);
                     if (phaseType) submitPhaseEvent(phaseType);
                   }}>
-                    <Text style={styles.confirmBtnActionText}>{confirmAdvancePhase?.continueLabel || 'Vai avanti'}</Text>
+                    <Text style={styles.confirmBtnActionText}>{savingPhase ? 'Salvataggio...' : (confirmAdvancePhase?.continueLabel || 'Vai avanti')}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    style={[styles.confirmBtnAction, styles.confirmBtnDestructive, styles.confirmBtnFull]}
+                    style={[styles.confirmBtnAction, styles.confirmBtnDestructive, styles.confirmBtnFull, savingPhase && styles.actionBtnDisabled]}
+                    disabled={savingPhase}
                     onPress={() => {
                       setConfirmAdvancePhase(null);
                       submitPhaseEvent('match_end');
                     }}
                   >
-                    <Text style={styles.confirmBtnActionText}>Fine partita</Text>
+                    <Text style={styles.confirmBtnActionText}>{savingPhase ? 'Salvataggio...' : 'Fine partita'}</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={[styles.confirmBtnCancel, styles.confirmBtnFull]} onPress={() => setConfirmAdvancePhase(null)}>
+                  <TouchableOpacity style={[styles.confirmBtnCancel, styles.confirmBtnFull]} disabled={savingPhase} onPress={() => setConfirmAdvancePhase(null)}>
                     <Text style={styles.confirmBtnCancelText}>Annulla</Text>
                   </TouchableOpacity>
                 </View>
@@ -3415,6 +3689,7 @@ const styles = StyleSheet.create({
   primaryBtn: { backgroundColor: '#667eea', borderRadius: 8, alignItems: 'center', paddingVertical: 10, marginTop: 10 },
   primaryBtnInline: { flex: 1, backgroundColor: '#667eea', borderRadius: 8, alignItems: 'center', paddingVertical: 10 },
   primaryBtnText: { color: '#fff', fontWeight: '700' },
+  actionBtnDisabled: { opacity: 0.55 },
   secondaryBtnLite: { flex: 1, backgroundColor: '#f3f4f6', borderRadius: 8, alignItems: 'center', paddingVertical: 10 },
   secondaryBtnLiteText: { color: '#374151', fontWeight: '700' },
   liveEditEventCard: {
@@ -3496,9 +3771,10 @@ const styles = StyleSheet.create({
   eventModalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, paddingTop: 4 },
   eventModalTitle: { fontSize: 18, fontWeight: '800', color: '#222' },
   eventModalClose: { padding: 4 },
-  editorTabRow: { flexDirection: 'row', gap: 5, marginBottom: 12 },
+  editorTabScroll: { flexGrow: 0, marginBottom: 12 },
+  editorTabRow: { flexDirection: 'row', gap: 5, paddingRight: 6 },
   editorTabBtn: {
-    flex: 1,
+    minWidth: 92,
     paddingVertical: 9,
     paddingHorizontal: 3,
     borderRadius: 12,
@@ -3531,6 +3807,28 @@ const styles = StyleSheet.create({
   phaseActionBtnOutlineText: { color: '#667eea', fontWeight: '800', fontSize: 15 },
   phaseActionBtnDisabled: { backgroundColor: '#c4c9d4' },
   phaseActionBtnText: { color: '#fff', fontWeight: '800', fontSize: 15 },
+  shootoutActionsRow: { flexDirection: 'row', gap: 10, marginTop: 16 },
+  shootoutActionBtn: {
+    flex: 1,
+    minHeight: 86,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#dbeafe',
+    backgroundColor: '#eff6ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  shootoutActionBtnMissed: { borderColor: '#fee2e2', backgroundColor: '#fff1f2' },
+  shootoutActionText: { color: '#111827', fontSize: 14, fontWeight: '800' },
+  shootoutEndMatchBtn: {
+    marginTop: 12,
+    borderRadius: 12,
+    backgroundColor: '#111827',
+    alignItems: 'center',
+    paddingVertical: 12,
+  },
+  shootoutEndMatchText: { color: '#fff', fontSize: 15, fontWeight: '800' },
   livePhaseRow: {
     alignSelf: 'stretch',
     flexDirection: 'row',

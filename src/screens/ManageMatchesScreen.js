@@ -963,7 +963,12 @@ export default function ManageMatchesScreen() {
         <Text style={styles.headerTitle}>Gestione Partite</Text>
       </View>
 
-      <View style={styles.subtabsRow}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.subtabsScroll}
+        contentContainerStyle={styles.subtabsRow}
+      >
         <TouchableOpacity style={[styles.subtabBtn, activeTab === 'matches' && styles.subtabBtnActive]} onPress={() => setActiveTab('matches')}>
           <Text style={[styles.subtabText, activeTab === 'matches' && styles.subtabTextActive]}>Partite</Text>
         </TouchableOpacity>
@@ -982,7 +987,7 @@ export default function ManageMatchesScreen() {
             <Text style={[styles.subtabText, activeTab === 'standings' && styles.subtabTextActive]}>Classifiche</Text>
           </TouchableOpacity>
         )}
-      </View>
+      </ScrollView>
 
       <ScrollView
         style={styles.content}
@@ -2072,11 +2077,15 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
   },
   headerTitle: { fontSize: 24, fontWeight: '800', color: '#222' },
+  subtabsScroll: {
+    flexGrow: 0,
+  },
   subtabsRow: {
     flexDirection: 'row',
     gap: 8,
     paddingHorizontal: 14,
     paddingVertical: 10,
+    paddingRight: 22,
   },
   subtabBtn: {
     paddingHorizontal: 12,
