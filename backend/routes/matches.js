@@ -474,12 +474,17 @@ function buildEventPayloadForDb(body) {
   const teamId = Number(body?.team_id);
   const playerId = Number(body?.player_id);
   const assistPlayerId = Number(body?.assist_player_id);
+  const stoppagePeriodEnd = Number(body?.stoppage_period_end);
   const out = {};
   if (playerName) out.player_name = playerName;
   if (assistPlayerName) out.assist_player_name = assistPlayerName;
   if (Number.isFinite(teamId) && teamId > 0) out.team_id = teamId;
   if (Number.isFinite(playerId) && playerId > 0) out.player_id = playerId;
   if (Number.isFinite(assistPlayerId) && assistPlayerId > 0) out.assist_player_id = assistPlayerId;
+  if (Number.isFinite(stoppagePeriodEnd) && stoppagePeriodEnd > 0) {
+    out.stoppage_period_end = stoppagePeriodEnd;
+    out.goal_in_stoppage = true;
+  }
   if (clockTime) out.clock_time = clockTime;
   // Permetti payload custom aggiuntivo (compat)
   if (body?.payload_json && typeof body.payload_json === 'object') {

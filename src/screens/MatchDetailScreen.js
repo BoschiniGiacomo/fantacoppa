@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -347,6 +347,33 @@ function parseTimelineMinuteToInt(raw) {
   if (plus) return Number(plus[1]) + Number(plus[2]);
   const n = Number(s);
   return Number.isFinite(n) ? n : NaN;
+}
+
+function stoppagePeriodEndsForMatch(match) {
+  const H = regulationHalfMinutes(match);
+  const et1 = extraFirstHalfMinutes(match);
+  const et2 = extraSecondHalfMinutes(match);
+  const ends = [H, 2 * H];
+  if (Number(match?.extra_time_enabled) === 1) {
+    if (et1 > 0) ends.push(2 * H + et1);
+    if (et2 > 0) ends.push(2 * H + et1 + et2);
+  }
+  return ends.filter((n, i, arr) => Number.isFinite(n) && n > 0 && arr.indexOf(n) === i);
+}
+
+function stoppagePeriodEndForMinute(minuteValue, match) {
+  const m = Number(minuteValue);
+  if (!Number.isFinite(m)) return null;
+  return stoppagePeriodEndsForMatch(match).find((end) => m > end && m <= end + 10) || null;
+}
+
+function eventStoppagePeriodEnd(ev, match) {
+  const payloadEnd = Number(ev?.payload?.stoppage_period_end);
+  const minute = Number(ev?.minute);
+  if (!Number.isFinite(payloadEnd) || !Number.isFinite(minute)) return null;
+  return stoppagePeriodEndsForMatch(match).includes(payloadEnd) && minute > payloadEnd && minute <= payloadEnd + 10
+    ? payloadEnd
+    : null;
 }
 
 /**
@@ -808,6 +835,11 @@ function phaseContextForTimelineEvent(ev, match) {
   const H = regulationHalfMinutes(match);
   const et1 = extraFirstHalfMinutes(match);
   const et2 = extraSecondHalfMinutes(match);
+  const stoppageEnd = eventStoppagePeriodEnd(ev, match);
+  if (stoppageEnd === H) return 'match_start';
+  if (stoppageEnd === 2 * H) return 'second_half_start';
+  if (stoppageEnd === 2 * H + et1) return 'extra_first_half_start';
+  if (stoppageEnd === 2 * H + et1 + et2) return 'extra_second_half_start';
   const endReg = 2 * H;
   const endEt1 = endReg + et1;
   const endEt2 = endEt1 + et2;
@@ -856,6 +888,11 @@ function timelineDisplaySortKey(ev, match) {
   if (ev.event_type === 'extra_second_half_end') {
     const base = Math.max(2 * H + et1 + et2, Number.isFinite(n) ? n : 0);
     return base + 0.001;
+  }
+  const stoppageEnd = eventStoppagePeriodEnd(ev, match);
+  if (stoppageEnd != null) {
+    const added = Number.isFinite(n) ? Math.max(1, n - stoppageEnd) : 1;
+    return stoppageEnd + 0.0005 + Math.min(99, added) / 100000;
   }
   return raw;
 }
@@ -987,11 +1024,13 @@ export default function MatchDetailScreen({ navigation, route }) {
   const [eventPlayerId, setEventPlayerId] = useState(null);
   const [eventAssistPlayerName, setEventAssistPlayerName] = useState('');
   const [eventAssistPlayerId, setEventAssistPlayerId] = useState(null);
+  const [eventGoalInStoppage, setEventGoalInStoppage] = useState(false);
   const [matchEndClock, setMatchEndClock] = useState('');
   const [timingOpen, setTimingOpen] = useState(false);
   const [editorModalTab, setEditorModalTab] = useState('events');
   /** Se true, il campo Minuto negli eventi non segue più il cronometro live. */
   const [eventMinuteDirty, setEventMinuteDirty] = useState(false);
+  const eventMinuteClearedAtSuggestionRef = useRef(null);
   /** Offset secondi sul cronometro live (per fase = ultimo evento di fase); persistito in AsyncStorage. */
   const [liveTimerOffsetSec, setLiveTimerOffsetSec] = useState(0);
   const [heroMinDraft, setHeroMinDraft] = useState('');
@@ -1392,14 +1431,28 @@ export default function MatchDetailScreen({ navigation, route }) {
 
   useEffect(() => {
     if (!showEventEditor || editorModalTab !== 'events' || eventMinuteDirty) return;
+    if ((eventMinute || '').trim() === '' && eventMinuteClearedAtSuggestionRef.current === suggestedTimelineMinuteStr) return;
+    eventMinuteClearedAtSuggestionRef.current = null;
     setEventMinute(suggestedTimelineMinuteStr);
-  }, [showEventEditor, editorModalTab, eventMinuteDirty, suggestedTimelineMinuteStr]);
+  }, [showEventEditor, editorModalTab, eventMinuteDirty, eventMinute, suggestedTimelineMinuteStr]);
+
+  const eventMinuteNum = useMemo(() => parseTimelineMinuteToInt(eventMinute), [eventMinute]);
+  const eventStoppagePeriodEndValue = useMemo(
+    () => stoppagePeriodEndForMinute(eventMinuteNum, match),
+    [eventMinuteNum, match]
+  );
+  const eventStoppageLabel = useMemo(
+    () => eventStoppagePeriodEndValue != null ? formatMinuteStoppageLabel(eventMinuteNum, eventStoppagePeriodEndValue) : '',
+    [eventMinuteNum, eventStoppagePeriodEndValue]
+  );
 
   const closeEventModal = useCallback(() => {
     setShowEventEditor(false);
     setConfirmEndMatchOpen(false);
     setConfirmAdvancePhase(null);
     setEventMinuteDirty(false);
+    eventMinuteClearedAtSuggestionRef.current = null;
+    setEventGoalInStoppage(false);
     setEventPlayerId(null);
     setEventAssistPlayerName('');
     setEventAssistPlayerId(null);
@@ -1408,10 +1461,15 @@ export default function MatchDetailScreen({ navigation, route }) {
   }, []);
 
   const submitEvent = async () => {
-    const rawMin = (eventMinute || '').trim() || suggestedTimelineMinuteStr;
+    const rawMin = (eventMinute || '').trim();
     const minuteNum = parseTimelineMinuteToInt(rawMin);
     if (!Number.isFinite(minuteNum) || minuteNum < 0) {
       Alert.alert('Errore', 'Indica un minuto valido (es. 31 o 30+1)');
+      return;
+    }
+    const stoppageEnd = eventType === 'goal' && eventGoalInStoppage ? stoppagePeriodEndForMinute(minuteNum, match) : null;
+    if (eventType === 'goal' && eventGoalInStoppage && stoppageEnd == null) {
+      Alert.alert('Errore', 'Il goal nel recupero deve essere entro 10 minuti dalla fine di un tempo.');
       return;
     }
     await adminMatchesService.addEvent(match.id, {
@@ -1423,11 +1481,13 @@ export default function MatchDetailScreen({ navigation, route }) {
       assist_player_id: eventType === 'goal' ? (eventAssistPlayerId || null) : null,
       player_name: eventPlayerName.trim() || null,
       assist_player_name: eventType === 'goal' ? (eventAssistPlayerName.trim() || null) : null,
+      stoppage_period_end: stoppageEnd,
     });
     setEventPlayerName('');
     setEventPlayerId(null);
     setEventAssistPlayerName('');
     setEventAssistPlayerId(null);
+    setEventGoalInStoppage(false);
     await loadDetail({ showLoading: false });
     closeEventModal();
   };
@@ -1445,6 +1505,7 @@ export default function MatchDetailScreen({ navigation, route }) {
       player_name: String(payload.player_name || '').trim(),
       assist_player_id: Number.isFinite(assistId) && assistId > 0 ? assistId : null,
       assist_player_name: String(payload.assist_player_name || '').trim(),
+      goal_in_stoppage: eventStoppagePeriodEnd(ev, match) != null,
     };
   };
 
@@ -1461,6 +1522,14 @@ export default function MatchDetailScreen({ navigation, route }) {
       return;
     }
     const side = editingLiveEventDraft.team_side === 'away' ? 'away' : 'home';
+    const editStoppageEnd =
+      editingLiveEventDraft.event_type === 'goal' && editingLiveEventDraft.goal_in_stoppage
+        ? stoppagePeriodEndForMinute(minuteNum, match)
+        : null;
+    if (editingLiveEventDraft.event_type === 'goal' && editingLiveEventDraft.goal_in_stoppage && editStoppageEnd == null) {
+      Alert.alert('Errore', 'Il goal nel recupero deve essere entro 10 minuti dalla fine di un tempo.');
+      return;
+    }
     await adminMatchesService.updateEvent(match.id, editingLiveEventId, {
       event_type: editingLiveEventDraft.event_type,
       team_side: side,
@@ -1470,6 +1539,7 @@ export default function MatchDetailScreen({ navigation, route }) {
       assist_player_id: editingLiveEventDraft.event_type === 'goal' ? (editingLiveEventDraft.assist_player_id || null) : null,
       player_name: editingLiveEventDraft.player_name || null,
       assist_player_name: editingLiveEventDraft.event_type === 'goal' ? (editingLiveEventDraft.assist_player_name || null) : null,
+      stoppage_period_end: editStoppageEnd,
     });
     setEditingLiveEventId(null);
     setEditingLiveEventDraft(null);
@@ -2580,6 +2650,9 @@ export default function MatchDetailScreen({ navigation, route }) {
                           const isEditing = Number(editingLiveEventId) === Number(ev.id);
                           const label = LIVE_EVENT_TYPE_LABELS[ev.event_type] || ev.event_type;
                           const name = ev?.payload?.player_name ? ` - ${ev.payload.player_name}` : '';
+                          const editMinuteNum = isEditing && editingLiveEventDraft ? parseTimelineMinuteToInt(editingLiveEventDraft.minute) : NaN;
+                          const editStoppageEnd = stoppagePeriodEndForMinute(editMinuteNum, match);
+                          const editStoppageLabel = editStoppageEnd != null ? formatMinuteStoppageLabel(editMinuteNum, editStoppageEnd) : '';
                           return (
                             <View key={`edit-ev-${ev.id}`} style={styles.liveEditEventCard}>
                               <View style={styles.liveEditEventHeader}>
@@ -2620,7 +2693,7 @@ export default function MatchDetailScreen({ navigation, route }) {
                                             setEditingLiveEventDraft((d) => ({
                                               ...d,
                                               event_type: et.id,
-                                              ...(et.id !== 'goal' ? { assist_player_id: null, assist_player_name: '' } : null),
+                                              ...(et.id !== 'goal' ? { assist_player_id: null, assist_player_name: '', goal_in_stoppage: false } : null),
                                             }))
                                           }
                                         >
@@ -2663,6 +2736,24 @@ export default function MatchDetailScreen({ navigation, route }) {
                                     value={editingLiveEventDraft.minute}
                                     onChangeText={(t) => setEditingLiveEventDraft((d) => ({ ...d, minute: t.replace(/\D/g, '').slice(0, 3) }))}
                                   />
+
+                                  {editingLiveEventDraft.event_type === 'goal' && editStoppageEnd != null ? (
+                                    <TouchableOpacity
+                                      style={styles.stoppageCheckRow}
+                                      activeOpacity={0.75}
+                                      onPress={() => setEditingLiveEventDraft((d) => ({ ...d, goal_in_stoppage: !d.goal_in_stoppage }))}
+                                    >
+                                      <Ionicons
+                                        name={editingLiveEventDraft.goal_in_stoppage ? 'checkbox' : 'square-outline'}
+                                        size={20}
+                                        color={editingLiveEventDraft.goal_in_stoppage ? '#667eea' : '#9ca3af'}
+                                      />
+                                      <View style={styles.stoppageCheckTextWrap}>
+                                        <Text style={styles.stoppageCheckLabel}>Goal nel recupero</Text>
+                                        <Text style={styles.stoppageCheckHint}>Mostra e ordina come {editStoppageLabel}</Text>
+                                      </View>
+                                    </TouchableOpacity>
+                                  ) : null}
 
                                   <Text style={styles.editorLabel}>Giocatore</Text>
                                   <ScrollView horizontal showsHorizontalScrollIndicator={false}>
@@ -2748,6 +2839,7 @@ export default function MatchDetailScreen({ navigation, route }) {
                               if (et.id !== 'goal') {
                                 setEventAssistPlayerName('');
                                 setEventAssistPlayerId(null);
+                                setEventGoalInStoppage(false);
                               }
                             }}
                           >
@@ -2773,10 +2865,33 @@ export default function MatchDetailScreen({ navigation, route }) {
                         onChangeText={(t) => {
                           const d = t.replace(/\D/g, '').slice(0, 3);
                           setEventMinute(d);
-                          setEventMinuteDirty(d.trim() !== '');
+                          if (d.trim() === '') {
+                            eventMinuteClearedAtSuggestionRef.current = suggestedTimelineMinuteStr;
+                            setEventMinuteDirty(false);
+                          } else {
+                            eventMinuteClearedAtSuggestionRef.current = null;
+                            setEventMinuteDirty(true);
+                          }
                         }}
                         placeholder={suggestedTimelineMinuteStr}
                       />
+                      {eventType === 'goal' && eventStoppagePeriodEndValue != null ? (
+                        <TouchableOpacity
+                          style={styles.stoppageCheckRow}
+                          activeOpacity={0.75}
+                          onPress={() => setEventGoalInStoppage((v) => !v)}
+                        >
+                          <Ionicons
+                            name={eventGoalInStoppage ? 'checkbox' : 'square-outline'}
+                            size={20}
+                            color={eventGoalInStoppage ? '#667eea' : '#9ca3af'}
+                          />
+                          <View style={styles.stoppageCheckTextWrap}>
+                            <Text style={styles.stoppageCheckLabel}>Goal nel recupero</Text>
+                            <Text style={styles.stoppageCheckHint}>Mostra e ordina come {eventStoppageLabel}</Text>
+                          </View>
+                        </TouchableOpacity>
+                      ) : null}
                       <Text style={styles.editorLabel}>Giocatore (opzionale)</Text>
                       <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                         <View style={styles.rowChips}>
@@ -3274,6 +3389,22 @@ const styles = StyleSheet.create({
   phaseMinuteLabelBelow: { marginTop: 16 },
   phaseMinuteHint: { fontSize: 12, color: '#666', marginBottom: 8, lineHeight: 17 },
   input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, backgroundColor: '#fafafa' },
+  stoppageCheckRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 8,
+    marginBottom: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    backgroundColor: '#f9fafb',
+  },
+  stoppageCheckTextWrap: { flex: 1, minWidth: 0 },
+  stoppageCheckLabel: { fontSize: 13, fontWeight: '800', color: '#111827' },
+  stoppageCheckHint: { fontSize: 11, color: '#6b7280', marginTop: 1 },
   rowChips: { flexDirection: 'row', gap: 8, paddingVertical: 2 },
   eventTypeScroll: { marginBottom: 4 },
   eventTypeScrollContent: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 2, paddingRight: 16 },
