@@ -2856,12 +2856,23 @@ router.delete('/admin/match-details/venues/:id', authenticateToken, requireSuper
 
 router.post('/admin/match-details/referees', authenticateToken, requireSuperuserLevels([1]), async (req, res) => {
   try {
+    const userId = Number(req.user?.userId);
     const name = String(req.body?.name || '').trim();
     if (!name) return res.status(400).json({ message: 'name mancante' });
-    const rows = await query(`INSERT INTO official_match_referees (name) VALUES (?) RETURNING id`, [name]);
+    let rows;
+    try {
+      rows = await query(`INSERT INTO official_match_referees (name, created_by) VALUES (?, ?) RETURNING id`, [name, userId]);
+    } catch (err2) {
+      if (err2 && err2.code === '42703' && /created_by/i.test(String(err2.message || ''))) {
+        rows = await query(`INSERT INTO official_match_referees (name) VALUES (?) RETURNING id`, [name]);
+      } else {
+        throw err2;
+      }
+    }
     return res.json({ ok: true, id: rows[0]?.id });
   } catch (err) {
     if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
+    if (err?.code === '23505') return res.status(409).json({ message: 'Arbitro già presente' });
     return res.status(500).json({ message: 'Errore creazione referee', error: err.message });
   }
 });
