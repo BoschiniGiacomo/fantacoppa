@@ -114,6 +114,62 @@ const DEFAULT_JERSEY_COLOR = '#a5b4fc';
 const ROLE_ORDER = { P: 0, D: 1, C: 2, A: 3 };
 const ABSOLUTE_STATS_KEY = 'absolute';
 
+function isValidJerseyHex(s) {
+  if (s == null || typeof s !== 'string') return false;
+  return /^#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})$/.test(s.trim());
+}
+
+function jerseyToHex6(raw) {
+  let hex = typeof raw === 'string' ? raw.trim() : '';
+  if (!isValidJerseyHex(hex)) return null;
+  if (hex.length === 4) {
+    hex = `#${hex[1]}${hex[1]}${hex[2]}${hex[2]}${hex[3]}${hex[3]}`;
+  }
+  return hex;
+}
+
+function relativeLuminanceHex6(hex6) {
+  const h = hex6.replace(/^#/, '');
+  if (h.length !== 6) return 0.5;
+  const n = parseInt(h, 16);
+  if (Number.isNaN(n)) return 0.5;
+  const rs = (n >> 16) & 255;
+  const gs = (n >> 8) & 255;
+  const bs = n & 255;
+  const lin = (c) => {
+    const x = c / 255;
+    return x <= 0.03928 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4);
+  };
+  return 0.2126 * lin(rs) + 0.7152 * lin(gs) + 0.0722 * lin(bs);
+}
+
+const JERSEY_PRESET_FORCE_BLACK_NUMBER = new Set(['#c1121c', '#0857c3', '#38bdf8', '#f97316', '#008450']);
+
+function jerseyNumberColorForShirt(shirtHex6) {
+  const expanded = jerseyToHex6(typeof shirtHex6 === 'string' ? shirtHex6 : '');
+  const key = expanded ? expanded.toLowerCase() : '';
+  if (key && JERSEY_PRESET_FORCE_BLACK_NUMBER.has(key)) return '#111827';
+  const hex6 = expanded || DEFAULT_JERSEY_COLOR;
+  return relativeLuminanceHex6(hex6) > 0.5 ? '#111827' : '#ffffff';
+}
+
+function isTeamShirtBlack(shirtHex6) {
+  const h = shirtHex6.replace(/^#/, '');
+  if (h.length !== 6) return false;
+  const n = parseInt(h, 16);
+  if (Number.isNaN(n)) return false;
+  const r = (n >> 16) & 255;
+  const g = (n >> 8) & 255;
+  const b = n & 255;
+  const mx = Math.max(r, g, b);
+  const mn = Math.min(r, g, b);
+  return relativeLuminanceHex6(shirtHex6) <= 0.12 && mx - mn <= 48 && mx <= 60;
+}
+
+function goalkeeperShirtHex(teamBaseHex6) {
+  return isTeamShirtBlack(teamBaseHex6) ? '#ffffff' : '#000000';
+}
+
 export default function OfficialTeamDetailScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
   const teamId = Number(route?.params?.teamId);
@@ -810,6 +866,9 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
                 {sortedTeamSeasonSquad.map((p, i) => {
                   const role = String(p?.role || '').trim().toUpperCase();
                   const roleColor = ROLE_COLORS[role] || '#6b7280';
+                  const teamShirtHex = jerseyToHex6(teamSeasonJerseyColor) || DEFAULT_JERSEY_COLOR;
+                  const playerShirtHex = role === 'P' ? goalkeeperShirtHex(teamShirtHex) : teamShirtHex;
+                  const playerNumberColor = jerseyNumberColorForShirt(playerShirtHex);
                   const playerName = String(p?.name || `${p?.first_name || ''} ${p?.last_name || ''}`).trim() || '-';
                   const shirtNumber =
                     p?.shirt_number != null && p?.shirt_number !== '' && !Number.isNaN(Number(p.shirt_number))
@@ -834,8 +893,8 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
                       }}
                     >
                       <View style={styles.squadJerseyBadge}>
-                        <MaterialCommunityIcons name="tshirt-crew" size={38} color={teamSeasonJerseyColor || DEFAULT_JERSEY_COLOR} />
-                        <Text style={styles.squadJerseyNumber}>{shirtNumber}</Text>
+                        <MaterialCommunityIcons name="tshirt-crew" size={38} color={playerShirtHex} />
+                        <Text style={[styles.squadJerseyNumber, { color: playerNumberColor }]}>{shirtNumber}</Text>
                       </View>
                       <Text style={styles.squadPlayerName} numberOfLines={2}>
                         {playerName}
