@@ -1888,6 +1888,7 @@ router.put('/:id/teams/:teamId/players/:playerId', authenticateToken, async (req
     const firstName = req.body?.first_name != null ? String(req.body.first_name).trim() : null;
     const lastName = req.body?.last_name != null ? String(req.body.last_name).trim() : null;
     const role = req.body?.role != null ? String(req.body.role).trim() : null;
+    const rating = req.body?.rating == null || req.body?.rating === '' ? null : Number(req.body.rating);
     const isInjured = req.body?.is_injured != null ? Number(req.body.is_injured ? 1 : 0) : null;
     const injuryReplacementPlayerId =
       req.body?.injury_replacement_player_id == null || req.body?.injury_replacement_player_id === ''
@@ -1904,6 +1905,9 @@ router.put('/:id/teams/:teamId/players/:playerId', authenticateToken, async (req
     }
     if (injuryReplacementPlayerId != null && injuryReplacementPlayerId === playerId) {
       return res.status(400).json({ message: 'Il sostituto deve essere diverso dal giocatore infortunato' });
+    }
+    if (rating != null && (!Number.isFinite(rating) || rating < 0)) {
+      return res.status(400).json({ message: 'Valutazione non valida' });
     }
     if (injuryReplacementPlayerId != null) {
       const replacementRows = await query(
@@ -1924,6 +1928,7 @@ router.put('/:id/teams/:teamId/players/:playerId', authenticateToken, async (req
          SET first_name = COALESCE(?, first_name),
              last_name = COALESCE(?, last_name),
              role = COALESCE(?, role),
+             rating = COALESCE(CAST(? AS numeric), rating),
              shirt_number = ?,
              is_injured = COALESCE(CAST(? AS integer), is_injured),
              injury_replacement_player_id = CASE
@@ -1933,7 +1938,7 @@ router.put('/:id/teams/:teamId/players/:playerId', authenticateToken, async (req
          FROM teams t
          WHERE p.id = ? AND p.team_id = ? AND t.id = p.team_id AND t.league_id = ?`,
         [
-          firstName, lastName, role, shirtNumber,
+          firstName, lastName, role, rating, shirtNumber,
           Number.isFinite(isInjured) ? isInjured : null,
           Number.isFinite(isInjured) ? isInjured : null,
           injuryReplacementPlayerId,
@@ -1947,6 +1952,7 @@ router.put('/:id/teams/:teamId/players/:playerId', authenticateToken, async (req
            SET first_name = COALESCE(?, first_name),
                last_name = COALESCE(?, last_name),
                role = COALESCE(?, role),
+               rating = COALESCE(CAST(? AS numeric), rating),
                numero_maglia = ?,
                is_injured = COALESCE(CAST(? AS integer), is_injured),
                injury_replacement_player_id = CASE
@@ -1956,7 +1962,7 @@ router.put('/:id/teams/:teamId/players/:playerId', authenticateToken, async (req
            FROM teams t
            WHERE p.id = ? AND p.team_id = ? AND t.id = p.team_id AND t.league_id = ?`,
           [
-            firstName, lastName, role, shirtNumber,
+            firstName, lastName, role, rating, shirtNumber,
             Number.isFinite(isInjured) ? isInjured : null,
             Number.isFinite(isInjured) ? isInjured : null,
             injuryReplacementPlayerId,
@@ -1969,6 +1975,7 @@ router.put('/:id/teams/:teamId/players/:playerId', authenticateToken, async (req
            SET first_name = COALESCE(?, first_name),
                last_name = COALESCE(?, last_name),
                role = COALESCE(?, role),
+               rating = COALESCE(CAST(? AS numeric), rating),
                is_injured = COALESCE(CAST(? AS integer), is_injured),
                injury_replacement_player_id = CASE
                  WHEN COALESCE(CAST(? AS integer), is_injured) = 1 THEN CAST(? AS integer)
@@ -1977,7 +1984,7 @@ router.put('/:id/teams/:teamId/players/:playerId', authenticateToken, async (req
            FROM teams t
            WHERE p.id = ? AND p.team_id = ? AND t.id = p.team_id AND t.league_id = ?`,
           [
-            firstName, lastName, role,
+            firstName, lastName, role, rating,
             Number.isFinite(isInjured) ? isInjured : null,
             Number.isFinite(isInjured) ? isInjured : null,
             injuryReplacementPlayerId,

@@ -196,6 +196,16 @@ function buildPhaseSequence(match) {
   return seq;
 }
 
+function matchHasExtraTimeAndPenalties(match) {
+  return Number(match?.extra_time_enabled) === 1 && Number(match?.penalties_enabled) === 1;
+}
+
+/** Dopo fine 2T reg. o fine 2T sup. (con sup.+rigori): si può chiudere con solo `match_end`, come partita senza fasi extra. */
+function phaseStepOffersMatchEndShortcut(nextPhaseStep, match) {
+  if (!nextPhaseStep || !matchHasExtraTimeAndPenalties(match)) return false;
+  return nextPhaseStep.type === 'second_half_end' || nextPhaseStep.type === 'extra_second_half_end';
+}
+
 /**
  * Prossimo passo del pulsante unico.
  * `match_end` è in sequenza solo se i rigori sono previsti sul match (click finale dopo i rigori).
@@ -813,9 +823,17 @@ function timelineDisplaySortKey(ev, match) {
     const base = Math.max(2 * H, Number.isFinite(n) ? n : 0);
     return base + 0.001;
   }
+  if (ev.event_type === 'extra_first_half_start') {
+    const base = Math.max(2 * H, Number.isFinite(n) ? n : 0);
+    return base + 0.002;
+  }
   if (ev.event_type === 'extra_half_time') {
     const base = Math.max(2 * H + et1, Number.isFinite(n) ? n : 0);
     return base + 0.001;
+  }
+  if (ev.event_type === 'extra_second_half_start') {
+    const base = Math.max(2 * H + et1, Number.isFinite(n) ? n : 0);
+    return base + 0.002;
   }
   if (ev.event_type === 'extra_second_half_end') {
     const base = Math.max(2 * H + et1 + et2, Number.isFinite(n) ? n : 0);
@@ -938,6 +956,8 @@ export default function MatchDetailScreen({ navigation, route }) {
   const [data, setData] = useState(null);
   const [tick, setTick] = useState(0);
   const [showEventEditor, setShowEventEditor] = useState(false);
+  const [confirmEndMatchOpen, setConfirmEndMatchOpen] = useState(false);
+  const [confirmAdvancePhase, setConfirmAdvancePhase] = useState(null);
   const [lineupEditMode, setLineupEditMode] = useState(false);
   const [savingUnavailable, setSavingUnavailable] = useState(false);
   const [unavailableIdsHome, setUnavailableIdsHome] = useState([]);
@@ -1245,6 +1265,14 @@ export default function MatchDetailScreen({ navigation, route }) {
   const showHeroScorerList =
     matchHasStarted && (Number(liveScorePreview.home) > 0 || Number(liveScorePreview.away) > 0);
   const nextPhaseStep = useMemo(() => getNextPhaseStep(match, liveEvents), [match, liveEvents]);
+  const showPhaseMatchEndClockFields = useMemo(
+    () => nextPhaseStep?.type === 'match_end' || phaseStepOffersMatchEndShortcut(nextPhaseStep, match),
+    [nextPhaseStep, match?.extra_time_enabled, match?.penalties_enabled]
+  );
+  const showPhaseShortcutMatchEnd = useMemo(
+    () => phaseStepOffersMatchEndShortcut(nextPhaseStep, match),
+    [nextPhaseStep, match?.extra_time_enabled, match?.penalties_enabled]
+  );
   const timingSegments = useMemo(() => getMatchTimingSegments(match), [
     match.regulation_half_minutes,
     match.extra_time_enabled,
@@ -1334,10 +1362,10 @@ export default function MatchDetailScreen({ navigation, route }) {
   };
 
   useEffect(() => {
-    if (showEventEditor && editorModalTab === 'phases' && nextPhaseStep?.type === 'match_end') {
+    if (showEventEditor && editorModalTab === 'phases' && showPhaseMatchEndClockFields) {
       fillMatchEndDefaults();
     }
-  }, [showEventEditor, editorModalTab, nextPhaseStep?.type]);
+  }, [showEventEditor, editorModalTab, showPhaseMatchEndClockFields]);
 
   useEffect(() => {
     if (!showEventEditor || editorModalTab !== 'events' || eventMinuteDirty) return;
@@ -1346,6 +1374,8 @@ export default function MatchDetailScreen({ navigation, route }) {
 
   const closeEventModal = useCallback(() => {
     setShowEventEditor(false);
+    setConfirmEndMatchOpen(false);
+    setConfirmAdvancePhase(null);
     setEventMinuteDirty(false);
   }, []);
 
@@ -1478,6 +1508,50 @@ export default function MatchDetailScreen({ navigation, route }) {
     }
   };
 
+  const buildAdvancePhaseWarning = (phaseType) => {
+    const et = Number(match?.extra_time_enabled) === 1;
+    const pens = Number(match?.penalties_enabled) === 1;
+    const canHaveNextPhase =
+      (phaseType === 'second_half_end' && (et || pens)) ||
+      (phaseType === 'extra_second_half_end' && pens);
+    if (!canHaveNextPhase) return null;
+
+    const home = Number(liveScorePreview.home);
+    const away = Number(liveScorePreview.away);
+    if (!Number.isFinite(home) || !Number.isFinite(away) || home === away) return null;
+
+    const leadingTeamName = home > away ? match.home_team_name : match.away_team_name;
+    return {
+      phaseType,
+      leadingTeamName: String(leadingTeamName || 'Una squadra'),
+      score: `${home} - ${away}`,
+      continueLabel: nextPhaseStep?.label || 'Vai avanti',
+    };
+  };
+
+  const requestSubmitPhaseEvent = (phaseType) => {
+    const warning = buildAdvancePhaseWarning(phaseType);
+    if (warning) {
+      Keyboard.dismiss();
+      setConfirmAdvancePhase(warning);
+      return;
+    }
+    submitPhaseEvent(phaseType);
+  };
+
+  const openKnockoutMatchDetail = useCallback(
+    (targetMatchId) => {
+      const tid = Number(targetMatchId);
+      if (!Number.isFinite(tid) || tid <= 0 || tid === Number(matchId)) return;
+      if (typeof navigation.push === 'function') {
+        navigation.push('MatchDetail', { matchId: tid });
+      } else {
+        navigation.navigate('MatchDetail', { matchId: tid });
+      }
+    },
+    [navigation, matchId]
+  );
+
   const standingsKnockoutBracketGrid = useMemo(
     () => (
       <>
@@ -1495,7 +1569,14 @@ export default function MatchDetailScreen({ navigation, route }) {
                   <View style={styles.knockoutSemiLabelRow}>
                     <Text style={styles.knockoutSemiSmallLabel}>SF {idx + 1}</Text>
                   </View>
-                  <View style={styles.knockoutMatchStackMeasure}>
+                  <TouchableOpacity
+                    style={styles.knockoutMatchStackMeasure}
+                    activeOpacity={0.78}
+                    disabled={!semi?.id}
+                    onPress={() => openKnockoutMatchDetail(semi?.id)}
+                    accessibilityRole={semi?.id ? 'button' : undefined}
+                    accessibilityLabel={semi?.id ? `Apri partita semifinale ${idx + 1}` : undefined}
+                  >
                     <View style={styles.knockoutMatchStack}>
                       <View style={styles.knockoutTeamBox}>
                         <View style={styles.knockoutTeamRow}>
@@ -1528,7 +1609,7 @@ export default function MatchDetailScreen({ navigation, route }) {
                         </View>
                       </View>
                     </View>
-                  </View>
+                  </TouchableOpacity>
                 </View>
               );
             })}
@@ -1543,7 +1624,14 @@ export default function MatchDetailScreen({ navigation, route }) {
 
           <View style={styles.knockoutFinalCol}>
             <View style={styles.knockoutFinalLabelRow} />
-            <View style={styles.knockoutMatchStackMeasure}>
+            <TouchableOpacity
+              style={styles.knockoutMatchStackMeasure}
+              activeOpacity={0.78}
+              disabled={!knockout.final?.id}
+              onPress={() => openKnockoutMatchDetail(knockout.final?.id)}
+              accessibilityRole={knockout.final?.id ? 'button' : undefined}
+              accessibilityLabel={knockout.final?.id ? 'Apri partita finale' : undefined}
+            >
               <View style={styles.knockoutMatchStack}>
                 <View style={styles.knockoutTeamBox}>
                   <View style={styles.knockoutTeamRow}>
@@ -1588,12 +1676,12 @@ export default function MatchDetailScreen({ navigation, route }) {
                   </View>
                 </View>
               </View>
-            </View>
+            </TouchableOpacity>
           </View>
         </View>
       </>
     ),
-    [knockout]
+    [knockout, openKnockoutMatchDetail]
   );
 
   const standingsTableInner = useMemo(
@@ -1928,7 +2016,7 @@ export default function MatchDetailScreen({ navigation, route }) {
                       </View>
                     );
                   }
-                  if (ev.event_type === 'second_half_start') {
+                  if (ev.event_type === 'second_half_start' || ev.event_type === 'extra_second_half_start') {
                     return null;
                   }
                   if (ev.event_type === 'half_time') {
@@ -1947,6 +2035,22 @@ export default function MatchDetailScreen({ navigation, route }) {
                       </View>
                     );
                   }
+                  if (ev.event_type === 'extra_first_half_start') {
+                    const partialEt = computePartialScoreBeforeEvent(liveEvents, ev, match);
+                    return (
+                      <View key={`ev-${ev.id}`} style={styles.matchEndBanner}>
+                        <View style={styles.matchEndLine} />
+                        <Text
+                          style={styles.matchEndLabel}
+                          numberOfLines={2}
+                          accessibilityLabel={`${PHASE_ROW_LABELS.extra_first_half_start}, risultato ${partialEt.home} a ${partialEt.away}`}
+                        >
+                          {PHASE_ROW_LABELS.extra_first_half_start} {partialEt.home} - {partialEt.away}
+                        </Text>
+                        <View style={styles.matchEndLine} />
+                      </View>
+                    );
+                  }
                   if (ev.event_type === 'second_half_end') {
                     const ftLabel = labelSecondHalfEnd(match);
                     return (
@@ -1959,6 +2063,22 @@ export default function MatchDetailScreen({ navigation, route }) {
                           accessibilityLabel={`${ftLabel}, risultato ${liveScorePreview.home} a ${liveScorePreview.away}`}
                         >
                           {ftLabel} {liveScorePreview.home} - {liveScorePreview.away}
+                        </Text>
+                        <View style={styles.matchEndLine} />
+                      </View>
+                    );
+                  }
+                  if (ev.event_type === 'extra_half_time') {
+                    const partialEt1 = computePartialScoreBeforeEvent(liveEvents, ev, match);
+                    return (
+                      <View key={`ev-${ev.id}`} style={styles.matchEndBanner}>
+                        <View style={styles.matchEndLine} />
+                        <Text
+                          style={styles.matchEndLabel}
+                          numberOfLines={2}
+                          accessibilityLabel={`${PHASE_ROW_LABELS.extra_half_time}, risultato parziale ${partialEt1.home} a ${partialEt1.away}`}
+                        >
+                          {PHASE_ROW_LABELS.extra_half_time} {partialEt1.home} - {partialEt1.away}
                         </Text>
                         <View style={styles.matchEndLine} />
                       </View>
@@ -1995,6 +2115,8 @@ export default function MatchDetailScreen({ navigation, route }) {
                   if (
                     PHASE_ROW_LABELS[ev.event_type] &&
                     ev.event_type !== 'half_time' &&
+                    ev.event_type !== 'extra_first_half_start' &&
+                    ev.event_type !== 'extra_half_time' &&
                     ev.event_type !== 'second_half_end' &&
                     ev.event_type !== 'extra_second_half_end'
                   ) {
@@ -2194,7 +2316,7 @@ export default function MatchDetailScreen({ navigation, route }) {
                 <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
                   {editorModalTab === 'phases' ? (
                     <>
-                      {nextPhaseStep?.type === 'match_end' ? (
+                      {showPhaseMatchEndClockFields ? (
                         <>
                           <Text style={styles.editorLabel}>Orario (HH:mm)</Text>
                           <TextInput style={styles.input} value={matchEndClock} onChangeText={setMatchEndClock} placeholder={clockNowHHmm()} />
@@ -2204,19 +2326,43 @@ export default function MatchDetailScreen({ navigation, route }) {
                         </>
                       ) : null}
                       {nextPhaseStep ? (
-                        <TouchableOpacity
-                          style={styles.phaseActionBtn}
-                          onPress={() => {
-                            Keyboard.dismiss();
-                            submitPhaseEvent(nextPhaseStep.type);
-                          }}
-                        >
-                          <Text style={styles.phaseActionBtnText}>
-                            {nextPhaseStep.type === 'match_end' && liveEvents.some((e) => e.event_type === 'match_end')
-                              ? 'Aggiorna fine partita'
-                              : nextPhaseStep.label}
-                          </Text>
-                        </TouchableOpacity>
+                        showPhaseShortcutMatchEnd ? (
+                          <>
+                            <TouchableOpacity
+                              style={styles.phaseActionBtn}
+                              onPress={() => {
+                                Keyboard.dismiss();
+                                requestSubmitPhaseEvent(nextPhaseStep.type);
+                              }}
+                            >
+                              <Text style={styles.phaseActionBtnText}>{nextPhaseStep.label}</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={styles.phaseActionBtnOutline}
+                              onPress={() => {
+                                Keyboard.dismiss();
+                                setConfirmEndMatchOpen(true);
+                              }}
+                            >
+                              <Text style={styles.phaseActionBtnOutlineText}>Fine partita</Text>
+                            </TouchableOpacity>
+                            
+                          </>
+                        ) : (
+                          <TouchableOpacity
+                            style={styles.phaseActionBtn}
+                            onPress={() => {
+                              Keyboard.dismiss();
+                              requestSubmitPhaseEvent(nextPhaseStep.type);
+                            }}
+                          >
+                            <Text style={styles.phaseActionBtnText}>
+                              {nextPhaseStep.type === 'match_end' && liveEvents.some((e) => e.event_type === 'match_end')
+                                ? 'Aggiorna fine partita'
+                                : nextPhaseStep.label}
+                            </Text>
+                          </TouchableOpacity>
+                        )
                       ) : (
                         <Text style={styles.phaseDoneHint}>Tutte le fasi sono state registrate.</Text>
                       )}
@@ -2367,6 +2513,77 @@ export default function MatchDetailScreen({ navigation, route }) {
                     </>
                   )}
                 </ScrollView>
+              </View>
+            </View>
+          </Modal>
+          <Modal
+            visible={confirmEndMatchOpen}
+            transparent
+            animationType="fade"
+            onRequestClose={() => setConfirmEndMatchOpen(false)}
+          >
+            <View style={styles.confirmOverlay}>
+              <View style={styles.confirmContent}>
+                <View style={styles.confirmIconWrap}>
+                  <Ionicons name="warning" size={40} color="#e53935" />
+                </View>
+                <Text style={styles.confirmTitle}>Conferma fine partita</Text>
+                <Text style={styles.confirmMessage}>
+                  La partita è terminata e non servono supplementari o rigori?
+                </Text>
+                <View style={styles.confirmButtons}>
+                  <TouchableOpacity style={styles.confirmBtnCancel} onPress={() => setConfirmEndMatchOpen(false)}>
+                    <Text style={styles.confirmBtnCancelText}>Annulla</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.confirmBtnAction, styles.confirmBtnDestructive]}
+                    onPress={() => {
+                      setConfirmEndMatchOpen(false);
+                      submitPhaseEvent('match_end');
+                    }}
+                  >
+                    <Text style={styles.confirmBtnActionText}>Fine partita</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          </Modal>
+          <Modal
+            visible={!!confirmAdvancePhase}
+            transparent
+            animationType="fade"
+            onRequestClose={() => setConfirmAdvancePhase(null)}
+          >
+            <View style={styles.confirmOverlay}>
+              <View style={styles.confirmContent}>
+                <View style={styles.confirmIconWrap}>
+                  <Ionicons name="alert-circle" size={40} color="#e53935" />
+                </View>
+                <Text style={styles.confirmTitle}>Risultato non in parità</Text>
+                <Text style={styles.confirmMessage}>
+                  {confirmAdvancePhase?.leadingTeamName} è in vantaggio ({confirmAdvancePhase?.score}). Vuoi chiudere la partita o andare avanti comunque?
+                </Text>
+                <View style={styles.confirmButtonsStack}>
+                  <TouchableOpacity style={[styles.confirmBtnAction, styles.confirmBtnFull]} onPress={() => {
+                    const phaseType = confirmAdvancePhase?.phaseType;
+                    setConfirmAdvancePhase(null);
+                    if (phaseType) submitPhaseEvent(phaseType);
+                  }}>
+                    <Text style={styles.confirmBtnActionText}>{confirmAdvancePhase?.continueLabel || 'Vai avanti'}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.confirmBtnAction, styles.confirmBtnDestructive, styles.confirmBtnFull]}
+                    onPress={() => {
+                      setConfirmAdvancePhase(null);
+                      submitPhaseEvent('match_end');
+                    }}
+                  >
+                    <Text style={styles.confirmBtnActionText}>Fine partita</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.confirmBtnCancel, styles.confirmBtnFull]} onPress={() => setConfirmAdvancePhase(null)}>
+                    <Text style={styles.confirmBtnCancelText}>Annulla</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
             </View>
           </Modal>
@@ -2762,6 +2979,38 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 4,
   },
+  confirmOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  confirmContent: {
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    padding: 24,
+    width: '85%',
+    alignItems: 'center',
+  },
+  confirmIconWrap: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#fff5f5',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  confirmTitle: { fontSize: 20, fontWeight: 'bold', color: '#333', marginBottom: 8, textAlign: 'center' },
+  confirmMessage: { fontSize: 14, color: '#666', textAlign: 'center', lineHeight: 20, marginBottom: 20 },
+  confirmButtons: { flexDirection: 'row', gap: 12, width: '100%' },
+  confirmButtonsStack: { width: '100%', gap: 10 },
+  confirmBtnFull: { width: '100%', flex: 0, minHeight: 46, justifyContent: 'center' },
+  confirmBtnCancel: { flex: 1, paddingVertical: 12, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: '#f0f0f0' },
+  confirmBtnCancelText: { color: '#333', fontSize: 16, fontWeight: '600', textAlign: 'center' },
+  confirmBtnAction: { flex: 1, paddingVertical: 12, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: '#667eea' },
+  confirmBtnDestructive: { backgroundColor: '#e53935' },
+  confirmBtnActionText: { color: '#fff', fontSize: 16, fontWeight: '600', textAlign: 'center' },
   eventModalRoot: { flex: 1, justifyContent: 'flex-end' },
   eventModalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)' },
   eventModalSheet: {
@@ -2797,6 +3046,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 10,
   },
+  phaseActionBtnOutline: {
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: 'center',
+    marginBottom: 10,
+    borderWidth: 2,
+    borderColor: '#667eea',
+  },
+  phaseActionBtnOutlineText: { color: '#667eea', fontWeight: '800', fontSize: 15 },
   phaseActionBtnDisabled: { backgroundColor: '#c4c9d4' },
   phaseActionBtnText: { color: '#fff', fontWeight: '800', fontSize: 15 },
   livePhaseRow: {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -13,6 +13,7 @@ import {
   Modal,
   Image,
   Switch,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -140,6 +141,10 @@ export default function TeamManagementScreen({ route, navigation }) {
   const [showTeamSelectModal, setShowTeamSelectModal] = useState(false);
   const [toastMsg, setToastMsg] = useState(null);
   const [confirmModal, setConfirmModal] = useState(null);
+  const firstNameInputRef = useRef(null);
+  const lastNameInputRef = useRef(null);
+  const ratingInputRef = useRef(null);
+  const shirtNumberInputRef = useRef(null);
   
   const showToast = (text, type = 'error') => {
     setToastMsg({ text, type });
@@ -1395,31 +1400,51 @@ export default function TeamManagementScreen({ route, navigation }) {
         }}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContainer}>
-            <Text style={styles.modalTitle}>Modifica Giocatore</Text>
-            {editingPlayer && (
-              <>
+          <KeyboardAvoidingView
+            style={styles.modalKeyboardView}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            keyboardVerticalOffset={Math.max(insets.top, 0) + 8}
+          >
+            <View style={styles.modalContainer}>
+              <ScrollView
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={styles.modalScrollContent}
+              >
+                <Text style={styles.modalTitle}>Modifica Giocatore</Text>
+                {editingPlayer && (
+                  <>
                 <View style={styles.formGroup}>
                   <Text style={styles.label}>Nome</Text>
                   <TextInput
+                    ref={firstNameInputRef}
                     style={styles.inputLarge}
                     value={firstName}
                     onChangeText={setFirstName}
                     placeholder="Nome"
                     autoCapitalize="words"
                     editable={!isReadOnlyObserver}
+                    selectTextOnFocus
+                    returnKeyType="next"
+                    blurOnSubmit={false}
+                    onSubmitEditing={() => lastNameInputRef.current?.focus()}
                   />
                 </View>
 
                 <View style={styles.formGroup}>
                   <Text style={styles.label}>Cognome</Text>
                   <TextInput
+                    ref={lastNameInputRef}
                     style={styles.inputLarge}
                     value={lastName}
                     onChangeText={setLastName}
                     placeholder="Cognome"
                     autoCapitalize="words"
                     editable={!isReadOnlyObserver}
+                    selectTextOnFocus
+                    returnKeyType="next"
+                    blurOnSubmit={false}
+                    onSubmitEditing={() => ratingInputRef.current?.focus()}
                   />
                 </View>
 
@@ -1474,23 +1499,32 @@ export default function TeamManagementScreen({ route, navigation }) {
                 <View style={styles.formGroup}>
                   <Text style={styles.label}>Valutazione</Text>
                   <TextInput
+                    ref={ratingInputRef}
                     style={styles.inputLarge}
                     value={rating}
                     onChangeText={setRating}
                     placeholder="0.0"
                     keyboardType="numeric"
                     editable={!isReadOnlyObserver}
+                    selectTextOnFocus
+                    returnKeyType="next"
+                    blurOnSubmit={false}
+                    onSubmitEditing={() => shirtNumberInputRef.current?.focus()}
                   />
                 </View>
                 <View style={styles.formGroup}>
                   <Text style={styles.label}>Numero maglia</Text>
                   <TextInput
+                    ref={shirtNumberInputRef}
                     style={styles.inputLarge}
                     value={shirtNumber}
                     onChangeText={setShirtNumber}
                     placeholder="es. 10"
                     keyboardType="number-pad"
                     editable={!isReadOnlyObserver}
+                    selectTextOnFocus
+                    returnKeyType="done"
+                    onSubmitEditing={handleSavePlayer}
                   />
                 </View>
                 <View style={styles.formGroup}>
@@ -1535,41 +1569,43 @@ export default function TeamManagementScreen({ route, navigation }) {
                     </TouchableOpacity>
                   </View>
                 )}
-              </>
-            )}
-
-            <View style={styles.modalButtons}>
-              <TouchableOpacity
-                style={[styles.cancelButton, saving && styles.buttonDisabled]}
-                onPress={() => {
-                  setShowEditModal(false);
-                  setEditingPlayer(null);
-                  setFirstName('');
-                  setLastName('');
-                  setRole('P');
-                  setRating('');
-                  setShirtNumber('');
-                  setSelectedTeamId(null);
-                  setIsInjured(false);
-                  setReplacementPlayerId(null);
-                }}
-                disabled={saving}
-              >
-                <Text style={styles.cancelButtonText}>Annulla</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.saveButton, saving && styles.buttonDisabled]}
-                onPress={handleSavePlayer}
-                disabled={saving || isReadOnlyObserver}
-              >
-                {saving ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Text style={styles.saveButtonText}>Salva</Text>
+                  </>
                 )}
-              </TouchableOpacity>
+
+                <View style={styles.modalButtons}>
+                  <TouchableOpacity
+                    style={[styles.cancelButton, saving && styles.buttonDisabled]}
+                    onPress={() => {
+                      setShowEditModal(false);
+                      setEditingPlayer(null);
+                      setFirstName('');
+                      setLastName('');
+                      setRole('P');
+                      setRating('');
+                      setShirtNumber('');
+                      setSelectedTeamId(null);
+                      setIsInjured(false);
+                      setReplacementPlayerId(null);
+                    }}
+                    disabled={saving}
+                  >
+                    <Text style={styles.cancelButtonText}>Annulla</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.saveButton, saving && styles.buttonDisabled]}
+                    onPress={handleSavePlayer}
+                    disabled={saving || isReadOnlyObserver}
+                  >
+                    {saving ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <Text style={styles.saveButtonText}>Salva</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </ScrollView>
             </View>
-          </View>
+          </KeyboardAvoidingView>
         </View>
       </Modal>
 
@@ -1788,7 +1824,9 @@ const styles = StyleSheet.create({
 
   // ── Edit modal ──
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center' },
-  modalContainer: { backgroundColor: '#fff', borderRadius: 18, padding: 20, width: '90%', maxWidth: 400 },
+  modalKeyboardView: { width: '100%', flex: 1, justifyContent: 'center', alignItems: 'center' },
+  modalContainer: { backgroundColor: '#fff', borderRadius: 18, width: '90%', maxWidth: 400, maxHeight: '88%', overflow: 'hidden' },
+  modalScrollContent: { padding: 20, paddingBottom: 24 },
   modalTitle: { fontSize: 18, fontWeight: '700', color: '#333', marginBottom: 18, textAlign: 'center' },
   modalButtons: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 18, gap: 10 },
   cancelButton: { flex: 1, backgroundColor: '#f0f0f0', paddingVertical: 13, borderRadius: 10, alignItems: 'center' },

@@ -489,6 +489,13 @@ function buildEventTitleForDb(eventType, teamSide, payload) {
   if (eventType === 'penalty_missed') return pn ? `Rigore sbagliato - ${pn}` : 'Rigore sbagliato';
   if (eventType === 'match_start') return 'Inizio partita';
   if (eventType === 'match_end') return 'Fine partita';
+  if (eventType === 'half_time') return 'Fine primo tempo';
+  if (eventType === 'second_half_start') return 'Inizio secondo tempo';
+  if (eventType === 'second_half_end') return 'Fine secondo tempo';
+  if (eventType === 'extra_first_half_start') return 'Inizio supplementari';
+  if (eventType === 'extra_half_time') return 'Fine primo tempo supplementari';
+  if (eventType === 'extra_second_half_start') return 'Inizio secondo tempo supplementari';
+  if (eventType === 'extra_second_half_end') return 'Fine secondo tempo supplementari';
   // fallback
   const et = String(eventType || '').trim();
   return et ? et : null;
@@ -1064,7 +1071,7 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
           `
           SELECT match_id, event_type, team_side, team_id
           FROM official_match_events
-          WHERE match_id IN (${ph}) AND event_type IN ('goal', 'own_goal')
+          WHERE match_id IN (${ph})
           ORDER BY id ASC
           `,
           knockoutIds
@@ -1073,6 +1080,7 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
           const mid = Number(e.match_id);
           if (!liveScoreByMatch.has(mid)) liveScoreByMatch.set(mid, { home: 0, away: 0, hasEvents: false });
           const s = liveScoreByMatch.get(mid);
+          // Appena la partita ha eventi live (anche solo inizio/fine), il tabellone deve mostrare 0-0.
           s.hasEvents = true;
           const teamRef = knockoutTeamByMatchId.get(mid) || { home_team_id: 0, away_team_id: 0 };
           const evTeamId = Number(e.team_id);
