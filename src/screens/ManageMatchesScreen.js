@@ -129,6 +129,7 @@ export default function ManageMatchesScreen() {
   const [newVenueName, setNewVenueName] = useState('');
   const [newRefereeName, setNewRefereeName] = useState('');
   const [newStageName, setNewStageName] = useState('');
+  const [refereeListOpen, setRefereeListOpen] = useState(false);
   const [standingsTies, setStandingsTies] = useState([]);
   const [tieOrders, setTieOrders] = useState({});
 
@@ -1290,28 +1291,48 @@ export default function ManageMatchesScreen() {
                 <Text style={styles.primaryBtnText}>Aggiungi</Text>
               </TouchableOpacity>
             </View>
-            <View style={styles.rowWrap}>
-              {(matchDetailsOptions.referees || []).map((r) => (
-                <TouchableOpacity
-                  key={`manage-ref-${r.id}`}
-                  style={styles.deleteChip}
-                  onPress={() =>
-                    setConfirmModal({
-                      title: 'Elimina arbitro',
-                      message: `Eliminare "${r.name}"?`,
-                      confirmText: 'Elimina',
-                      destructive: true,
-                      onConfirm: async () => {
-                        setConfirmModal(null);
-                        await removeMatchDetailOption('referees', Number(r.id));
-                      },
-                    })
-                  }
-                >
-                  <Text style={styles.deleteChipText}>✕ {r.name}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
+            <TouchableOpacity
+              style={styles.detailDropdownHeader}
+              activeOpacity={0.75}
+              onPress={() => setRefereeListOpen((v) => !v)}
+            >
+              <View style={styles.detailDropdownHeaderLeft}>
+                <Ionicons name="people-outline" size={17} color="#667eea" />
+                <Text style={styles.detailDropdownHeaderText}>
+                  Elenco arbitri ({(matchDetailsOptions.referees || []).length})
+                </Text>
+              </View>
+              <Ionicons name={refereeListOpen ? 'chevron-up' : 'chevron-down'} size={18} color="#64748b" />
+            </TouchableOpacity>
+            {refereeListOpen ? (
+              <View style={styles.refereeList}>
+                {(matchDetailsOptions.referees || []).length === 0 ? (
+                  <Text style={styles.muted}>Nessun arbitro inserito.</Text>
+                ) : (
+                  (matchDetailsOptions.referees || []).map((r) => (
+                    <TouchableOpacity
+                      key={`manage-ref-${r.id}`}
+                      style={styles.refereeDeleteRow}
+                      onPress={() =>
+                        setConfirmModal({
+                          title: 'Elimina arbitro',
+                          message: `Eliminare "${r.name}"?`,
+                          confirmText: 'Elimina',
+                          destructive: true,
+                          onConfirm: async () => {
+                            setConfirmModal(null);
+                            await removeMatchDetailOption('referees', Number(r.id));
+                          },
+                        })
+                      }
+                    >
+                      <Text style={styles.refereeDeleteName} numberOfLines={1}>{r.name}</Text>
+                      <Text style={styles.refereeDeleteIcon}>✕</Text>
+                    </TouchableOpacity>
+                  ))
+                )}
+              </View>
+            ) : null}
 
             <Text style={styles.label}>Nuova tipologia giornata</Text>
             <Text style={styles.muted}>Preset predefinito per le partite che useranno questa tipologia (modificabile sul singolo match).</Text>
@@ -2186,6 +2207,36 @@ const styles = StyleSheet.create({
   chipTextActive: { color: '#fff' },
   deleteChip: { borderWidth: 1, borderColor: '#f0b7bb', borderRadius: 16, paddingHorizontal: 10, paddingVertical: 6, backgroundColor: '#fff5f6' },
   deleteChipText: { color: '#b42318', fontSize: 12, fontWeight: '700' },
+  detailDropdownHeader: {
+    marginTop: 6,
+    marginBottom: 6,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 12,
+    backgroundColor: '#f8fafc',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  detailDropdownHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 },
+  detailDropdownHeaderText: { color: '#334155', fontSize: 13, fontWeight: '800' },
+  refereeList: { gap: 8, paddingVertical: 4 },
+  refereeDeleteRow: {
+    borderWidth: 1,
+    borderColor: '#f0b7bb',
+    borderRadius: 12,
+    backgroundColor: '#fff5f6',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  refereeDeleteName: { flex: 1, color: '#7f1d1d', fontSize: 13, fontWeight: '700' },
+  refereeDeleteIcon: { color: '#b42318', fontSize: 14, fontWeight: '900' },
   primaryBtn: { backgroundColor: '#667eea', borderRadius: 8, alignItems: 'center', paddingVertical: 11, marginTop: 12 },
   primaryBtnDisabled: { opacity: 0.45 },
   primaryBtnText: { color: '#fff', fontWeight: '700' },
