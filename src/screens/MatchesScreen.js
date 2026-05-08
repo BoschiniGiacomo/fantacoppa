@@ -199,7 +199,9 @@ export default function MatchesScreen() {
   const superuserLevel = Number(user?.is_superuser || 0);
   const canOpenMatchManagement = superuserLevel === 1 || superuserLevel === 2;
   const [selectedDate, setSelectedDate] = useState(toDateKey(withOffset(0)));
+  const selectedDateRef = useRef(selectedDate);
   const [showCalendarPicker, setShowCalendarPicker] = useState(false);
+  const [calendarPickerDate, setCalendarPickerDate] = useState(() => dateFromKey(selectedDate));
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [items, setItems] = useState([]);
@@ -213,6 +215,17 @@ export default function MatchesScreen() {
   const [followDraft, setFollowDraft] = useState([]);
   const [followError, setFollowError] = useState(null);
   const [liveListTick, setLiveListTick] = useState(0);
+
+  const selectDate = useCallback((dateKey) => {
+    selectedDateRef.current = dateKey;
+    setCalendarPickerDate(dateFromKey(dateKey));
+    setSelectedDate(dateKey);
+  }, []);
+
+  const openCalendarPicker = useCallback(() => {
+    setCalendarPickerDate(dateFromKey(selectedDateRef.current));
+    setShowCalendarPicker(true);
+  }, []);
 
   const days = useMemo(() => {
     const base = dateFromKey(selectedDate);
@@ -266,16 +279,22 @@ export default function MatchesScreen() {
   }, [items]);
 
   const load = useCallback(async (date, isRefresh = false) => {
+    const requestDate = String(date || '').trim();
     try {
       setError(null);
       if (!isRefresh) setLoading(true);
-      const res = await matchesService.getByDate(date);
-      setItems(Array.isArray(res?.data?.matches) ? res.data.matches : []);
+      const res = await matchesService.getByDate(requestDate);
+      const matches = Array.isArray(res?.data?.matches) ? res.data.matches : [];
+      if (selectedDateRef.current !== requestDate) return;
+      setItems(matches);
     } catch (e) {
+      if (selectedDateRef.current !== requestDate) return;
       setError(e?.response?.data?.message || e?.message || 'Errore caricamento partite');
     } finally {
-      if (!isRefresh) setLoading(false);
-      setRefreshing(false);
+      if (selectedDateRef.current === requestDate) {
+        if (!isRefresh) setLoading(false);
+        setRefreshing(false);
+      }
     }
   }, []);
 
@@ -285,19 +304,20 @@ export default function MatchesScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      if (showCalendarPicker) return undefined;
       load(selectedDate, true);
       const id = setInterval(() => load(selectedDate, true), matchesListPollMs);
       return () => clearInterval(id);
-    }, [selectedDate, load, matchesListPollMs])
+    }, [selectedDate, load, matchesListPollMs, showCalendarPicker])
   );
 
   useEffect(() => {
     if (!isFocused) return undefined;
     const sub = AppState.addEventListener('change', (state) => {
-      if (state === 'active') load(selectedDate, true);
+      if (state === 'active' && !showCalendarPicker) load(selectedDate, true);
     });
     return () => sub.remove();
-  }, [isFocused, selectedDate, load]);
+  }, [isFocused, selectedDate, load, showCalendarPicker]);
 
   const goToMatchDetail = (matchId) => {
     navigation.navigate('MatchDetail', { matchId, from: 'matches-main' });
@@ -328,9 +348,15 @@ export default function MatchesScreen() {
     if (Platform.OS === 'android') {
       setShowCalendarPicker(false);
       if (event?.type === 'dismissed') return;
+      const nextDate = pickedDate || calendarPickerDate;
+      if (!nextDate) return;
+      setCalendarPickerDate(nextDate);
+      selectDate(toDateKey(nextDate));
+      return;
     }
     if (!pickedDate) return;
-    setSelectedDate(toDateKey(pickedDate));
+    setCalendarPickerDate(pickedDate);
+    selectDate(toDateKey(pickedDate));
   };
 
   useEffect(() => {
@@ -444,7 +470,10 @@ export default function MatchesScreen() {
           contentContainerStyle={styles.daysRow}
           onLayout={(e) => setDaysViewportWidth(e.nativeEvent.layout.width)}
         >
-          <TouchableOpacity style={styles.calendarBtn} onPress={() => setShowCalendarPicker(true)}>
+          <TouchableOpacity
+            style={styles.calendarBtn}
+            onPress={openCalendarPicker}
+          >
             <Ionicons name="calendar-outline" size={20} color="#667eea" />
           </TouchableOpacity>
           {days.map((d) => {
@@ -453,7 +482,7 @@ export default function MatchesScreen() {
               <TouchableOpacity
                 key={d.key}
                 style={[styles.dayChip, active && styles.dayChipActive]}
-                onPress={() => setSelectedDate(d.key)}
+                onPress={() => selectDate(d.key)}
                 onLayout={(e) => {
                   const { x, width } = e.nativeEvent.layout;
                   setDayLayouts((prev) => {
@@ -467,7 +496,10 @@ export default function MatchesScreen() {
               </TouchableOpacity>
             );
           })}
-          <TouchableOpacity style={styles.calendarBtn} onPress={() => setShowCalendarPicker(true)}>
+          <TouchableOpacity
+            style={styles.calendarBtn}
+            onPress={openCalendarPicker}
+          >
             <Ionicons name="calendar-outline" size={20} color="#667eea" />
           </TouchableOpacity>
         </ScrollView>
@@ -528,7 +560,7 @@ export default function MatchesScreen() {
       </View>
       {showCalendarPicker ? (
         <DateTimePicker
-          value={dateFromKey(selectedDate)}
+          value={calendarPickerDate}
           mode="date"
           display={Platform.OS === 'ios' ? 'spinner' : 'default'}
           onChange={handleCalendarChange}
