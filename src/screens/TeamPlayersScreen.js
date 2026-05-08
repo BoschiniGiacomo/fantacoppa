@@ -277,102 +277,112 @@ export default function TeamPlayersScreen({ route, navigation }) {
       <Modal
         visible={showEditModal}
         transparent={true}
-        animationType="slide"
+        animationType="fade"
         statusBarTranslucent={true}
         hardwareAccelerated={true}
         onRequestClose={() => setShowEditModal(false)}
       >
         <KeyboardAvoidingView
           style={styles.modalKeyboardWrap}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         >
-          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-            <View style={styles.modalOverlay}>
-              <View style={styles.modalContainer}>
-                <Text style={styles.modalTitle}>Modifica Giocatore</Text>
+          <View style={styles.modalOverlay}>
+            <TouchableOpacity
+              style={styles.modalBackdrop}
+              activeOpacity={1}
+              onPress={() => {
+                Keyboard.dismiss();
+                setShowEditModal(false);
+              }}
+            />
+            <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+              <View style={[styles.modalContainer, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+                <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.modalScrollContent}>
+                  <Text style={styles.modalTitle}>Modifica Giocatore</Text>
 
-                <View style={styles.formGroup}>
-                  <Text style={styles.label}>Nome</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={firstName}
-                    onChangeText={setFirstName}
-                    placeholder="Nome"
-                  />
-                </View>
-
-                <View style={styles.formGroup}>
-                  <Text style={styles.label}>Cognome</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={lastName}
-                    onChangeText={setLastName}
-                    placeholder="Cognome"
-                  />
-                </View>
-
-                <View style={styles.formGroup}>
-                  <Text style={styles.label}>Ruolo</Text>
-                  <View style={styles.roleSelector}>
-                    {['P', 'D', 'C', 'A'].map((r) => (
-                      <TouchableOpacity
-                        key={r}
-                        style={[styles.roleOption, role === r && styles.roleOptionActive]}
-                        onPress={() => setRole(r)}
-                      >
-                        <Text style={[styles.roleOptionText, role === r && styles.roleOptionTextActive]}>
-                          {getRoleLabel(r)}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
+                  <View style={styles.formGroup}>
+                    <Text style={styles.label}>Nome</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={firstName}
+                      onChangeText={setFirstName}
+                      placeholder="Nome"
+                    />
                   </View>
-                </View>
 
-                <View style={styles.formGroup}>
-                  <Text style={styles.label}>Valutazione</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={rating}
-                    onChangeText={setRating}
-                    placeholder="0.0"
-                    keyboardType="numeric"
-                  />
-                </View>
+                  <View style={styles.formGroup}>
+                    <Text style={styles.label}>Cognome</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={lastName}
+                      onChangeText={setLastName}
+                      placeholder="Cognome"
+                    />
+                  </View>
 
-                <View style={styles.formGroup}>
-                  <Text style={styles.label}>Numero maglia</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={shirtNumber}
-                    onChangeText={setShirtNumber}
-                    placeholder="es. 10"
-                    keyboardType="number-pad"
-                  />
-                </View>
+                  <View style={styles.formGroup}>
+                    <Text style={styles.label}>Ruolo</Text>
+                    <View style={styles.roleSelector}>
+                      {['P', 'D', 'C', 'A'].map((r) => (
+                        <TouchableOpacity
+                          key={r}
+                          style={[styles.roleOption, role === r && styles.roleOptionActive]}
+                          onPress={() => setRole(r)}
+                        >
+                          <Text style={[styles.roleOptionText, role === r && styles.roleOptionTextActive]}>
+                            {getRoleLabel(r)}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </View>
 
-                <View style={styles.modalButtons}>
-                  <TouchableOpacity
-                    style={[styles.cancelButton, saving && styles.buttonDisabled]}
-                    onPress={() => setShowEditModal(false)}
-                    disabled={saving}
-                  >
-                    <Text style={styles.cancelButtonText}>Annulla</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.saveButton, saving && styles.buttonDisabled]}
-                    onPress={handleSavePlayer}
-                    disabled={saving}
-                  >
-                    {saving ? (
-                      <ActivityIndicator size="small" color="#fff" />
-                    ) : (
-                      <Text style={styles.saveButtonText}>Salva</Text>
-                    )}
-                  </TouchableOpacity>
-                </View>
+                  <View style={styles.formGroup}>
+                    <Text style={styles.label}>Valutazione</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={rating}
+                      onChangeText={setRating}
+                      placeholder="0.0"
+                      keyboardType="numeric"
+                    />
+                  </View>
+
+                  <View style={styles.formGroup}>
+                    <Text style={styles.label}>Numero maglia</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={shirtNumber}
+                      onChangeText={setShirtNumber}
+                      placeholder="es. 10"
+                      keyboardType="number-pad"
+                    />
+                  </View>
+
+                  <View style={styles.modalButtons}>
+                    <TouchableOpacity
+                      style={[styles.cancelButton, saving && styles.buttonDisabled]}
+                      onPress={() => setShowEditModal(false)}
+                      disabled={saving}
+                    >
+                      <Text style={styles.cancelButtonText}>Annulla</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.saveButton, saving && styles.buttonDisabled]}
+                      onPress={handleSavePlayer}
+                      disabled={saving}
+                    >
+                      {saving ? (
+                        <ActivityIndicator size="small" color="#fff" />
+                      ) : (
+                        <Text style={styles.saveButtonText}>Salva</Text>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                </ScrollView>
               </View>
-            </View>
-          </TouchableWithoutFeedback>
+            </TouchableWithoutFeedback>
+          </View>
         </KeyboardAvoidingView>
       </Modal>
 
@@ -540,24 +550,29 @@ const styles = StyleSheet.create({
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 12,
+    justifyContent: 'flex-end',
   },
   modalKeyboardWrap: {
     flex: 1,
   },
+  modalBackdrop: {
+    flex: 1,
+  },
   modalContainer: {
     backgroundColor: '#fff',
-    borderRadius: 10,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
     padding: 20,
-    width: '90%',
-    maxWidth: 400,
+    width: '100%',
+    maxHeight: '88%',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
     shadowRadius: 3.84,
     elevation: 5,
+  },
+  modalScrollContent: {
+    paddingBottom: 4,
   },
   modalTitle: {
     fontSize: 20,
