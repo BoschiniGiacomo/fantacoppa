@@ -1432,10 +1432,6 @@ export default function MatchDetailScreen({ navigation, route }) {
     [liveEvents]
   );
   const showPhaseEditorTab = !hasMatchEndEvent;
-  const showPhaseMatchEndClockFields = useMemo(
-    () => nextPhaseStep?.type === 'match_end' || phaseStepOffersMatchEndShortcut(nextPhaseStep, match),
-    [nextPhaseStep, match?.extra_time_enabled, match?.penalties_enabled]
-  );
   const showPhaseShortcutMatchEnd = useMemo(
     () => phaseStepOffersMatchEndShortcut(nextPhaseStep, match),
     [nextPhaseStep, match?.extra_time_enabled, match?.penalties_enabled]
@@ -1484,11 +1480,22 @@ export default function MatchDetailScreen({ navigation, route }) {
     [showShootoutEditorTab, liveEvents]
   );
   const isPlayPhaseAction = nextPhaseStep?.type === 'match_start' || nextPhaseStep?.type === 'second_half_start';
-  const isPausePhaseAction = nextPhaseStep?.type === 'half_time' || nextPhaseStep?.type === 'extra_half_time';
-  const isEndPhaseAction =
-    nextPhaseStep?.type === 'match_end' ||
-    nextPhaseStep?.type === 'second_half_end' ||
-    nextPhaseStep?.type === 'extra_second_half_end';
+  const phaseTypeIsTrueMatchEnd = useCallback(
+    (phaseType) => {
+      if (phaseType === 'match_end') return true;
+      if (phaseType === 'second_half_end' || phaseType === 'extra_second_half_end') {
+        return shouldAutoMatchEndAfterPhase(phaseType, match);
+      }
+      return false;
+    },
+    [match?.extra_time_enabled, match?.penalties_enabled]
+  );
+  const isPausePhaseAction =
+    nextPhaseStep?.type === 'half_time' ||
+    nextPhaseStep?.type === 'extra_half_time' ||
+    ((nextPhaseStep?.type === 'second_half_end' || nextPhaseStep?.type === 'extra_second_half_end') &&
+      !phaseTypeIsTrueMatchEnd(nextPhaseStep?.type));
+  const isEndPhaseAction = phaseTypeIsTrueMatchEnd(nextPhaseStep?.type);
   const shouldCloseEditorOnPhaseSubmit = useCallback((phaseType) => (
     phaseType === 'match_start' ||
     phaseType === 'second_half_start' ||
@@ -1585,12 +1592,6 @@ export default function MatchDetailScreen({ navigation, route }) {
     const prevClock = existing?.payload?.clock_time != null ? String(existing.payload.clock_time).trim() : '';
     setMatchEndClock(prevClock !== '' ? prevClock : clockNowHHmm());
   };
-
-  useEffect(() => {
-    if (showEventEditor && editorModalTab === 'phases' && showPhaseMatchEndClockFields) {
-      fillMatchEndDefaults();
-    }
-  }, [showEventEditor, editorModalTab, showPhaseMatchEndClockFields]);
 
   useEffect(() => {
     if (showEventEditor && editorModalTab === 'phases' && !showPhaseEditorTab) {
@@ -2917,15 +2918,6 @@ export default function MatchDetailScreen({ navigation, route }) {
                 <ScrollView ref={eventWizardScrollRef} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
                   {editorModalTab === 'phases' ? (
                     <>
-                      {showPhaseMatchEndClockFields ? (
-                        <>
-                          <Text style={styles.editorLabel}>Orario (HH:mm)</Text>
-                          <TextInput style={styles.input} value={matchEndClock} onChangeText={setMatchEndClock} placeholder={clockNowHHmm()} />
-                          <Text style={styles.matchEndScoreHint}>
-                            Risultato da goal e autogol: {liveScorePreview.home} - {liveScorePreview.away} (si aggiorna automaticamente)
-                          </Text>
-                        </>
-                      ) : null}
                       {nextPhaseStep ? (
                         showPhaseShortcutMatchEnd ? (
                           <>
