@@ -9,10 +9,6 @@ import {
   ActivityIndicator,
   RefreshControl,
   Modal,
-  KeyboardAvoidingView,
-  Platform,
-  Keyboard,
-  TouchableWithoutFeedback,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -282,22 +278,14 @@ export default function TeamPlayersScreen({ route, navigation }) {
         hardwareAccelerated={true}
         onRequestClose={() => setShowEditModal(false)}
       >
-        <KeyboardAvoidingView
-          style={styles.modalKeyboardWrap}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        >
-          <View style={styles.modalOverlay}>
-            <TouchableOpacity
-              style={styles.modalBackdrop}
-              activeOpacity={1}
-              onPress={() => {
-                Keyboard.dismiss();
-                setShowEditModal(false);
-              }}
-            />
-            <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-              <View style={[styles.modalContainer, { paddingBottom: Math.max(insets.bottom, 12) }]}>
-                <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.modalScrollContent}>
+        <View style={styles.modalOverlay}>
+          <TouchableOpacity
+            style={styles.modalBackdrop}
+            activeOpacity={1}
+            onPress={() => setShowEditModal(false)}
+          />
+          <View style={[styles.modalContainer, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+            <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.modalScrollContent}>
                   <Text style={styles.modalTitle}>Modifica Giocatore</Text>
 
                   <View style={styles.formGroup}>
@@ -379,11 +367,9 @@ export default function TeamPlayersScreen({ route, navigation }) {
                       )}
                     </TouchableOpacity>
                   </View>
-                </ScrollView>
-              </View>
-            </TouchableWithoutFeedback>
+            </ScrollView>
           </View>
-        </KeyboardAvoidingView>
+        </View>
       </Modal>
 
       {toastMsg && (
@@ -551,9 +537,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'flex-end',
-  },
-  modalKeyboardWrap: {
-    flex: 1,
   },
   modalBackdrop: {
     flex: 1,
