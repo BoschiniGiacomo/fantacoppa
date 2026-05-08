@@ -132,7 +132,7 @@ function labelSecondHalfEnd(match) {
 function labelExtraSecondHalfEnd(match) {
   const pens = Number(match?.penalties_enabled) === 1;
   const hasSecondExtraHalf = hasExtraSecondHalf(match);
-  if (!hasSecondExtraHalf) return pens ? 'Fine supplementari' : 'Fine partita';
+  if (!hasSecondExtraHalf) return pens ? 'Fine 1° tempo supplementare' : 'Fine partita';
   if (!pens) return 'Fine partita';
   return 'Fine secondo tempo supplementare';
 }
@@ -1521,7 +1521,14 @@ export default function MatchDetailScreen({ navigation, route }) {
     nextPhaseStep?.type === 'second_half_start' ||
     nextPhaseStep?.type === 'extra_first_half_start' ||
     nextPhaseStep?.type === 'extra_second_half_start' ||
-    (nextPhaseStep?.type === 'extra_second_half_end' && Number(match?.penalties_enabled) === 1);
+    nextPhaseStep?.type === 'penalties_start' ||
+    (nextPhaseStep?.type === 'extra_second_half_end' &&
+      Number(match?.penalties_enabled) === 1 &&
+      hasExtraSecondHalf(match));
+  const isSingleExtraHalfStopPhaseAction =
+    nextPhaseStep?.type === 'extra_second_half_end' &&
+    Number(match?.penalties_enabled) === 1 &&
+    !hasExtraSecondHalf(match);
   const phaseTypeIsTrueMatchEnd = useCallback(
     (phaseType) => {
       if (phaseType === 'match_end') return true;
@@ -1539,15 +1546,19 @@ export default function MatchDetailScreen({ navigation, route }) {
       !phaseTypeIsTrueMatchEnd(nextPhaseStep?.type) &&
       !isPlayPhaseAction);
   const isEndPhaseAction = phaseTypeIsTrueMatchEnd(nextPhaseStep?.type);
-  const shouldCloseEditorOnPhaseSubmit = useCallback((phaseType) => (
-    phaseType === 'match_start' ||
-    phaseType === 'second_half_start' ||
-    phaseType === 'extra_first_half_start' ||
-    phaseType === 'extra_second_half_start' ||
-    phaseType === 'second_half_end' ||
-    phaseType === 'extra_second_half_end' ||
-    phaseType === 'match_end'
-  ), []);
+  const shouldCloseEditorOnPhaseSubmit = useCallback(
+    (phaseType) => (
+      phaseType === 'match_start' ||
+      phaseType === 'second_half_start' ||
+      phaseType === 'extra_first_half_start' ||
+      phaseType === 'extra_second_half_start' ||
+      (phaseType === 'second_half_end' && shouldAutoMatchEndAfterPhase('second_half_end', match)) ||
+      (phaseType === 'extra_second_half_end' &&
+        (hasExtraSecondHalf(match) || shouldAutoMatchEndAfterPhase('extra_second_half_end', match))) ||
+      phaseType === 'match_end'
+    ),
+    [match?.extra_time_enabled, match?.extra_second_half_minutes, match?.penalties_enabled]
+  );
   const timingSegments = useMemo(() => getMatchTimingSegments(match), [
     match.regulation_half_minutes,
     match.extra_time_enabled,
@@ -3004,6 +3015,7 @@ export default function MatchDetailScreen({ navigation, route }) {
                               style={[
                                 styles.phaseActionBtn,
                                 isPlayPhaseAction && styles.phaseActionBtnStart,
+                                isSingleExtraHalfStopPhaseAction && styles.phaseActionBtnPause,
                                 isPausePhaseAction && styles.phaseActionBtnPause,
                                 isEndPhaseAction && styles.phaseActionBtnEnd,
                                 savingPhase && styles.actionBtnDisabled,
@@ -3017,6 +3029,8 @@ export default function MatchDetailScreen({ navigation, route }) {
                               <View style={styles.phaseActionBtnContent}>
                                 {isPlayPhaseAction ? (
                                   <MaterialCommunityIcons name="play-circle" size={18} color="#f0fdf4" style={styles.phaseActionBtnStartIcon} />
+                                ) : isSingleExtraHalfStopPhaseAction ? (
+                                  <MaterialCommunityIcons name="pause-circle" size={20} color="#111111" style={styles.phaseActionBtnStartIcon} />
                                 ) : isPausePhaseAction ? (
                                   <MaterialCommunityIcons name="pause-circle" size={20} color="#111111" style={styles.phaseActionBtnStartIcon} />
                                 ) : isEndPhaseAction ? (
@@ -3026,6 +3040,7 @@ export default function MatchDetailScreen({ navigation, route }) {
                                   style={[
                                     styles.phaseActionBtnText,
                                     isPlayPhaseAction && styles.phaseActionBtnTextStart,
+                                    isSingleExtraHalfStopPhaseAction && styles.phaseActionBtnTextPause,
                                     isPausePhaseAction && styles.phaseActionBtnTextPause,
                                     isEndPhaseAction && styles.phaseActionBtnTextEnd,
                                   ]}
@@ -3054,6 +3069,7 @@ export default function MatchDetailScreen({ navigation, route }) {
                             style={[
                               styles.phaseActionBtn,
                               isPlayPhaseAction && styles.phaseActionBtnStart,
+                              isSingleExtraHalfStopPhaseAction && styles.phaseActionBtnPause,
                               isPausePhaseAction && styles.phaseActionBtnPause,
                               isEndPhaseAction && styles.phaseActionBtnEnd,
                               savingPhase && styles.actionBtnDisabled,
@@ -3067,6 +3083,8 @@ export default function MatchDetailScreen({ navigation, route }) {
                             <View style={styles.phaseActionBtnContent}>
                               {isPlayPhaseAction ? (
                                 <MaterialCommunityIcons name="play-circle" size={18} color="#f0fdf4" style={styles.phaseActionBtnStartIcon} />
+                              ) : isSingleExtraHalfStopPhaseAction ? (
+                                <MaterialCommunityIcons name="pause-circle" size={20} color="#111111" style={styles.phaseActionBtnStartIcon} />
                               ) : isPausePhaseAction ? (
                                 <MaterialCommunityIcons name="pause-circle" size={20} color="#111111" style={styles.phaseActionBtnStartIcon} />
                               ) : isEndPhaseAction ? (
@@ -3076,6 +3094,7 @@ export default function MatchDetailScreen({ navigation, route }) {
                                 style={[
                                   styles.phaseActionBtnText,
                                   isPlayPhaseAction && styles.phaseActionBtnTextStart,
+                                  isSingleExtraHalfStopPhaseAction && styles.phaseActionBtnTextPause,
                                   isPausePhaseAction && styles.phaseActionBtnTextPause,
                                   isEndPhaseAction && styles.phaseActionBtnTextEnd,
                                 ]}
