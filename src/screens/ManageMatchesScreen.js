@@ -112,11 +112,13 @@ export default function ManageMatchesScreen() {
   const [extraTimeEnabled, setExtraTimeEnabled] = useState(false);
   const [extraFirstMinutes, setExtraFirstMinutes] = useState('15');
   const [extraSecondMinutes, setExtraSecondMinutes] = useState('15');
+  const [extraSecondHalfEnabled, setExtraSecondHalfEnabled] = useState(true);
   const [penaltiesEnabled, setPenaltiesEnabled] = useState(false);
   const [newStageHalfMin, setNewStageHalfMin] = useState('30');
   const [newStageExtraTime, setNewStageExtraTime] = useState(false);
   const [newStageExtra1, setNewStageExtra1] = useState('15');
   const [newStageExtra2, setNewStageExtra2] = useState('15');
+  const [newStageExtraSecondEnabled, setNewStageExtraSecondEnabled] = useState(true);
   const [newStagePenalties, setNewStagePenalties] = useState(false);
   const [stagePresetModal, setStagePresetModal] = useState(null);
   const [stagePresetDraft, setStagePresetDraft] = useState(null);
@@ -399,6 +401,7 @@ export default function ManageMatchesScreen() {
     setExtraTimeEnabled(false);
     setExtraFirstMinutes('15');
     setExtraSecondMinutes('15');
+    setExtraSecondHalfEnabled(true);
     setPenaltiesEnabled(false);
   };
 
@@ -415,6 +418,7 @@ export default function ManageMatchesScreen() {
     setExtraTimeEnabled(et);
     setExtraFirstMinutes(String(ex1 != null ? ex1 : 15));
     setExtraSecondMinutes(String(ex2 != null ? ex2 : 15));
+    setExtraSecondHalfEnabled(Number(ex2) > 0);
     setPenaltiesEnabled(!!Number(stage.default_penalties_enabled));
   };
 
@@ -438,16 +442,17 @@ export default function ManageMatchesScreen() {
     let ex2 = parseInt(extraSecondMinutes, 10);
     if (!Number.isFinite(ex1) || ex1 < 1 || ex1 > 45) ex1 = 15;
     if (!Number.isFinite(ex2) || ex2 < 1 || ex2 > 45) ex2 = 15;
+    const useSecondExtraHalf = extraSecondHalfEnabled ? 1 : 0;
     return {
       regulation_half_minutes: half,
       extra_time_enabled: et,
       extra_first_half_minutes: et ? ex1 : 0,
-      extra_second_half_minutes: et ? ex2 : 0,
+      extra_second_half_minutes: et ? (useSecondExtraHalf ? ex2 : 0) : 0,
       penalties_enabled: penaltiesEnabled ? 1 : 0,
     };
   };
 
-  const buildStageDefaultsPayload = (halfStr, etOn, ex1Str, ex2Str, penOn) => {
+  const buildStageDefaultsPayload = (halfStr, etOn, ex1Str, ex2Str, secondExtraHalfOn, penOn) => {
     let h = parseInt(String(halfStr), 10);
     if (!Number.isFinite(h) || h < 15 || h > 60) h = 30;
     const et = etOn ? 1 : 0;
@@ -455,11 +460,12 @@ export default function ManageMatchesScreen() {
     let x2 = parseInt(String(ex2Str), 10);
     if (!Number.isFinite(x1) || x1 < 1 || x1 > 45) x1 = 15;
     if (!Number.isFinite(x2) || x2 < 1 || x2 > 45) x2 = 15;
+    const useSecondExtraHalf = !!secondExtraHalfOn;
     return {
       default_regulation_half_minutes: h,
       default_extra_time_enabled: et,
       default_extra_first_half_minutes: et ? x1 : 0,
-      default_extra_second_half_minutes: et ? x2 : 0,
+      default_extra_second_half_minutes: et ? (useSecondExtraHalf ? x2 : 0) : 0,
       default_penalties_enabled: penOn ? 1 : 0,
     };
   };
@@ -471,6 +477,7 @@ export default function ManageMatchesScreen() {
       extraTime: !!Number(s.default_extra_time_enabled),
       ex1: String(s.default_extra_first_half_minutes ?? 15),
       ex2: String(s.default_extra_second_half_minutes ?? 15),
+      extraSecondHalfEnabled: Number(s.default_extra_second_half_minutes) > 0,
       penalties: !!Number(s.default_penalties_enabled),
     });
   };
@@ -483,6 +490,7 @@ export default function ManageMatchesScreen() {
         stagePresetDraft.extraTime,
         stagePresetDraft.ex1,
         stagePresetDraft.ex2,
+        stagePresetDraft.extraSecondHalfEnabled,
         stagePresetDraft.penalties
       );
       const res = await adminMatchDetailsService.updateStageTimingDefaults(stagePresetModal.id, defs);
@@ -524,14 +532,35 @@ export default function ManageMatchesScreen() {
       />
       <View style={styles.switchRow}>
         <Text style={styles.switchLabel}>Supplementari</Text>
-        <Switch value={extraTimeEnabled} onValueChange={setExtraTimeEnabled} trackColor={{ false: '#ccc', true: '#a5b4fc' }} thumbColor={extraTimeEnabled ? '#667eea' : '#f4f3f4'} />
+        <Switch
+          value={extraTimeEnabled}
+          onValueChange={(v) => {
+            setExtraTimeEnabled(v);
+            if (v) setExtraSecondHalfEnabled(true);
+          }}
+          trackColor={{ false: '#ccc', true: '#a5b4fc' }}
+          thumbColor={extraTimeEnabled ? '#667eea' : '#f4f3f4'}
+        />
       </View>
       {extraTimeEnabled ? (
         <>
           <Text style={styles.label}>1° supplementare (min)</Text>
           <TextInput style={styles.input} value={extraFirstMinutes} onChangeText={setExtraFirstMinutes} keyboardType="number-pad" placeholder="1–45" />
-          <Text style={styles.label}>2° supplementare (min)</Text>
-          <TextInput style={styles.input} value={extraSecondMinutes} onChangeText={setExtraSecondMinutes} keyboardType="number-pad" placeholder="1–45" />
+          <View style={styles.switchRow}>
+            <Text style={styles.switchLabel}>2° tempo supplementare</Text>
+            <Switch
+              value={extraSecondHalfEnabled}
+              onValueChange={setExtraSecondHalfEnabled}
+              trackColor={{ false: '#ccc', true: '#a5b4fc' }}
+              thumbColor={extraSecondHalfEnabled ? '#667eea' : '#f4f3f4'}
+            />
+          </View>
+          {extraSecondHalfEnabled ? (
+            <>
+              <Text style={styles.label}>2° supplementare (min)</Text>
+              <TextInput style={styles.input} value={extraSecondMinutes} onChangeText={setExtraSecondMinutes} keyboardType="number-pad" placeholder="1–45" />
+            </>
+          ) : null}
         </>
       ) : null}
       <View style={styles.switchRow}>
@@ -645,6 +674,7 @@ export default function ManageMatchesScreen() {
       setExtraTimeEnabled(!!Number(match?.extra_time_enabled));
       setExtraFirstMinutes(String(match?.extra_first_half_minutes ?? 15));
       setExtraSecondMinutes(String(match?.extra_second_half_minutes ?? 15));
+      setExtraSecondHalfEnabled(Number(match?.extra_second_half_minutes ?? 0) > 0);
       setPenaltiesEnabled(!!Number(match?.penalties_enabled));
       setHomeScore(match?.home_score === null || typeof match?.home_score === 'undefined' ? '' : String(match.home_score));
       setAwayScore(match?.away_score === null || typeof match?.away_score === 'undefined' ? '' : String(match.away_score));
@@ -844,7 +874,14 @@ export default function ManageMatchesScreen() {
       if (type === 'venues') await adminMatchDetailsService.createVenue(clean);
       if (type === 'referees') await adminMatchDetailsService.createReferee(clean);
       if (type === 'stages') {
-        const defs = buildStageDefaultsPayload(newStageHalfMin, newStageExtraTime, newStageExtra1, newStageExtra2, newStagePenalties);
+        const defs = buildStageDefaultsPayload(
+          newStageHalfMin,
+          newStageExtraTime,
+          newStageExtra1,
+          newStageExtra2,
+          newStageExtraSecondEnabled,
+          newStagePenalties
+        );
         await adminMatchDetailsService.createStage(clean, defs);
       }
       await loadMatchDetailsOptions();
@@ -856,6 +893,7 @@ export default function ManageMatchesScreen() {
         setNewStageExtraTime(false);
         setNewStageExtra1('15');
         setNewStageExtra2('15');
+        setNewStageExtraSecondEnabled(true);
         setNewStagePenalties(false);
       }
       showToast('Valore aggiunto', 'success');
@@ -1362,14 +1400,35 @@ export default function ManageMatchesScreen() {
             <TextInput style={styles.input} value={newStageHalfMin} onChangeText={setNewStageHalfMin} keyboardType="number-pad" placeholder="15–60" />
             <View style={styles.switchRow}>
               <Text style={styles.switchLabel}>Supplementari</Text>
-              <Switch value={newStageExtraTime} onValueChange={setNewStageExtraTime} trackColor={{ false: '#ccc', true: '#a5b4fc' }} thumbColor={newStageExtraTime ? '#667eea' : '#f4f3f4'} />
+              <Switch
+                value={newStageExtraTime}
+                onValueChange={(v) => {
+                  setNewStageExtraTime(v);
+                  if (v) setNewStageExtraSecondEnabled(true);
+                }}
+                trackColor={{ false: '#ccc', true: '#a5b4fc' }}
+                thumbColor={newStageExtraTime ? '#667eea' : '#f4f3f4'}
+              />
             </View>
             {newStageExtraTime ? (
               <>
                 <Text style={styles.label}>1° supplementare (min)</Text>
                 <TextInput style={styles.input} value={newStageExtra1} onChangeText={setNewStageExtra1} keyboardType="number-pad" />
-                <Text style={styles.label}>2° supplementare (min)</Text>
-                <TextInput style={styles.input} value={newStageExtra2} onChangeText={setNewStageExtra2} keyboardType="number-pad" />
+                <View style={styles.switchRow}>
+                  <Text style={styles.switchLabel}>2° tempo supplementare</Text>
+                  <Switch
+                    value={newStageExtraSecondEnabled}
+                    onValueChange={setNewStageExtraSecondEnabled}
+                    trackColor={{ false: '#ccc', true: '#a5b4fc' }}
+                    thumbColor={newStageExtraSecondEnabled ? '#667eea' : '#f4f3f4'}
+                  />
+                </View>
+                {newStageExtraSecondEnabled ? (
+                  <>
+                    <Text style={styles.label}>2° supplementare (min)</Text>
+                    <TextInput style={styles.input} value={newStageExtra2} onChangeText={setNewStageExtra2} keyboardType="number-pad" />
+                  </>
+                ) : null}
               </>
             ) : null}
             <View style={styles.switchRow}>
@@ -1988,7 +2047,9 @@ export default function ManageMatchesScreen() {
               <Text style={styles.switchLabel}>Supplementari</Text>
               <Switch
                 value={!!stagePresetDraft?.extraTime}
-                onValueChange={(v) => setStagePresetDraft((d) => (d ? { ...d, extraTime: v } : d))}
+                onValueChange={(v) =>
+                  setStagePresetDraft((d) => (d ? { ...d, extraTime: v, extraSecondHalfEnabled: v ? true : d.extraSecondHalfEnabled } : d))
+                }
                 trackColor={{ false: '#ccc', true: '#a5b4fc' }}
                 thumbColor={stagePresetDraft?.extraTime ? '#667eea' : '#f4f3f4'}
               />
@@ -2002,13 +2063,26 @@ export default function ManageMatchesScreen() {
                   onChangeText={(t) => setStagePresetDraft((d) => (d ? { ...d, ex1: t } : d))}
                   keyboardType="number-pad"
                 />
-                <Text style={styles.label}>2° supplementare (min)</Text>
-                <TextInput
-                  style={styles.input}
-                  value={stagePresetDraft?.ex2 ?? ''}
-                  onChangeText={(t) => setStagePresetDraft((d) => (d ? { ...d, ex2: t } : d))}
-                  keyboardType="number-pad"
-                />
+                <View style={styles.switchRow}>
+                  <Text style={styles.switchLabel}>2° tempo supplementare</Text>
+                  <Switch
+                    value={!!stagePresetDraft?.extraSecondHalfEnabled}
+                    onValueChange={(v) => setStagePresetDraft((d) => (d ? { ...d, extraSecondHalfEnabled: v } : d))}
+                    trackColor={{ false: '#ccc', true: '#a5b4fc' }}
+                    thumbColor={stagePresetDraft?.extraSecondHalfEnabled ? '#667eea' : '#f4f3f4'}
+                  />
+                </View>
+                {stagePresetDraft?.extraSecondHalfEnabled ? (
+                  <>
+                    <Text style={styles.label}>2° supplementare (min)</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={stagePresetDraft?.ex2 ?? ''}
+                      onChangeText={(t) => setStagePresetDraft((d) => (d ? { ...d, ex2: t } : d))}
+                      keyboardType="number-pad"
+                    />
+                  </>
+                ) : null}
               </>
             ) : null}
             <View style={styles.switchRow}>

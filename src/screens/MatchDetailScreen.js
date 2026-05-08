@@ -97,10 +97,11 @@ function getMatchTimingSegments(m) {
     const x1 = m.extra_first_half_minutes != null ? Number(m.extra_first_half_minutes) : 15;
     const x2 = m.extra_second_half_minutes != null ? Number(m.extra_second_half_minutes) : 15;
     if (Number.isFinite(x1) && Number.isFinite(x2)) {
+      const hasSecondExtraHalf = x2 > 0;
       out.push({
         key: 'et',
         label: 'Supplementari',
-        value: `${x1}′ · ${x2}′`,
+        value: hasSecondExtraHalf ? `${x1}′ · ${x2}′` : `${x1}′`,
       });
     }
   }
@@ -130,8 +131,19 @@ function labelSecondHalfEnd(match) {
 /** Fine 2° tempo sup.: senza rigori (vittoria ai supplementari) = stessa etichetta di fine partita. */
 function labelExtraSecondHalfEnd(match) {
   const pens = Number(match?.penalties_enabled) === 1;
+  const hasSecondExtraHalf = hasExtraSecondHalf(match);
+  if (!hasSecondExtraHalf) return pens ? 'Fine supplementari' : 'Fine partita';
   if (!pens) return 'Fine partita';
   return 'Fine secondo tempo supplementare';
+}
+
+function hasExtraSecondHalf(match) {
+  if (!isEnabledFlag(match?.extra_time_enabled)) return false;
+  const raw = match?.extra_second_half_minutes;
+  if (raw == null || String(raw).trim() === '') return true;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return true;
+  return n > 0;
 }
 
 /** Dopo queste fasi la UI mostra «Fine partita» → persistiamo anche `match_end` (chiusura ufficiale). */
@@ -172,6 +184,7 @@ const HERO_MINUTE_COLOR = '#111827';
 function buildPhaseSequence(match) {
   const et = Number(match?.extra_time_enabled) === 1;
   const pens = Number(match?.penalties_enabled) === 1;
+  const secondExtraHalf = hasExtraSecondHalf(match);
   const seq = [
     { type: 'match_start', label: 'Inizio partita' },
     { type: 'half_time', label: 'Fine primo tempo' },
@@ -179,15 +192,14 @@ function buildPhaseSequence(match) {
     { type: 'second_half_end', label: labelSecondHalfEnd(match) },
   ];
   if (et) {
-    seq.push(
-      { type: 'extra_first_half_start', label: 'Inizio supplementari' },
-      { type: 'extra_half_time', label: 'Fine 1° tempo supplementare' },
-      { type: 'extra_second_half_start', label: 'Inizio 2° tempo supplementare' },
-      {
-        type: 'extra_second_half_end',
-        label: Number(match?.penalties_enabled) === 1 ? 'Fine 2° tempo supplementare' : 'Fine partita',
-      }
-    );
+    seq.push({ type: 'extra_first_half_start', label: 'Inizio supplementari' });
+    if (secondExtraHalf) {
+      seq.push(
+        { type: 'extra_half_time', label: 'Fine 1° tempo supplementare' },
+        { type: 'extra_second_half_start', label: 'Inizio 2° tempo supplementare' }
+      );
+    }
+    seq.push({ type: 'extra_second_half_end', label: labelExtraSecondHalfEnd(match) });
   }
   if (pens) {
     seq.push({ type: 'penalties_start', label: 'Rigori' });
@@ -868,6 +880,12 @@ const LIVE_EVENT_TYPE_LABELS = {
   penalties_start: 'Rigori',
   match_end: 'Fine partita',
 };
+
+function liveEventTypeLabel(eventType, match) {
+  if (eventType === 'extra_second_half_end') return labelExtraSecondHalfEnd(match);
+  return LIVE_EVENT_TYPE_LABELS[eventType] || eventType;
+}
+
 const EVENT_WIZARD_TYPES = [
   { id: 'goal', label: 'Goal', bonusType: 'goal' },
   { id: 'own_goal', label: 'Autogol', bonusType: 'own_goal' },
@@ -3365,7 +3383,7 @@ export default function MatchDetailScreen({ navigation, route }) {
                         liveEventsTimelineSorted.map((ev) => {
                           const editable = EDITABLE_LIVE_EVENT_TYPES.has(ev.event_type);
                           const isEditing = Number(editingLiveEventId) === Number(ev.id);
-                          const label = LIVE_EVENT_TYPE_LABELS[ev.event_type] || ev.event_type;
+                          const label = liveEventTypeLabel(ev.event_type, match);
                           const name = ev?.payload?.player_name ? ` - ${ev.payload.player_name}` : '';
                           const editMinuteNum = isEditing && editingLiveEventDraft ? parseTimelineMinuteToInt(editingLiveEventDraft.minute) : NaN;
                           const editStoppageEnd = stoppagePeriodEndForMinute(editMinuteNum, match);
@@ -3986,7 +4004,7 @@ export default function MatchDetailScreen({ navigation, route }) {
                 </View>
                 <Text style={styles.confirmTitle}>Elimina evento</Text>
                 <Text style={styles.confirmMessage}>
-                  Vuoi eliminare "{LIVE_EVENT_TYPE_LABELS[confirmDeleteEvent?.event_type] || confirmDeleteEvent?.event_type || 'evento'}"?
+                  Vuoi eliminare "{liveEventTypeLabel(confirmDeleteEvent?.event_type, match) || confirmDeleteEvent?.event_type || 'evento'}"?
                 </Text>
                 <View style={styles.confirmButtons}>
                   <TouchableOpacity
