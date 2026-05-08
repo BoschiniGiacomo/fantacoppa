@@ -126,6 +126,9 @@ function MatchListMatchRow({ match, formatTimeFn, liveListTick, onPress, onToggl
   const as = Number(match.live_away_score);
   const homeScore = Number.isFinite(hs) ? hs : 0;
   const awayScore = Number.isFinite(as) ? as : 0;
+  const hps = match.home_shootout_score != null ? Number(match.home_shootout_score) : null;
+  const aps = match.away_shootout_score != null ? Number(match.away_shootout_score) : null;
+  const hasShootout = Number.isFinite(hps) && Number.isFinite(aps);
   return (
     <TouchableOpacity style={styles.matchRow} onPress={onPress} activeOpacity={0.7}>
       <View style={styles.teamsCol}>
@@ -140,6 +143,12 @@ function MatchListMatchRow({ match, formatTimeFn, liveListTick, onPress, onToggl
             {started ? (
               <View style={styles.teamScoreCol}>
                 <Text style={styles.teamScoreInRow}>{homeScore}</Text>
+                {hasShootout ? (
+                  <>
+                    <View style={styles.teamShootoutDivider} />
+                    <Text style={styles.teamShootoutScoreInRow}>{hps}</Text>
+                  </>
+                ) : null}
               </View>
             ) : null}
           </View>
@@ -155,6 +164,12 @@ function MatchListMatchRow({ match, formatTimeFn, liveListTick, onPress, onToggl
             {started ? (
               <View style={styles.teamScoreCol}>
                 <Text style={styles.teamScoreInRow}>{awayScore}</Text>
+                {hasShootout ? (
+                  <>
+                    <View style={styles.teamShootoutDivider} />
+                    <Text style={styles.teamShootoutScoreInRow}>{aps}</Text>
+                  </>
+                ) : null}
               </View>
             ) : null}
           </View>
@@ -695,11 +710,13 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   teamScoreCol: {
-    width: 36,
+    width: 44,
     flexShrink: 0,
     justifyContent: 'center',
     alignItems: 'flex-end',
     paddingLeft: 10,
+    flexDirection: 'row',
+    gap: 3,
   },
   teamScoreInRow: {
     fontSize: 15,
@@ -708,6 +725,8 @@ const styles = StyleSheet.create({
     textAlign: 'right',
     fontVariant: ['tabular-nums'],
   },
+  teamShootoutDivider: { width: 1, height: 14, backgroundColor: '#d1d5db' },
+  teamShootoutScoreInRow: { fontSize: 11, fontWeight: '800', color: '#9ca3af', fontVariant: ['tabular-nums'] },
   teamLogo: { width: 26, height: 26, borderRadius: 6, backgroundColor: '#f7f7f7' },
   teamLogoFallback: { width: 26, height: 26, borderRadius: 6, backgroundColor: '#eef2ff', alignItems: 'center', justifyContent: 'center' },
   matchMetaCol: {

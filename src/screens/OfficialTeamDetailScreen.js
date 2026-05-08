@@ -100,13 +100,32 @@ function getOutcomeAccentColor(match, watchedTeamName) {
   const hs = Number(match?.home_score);
   const as = Number(match?.away_score);
   if (!Number.isFinite(hs) || !Number.isFinite(as)) return '#cbd5e1';
+  const hps = Number(match?.home_shootout_score);
+  const aps = Number(match?.away_shootout_score);
+  const hasShootout = Number.isFinite(hps) && Number.isFinite(aps);
+  const outcomeHome = hs === as && hasShootout ? hps : hs;
+  const outcomeAway = hs === as && hasShootout ? aps : as;
   const w = normalizeNameForCompare(watchedTeamName);
   const home = normalizeNameForCompare(match?.home_team_name);
   const away = normalizeNameForCompare(match?.away_team_name);
   if (!w || (w !== home && w !== away)) return '#cbd5e1';
-  if (hs === as) return '#94a3b8';
-  const watchedWon = (w === home && hs > as) || (w === away && as > hs);
+  if (outcomeHome === outcomeAway) return '#94a3b8';
+  const watchedWon = (w === home && outcomeHome > outcomeAway) || (w === away && outcomeAway > outcomeHome);
   return watchedWon ? '#16a34a' : '#dc2626';
+}
+
+function TeamMatchScore({ score, shootoutScore }) {
+  return (
+    <View style={styles.matchScoreWrap}>
+      <Text style={styles.matchScore}>{score}</Text>
+      {shootoutScore != null ? (
+        <>
+          <View style={styles.matchShootoutDivider} />
+          <Text style={styles.matchShootoutScore}>{shootoutScore}</Text>
+        </>
+      ) : null}
+    </View>
+  );
 }
 
 const ROLE_COLORS = { P: '#0d6efd', D: '#198754', C: '#e6a800', A: '#dc3545' };
@@ -523,8 +542,12 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
                     const hs = m.home_score != null ? Number(m.home_score) : null;
                     const as = m.away_score != null ? Number(m.away_score) : null;
                     const hasScore = Number.isFinite(hs) && Number.isFinite(as);
+                    const hps = m.home_shootout_score != null ? Number(m.home_shootout_score) : null;
+                    const aps = m.away_shootout_score != null ? Number(m.away_shootout_score) : null;
+                    const hasShootout = Number.isFinite(hps) && Number.isFinite(aps);
                     const statusText = getMatchStatusText(m);
                     const isTerminated = statusText.includes('\n');
+                    const showShootoutStatus = isTerminated && hasShootout;
                     const outcomeAccentColor = isTerminated ? getOutcomeAccentColor(m, teamName) : '#e2e8f0';
                     return (
                       <TouchableOpacity
@@ -554,17 +577,20 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
                             <View style={styles.matchTeamRow}>
                               <TeamRowLogo logoUrl={m.home_team_logo_url} logoPath={m.home_team_logo_path} />
                               <Text style={styles.matchTeamName} numberOfLines={1}>{m.home_team_name || '-'}</Text>
-                              {hasScore ? <Text style={styles.matchScore}>{hs}</Text> : null}
+                              {hasScore ? <TeamMatchScore score={hs} shootoutScore={hasShootout ? hps : null} /> : null}
                             </View>
                             <View style={[styles.matchTeamRow, styles.matchTeamRowSecond]}>
                               <TeamRowLogo logoUrl={m.away_team_logo_url} logoPath={m.away_team_logo_path} />
                               <Text style={styles.matchTeamName} numberOfLines={1}>{m.away_team_name || '-'}</Text>
-                              {hasScore ? <Text style={styles.matchScore}>{as}</Text> : null}
+                              {hasScore ? <TeamMatchScore score={as} shootoutScore={hasShootout ? aps : null} /> : null}
                             </View>
                           </View>
                           <View style={styles.matchMetaCol}>
                             <View style={[styles.matchMetaAccent, { backgroundColor: outcomeAccentColor }]} />
-                            <Text style={styles.matchMetaText}>{getMatchStatusText(m)}</Text>
+                            <View style={styles.matchMetaTextWrap}>
+                              <Text style={styles.matchMetaText}>{statusText}</Text>
+                              {showShootoutStatus ? <Text style={styles.matchMetaShootoutText}>RIG.</Text> : null}
+                            </View>
                           </View>
                         </View>
                       </TouchableOpacity>
@@ -1054,10 +1080,15 @@ const styles = StyleSheet.create({
   matchTeamLogo: { width: 24, height: 24, borderRadius: 6, backgroundColor: '#f7f7f7' },
   matchTeamLogoFallback: { width: 24, height: 24, borderRadius: 6, backgroundColor: '#eef2ff', alignItems: 'center', justifyContent: 'center' },
   matchTeamName: { flex: 1, minWidth: 0, fontSize: 14, fontWeight: '600', color: '#1f2937' },
-  matchScore: { width: 24, textAlign: 'right', fontSize: 15, fontWeight: '800', color: '#0f172a' },
+  matchScoreWrap: { minWidth: 28, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 3 },
+  matchScore: { textAlign: 'right', fontSize: 15, fontWeight: '800', color: '#0f172a' },
+  matchShootoutDivider: { width: 1, height: 14, backgroundColor: '#d1d5db' },
+  matchShootoutScore: { fontSize: 11, fontWeight: '800', color: '#9ca3af' },
   matchMetaCol: { minWidth: 118, paddingLeft: 4, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' },
   matchMetaAccent: { width: 4, height: 60, borderRadius: 3, marginRight: 6, alignSelf: 'center' },
-  matchMetaText: { fontSize: 12, fontWeight: '700', color: '#475569', textAlign: 'center', lineHeight: 16, minWidth: 92 },
+  matchMetaTextWrap: { minWidth: 92, alignItems: 'center', justifyContent: 'center' },
+  matchMetaText: { fontSize: 12, fontWeight: '700', color: '#475569', textAlign: 'center', lineHeight: 16 },
+  matchMetaShootoutText: { marginTop: 4, fontSize: 12, fontWeight: '900', color: '#0f172a', textAlign: 'center', letterSpacing: 0.4 },
   seasonPickerWrap: {
     marginBottom: 10,
     position: 'relative',

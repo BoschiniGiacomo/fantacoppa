@@ -427,6 +427,24 @@ function shootoutCanEnd(events) {
   return s.homeTaken >= maxRegularKicks && s.awayTaken >= maxRegularKicks && s.homeGoals !== s.awayGoals;
 }
 
+function hasKnockoutShootoutScore(matchRow) {
+  return Number.isFinite(Number(matchRow?.home_shootout_score)) && Number.isFinite(Number(matchRow?.away_shootout_score));
+}
+
+function KnockoutScoreText({ score, shootoutScore }) {
+  return (
+    <View style={styles.knockoutScoreTextRow}>
+      <Text style={styles.knockoutScoreText}>{score != null ? String(score) : ''}</Text>
+      {shootoutScore != null ? (
+        <>
+          <View style={styles.knockoutShootoutDivider} />
+          <Text style={styles.knockoutShootoutScoreText}>{shootoutScore}</Text>
+        </>
+      ) : null}
+    </View>
+  );
+}
+
 /**
  * Minuto consigliato (intero cumulativo per API) allineato al cronometro hero — non dal kickoff programmato.
  * 2° tempo / sup.: `continuationCumulativeMinute` così il primo secondo del 2°T è 31 (dopo H=30), non 30.
@@ -1399,6 +1417,18 @@ export default function MatchDetailScreen({ navigation, route }) {
     () => liveEvents.some((e) => e.event_type === 'penalties_start') && !liveEvents.some((e) => e.event_type === 'match_end'),
     [liveEvents]
   );
+  const hasShootoutPhase = useMemo(
+    () => liveEvents.some((e) => e.event_type === 'penalties_start' || isShootoutEventType(e.event_type)),
+    [liveEvents]
+  );
+  const shootoutState = useMemo(() => computeShootoutState(liveEvents), [liveEvents]);
+  const shootoutHeroLabel = hasShootoutPhase ? `Rig.: ${shootoutState.homeGoals} - ${shootoutState.awayGoals}` : null;
+  const shootoutTimelineLabel = hasShootoutPhase
+    ? `Rigori [${shootoutState.homeGoals}] ${liveScorePreview.home} - ${liveScorePreview.away} [${shootoutState.awayGoals}]`
+    : null;
+  const heroMainText = shootoutHeroLabel && (heroClock.main === 'Rigori' || heroClock.main === 'Fine partita')
+    ? shootoutHeroLabel
+    : heroClock.main;
   const nextShootoutTeamSide = useMemo(() => {
     const shootoutEvents = (liveEvents || [])
       .filter((e) => e && isShootoutEventType(e.event_type))
@@ -1885,6 +1915,7 @@ export default function MatchDetailScreen({ navigation, route }) {
           <View style={styles.knockoutSemisCol}>
             {[0, 1].map((idx) => {
               const semi = knockout.semifinals?.[idx] || null;
+              const semiHasShootout = hasKnockoutShootoutScore(semi);
               return (
                 <View key={`semi-${idx}`} style={styles.knockoutSemiBlock}>
                   <View style={styles.knockoutSemiLabelRow}>
@@ -1910,7 +1941,10 @@ export default function MatchDetailScreen({ navigation, route }) {
                             {semi?.home_team_name || '-'}
                           </Text>
                           <View style={styles.knockoutScoreBox}>
-                            <Text style={styles.knockoutScoreText}>{semi?.home_score != null ? String(semi.home_score) : ''}</Text>
+                            <KnockoutScoreText
+                              score={semi?.home_score}
+                              shootoutScore={semiHasShootout ? semi?.home_shootout_score : null}
+                            />
                           </View>
                         </View>
                       </View>
@@ -1925,7 +1959,10 @@ export default function MatchDetailScreen({ navigation, route }) {
                             {semi?.away_team_name || '-'}
                           </Text>
                           <View style={styles.knockoutScoreBox}>
-                            <Text style={styles.knockoutScoreText}>{semi?.away_score != null ? String(semi.away_score) : ''}</Text>
+                            <KnockoutScoreText
+                              score={semi?.away_score}
+                              shootoutScore={semiHasShootout ? semi?.away_shootout_score : null}
+                            />
                           </View>
                         </View>
                       </View>
@@ -1945,6 +1982,9 @@ export default function MatchDetailScreen({ navigation, route }) {
 
           <View style={styles.knockoutFinalCol}>
             <View style={styles.knockoutFinalLabelRow} />
+            {(() => {
+              const finalHasShootout = hasKnockoutShootoutScore(knockout.final);
+              return (
             <TouchableOpacity
               style={styles.knockoutMatchStackMeasure}
               activeOpacity={0.78}
@@ -1969,9 +2009,10 @@ export default function MatchDetailScreen({ navigation, route }) {
                       {knockout.final?.home_team_name || '-'}
                     </Text>
                     <View style={styles.knockoutScoreBox}>
-                      <Text style={styles.knockoutScoreText}>
-                        {knockout.final?.home_score != null ? String(knockout.final.home_score) : ''}
-                      </Text>
+                      <KnockoutScoreText
+                        score={knockout.final?.home_score}
+                        shootoutScore={finalHasShootout ? knockout.final?.home_shootout_score : null}
+                      />
                     </View>
                   </View>
                 </View>
@@ -1990,14 +2031,17 @@ export default function MatchDetailScreen({ navigation, route }) {
                       {knockout.final?.away_team_name || '-'}
                     </Text>
                     <View style={styles.knockoutScoreBox}>
-                      <Text style={styles.knockoutScoreText}>
-                        {knockout.final?.away_score != null ? String(knockout.final.away_score) : ''}
-                      </Text>
+                      <KnockoutScoreText
+                        score={knockout.final?.away_score}
+                        shootoutScore={finalHasShootout ? knockout.final?.away_shootout_score : null}
+                      />
                     </View>
                   </View>
                 </View>
               </View>
             </TouchableOpacity>
+              );
+            })()}
           </View>
         </View>
       </>
@@ -2092,16 +2136,17 @@ export default function MatchDetailScreen({ navigation, route }) {
               <Text
                 style={[
                   styles.countdown,
-                  (heroClock.main === 'PT' ||
-                    heroClock.main === 'FT' ||
-                    heroClock.main === 'PT sup' ||
-                    heroClock.main === 'FT sup' ||
-                    heroClock.main === 'Rigori' ||
-                    heroClock.main === 'Fine partita') &&
+                  (heroMainText === 'PT' ||
+                    heroMainText === 'FT' ||
+                    heroMainText === 'PT sup' ||
+                    heroMainText === 'FT sup' ||
+                    heroMainText === 'Rigori' ||
+                    heroMainText === 'Fine partita' ||
+                    String(heroMainText || '').startsWith('Rig.:')) &&
                     styles.heroStaticPtFt,
                 ]}
               >
-                {heroClock.main}
+                {heroMainText}
               </Text>
             )}
             {matchHasStarted ? (
@@ -2342,7 +2387,12 @@ export default function MatchDetailScreen({ navigation, route }) {
                       </View>
                     );
                   }
-                  if (ev.event_type === 'second_half_start' || ev.event_type === 'extra_second_half_start') {
+                  if (
+                    ev.event_type === 'second_half_start' ||
+                    ev.event_type === 'extra_first_half_start' ||
+                    ev.event_type === 'extra_second_half_start' ||
+                    ev.event_type === 'penalties_start'
+                  ) {
                     return null;
                   }
                   if (ev.event_type === 'half_time') {
@@ -2356,22 +2406,6 @@ export default function MatchDetailScreen({ navigation, route }) {
                           accessibilityLabel={`${PHASE_ROW_LABELS.half_time}, risultato parziale ${partialHt.home} a ${partialHt.away}`}
                         >
                           {PHASE_ROW_LABELS.half_time} {partialHt.home} - {partialHt.away}
-                        </Text>
-                        <View style={styles.matchEndLine} />
-                      </View>
-                    );
-                  }
-                  if (ev.event_type === 'extra_first_half_start') {
-                    const partialEt = computePartialScoreBeforeEvent(liveEvents, ev, match);
-                    return (
-                      <View key={`ev-${ev.id}`} style={styles.matchEndBanner}>
-                        <View style={styles.matchEndLine} />
-                        <Text
-                          style={styles.matchEndLabel}
-                          numberOfLines={2}
-                          accessibilityLabel={`${PHASE_ROW_LABELS.extra_first_half_start}, risultato ${partialEt.home} a ${partialEt.away}`}
-                        >
-                          {PHASE_ROW_LABELS.extra_first_half_start} {partialEt.home} - {partialEt.away}
                         </Text>
                         <View style={styles.matchEndLine} />
                       </View>
@@ -2427,17 +2461,6 @@ export default function MatchDetailScreen({ navigation, route }) {
                       </View>
                     );
                   }
-                  if (ev.event_type === 'penalties_start') {
-                    return (
-                      <View key={`ev-${ev.id}`} style={styles.matchEndBanner}>
-                        <View style={styles.matchEndLine} />
-                        <Text style={styles.matchEndLabel} numberOfLines={2}>
-                          Rigori
-                        </Text>
-                        <View style={styles.matchEndLine} />
-                      </View>
-                    );
-                  }
                   if (
                     PHASE_ROW_LABELS[ev.event_type] &&
                     ev.event_type !== 'half_time' &&
@@ -2464,7 +2487,7 @@ export default function MatchDetailScreen({ navigation, route }) {
                       <View key={`ev-${ev.id}`} style={styles.matchEndBanner}>
                         <View style={styles.matchEndLine} />
                         <Text style={styles.matchEndLabel} numberOfLines={2}>
-                          Fine partita {score.home} - {score.away}
+                          {shootoutTimelineLabel || `Fine partita ${score.home} - ${score.away}`}
                         </Text>
                         <View style={styles.matchEndLine} />
                       </View>
@@ -2937,58 +2960,62 @@ export default function MatchDetailScreen({ navigation, route }) {
                               </View>
                               {isEditing && editingLiveEventDraft ? (
                                 <View style={styles.liveEditForm}>
-                                  <Text style={styles.editorLabel}>Tipo evento</Text>
-                                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                                    <View style={styles.rowChips}>
-                                      {[
-                                        { id: 'goal', label: 'Goal' },
-                                        { id: 'own_goal', label: 'Autogol' },
-                                        { id: 'yellow_card', label: 'Giallo' },
-                                        { id: 'red_card', label: 'Rosso' },
-                                        { id: 'penalty_missed', label: 'Rigore sbagliato' },
-                                      ].map((et) => (
-                                        <TouchableOpacity
-                                          key={`edit-type-${et.id}`}
-                                          style={[styles.chip, editingLiveEventDraft.event_type === et.id && styles.chipActive]}
-                                          onPress={() =>
-                                            setEditingLiveEventDraft((d) => ({
-                                              ...d,
-                                              event_type: et.id,
-                                              ...(et.id !== 'goal' ? { assist_player_id: null, assist_player_name: '' } : null),
-                                              ...(!isStoppageEditableEventType(et.id) ? { goal_in_stoppage: false } : null),
-                                            }))
-                                          }
-                                        >
-                                          <Text style={[styles.chipText, editingLiveEventDraft.event_type === et.id && styles.chipTextActive]}>{et.label}</Text>
-                                        </TouchableOpacity>
-                                      ))}
-                                    </View>
-                                  </ScrollView>
+                                  {!isShootoutEventType(editingLiveEventDraft.event_type) ? (
+                                    <>
+                                      <Text style={styles.editorLabel}>Tipo evento</Text>
+                                      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                                        <View style={styles.rowChips}>
+                                          {[
+                                            { id: 'goal', label: 'Goal' },
+                                            { id: 'own_goal', label: 'Autogol' },
+                                            { id: 'yellow_card', label: 'Giallo' },
+                                            { id: 'red_card', label: 'Rosso' },
+                                            { id: 'penalty_missed', label: 'Rigore sbagliato' },
+                                          ].map((et) => (
+                                            <TouchableOpacity
+                                              key={`edit-type-${et.id}`}
+                                              style={[styles.chip, editingLiveEventDraft.event_type === et.id && styles.chipActive]}
+                                              onPress={() =>
+                                                setEditingLiveEventDraft((d) => ({
+                                                  ...d,
+                                                  event_type: et.id,
+                                                  ...(et.id !== 'goal' ? { assist_player_id: null, assist_player_name: '' } : null),
+                                                  ...(!isStoppageEditableEventType(et.id) ? { goal_in_stoppage: false } : null),
+                                                }))
+                                              }
+                                            >
+                                              <Text style={[styles.chipText, editingLiveEventDraft.event_type === et.id && styles.chipTextActive]}>{et.label}</Text>
+                                            </TouchableOpacity>
+                                          ))}
+                                        </View>
+                                      </ScrollView>
 
-                                  <Text style={styles.editorLabel}>Squadra</Text>
-                                  <View style={styles.rowChips}>
-                                    {[
-                                      { id: 'home', label: match.home_team_name },
-                                      { id: 'away', label: match.away_team_name },
-                                    ].map((side) => (
-                                      <TouchableOpacity
-                                        key={`edit-side-${side.id}`}
-                                        style={[styles.chip, editingLiveEventDraft.team_side === side.id && styles.chipActive]}
-                                        onPress={() =>
-                                          setEditingLiveEventDraft((d) => ({
-                                            ...d,
-                                            team_side: side.id,
-                                            player_id: null,
-                                            player_name: '',
-                                            assist_player_id: null,
-                                            assist_player_name: '',
-                                          }))
-                                        }
-                                      >
-                                        <Text style={[styles.chipText, editingLiveEventDraft.team_side === side.id && styles.chipTextActive]}>{side.label}</Text>
-                                      </TouchableOpacity>
-                                    ))}
-                                  </View>
+                                      <Text style={styles.editorLabel}>Squadra</Text>
+                                      <View style={styles.rowChips}>
+                                        {[
+                                          { id: 'home', label: match.home_team_name },
+                                          { id: 'away', label: match.away_team_name },
+                                        ].map((side) => (
+                                          <TouchableOpacity
+                                            key={`edit-side-${side.id}`}
+                                            style={[styles.chip, editingLiveEventDraft.team_side === side.id && styles.chipActive]}
+                                            onPress={() =>
+                                              setEditingLiveEventDraft((d) => ({
+                                                ...d,
+                                                team_side: side.id,
+                                                player_id: null,
+                                                player_name: '',
+                                                assist_player_id: null,
+                                                assist_player_name: '',
+                                              }))
+                                            }
+                                          >
+                                            <Text style={[styles.chipText, editingLiveEventDraft.team_side === side.id && styles.chipTextActive]}>{side.label}</Text>
+                                          </TouchableOpacity>
+                                        ))}
+                                      </View>
+                                    </>
+                                  ) : null}
 
                                   {!isShootoutEventType(editingLiveEventDraft.event_type) ? (
                                     <>
@@ -3021,9 +3048,17 @@ export default function MatchDetailScreen({ navigation, route }) {
                                     </TouchableOpacity>
                                   ) : null}
 
-                                  <Text style={styles.editorLabel}>Giocatore</Text>
+                                  <Text style={styles.editorLabel}>{isShootoutEventType(editingLiveEventDraft.event_type) ? 'Tiratore' : 'Giocatore'}</Text>
                                   <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                                     <View style={styles.rowChips}>
+                                      {isShootoutEventType(editingLiveEventDraft.event_type) ? (
+                                        <TouchableOpacity
+                                          style={[styles.chip, !editingLiveEventDraft.player_id && styles.chipActive]}
+                                          onPress={() => setEditingLiveEventDraft((d) => ({ ...d, player_id: null, player_name: '' }))}
+                                        >
+                                          <Text style={[styles.chipText, !editingLiveEventDraft.player_id && styles.chipTextActive]}>Non scelto</Text>
+                                        </TouchableOpacity>
+                                      ) : null}
                                       {(teamPlayers[editingLiveEventDraft.team_side] || []).map((p) => (
                                         <TouchableOpacity
                                           key={`edit-player-${p.id || p.order}`}
@@ -3037,6 +3072,28 @@ export default function MatchDetailScreen({ navigation, route }) {
                                       ))}
                                     </View>
                                   </ScrollView>
+
+                                  {isShootoutEventType(editingLiveEventDraft.event_type) ? (
+                                    <>
+                                      <Text style={styles.editorLabel}>Esito</Text>
+                                      <View style={styles.shootoutActionsRow}>
+                                        <TouchableOpacity
+                                          style={[styles.shootoutActionBtn, editingLiveEventDraft.event_type === 'shootout_goal' && styles.shootoutActionBtnActive]}
+                                          onPress={() => setEditingLiveEventDraft((d) => ({ ...d, event_type: 'shootout_goal' }))}
+                                        >
+                                          <Ionicons name="checkmark-circle" size={26} color="#198754" />
+                                          <Text style={styles.shootoutActionText}>Goal</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity
+                                          style={[styles.shootoutActionBtn, styles.shootoutActionBtnMissed, editingLiveEventDraft.event_type === 'shootout_missed' && styles.shootoutActionBtnActive]}
+                                          onPress={() => setEditingLiveEventDraft((d) => ({ ...d, event_type: 'shootout_missed' }))}
+                                        >
+                                          <Ionicons name="close-circle" size={26} color="#e53935" />
+                                          <Text style={styles.shootoutActionText}>No goal</Text>
+                                        </TouchableOpacity>
+                                      </View>
+                                    </>
+                                  ) : null}
 
                                   {editingLiveEventDraft.event_type === 'goal' ? (
                                     <>
@@ -3771,20 +3828,22 @@ const styles = StyleSheet.create({
   eventModalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, paddingTop: 4 },
   eventModalTitle: { fontSize: 18, fontWeight: '800', color: '#222' },
   eventModalClose: { padding: 4 },
-  editorTabScroll: { flexGrow: 0, marginBottom: 12 },
-  editorTabRow: { flexDirection: 'row', gap: 5, paddingRight: 6 },
+  editorTabScroll: { flexGrow: 0, flexShrink: 0, marginBottom: 12 },
+  editorTabRow: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingRight: 6, paddingVertical: 2 },
   editorTabBtn: {
     minWidth: 92,
-    paddingVertical: 9,
+    minHeight: 42,
+    paddingVertical: 10,
     paddingHorizontal: 3,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: '#ddd',
     backgroundColor: '#f9fafb',
     alignItems: 'center',
+    justifyContent: 'center',
   },
   editorTabBtnActive: { backgroundColor: '#667eea', borderColor: '#667eea' },
-  editorTabBtnText: { fontSize: 12, fontWeight: '700', color: '#374151', textAlign: 'center' },
+  editorTabBtnText: { fontSize: 12, lineHeight: 15, fontWeight: '700', color: '#374151', textAlign: 'center' },
   editorTabBtnTextActive: { color: '#fff' },
   phaseHint: { fontSize: 13, color: '#4b5563', lineHeight: 19, marginBottom: 12 },
   phaseDoneHint: { fontSize: 13, color: '#6b7280', lineHeight: 19, marginBottom: 14, fontStyle: 'italic' },
@@ -3819,6 +3878,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
   },
+  shootoutActionBtnActive: { borderColor: '#667eea', borderWidth: 2 },
   shootoutActionBtnMissed: { borderColor: '#fee2e2', backgroundColor: '#fff1f2' },
   shootoutActionText: { color: '#111827', fontSize: 14, fontWeight: '800' },
   shootoutEndMatchBtn: {
@@ -3943,8 +4003,9 @@ const styles = StyleSheet.create({
   },
   knockoutTeamText: { flex: 1, minWidth: 0, fontSize: 14, fontWeight: '700', color: '#111827' },
   knockoutScoreBox: {
-    width: 22,
+    minWidth: 20,
     height: 22,
+    paddingHorizontal: 2,
     borderRadius: 5,
     borderWidth: 1,
     borderColor: '#d1d5db',
@@ -3952,7 +4013,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  knockoutScoreTextRow: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   knockoutScoreText: { fontSize: 12, fontWeight: '800', color: '#111827' },
+  knockoutShootoutDivider: { width: 1, height: 10, backgroundColor: '#d1d5db' },
+  knockoutShootoutScoreText: { fontSize: 8, fontWeight: '800', color: '#9ca3af' },
   knockoutVs: { width: 28, textAlign: 'center', fontSize: 12, fontWeight: '800', color: '#6b7280' },
   knockoutBranchTopLine: {
     marginTop: 10,

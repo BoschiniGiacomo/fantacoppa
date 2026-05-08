@@ -908,9 +908,23 @@ router.get('/matches', authenticateToken, async (req, res) => {
                 ) THEN 1
                 ELSE 0
               END)::int AS ev_away
+          ,
+          SUM(CASE
+                WHEN e.event_type = 'shootout_goal' AND (
+                  e.team_id = om.home_team_id OR (e.team_id IS NULL AND e.team_side = 'home')
+                ) THEN 1
+                ELSE 0
+              END)::int AS ev_home_shootout,
+          SUM(CASE
+                WHEN e.event_type = 'shootout_goal' AND (
+                  e.team_id = om.away_team_id OR (e.team_id IS NULL AND e.team_side = 'away')
+                ) THEN 1
+                ELSE 0
+              END)::int AS ev_away_shootout,
+          BOOL_OR(e.event_type IN ('shootout_goal','shootout_missed')) AS has_shootout
         FROM official_match_events e
         JOIN official_matches om ON om.id = e.match_id
-        WHERE e.event_type IN ('goal','own_goal')
+        WHERE e.event_type IN ('goal','own_goal','shootout_goal','shootout_missed')
         GROUP BY e.match_id
       ),
       last_phase AS (
@@ -969,6 +983,8 @@ router.get('/matches', authenticateToken, async (req, res) => {
         COALESCE(evs.ev_away, m.away_score) AS away_score,
         COALESCE(evs.ev_home, m.home_score) AS live_home_score,
         COALESCE(evs.ev_away, m.away_score) AS live_away_score,
+        CASE WHEN COALESCE(evs.has_shootout, false) THEN COALESCE(evs.ev_home_shootout, 0) ELSE NULL END AS home_shootout_score,
+        CASE WHEN COALESCE(evs.has_shootout, false) THEN COALESCE(evs.ev_away_shootout, 0) ELSE NULL END AS away_shootout_score,
         COALESCE(fm.match_id IS NOT NULL, false) AS is_favorite_match,
         COALESCE(mn.enabled, 0) AS notifications_enabled,
         COALESCE(lp.last_phase_type, NULL) AS last_phase_type,
@@ -1194,7 +1210,9 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
         );
         (Array.isArray(evRows) ? evRows : []).forEach((e) => {
           const mid = Number(e.match_id);
-          if (!liveScoreByMatch.has(mid)) liveScoreByMatch.set(mid, { home: 0, away: 0, hasEvents: false });
+          if (!liveScoreByMatch.has(mid)) {
+            liveScoreByMatch.set(mid, { home: 0, away: 0, homeShootout: 0, awayShootout: 0, hasEvents: false, hasShootout: false });
+          }
           const s = liveScoreByMatch.get(mid);
           // Appena la partita ha eventi live (anche solo inizio/fine), il tabellone deve mostrare 0-0.
           s.hasEvents = true;
@@ -1202,7 +1220,18 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
           const evTeamId = Number(e.team_id);
           const byTeamId =
             Number.isFinite(evTeamId) && evTeamId > 0 && teamRef.home_team_id > 0 && teamRef.away_team_id > 0;
-          if (e.event_type === 'goal') {
+          if (e.event_type === 'shootout_goal') {
+            s.hasShootout = true;
+            if (byTeamId) {
+              if (evTeamId === teamRef.home_team_id) s.homeShootout += 1;
+              if (evTeamId === teamRef.away_team_id) s.awayShootout += 1;
+            } else {
+              if (e.team_side === 'home') s.homeShootout += 1;
+              if (e.team_side === 'away') s.awayShootout += 1;
+            }
+          } else if (e.event_type === 'shootout_missed') {
+            s.hasShootout = true;
+          } else if (e.event_type === 'goal') {
             if (byTeamId) {
               if (evTeamId === teamRef.home_team_id) s.home += 1;
               if (evTeamId === teamRef.away_team_id) s.away += 1;
@@ -1226,6 +1255,8 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
         const live = liveScoreByMatch.get(Number(r.id)) || null;
         const hs = live?.hasEvents ? Number(live.home) : (r.home_score != null ? Number(r.home_score) : null);
         const as = live?.hasEvents ? Number(live.away) : (r.away_score != null ? Number(r.away_score) : null);
+        const hps = live?.hasShootout ? Number(live.homeShootout) : null;
+        const aps = live?.hasShootout ? Number(live.awayShootout) : null;
         const homeLogoPath = normalizeTeamLogoPathForApi(r?.home_team_logo_path);
         const awayLogoPath = normalizeTeamLogoPathForApi(r?.away_team_logo_path);
         return {
@@ -1243,6 +1274,8 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
           away_team_logo_url: logoUrlForPath(awayLogoPath),
           home_score: Number.isFinite(hs) ? hs : null,
           away_score: Number.isFinite(as) ? as : null,
+          home_shootout_score: Number.isFinite(hps) && Number.isFinite(aps) ? hps : null,
+          away_shootout_score: Number.isFinite(hps) && Number.isFinite(aps) ? aps : null,
         };
       });
       knockout = {
@@ -1407,10 +1440,23 @@ router.get('/matches/teams/:teamId/matches', authenticateToken, async (req, res)
                   e.team_id = om.home_team_id OR (e.team_id IS NULL AND e.team_side = 'home')
                 ) THEN 1
                 ELSE 0
-              END)::int AS ev_away
+              END)::int AS ev_away,
+          SUM(CASE
+                WHEN e.event_type = 'shootout_goal' AND (
+                  e.team_id = om.home_team_id OR (e.team_id IS NULL AND e.team_side = 'home')
+                ) THEN 1
+                ELSE 0
+              END)::int AS ev_home_shootout,
+          SUM(CASE
+                WHEN e.event_type = 'shootout_goal' AND (
+                  e.team_id = om.away_team_id OR (e.team_id IS NULL AND e.team_side = 'away')
+                ) THEN 1
+                ELSE 0
+              END)::int AS ev_away_shootout,
+          BOOL_OR(e.event_type IN ('shootout_goal','shootout_missed')) AS has_shootout
         FROM official_match_events e
         JOIN official_matches om ON om.id = e.match_id
-        WHERE e.event_type IN ('goal','own_goal')
+        WHERE e.event_type IN ('goal','own_goal','shootout_goal','shootout_missed')
         GROUP BY e.match_id
       ),
       last_phase AS (
@@ -1438,6 +1484,8 @@ router.get('/matches/teams/:teamId/matches', authenticateToken, async (req, res)
         at.logo_path AS away_team_logo_path,
         COALESCE(evs.ev_home, m.home_score) AS home_score,
         COALESCE(evs.ev_away, m.away_score) AS away_score,
+        CASE WHEN COALESCE(evs.has_shootout, false) THEN COALESCE(evs.ev_home_shootout, 0) ELSE NULL END AS home_shootout_score,
+        CASE WHEN COALESCE(evs.has_shootout, false) THEN COALESCE(evs.ev_away_shootout, 0) ELSE NULL END AS away_shootout_score,
         lp.last_phase_type
       FROM official_matches m
       INNER JOIN teams ht ON ht.id = m.home_team_id
@@ -1474,6 +1522,8 @@ router.get('/matches/teams/:teamId/matches', authenticateToken, async (req, res)
         away_team_logo_url: logoUrlForPath(awayLogoPath),
         home_score: r.home_score != null ? Number(r.home_score) : null,
         away_score: r.away_score != null ? Number(r.away_score) : null,
+        home_shootout_score: r.home_shootout_score != null ? Number(r.home_shootout_score) : null,
+        away_shootout_score: r.away_shootout_score != null ? Number(r.away_shootout_score) : null,
         last_phase_type: r.last_phase_type || null,
       };
     });
@@ -1877,11 +1927,25 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
       const events = evByMatch.get(Number(m.id)) || [];
       let homeGoals = 0;
       let awayGoals = 0;
+      let homeShootoutGoals = 0;
+      let awayShootoutGoals = 0;
       let hasGoalEvents = false;
+      let hasShootoutEvents = false;
       for (const e of events) {
         const payload = safeJsonParse(e.payload_json) || {};
         const evTeamId = Number(e.team_id) || Number(payload.team_id);
-        if (e.event_type === 'goal') {
+        if (e.event_type === 'shootout_goal') {
+          hasShootoutEvents = true;
+          if (Number.isFinite(evTeamId) && evTeamId > 0) {
+            if (evTeamId === Number(m.home_team_id)) homeShootoutGoals += 1;
+            if (evTeamId === Number(m.away_team_id)) awayShootoutGoals += 1;
+          } else {
+            if (e.team_side === 'home') homeShootoutGoals += 1;
+            if (e.team_side === 'away') awayShootoutGoals += 1;
+          }
+        } else if (e.event_type === 'shootout_missed') {
+          hasShootoutEvents = true;
+        } else if (e.event_type === 'goal') {
           hasGoalEvents = true;
           if (Number.isFinite(evTeamId) && evTeamId > 0) {
             if (evTeamId === Number(m.home_team_id)) homeGoals += 1;
@@ -1901,8 +1965,10 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
           }
         }
       }
-      const hs = hasGoalEvents ? homeGoals : (m.home_score != null ? Number(m.home_score) : null);
-      const as = hasGoalEvents ? awayGoals : (m.away_score != null ? Number(m.away_score) : null);
+      const hsRaw = hasGoalEvents ? homeGoals : (m.home_score != null ? Number(m.home_score) : null);
+      const asRaw = hasGoalEvents ? awayGoals : (m.away_score != null ? Number(m.away_score) : null);
+      const hs = hsRaw == null && hasShootoutEvents ? 0 : hsRaw;
+      const as = asRaw == null && hasShootoutEvents ? 0 : asRaw;
 
       for (const e of events) {
         const payload = safeJsonParse(e.payload_json) || {};
@@ -1940,8 +2006,12 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
       const ga = isHome ? as : hs;
       goals += gf;
       goalsConceded += ga;
-      if (gf > ga) wins += 1;
-      else if (gf === ga) draws += 1;
+      const outcomeHome = hs === as && hasShootoutEvents ? homeShootoutGoals : hs;
+      const outcomeAway = hs === as && hasShootoutEvents ? awayShootoutGoals : as;
+      const outcomeGf = isHome ? outcomeHome : outcomeAway;
+      const outcomeGa = isHome ? outcomeAway : outcomeHome;
+      if (outcomeGf > outcomeGa) wins += 1;
+      else if (outcomeGf === outcomeGa) draws += 1;
       else losses += 1;
     }
 
