@@ -868,6 +868,13 @@ const LIVE_EVENT_TYPE_LABELS = {
   penalties_start: 'Rigori',
   match_end: 'Fine partita',
 };
+const EVENT_WIZARD_TYPES = [
+  { id: 'goal', label: 'Goal', bonusType: 'goal' },
+  { id: 'own_goal', label: 'Autogol', bonusType: 'own_goal' },
+  { id: 'yellow_card', label: 'Ammonizione', bonusType: 'yellow_card' },
+  { id: 'red_card', label: 'Espulsione', bonusType: 'red_card' },
+  { id: 'penalty_missed', label: 'Rigore sbagliato', bonusType: 'penalty_missed' },
+];
 
 function computeLiveScoreFromEvents(events) {
   let home = 0;
@@ -1097,12 +1104,17 @@ export default function MatchDetailScreen({ navigation, route }) {
   const [eventAssistPlayerName, setEventAssistPlayerName] = useState('');
   const [eventAssistPlayerId, setEventAssistPlayerId] = useState(null);
   const [eventGoalInStoppage, setEventGoalInStoppage] = useState(false);
+  const [eventWizardStep, setEventWizardStep] = useState(1);
+  const [eventPlayerSearch, setEventPlayerSearch] = useState('');
+  const [eventAssistSearch, setEventAssistSearch] = useState('');
+  const [eventMinuteStepOpen, setEventMinuteStepOpen] = useState(false);
   const [savingEvent, setSavingEvent] = useState(false);
   const [savingPhase, setSavingPhase] = useState(false);
   const [shootoutTeamSide, setShootoutTeamSide] = useState('home');
   const [shootoutPlayerName, setShootoutPlayerName] = useState('');
   const [shootoutPlayerId, setShootoutPlayerId] = useState(null);
   const shootoutPlayersScrollRef = useRef(null);
+  const eventWizardScrollRef = useRef(null);
   const [matchEndClock, setMatchEndClock] = useState('');
   const [timingOpen, setTimingOpen] = useState(false);
   const [editorModalTab, setEditorModalTab] = useState('events');
@@ -1115,11 +1127,14 @@ export default function MatchDetailScreen({ navigation, route }) {
   const [heroMinFocused, setHeroMinFocused] = useState(false);
   /** idle | ok | err — feedback pulsante accanto al minuto hero */
   const [heroTimerUi, setHeroTimerUi] = useState('idle');
-  /** Tab Classifica: fase finale pieghevole (gironi) / classifica pieghevole (semifinale-finale). */
+  /** Tab Classifica: fasi finali pieghevole (gironi) / classifica pieghevole (semifinale-finale). */
   const [standingsKnockoutExpanded, setStandingsKnockoutExpanded] = useState(false);
   const [standingsTableFoldedOpen, setStandingsTableFoldedOpen] = useState(false);
   const [editingLiveEventId, setEditingLiveEventId] = useState(null);
   const [editingLiveEventDraft, setEditingLiveEventDraft] = useState(null);
+  const [confirmDeleteEvent, setConfirmDeleteEvent] = useState(null);
+  const [deletingLiveEventId, setDeletingLiveEventId] = useState(null);
+  const [confirmTimerAdjust, setConfirmTimerAdjust] = useState(null);
 
   /** showLoading: solo al primo caricamento; refresh in background per focus/polling. */
   const loadDetail = useCallback(
@@ -1370,41 +1385,53 @@ export default function MatchDetailScreen({ navigation, route }) {
     const raw = t0 != null ? Math.max(0, Math.floor((Date.now() - t0) / 1000)) : 0;
     const seg = raw + liveTimerOffsetSec;
     const sm = seg % 60;
-    Alert.alert(
-      'Modifica cronometro',
-      `Vuoi portare il minuto da ${cur}' a ${M}'? Il tempo continuerà da lì come se fosse il minuto ${M}.`,
-      [
-        {
-          text: 'Annulla',
-          style: 'cancel',
-          onPress: () => {
-            setHeroTimerUi('err');
-            setHeroMinDraft(String(cur));
-            setTimeout(() => setHeroTimerUi('idle'), 1400);
-          },
-        },
-        {
-          text: 'Sì',
-          onPress: () => {
-            const targetSeg = computeTargetSegmentSecondsForDisplayMinute(last.event_type, match, M, sm);
-            const newOff = targetSeg - raw;
-            setLiveTimerOffsetSec(newOff);
-            void persistTimerOffsetToStorage(newOff, last.id);
-            setHeroMinDraft(String(M));
-            setHeroTimerUi('ok');
-            setTimeout(() => setHeroTimerUi('idle'), 1400);
-          },
-        },
-      ],
-    );
+    setConfirmTimerAdjust({
+      currentMinute: cur,
+      targetMinute: M,
+      rawElapsedSeconds: raw,
+      secondModulo: sm,
+      phaseType: last.event_type,
+      anchorEventId: last.id,
+    });
   }, [liveEvents, match, liveTimerOffsetSec, heroMinDraft, persistTimerOffsetToStorage]);
+
+  const cancelHeroTimerAdjust = useCallback(() => {
+    if (!confirmTimerAdjust) return;
+    setConfirmTimerAdjust(null);
+    setHeroTimerUi('err');
+    setHeroMinDraft(String(confirmTimerAdjust.currentMinute));
+    setTimeout(() => setHeroTimerUi('idle'), 1400);
+  }, [confirmTimerAdjust]);
+
+  const confirmHeroTimerAdjust = useCallback(() => {
+    if (!confirmTimerAdjust) return;
+    const targetSeg = computeTargetSegmentSecondsForDisplayMinute(
+      confirmTimerAdjust.phaseType,
+      match,
+      confirmTimerAdjust.targetMinute,
+      confirmTimerAdjust.secondModulo
+    );
+    const newOff = targetSeg - confirmTimerAdjust.rawElapsedSeconds;
+    setLiveTimerOffsetSec(newOff);
+    void persistTimerOffsetToStorage(newOff, confirmTimerAdjust.anchorEventId);
+    setHeroMinDraft(String(confirmTimerAdjust.targetMinute));
+    setHeroTimerUi('ok');
+    setConfirmTimerAdjust(null);
+    setTimeout(() => setHeroTimerUi('idle'), 1400);
+  }, [confirmTimerAdjust, match, persistTimerOffsetToStorage]);
 
   const liveScorePreview = useMemo(() => computeLiveScoreFromEvents(liveEvents), [liveEvents]);
   const matchHasStarted = useMemo(() => liveEvents.some((e) => e.event_type === 'match_start'), [liveEvents]);
+  const preMatchEditorMode = !matchHasStarted;
   const heroScorerBlocks = useMemo(() => buildHeroScorerBlocks(liveEvents, match), [liveEvents, match]);
   const showHeroScorerList =
     matchHasStarted && (Number(liveScorePreview.home) > 0 || Number(liveScorePreview.away) > 0);
   const nextPhaseStep = useMemo(() => getNextPhaseStep(match, liveEvents), [match, liveEvents]);
+  const hasMatchEndEvent = useMemo(
+    () => liveEvents.some((e) => e.event_type === 'match_end'),
+    [liveEvents]
+  );
+  const showPhaseEditorTab = !hasMatchEndEvent;
   const showPhaseMatchEndClockFields = useMemo(
     () => nextPhaseStep?.type === 'match_end' || phaseStepOffersMatchEndShortcut(nextPhaseStep, match),
     [nextPhaseStep, match?.extra_time_enabled, match?.penalties_enabled]
@@ -1414,9 +1441,11 @@ export default function MatchDetailScreen({ navigation, route }) {
     [nextPhaseStep, match?.extra_time_enabled, match?.penalties_enabled]
   );
   const showShootoutEditorTab = useMemo(
-    () => liveEvents.some((e) => e.event_type === 'penalties_start') && !liveEvents.some((e) => e.event_type === 'match_end'),
-    [liveEvents]
+    () => liveEvents.some((e) => e.event_type === 'penalties_start') && !hasMatchEndEvent,
+    [liveEvents, hasMatchEndEvent]
   );
+  const showTimerEditorTab = matchHasStarted && !hasMatchEndEvent;
+  const hasOnlyPhaseEditorTab = preMatchEditorMode && showPhaseEditorTab && !showShootoutEditorTab;
   const hasShootoutPhase = useMemo(
     () => liveEvents.some((e) => e.event_type === 'penalties_start' || isShootoutEventType(e.event_type)),
     [liveEvents]
@@ -1454,6 +1483,21 @@ export default function MatchDetailScreen({ navigation, route }) {
     () => showShootoutEditorTab && shootoutCanEnd(liveEvents),
     [showShootoutEditorTab, liveEvents]
   );
+  const isPlayPhaseAction = nextPhaseStep?.type === 'match_start' || nextPhaseStep?.type === 'second_half_start';
+  const isPausePhaseAction = nextPhaseStep?.type === 'half_time' || nextPhaseStep?.type === 'extra_half_time';
+  const isEndPhaseAction =
+    nextPhaseStep?.type === 'match_end' ||
+    nextPhaseStep?.type === 'second_half_end' ||
+    nextPhaseStep?.type === 'extra_second_half_end';
+  const shouldCloseEditorOnPhaseSubmit = useCallback((phaseType) => (
+    phaseType === 'match_start' ||
+    phaseType === 'second_half_start' ||
+    phaseType === 'extra_first_half_start' ||
+    phaseType === 'extra_second_half_start' ||
+    phaseType === 'second_half_end' ||
+    phaseType === 'extra_second_half_end' ||
+    phaseType === 'match_end'
+  ), []);
   const timingSegments = useMemo(() => getMatchTimingSegments(match), [
     match.regulation_half_minutes,
     match.extra_time_enabled,
@@ -1549,6 +1593,18 @@ export default function MatchDetailScreen({ navigation, route }) {
   }, [showEventEditor, editorModalTab, showPhaseMatchEndClockFields]);
 
   useEffect(() => {
+    if (showEventEditor && editorModalTab === 'phases' && !showPhaseEditorTab) {
+      setEditorModalTab('editEvents');
+    }
+  }, [showEventEditor, editorModalTab, showPhaseEditorTab]);
+
+  useEffect(() => {
+    if (showEventEditor && editorModalTab === 'timer' && !showTimerEditorTab) {
+      setEditorModalTab('phases');
+    }
+  }, [showEventEditor, editorModalTab, showTimerEditorTab]);
+
+  useEffect(() => {
     if (!showEventEditor || editorModalTab !== 'events' || eventMinuteDirty) return;
     if ((eventMinute || '').trim() === '' && eventMinuteClearedAtSuggestionRef.current === suggestedTimelineMinuteStr) return;
     eventMinuteClearedAtSuggestionRef.current = null;
@@ -1564,11 +1620,77 @@ export default function MatchDetailScreen({ navigation, route }) {
     () => eventStoppagePeriodEndValue != null ? formatMinuteStoppageLabel(eventMinuteNum, eventStoppagePeriodEndValue) : '',
     [eventMinuteNum, eventStoppagePeriodEndValue]
   );
+  const eventPlayersSorted = useMemo(() => {
+    const players = Array.isArray(teamPlayers?.[eventTeamSide]) ? teamPlayers[eventTeamSide] : [];
+    return [...players].sort((a, b) => {
+      const rawA = String(a?.shirt_number ?? '').trim();
+      const rawB = String(b?.shirt_number ?? '').trim();
+      const sa = rawA !== '' ? Number(rawA) : NaN;
+      const sb = rawB !== '' ? Number(rawB) : NaN;
+      const aa = Number.isFinite(sa) && sa > 0 ? sa : 999;
+      const bb = Number.isFinite(sb) && sb > 0 ? sb : 999;
+      if (aa !== bb) return aa - bb;
+      return String(a?.name || '').localeCompare(String(b?.name || ''), 'it', { sensitivity: 'base' });
+    });
+  }, [teamPlayers, eventTeamSide]);
+  const filteredEventPlayers = useMemo(() => {
+    const q = String(eventPlayerSearch || '').trim().toLowerCase();
+    if (!q) return eventPlayersSorted;
+    return eventPlayersSorted.filter((p) => {
+      const byName = String(p?.name || '').toLowerCase().includes(q);
+      const byNumber = String(p?.shirt_number ?? '').trim().includes(q);
+      return byName || byNumber;
+    });
+  }, [eventPlayersSorted, eventPlayerSearch]);
+  const filteredEventAssistPlayers = useMemo(() => {
+    const base = eventPlayersSorted.filter((p) => Number(p?.id) !== Number(eventPlayerId));
+    const q = String(eventAssistSearch || '').trim().toLowerCase();
+    if (!q) return base;
+    return base.filter((p) => {
+      const byName = String(p?.name || '').toLowerCase().includes(q);
+      const byNumber = String(p?.shirt_number ?? '').trim().includes(q);
+      return byName || byNumber;
+    });
+  }, [eventPlayersSorted, eventPlayerId, eventAssistSearch]);
+  const selectedEventTypeMeta = useMemo(
+    () => EVENT_WIZARD_TYPES.find((t) => t.id === eventType) || EVENT_WIZARD_TYPES[0],
+    [eventType]
+  );
+  const selectedEventPlayer = useMemo(
+    () => eventPlayersSorted.find((p) => Number(p?.id) === Number(eventPlayerId)) || null,
+    [eventPlayersSorted, eventPlayerId]
+  );
+  const selectedEventAssistPlayer = useMemo(
+    () => eventPlayersSorted.find((p) => Number(p?.id) === Number(eventAssistPlayerId)) || null,
+    [eventPlayersSorted, eventAssistPlayerId]
+  );
+  const hasAssistWizardStep = eventType === 'goal';
+  const canSkipPlayerSelection = eventType === 'goal' || eventType === 'own_goal' || eventType === 'penalty_missed';
+  const eventWizardLastStep = hasAssistWizardStep ? 5 : 4;
+  const eventAssistWizardStep = 4;
+  const eventSummaryWizardStep = eventWizardLastStep;
+
+  useEffect(() => {
+    setEventWizardStep((s) => Math.min(s, eventWizardLastStep));
+  }, [eventWizardLastStep]);
+
+  useEffect(() => {
+    if (!showEventEditor || editorModalTab !== 'events' || !hasAssistWizardStep) return;
+    if (eventWizardStep !== eventAssistWizardStep) return;
+    requestAnimationFrame(() => {
+      eventWizardScrollRef.current?.scrollTo?.({ y: 0, animated: true });
+    });
+  }, [showEventEditor, editorModalTab, hasAssistWizardStep, eventWizardStep, eventAssistWizardStep]);
 
   const closeEventModal = useCallback(() => {
     setShowEventEditor(false);
     setConfirmEndMatchOpen(false);
     setConfirmAdvancePhase(null);
+    setConfirmDeleteEvent(null);
+    setDeletingLiveEventId(null);
+    setConfirmTimerAdjust(null);
+    setEventType('goal');
+    setEventTeamSide('home');
     setEventMinuteDirty(false);
     eventMinuteClearedAtSuggestionRef.current = null;
     setEventGoalInStoppage(false);
@@ -1579,6 +1701,10 @@ export default function MatchDetailScreen({ navigation, route }) {
     setShootoutPlayerId(null);
     setEditingLiveEventId(null);
     setEditingLiveEventDraft(null);
+    setEventWizardStep(1);
+    setEventPlayerSearch('');
+    setEventAssistSearch('');
+    setEventMinuteStepOpen(false);
   }, []);
 
   const submitEvent = async () => {
@@ -1717,22 +1843,37 @@ export default function MatchDetailScreen({ navigation, route }) {
   };
 
   const deleteLiveEvent = (ev) => {
-    const label = LIVE_EVENT_TYPE_LABELS[ev?.event_type] || ev?.event_type || 'evento';
-    Alert.alert('Elimina evento', `Vuoi eliminare "${label}"?`, [
-      { text: 'Annulla', style: 'cancel' },
-      {
-        text: 'Elimina',
-        style: 'destructive',
-        onPress: async () => {
-          await adminMatchesService.deleteEvent(match.id, ev.id);
-          if (Number(editingLiveEventId) === Number(ev.id)) {
-            setEditingLiveEventId(null);
-            setEditingLiveEventDraft(null);
-          }
-          await loadDetail({ showLoading: false });
-        },
-      },
-    ]);
+    setConfirmDeleteEvent(ev || null);
+  };
+
+  const submitDeleteLiveEvent = async () => {
+    const target = confirmDeleteEvent;
+    const eventId = Number(target?.id);
+    if (!Number.isFinite(eventId) || eventId <= 0) {
+      setConfirmDeleteEvent(null);
+      return;
+    }
+    try {
+      setDeletingLiveEventId(eventId);
+      await adminMatchesService.deleteEvent(match.id, eventId);
+      if (Number(editingLiveEventId) === eventId) {
+        setEditingLiveEventId(null);
+        setEditingLiveEventDraft(null);
+      }
+      setConfirmDeleteEvent(null);
+      await loadDetail({ showLoading: false });
+    } catch (err) {
+      const body = err?.response?.data;
+      const msg =
+        (typeof body === 'string' ? body : null) ||
+        body?.message ||
+        body?.error ||
+        err?.message ||
+        'Operazione non riuscita';
+      Alert.alert('Errore', String(msg));
+    } finally {
+      setDeletingLiveEventId(null);
+    }
   };
 
   const submitPhaseEvent = async (phaseType) => {
@@ -1745,6 +1886,19 @@ export default function MatchDetailScreen({ navigation, route }) {
           clock_time: matchEndClock.trim() || undefined,
         });
         setEventPlayerName('');
+      setEventType('goal');
+      setEventTeamSide('home');
+      setEventPlayerId(null);
+      setEventAssistPlayerName('');
+      setEventAssistPlayerId(null);
+      setEventGoalInStoppage(false);
+      setEventWizardStep(1);
+      setEventPlayerSearch('');
+      setEventAssistSearch('');
+      setEventMinuteStepOpen(false);
+      setEventMinuteDirty(false);
+      eventMinuteClearedAtSuggestionRef.current = null;
+      setEventMinute(suggestedTimelineMinuteStr);
         await loadDetail({ showLoading: false });
         closeEventModal();
       } catch (err) {
@@ -1793,6 +1947,9 @@ export default function MatchDetailScreen({ navigation, route }) {
           );
         }
         await loadDetail({ showLoading: false });
+        if (shouldCloseEditorOnPhaseSubmit(phaseType)) {
+          closeEventModal();
+        }
       } catch (err) {
         const body = err?.response?.data;
         const msg =
@@ -1813,6 +1970,9 @@ export default function MatchDetailScreen({ navigation, route }) {
         setSavingPhase(true);
         await adminMatchesService.addEvent(match.id, { event_type: phaseType, minute: 0 });
         await loadDetail({ showLoading: false });
+        if (shouldCloseEditorOnPhaseSubmit(phaseType)) {
+          closeEventModal();
+        }
       } catch (err) {
         const body = err?.response?.data;
         const msg =
@@ -1845,6 +2005,9 @@ export default function MatchDetailScreen({ navigation, route }) {
         );
       }
       await loadDetail({ showLoading: false });
+      if (shouldCloseEditorOnPhaseSubmit(phaseType)) {
+        closeEventModal();
+      }
     } catch (err) {
       const body = err?.response?.data;
       const msg =
@@ -2561,7 +2724,7 @@ export default function MatchDetailScreen({ navigation, route }) {
               <>
                 {hasKnockoutBracket ? (
                   <View style={[styles.card, styles.knockoutCard]}>
-                    <Text style={styles.knockoutTitle}>Fase Finale</Text>
+                    <Text style={styles.knockoutTitle}>Fasi finali</Text>
                     {standingsKnockoutBracketGrid}
                   </View>
                 ) : null}
@@ -2598,7 +2761,7 @@ export default function MatchDetailScreen({ navigation, route }) {
                     >
                       <View style={styles.timingDisclosureLeft}>
                         <MaterialCommunityIcons name="trophy-outline" size={18} color="#667eea" />
-                        <Text style={styles.timingDisclosureTitle}>Fase finale</Text>
+                        <Text style={styles.timingDisclosureTitle}>Fasi finali</Text>
                       </View>
                       <Ionicons
                         name={standingsKnockoutExpanded ? 'chevron-up' : 'chevron-down'}
@@ -2646,13 +2809,23 @@ export default function MatchDetailScreen({ navigation, route }) {
               style={[styles.liveFab, { bottom: Math.max(insets.bottom, 12) + 8, right: 16 }]}
               activeOpacity={0.85}
               onPress={() => {
-                setEditorModalTab(showShootoutEditorTab ? 'shootout' : 'events');
+                setEventType('goal');
+                setEventTeamSide('home');
+                if (preMatchEditorMode) {
+                  setEditorModalTab('phases');
+                } else {
+                  setEditorModalTab(showShootoutEditorTab ? 'shootout' : 'events');
+                }
                 if (showShootoutEditorTab) {
                   setShootoutTeamSide(nextShootoutTeamSide);
                   setShootoutPlayerName('');
                   setShootoutPlayerId(null);
                 }
                 setEventMinuteDirty(false);
+                setEventWizardStep(1);
+                setEventPlayerSearch('');
+                setEventAssistSearch('');
+                setEventMinuteStepOpen(false);
                 setShowEventEditor(true);
                 setEventMinute(suggestedTimelineMinuteStr);
                 fillMatchEndDefaults();
@@ -2666,7 +2839,12 @@ export default function MatchDetailScreen({ navigation, route }) {
           <Modal visible={showEventEditor} animationType="slide" transparent onRequestClose={closeEventModal}>
             <View style={styles.eventModalRoot}>
               <Pressable style={styles.eventModalBackdrop} onPress={closeEventModal} />
-              <View style={[styles.eventModalSheet, { paddingBottom: Math.max(insets.bottom, 12) + 12 }]}>
+              <View
+                style={[
+                  styles.eventModalSheet,
+                  { paddingBottom: editorModalTab === 'events' ? 12 : Math.max(insets.bottom, 12) + 12 },
+                ]}
+              >
                 <View style={styles.eventModalHeader}>
                   <Text style={styles.eventModalTitle}>Editor diretta</Text>
                   <TouchableOpacity onPress={closeEventModal} style={styles.eventModalClose} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
@@ -2674,26 +2852,46 @@ export default function MatchDetailScreen({ navigation, route }) {
                   </TouchableOpacity>
                 </View>
                 <ScrollView
-                  horizontal
+                  horizontal={!hasOnlyPhaseEditorTab}
                   showsHorizontalScrollIndicator={false}
                   style={styles.editorTabScroll}
-                  contentContainerStyle={styles.editorTabRow}
+                  contentContainerStyle={[styles.editorTabRow, hasOnlyPhaseEditorTab && styles.editorTabRowSingle]}
                 >
-                  <TouchableOpacity
-                    style={[styles.editorTabBtn, editorModalTab === 'events' && styles.editorTabBtnActive]}
-                    onPress={() => setEditorModalTab('events')}
-                  >
-                    <Text style={[styles.editorTabBtnText, editorModalTab === 'events' && styles.editorTabBtnTextActive]}>Eventi</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.editorTabBtn, editorModalTab === 'phases' && styles.editorTabBtnActive]}
-                    onPress={() => {
-                      setEditorModalTab('phases');
-                      fillMatchEndDefaults();
-                    }}
-                  >
-                    <Text style={[styles.editorTabBtnText, editorModalTab === 'phases' && styles.editorTabBtnTextActive]}>Fasi di gioco</Text>
-                  </TouchableOpacity>
+                  {!preMatchEditorMode ? (
+                    <TouchableOpacity
+                      style={[styles.editorTabBtn, editorModalTab === 'events' && styles.editorTabBtnActive]}
+                      onPress={() => setEditorModalTab('events')}
+                    >
+                      <Text style={[styles.editorTabBtnText, editorModalTab === 'events' && styles.editorTabBtnTextActive]}>Eventi</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                  {showPhaseEditorTab ? (
+                    <TouchableOpacity
+                      style={[styles.editorTabBtn, hasOnlyPhaseEditorTab && styles.editorTabBtnSingle, editorModalTab === 'phases' && styles.editorTabBtnActive]}
+                      onPress={() => {
+                        setEditorModalTab('phases');
+                        fillMatchEndDefaults();
+                      }}
+                    >
+                      <Text style={[styles.editorTabBtnText, editorModalTab === 'phases' && styles.editorTabBtnTextActive]}>Fasi di gioco</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                  {showTimerEditorTab ? (
+                    <TouchableOpacity
+                      style={[styles.editorTabBtn, editorModalTab === 'timer' && styles.editorTabBtnActive]}
+                      onPress={() => setEditorModalTab('timer')}
+                    >
+                      <View style={styles.editorTabWithIcon}>
+                        <MaterialCommunityIcons
+                          name="timer-outline"
+                          size={15}
+                          color={editorModalTab === 'timer' ? '#667eea' : '#475569'}
+                          style={styles.editorTabIcon}
+                        />
+                        <Text style={[styles.editorTabBtnText, editorModalTab === 'timer' && styles.editorTabBtnTextActive]}>Cronometro</Text>
+                      </View>
+                    </TouchableOpacity>
+                  ) : null}
                   {showShootoutEditorTab ? (
                     <TouchableOpacity
                       style={[styles.editorTabBtn, editorModalTab === 'shootout' && styles.editorTabBtnActive]}
@@ -2707,14 +2905,16 @@ export default function MatchDetailScreen({ navigation, route }) {
                       <Text style={[styles.editorTabBtnText, editorModalTab === 'shootout' && styles.editorTabBtnTextActive]}>Rigori</Text>
                     </TouchableOpacity>
                   ) : null}
-                  <TouchableOpacity
-                    style={[styles.editorTabBtn, editorModalTab === 'editEvents' && styles.editorTabBtnActive]}
-                    onPress={() => setEditorModalTab('editEvents')}
-                  >
-                    <Text style={[styles.editorTabBtnText, editorModalTab === 'editEvents' && styles.editorTabBtnTextActive]}>Modifica eventi</Text>
-                  </TouchableOpacity>
+                  {!preMatchEditorMode ? (
+                    <TouchableOpacity
+                      style={[styles.editorTabBtn, editorModalTab === 'editEvents' && styles.editorTabBtnActive]}
+                      onPress={() => setEditorModalTab('editEvents')}
+                    >
+                      <Text style={[styles.editorTabBtnText, editorModalTab === 'editEvents' && styles.editorTabBtnTextActive]}>Modifica eventi</Text>
+                    </TouchableOpacity>
+                  ) : null}
                 </ScrollView>
-                <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+                <ScrollView ref={eventWizardScrollRef} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
                   {editorModalTab === 'phases' ? (
                     <>
                       {showPhaseMatchEndClockFields ? (
@@ -2730,43 +2930,92 @@ export default function MatchDetailScreen({ navigation, route }) {
                         showPhaseShortcutMatchEnd ? (
                           <>
                             <TouchableOpacity
-                              style={[styles.phaseActionBtn, savingPhase && styles.actionBtnDisabled]}
+                              style={[
+                                styles.phaseActionBtn,
+                                isPlayPhaseAction && styles.phaseActionBtnStart,
+                                isPausePhaseAction && styles.phaseActionBtnPause,
+                                isEndPhaseAction && styles.phaseActionBtnEnd,
+                                savingPhase && styles.actionBtnDisabled,
+                              ]}
                               disabled={savingPhase}
                               onPress={() => {
                                 Keyboard.dismiss();
                                 requestSubmitPhaseEvent(nextPhaseStep.type);
                               }}
                             >
-                              <Text style={styles.phaseActionBtnText}>{savingPhase ? 'Salvataggio...' : nextPhaseStep.label}</Text>
+                              <View style={styles.phaseActionBtnContent}>
+                                {isPlayPhaseAction ? (
+                                  <MaterialCommunityIcons name="play-circle" size={18} color="#f0fdf4" style={styles.phaseActionBtnStartIcon} />
+                                ) : isPausePhaseAction ? (
+                                  <MaterialCommunityIcons name="pause-circle" size={20} color="#111111" style={styles.phaseActionBtnStartIcon} />
+                                ) : isEndPhaseAction ? (
+                                  <MaterialCommunityIcons name="stop-circle" size={20} color="#fef2f2" style={styles.phaseActionBtnStartIcon} />
+                                ) : null}
+                                <Text
+                                  style={[
+                                    styles.phaseActionBtnText,
+                                    isPlayPhaseAction && styles.phaseActionBtnTextStart,
+                                    isPausePhaseAction && styles.phaseActionBtnTextPause,
+                                    isEndPhaseAction && styles.phaseActionBtnTextEnd,
+                                  ]}
+                                >
+                                  {savingPhase ? 'Salvataggio...' : nextPhaseStep.label}
+                                </Text>
+                              </View>
                             </TouchableOpacity>
                             <TouchableOpacity
-                              style={[styles.phaseActionBtnOutline, savingPhase && styles.actionBtnDisabled]}
+                              style={[styles.phaseActionBtn, styles.phaseActionBtnEnd, savingPhase && styles.actionBtnDisabled]}
                               disabled={savingPhase}
                               onPress={() => {
                                 Keyboard.dismiss();
                                 setConfirmEndMatchOpen(true);
                               }}
                             >
-                              <Text style={styles.phaseActionBtnOutlineText}>Fine partita</Text>
+                              <View style={styles.phaseActionBtnContent}>
+                                <MaterialCommunityIcons name="stop-circle" size={20} color="#fef2f2" style={styles.phaseActionBtnStartIcon} />
+                                <Text style={[styles.phaseActionBtnText, styles.phaseActionBtnTextEnd]}>Fine partita</Text>
+                              </View>
                             </TouchableOpacity>
                             
                           </>
                         ) : (
                           <TouchableOpacity
-                            style={[styles.phaseActionBtn, savingPhase && styles.actionBtnDisabled]}
+                            style={[
+                              styles.phaseActionBtn,
+                              isPlayPhaseAction && styles.phaseActionBtnStart,
+                              isPausePhaseAction && styles.phaseActionBtnPause,
+                              isEndPhaseAction && styles.phaseActionBtnEnd,
+                              savingPhase && styles.actionBtnDisabled,
+                            ]}
                             disabled={savingPhase}
                             onPress={() => {
                               Keyboard.dismiss();
                               requestSubmitPhaseEvent(nextPhaseStep.type);
                             }}
                           >
-                            <Text style={styles.phaseActionBtnText}>
-                              {savingPhase
-                                ? 'Salvataggio...'
-                                : nextPhaseStep.type === 'match_end' && liveEvents.some((e) => e.event_type === 'match_end')
-                                ? 'Aggiorna fine partita'
-                                : nextPhaseStep.label}
-                            </Text>
+                            <View style={styles.phaseActionBtnContent}>
+                              {isPlayPhaseAction ? (
+                                <MaterialCommunityIcons name="play-circle" size={18} color="#f0fdf4" style={styles.phaseActionBtnStartIcon} />
+                              ) : isPausePhaseAction ? (
+                                <MaterialCommunityIcons name="pause-circle" size={20} color="#111111" style={styles.phaseActionBtnStartIcon} />
+                              ) : isEndPhaseAction ? (
+                                <MaterialCommunityIcons name="stop-circle" size={20} color="#fef2f2" style={styles.phaseActionBtnStartIcon} />
+                              ) : null}
+                              <Text
+                                style={[
+                                  styles.phaseActionBtnText,
+                                  isPlayPhaseAction && styles.phaseActionBtnTextStart,
+                                  isPausePhaseAction && styles.phaseActionBtnTextPause,
+                                  isEndPhaseAction && styles.phaseActionBtnTextEnd,
+                                ]}
+                              >
+                                {savingPhase
+                                  ? 'Salvataggio...'
+                                  : nextPhaseStep.type === 'match_end' && liveEvents.some((e) => e.event_type === 'match_end')
+                                  ? 'Aggiorna fine partita'
+                                  : nextPhaseStep.label}
+                              </Text>
+                            </View>
                           </TouchableOpacity>
                         )
                       ) : (
@@ -2776,84 +3025,83 @@ export default function MatchDetailScreen({ navigation, route }) {
                         <>
                           {nextPhaseStep.type === 'match_start' ? (
                             <>
-                              <Text style={[styles.editorLabel, styles.phaseMinuteLabelBelow]}>Cronometro (minuto)</Text>
-                              <Text style={styles.phaseMinuteHint}>Il calcio d&apos;inizio si registra al minuto 0.</Text>
+                              <Text style={[styles.phaseMinuteHint, styles.phaseMinuteHintStart]}>Dai il via alla partita e al cronometro</Text>
                             </>
-                          ) : (
-                            <>
-                              <Text style={[styles.editorLabel, styles.phaseMinuteLabelBelow]}>Cronometro (minuto)</Text>
-                              <Text style={styles.phaseMinuteHint}>
-                                {showPhaseHeroTimerAdjust
-                                  ? 'Modifica solo se ti sei sbagliato: numeri, poi «Fatto» o il pulsante — conferma nel messaggio. Il minuto usato per la fase è quello del cronometro dopo il salvataggio.'
-                                  : 'In pausa il minuto è solo informativo (timeline fissa). Quando il gioco riparte potrai correggere il cronometro di nuovo da qui.'}
-                              </Text>
-                              <View style={[styles.heroTimerEditRow, styles.heroTimerEditRowInModal]}>
-                                <TextInput
-                                  style={[styles.heroTimerInput, !showPhaseHeroTimerAdjust && styles.heroTimerInputReadonly]}
-                                  keyboardType="number-pad"
-                                  maxLength={3}
-                                  returnKeyType="done"
-                                  editable={showPhaseHeroTimerAdjust}
-                                  value={
-                                    showPhaseHeroTimerAdjust
-                                      ? heroMinDraft
-                                      : String(phaseModalSuggestedMinuteInt)
-                                  }
-                                  onChangeText={(t) => setHeroMinDraft(t.replace(/\D/g, '').slice(0, 3))}
-                                  onFocus={() => setHeroMinFocused(true)}
-                                  onBlur={() => setHeroMinFocused(false)}
-                                  onSubmitEditing={showPhaseHeroTimerAdjust ? submitHeroTimerAdjust : undefined}
-                                  accessibilityLabel="Minuto cronometro"
-                                />
-                                <TouchableOpacity
-                                  style={[
-                                    styles.heroTimerApplyBtn,
-                                    !showPhaseHeroTimerAdjust && styles.heroTimerApplyBtnDisabled,
-                                    showPhaseHeroTimerAdjust && heroTimerUi === 'ok' && styles.heroTimerApplyBtnOk,
-                                    showPhaseHeroTimerAdjust && heroTimerUi === 'err' && styles.heroTimerApplyBtnErr,
-                                    showPhaseHeroTimerAdjust &&
-                                      heroMinPending &&
-                                      heroTimerUi === 'idle' &&
-                                      styles.heroTimerApplyBtnPending,
-                                  ]}
-                                  onPress={showPhaseHeroTimerAdjust ? submitHeroTimerAdjust : undefined}
-                                  disabled={!showPhaseHeroTimerAdjust}
-                                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                                  accessibilityRole="button"
-                                  accessibilityState={{ disabled: !showPhaseHeroTimerAdjust }}
-                                  accessibilityLabel={
-                                    !showPhaseHeroTimerAdjust
-                                      ? 'Conferma cronometro non disponibile in pausa'
-                                      : heroTimerUi === 'ok'
-                                        ? 'Minuto aggiornato'
-                                        : heroTimerUi === 'err'
-                                          ? 'Modifica annullata'
-                                          : 'Conferma nuovo minuto cronometro'
-                                  }
-                                >
-                                  <Ionicons
-                                    name={
-                                      heroTimerUi === 'ok'
-                                        ? 'checkmark-circle'
-                                        : heroTimerUi === 'err'
-                                          ? 'close-circle'
-                                          : 'checkmark-done'
-                                    }
-                                    size={22}
-                                    color={
-                                      !showPhaseHeroTimerAdjust
-                                        ? '#e5e7eb'
-                                        : heroMinPending && heroTimerUi === 'idle'
-                                          ? '#111827'
-                                          : '#fff'
-                                    }
-                                  />
-                                </TouchableOpacity>
-                              </View>
-                            </>
-                          )}
+                          ) : null}
                         </>
                       ) : null}
+                    </>
+                  ) : editorModalTab === 'timer' ? (
+                    <>
+                      <Text style={[styles.editorLabel, styles.phaseMinuteLabelBelow]}>Modifica cronometro</Text>
+                      <Text style={styles.phaseMinuteHint}>
+                        {showPhaseHeroTimerAdjust
+                          ? 'Imposta il timer della partita al minuto che vuoi: inserisci il minuto, poi schiaccia «Fatto» o il pulsante'
+                          : ' '}
+                      </Text>
+                      <View style={[styles.heroTimerEditRow, styles.heroTimerEditRowInModal]}>
+                        <TextInput
+                          style={[styles.heroTimerInput, !showPhaseHeroTimerAdjust && styles.heroTimerInputReadonly]}
+                          keyboardType="number-pad"
+                          maxLength={3}
+                          returnKeyType="done"
+                          editable={showPhaseHeroTimerAdjust}
+                          value={
+                            showPhaseHeroTimerAdjust
+                              ? heroMinDraft
+                              : String(phaseModalSuggestedMinuteInt)
+                          }
+                          onChangeText={(t) => setHeroMinDraft(t.replace(/\D/g, '').slice(0, 3))}
+                          onFocus={() => setHeroMinFocused(true)}
+                          onBlur={() => setHeroMinFocused(false)}
+                          onSubmitEditing={showPhaseHeroTimerAdjust ? submitHeroTimerAdjust : undefined}
+                          accessibilityLabel="Minuto cronometro"
+                        />
+                        <TouchableOpacity
+                          style={[
+                            styles.heroTimerApplyBtn,
+                            !showPhaseHeroTimerAdjust && styles.heroTimerApplyBtnDisabled,
+                            showPhaseHeroTimerAdjust && heroTimerUi === 'ok' && styles.heroTimerApplyBtnOk,
+                            showPhaseHeroTimerAdjust && heroTimerUi === 'err' && styles.heroTimerApplyBtnErr,
+                            showPhaseHeroTimerAdjust &&
+                              heroMinPending &&
+                              heroTimerUi === 'idle' &&
+                              styles.heroTimerApplyBtnPending,
+                          ]}
+                          onPress={showPhaseHeroTimerAdjust ? submitHeroTimerAdjust : undefined}
+                          disabled={!showPhaseHeroTimerAdjust}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                          accessibilityRole="button"
+                          accessibilityState={{ disabled: !showPhaseHeroTimerAdjust }}
+                          accessibilityLabel={
+                            !showPhaseHeroTimerAdjust
+                              ? 'Conferma cronometro non disponibile in pausa'
+                              : heroTimerUi === 'ok'
+                                ? 'Minuto aggiornato'
+                                : heroTimerUi === 'err'
+                                  ? 'Modifica annullata'
+                                  : 'Conferma nuovo minuto cronometro'
+                          }
+                        >
+                          <Ionicons
+                            name={
+                              heroTimerUi === 'ok'
+                                ? 'checkmark-circle'
+                                : heroTimerUi === 'err'
+                                  ? 'close-circle'
+                                  : 'checkmark-done'
+                            }
+                            size={22}
+                            color={
+                              !showPhaseHeroTimerAdjust
+                                ? '#e5e7eb'
+                                : heroMinPending && heroTimerUi === 'idle'
+                                  ? '#111827'
+                                  : '#fff'
+                            }
+                          />
+                        </TouchableOpacity>
+                      </View>
                     </>
                   ) : editorModalTab === 'shootout' ? (
                     <>
@@ -3139,140 +3387,325 @@ export default function MatchDetailScreen({ navigation, route }) {
                     </>
                   ) : (
                     <>
-                      <Text style={styles.editorLabel}>Tipo evento</Text>
-                      <ScrollView
-                        horizontal
-                        showsHorizontalScrollIndicator
-                        keyboardShouldPersistTaps="handled"
-                        style={styles.eventTypeScroll}
-                        contentContainerStyle={styles.eventTypeScrollContent}
-                      >
-                        {[
-                          { id: 'goal', label: 'Goal' },
-                          { id: 'own_goal', label: 'Autogol' },
-                          { id: 'yellow_card', label: 'Giallo' },
-                          { id: 'red_card', label: 'Rosso' },
-                          { id: 'penalty_missed', label: 'Rigore sbagliato' },
-                        ].map((et) => (
+                      <View style={styles.eventWizardTopBar}>
+                        <Text style={styles.eventWizardStepText}>Step {eventWizardStep}/{eventWizardLastStep}</Text>
+                        <View style={styles.eventWizardNavBtns}>
                           <TouchableOpacity
-                            key={et.id}
-                            style={[styles.chip, eventType === et.id && styles.chipActive]}
-                            onPress={() => {
-                              setEventType(et.id);
-                              if (et.id !== 'goal') {
-                                setEventAssistPlayerName('');
-                                setEventAssistPlayerId(null);
-                              }
-                              if (!isStoppageEditableEventType(et.id)) {
-                                setEventGoalInStoppage(false);
-                              }
-                            }}
+                            style={[styles.eventWizardNavBtn, eventWizardStep === 1 && styles.eventWizardNavBtnDisabled]}
+                            disabled={eventWizardStep === 1}
+                            onPress={() => setEventWizardStep((s) => Math.max(1, s - 1))}
                           >
-                            <Text style={[styles.chipText, eventType === et.id && styles.chipTextActive]}>{et.label}</Text>
+                            <Text style={[styles.eventWizardNavBtnText, eventWizardStep === 1 && styles.eventWizardNavBtnTextDisabled]}>Indietro</Text>
                           </TouchableOpacity>
-                        ))}
-                      </ScrollView>
-                      <Text style={styles.editorLabel}>Squadra (autogol: chi lo commette)</Text>
-                      <View style={styles.rowChips}>
-                        <TouchableOpacity style={[styles.chip, eventTeamSide === 'home' && styles.chipActive]} onPress={() => { setEventTeamSide('home'); setEventPlayerName(''); setEventPlayerId(null); setEventAssistPlayerName(''); setEventAssistPlayerId(null); }}>
-                          <Text style={[styles.chipText, eventTeamSide === 'home' && styles.chipTextActive]}>{match.home_team_name}</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity style={[styles.chip, eventTeamSide === 'away' && styles.chipActive]} onPress={() => { setEventTeamSide('away'); setEventPlayerName(''); setEventPlayerId(null); setEventAssistPlayerName(''); setEventAssistPlayerId(null); }}>
-                          <Text style={[styles.chipText, eventTeamSide === 'away' && styles.chipTextActive]}>{match.away_team_name}</Text>
-                        </TouchableOpacity>
-                      </View>
-                      <Text style={styles.editorLabel}>Minuto</Text>
-                      <TextInput
-                        style={styles.input}
-                        keyboardType="number-pad"
-                        maxLength={3}
-                        value={eventMinute}
-                        onChangeText={(t) => {
-                          const d = t.replace(/\D/g, '').slice(0, 3);
-                          setEventMinute(d);
-                          if (d.trim() === '') {
-                            eventMinuteClearedAtSuggestionRef.current = suggestedTimelineMinuteStr;
-                            setEventMinuteDirty(false);
-                          } else {
-                            eventMinuteClearedAtSuggestionRef.current = null;
-                            setEventMinuteDirty(true);
-                          }
-                        }}
-                        placeholder={suggestedTimelineMinuteStr}
-                      />
-                      {isStoppageEditableEventType(eventType) && eventStoppagePeriodEndValue != null ? (
-                        <TouchableOpacity
-                          style={styles.stoppageCheckRow}
-                          activeOpacity={0.75}
-                          onPress={() => setEventGoalInStoppage((v) => !v)}
-                        >
-                          <Ionicons
-                            name={eventGoalInStoppage ? 'checkbox' : 'square-outline'}
-                            size={20}
-                            color={eventGoalInStoppage ? '#667eea' : '#9ca3af'}
-                          />
-                          <View style={styles.stoppageCheckTextWrap}>
-                            <Text style={styles.stoppageCheckLabel}>Evento nel recupero</Text>
-                            <Text style={styles.stoppageCheckHint}>Mostra e ordina come {eventStoppageLabel}</Text>
-                          </View>
-                        </TouchableOpacity>
-                      ) : null}
-                      <Text style={styles.editorLabel}>Giocatore (opzionale)</Text>
-                      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                        <View style={styles.rowChips}>
-                          {(teamPlayers[eventTeamSide] || []).map((p) => (
-                            <TouchableOpacity
-                              key={`${eventTeamSide}-p-${p.id || p.order}-${p.name}`}
-                              style={[styles.chip, Number(eventPlayerId) === Number(p.id) && styles.chipActive]}
-                              onPress={() => {
-                                setEventPlayerName(p.name);
-                                setEventPlayerId(Number(p.id) || null);
-                              }}
-                            >
-                              <Text style={[styles.chipText, Number(eventPlayerId) === Number(p.id) && styles.chipTextActive]}>#{p.shirt_number ?? '-'} {p.name}</Text>
-                            </TouchableOpacity>
-                          ))}
+                          <TouchableOpacity
+                            style={[
+                              styles.eventWizardNavBtn,
+                              styles.eventWizardNavBtnPrimary,
+                              (eventWizardStep >= eventWizardLastStep ||
+                                (eventWizardStep === 3 && !eventPlayerId && !canSkipPlayerSelection)) &&
+                                styles.eventWizardNavBtnDisabled,
+                            ]}
+                            disabled={eventWizardStep >= eventWizardLastStep || (eventWizardStep === 3 && !eventPlayerId && !canSkipPlayerSelection)}
+                            onPress={() => setEventWizardStep((s) => Math.min(eventWizardLastStep, s + 1))}
+                          >
+                            <Text style={styles.eventWizardNavBtnPrimaryText}>Avanti</Text>
+                          </TouchableOpacity>
                         </View>
-                      </ScrollView>
-                      {eventType === 'goal' ? (
+                      </View>
+                      {eventWizardStep === 1 ? (
                         <>
-                          <Text style={styles.editorLabel}>Assist (opzionale)</Text>
-                          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                            <View style={styles.rowChips}>
+                          <Text style={styles.editorLabel}>1) Seleziona tipo evento</Text>
+                          <View style={styles.eventTypeGrid}>
+                            {EVENT_WIZARD_TYPES.map((et) => (
                               <TouchableOpacity
-                                style={[styles.chip, eventAssistPlayerName === '' && styles.chipActive]}
+                                key={et.id}
+                                style={[styles.eventTypeCard, eventType === et.id && styles.eventTypeCardActive]}
                                 onPress={() => {
-                                  setEventAssistPlayerName('');
-                                  setEventAssistPlayerId(null);
+                                  setEventType(et.id);
+                                  if (et.id !== 'goal') {
+                                    setEventAssistPlayerName('');
+                                    setEventAssistPlayerId(null);
+                                  }
+                                  if (!isStoppageEditableEventType(et.id)) {
+                                    setEventGoalInStoppage(false);
+                                  }
+                                  setEventWizardStep(2);
                                 }}
                               >
-                                <Text style={[styles.chipText, eventAssistPlayerName === '' && styles.chipTextActive]}>Nessuno</Text>
+                                <BonusIcon type={et.bonusType} size={22} />
+                                <Text style={[styles.eventTypeCardText, eventType === et.id && styles.eventTypeCardTextActive]}>{et.label}</Text>
                               </TouchableOpacity>
-                              {(teamPlayers[eventTeamSide] || []).map((p) => (
-                                <TouchableOpacity
-                                  key={`${eventTeamSide}-assist-${p.order}-${p.name}`}
-                                  style={[styles.chip, Number(eventAssistPlayerId) === Number(p.id) && styles.chipActive]}
-                                  onPress={() => {
-                                    setEventAssistPlayerName(p.name);
-                                    setEventAssistPlayerId(Number(p.id) || null);
-                                  }}
-                                >
-                                  <Text style={[styles.chipText, Number(eventAssistPlayerId) === Number(p.id) && styles.chipTextActive]}>
-                                    #{p.shirt_number ?? '-'} {p.name}
-                                  </Text>
-                                </TouchableOpacity>
-                              ))}
-                            </View>
-                          </ScrollView>
+                            ))}
+                          </View>
                         </>
                       ) : null}
-                      <TouchableOpacity
-                        style={[styles.primaryBtn, savingEvent && styles.actionBtnDisabled]}
-                        disabled={savingEvent}
-                        onPress={submitEvent}
-                      >
-                        <Text style={styles.primaryBtnText}>{savingEvent ? 'Salvataggio...' : 'Inserisci evento'}</Text>
-                      </TouchableOpacity>
+                      {eventWizardStep === 2 ? (
+                        <>
+                          <Text style={styles.editorLabel}>
+                            {eventType === 'own_goal'
+                              ? "2) Scegli squadra che si e fatta autogoal"
+                              : '2) Scegli squadra'}
+                          </Text>
+                          <View style={styles.eventTeamRow}>
+                            <TouchableOpacity
+                              style={[styles.eventTeamCard, eventTeamSide === 'home' && styles.eventTeamCardActive]}
+                              onPress={() => {
+                                setEventTeamSide('home');
+                                setEventPlayerName('');
+                                setEventPlayerId(null);
+                                setEventAssistPlayerName('');
+                                setEventAssistPlayerId(null);
+                                setEventPlayerSearch('');
+                                setEventAssistSearch('');
+                                setEventWizardStep(3);
+                              }}
+                            >
+                              <TableTeamLogo logoUrl={match.home_team_logo_url} logoPath={match.home_team_logo_path} size={44} />
+                              <Text style={[styles.eventTeamCardText, eventTeamSide === 'home' && styles.eventTeamCardTextActive]}>{match.home_team_name}</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={[styles.eventTeamCard, eventTeamSide === 'away' && styles.eventTeamCardActive]}
+                              onPress={() => {
+                                setEventTeamSide('away');
+                                setEventPlayerName('');
+                                setEventPlayerId(null);
+                                setEventAssistPlayerName('');
+                                setEventAssistPlayerId(null);
+                                setEventPlayerSearch('');
+                                setEventAssistSearch('');
+                                setEventWizardStep(3);
+                              }}
+                            >
+                              <TableTeamLogo logoUrl={match.away_team_logo_url} logoPath={match.away_team_logo_path} size={44} />
+                              <Text style={[styles.eventTeamCardText, eventTeamSide === 'away' && styles.eventTeamCardTextActive]}>{match.away_team_name}</Text>
+                            </TouchableOpacity>
+                          </View>
+                        </>
+                      ) : null}
+                      {eventWizardStep === 3 ? (
+                        <>
+                          <Text style={styles.editorLabel}>
+                            {canSkipPlayerSelection ? '3) Scegli giocatore (opzionale)' : '3) Scegli giocatore'}
+                          </Text>
+                          <TextInput
+                            style={styles.input}
+                            value={eventPlayerSearch}
+                            onChangeText={setEventPlayerSearch}
+                            placeholder="Cerca nome, cognome o numero"
+                            autoCapitalize="words"
+                            autoCorrect={false}
+                          />
+                          <View style={styles.eventPlayersList}>
+                            {canSkipPlayerSelection ? (
+                              <TouchableOpacity
+                                style={[styles.eventPlayerRow, !eventPlayerId && styles.eventPlayerRowActive]}
+                                onPress={() => {
+                                  setEventPlayerName('');
+                                  setEventPlayerId(null);
+                                  setEventWizardStep(hasAssistWizardStep ? eventAssistWizardStep : eventSummaryWizardStep);
+                                }}
+                              >
+                                <Text style={[styles.eventPlayerName, !eventPlayerId && styles.eventPlayerNameActive]} numberOfLines={1}>
+                                  Non specificare ora
+                                </Text>
+                                <View style={[styles.eventPlayerRoleTag, { backgroundColor: '#94a3b8' }]}>
+                                  <Text style={styles.eventPlayerRoleTagText}>-</Text>
+                                </View>
+                              </TouchableOpacity>
+                            ) : null}
+                            {filteredEventPlayers.length === 0 ? (
+                              <Text style={styles.phaseDoneHint}>Nessun giocatore trovato.</Text>
+                            ) : (
+                              filteredEventPlayers.map((p) => {
+                                const selected = Number(eventPlayerId) === Number(p.id);
+                                const role = String(p?.role || '').toUpperCase();
+                                const teamBaseHex = eventTeamSide === 'home' ? homeKitBaseHex : awayKitBaseHex;
+                                const teamJerseyHex = eventTeamSide === 'home' ? homeJerseyColors.icon : awayJerseyColors.icon;
+                                const isGk = role === 'P';
+                                const shirtTint = isGk ? lineupGkShirtHex(teamBaseHex) : teamJerseyHex;
+                                const shirtHexForNumber = lineupShirtToHex6(shirtTint) || shirtTint;
+                                const numberTint = lineupJerseyNumberColorForShirt(shirtHexForNumber);
+                                return (
+                                  <TouchableOpacity
+                                    key={`${eventTeamSide}-wizard-${p.id || p.order}-${p.name}`}
+                                    style={[styles.eventPlayerRow, selected && styles.eventPlayerRowActive]}
+                                    onPress={() => {
+                                      setEventPlayerName(p.name);
+                                      setEventPlayerId(Number(p.id) || null);
+                                      setEventWizardStep(hasAssistWizardStep ? eventAssistWizardStep : eventSummaryWizardStep);
+                                    }}
+                                  >
+                                    <View style={styles.eventPlayerJerseyBadge}>
+                                      <MaterialCommunityIcons name="tshirt-crew" size={42} color={shirtTint} style={styles.eventPlayerJerseyIcon} />
+                                      <Text style={[styles.eventPlayerShirtNumber, { color: numberTint }, selected && styles.eventPlayerShirtNumberActive]}>
+                                        {p.shirt_number ?? '-'}
+                                      </Text>
+                                    </View>
+                                    <Text style={[styles.eventPlayerName, selected && styles.eventPlayerNameActive]} numberOfLines={1}>
+                                      {p.name}
+                                    </Text>
+                                    <View style={[styles.eventPlayerRoleTag, { backgroundColor: lineupRoleColor(role) }]}>
+                                      <Text style={styles.eventPlayerRoleTagText}>{role || '-'}</Text>
+                                    </View>
+                                  </TouchableOpacity>
+                                );
+                              })
+                            )}
+                          </View>
+                        </>
+                      ) : null}
+                      {hasAssistWizardStep && eventWizardStep === eventAssistWizardStep ? (
+                        <>
+                          <Text style={styles.editorLabel}>4) Scegli assistman (opzionale)</Text>
+                          <TextInput
+                            style={styles.input}
+                            value={eventAssistSearch}
+                            onChangeText={setEventAssistSearch}
+                            placeholder="Cerca nome, cognome o numero"
+                            autoCapitalize="words"
+                            autoCorrect={false}
+                          />
+                          <View style={styles.eventPlayersList}>
+                            <TouchableOpacity
+                              style={[styles.eventPlayerRow, !eventAssistPlayerId && styles.eventPlayerRowActive]}
+                              onPress={() => {
+                                setEventAssistPlayerName('');
+                                setEventAssistPlayerId(null);
+                                setEventWizardStep(eventSummaryWizardStep);
+                              }}
+                            >
+                              <Text style={[styles.eventPlayerName, !eventAssistPlayerId && styles.eventPlayerNameActive]} numberOfLines={1}>
+                                Nessun assistman
+                              </Text>
+                              <View style={[styles.eventPlayerRoleTag, { backgroundColor: '#94a3b8' }]}>
+                                <Text style={styles.eventPlayerRoleTagText}>-</Text>
+                              </View>
+                            </TouchableOpacity>
+                            {filteredEventAssistPlayers.map((p) => {
+                                const selected = Number(eventAssistPlayerId) === Number(p.id);
+                                const role = String(p?.role || '').toUpperCase();
+                                const teamBaseHex = eventTeamSide === 'home' ? homeKitBaseHex : awayKitBaseHex;
+                                const teamJerseyHex = eventTeamSide === 'home' ? homeJerseyColors.icon : awayJerseyColors.icon;
+                                const isGk = role === 'P';
+                                const shirtTint = isGk ? lineupGkShirtHex(teamBaseHex) : teamJerseyHex;
+                                const shirtHexForNumber = lineupShirtToHex6(shirtTint) || shirtTint;
+                                const numberTint = lineupJerseyNumberColorForShirt(shirtHexForNumber);
+                                return (
+                                  <TouchableOpacity
+                                    key={`${eventTeamSide}-assist-wizard-${p.id || p.order}-${p.name}`}
+                                    style={[styles.eventPlayerRow, selected && styles.eventPlayerRowActive]}
+                                    onPress={() => {
+                                      setEventAssistPlayerName(p.name);
+                                      setEventAssistPlayerId(Number(p.id) || null);
+                                      setEventWizardStep(eventSummaryWizardStep);
+                                    }}
+                                  >
+                                    <View style={styles.eventPlayerJerseyBadge}>
+                                      <MaterialCommunityIcons name="tshirt-crew" size={42} color={shirtTint} style={styles.eventPlayerJerseyIcon} />
+                                      <Text style={[styles.eventPlayerShirtNumber, { color: numberTint }, selected && styles.eventPlayerShirtNumberActive]}>
+                                        {p.shirt_number ?? '-'}
+                                      </Text>
+                                    </View>
+                                    <Text style={[styles.eventPlayerName, selected && styles.eventPlayerNameActive]} numberOfLines={1}>
+                                      {p.name}
+                                    </Text>
+                                    <View style={[styles.eventPlayerRoleTag, { backgroundColor: lineupRoleColor(role) }]}>
+                                      <Text style={styles.eventPlayerRoleTagText}>{role || '-'}</Text>
+                                    </View>
+                                  </TouchableOpacity>
+                                );
+                              })}
+                          </View>
+                        </>
+                      ) : null}
+                      {eventWizardStep === eventSummaryWizardStep ? (
+                        <>
+                          <Text style={styles.editorLabel}>{eventSummaryWizardStep}) Conferma evento</Text>
+                          <View style={styles.eventSummaryCard}>
+                            <View style={styles.eventSummaryRow}>
+                              <Text style={styles.eventSummaryKey}>Tipo</Text>
+                              <Text style={styles.eventSummaryVal}>{selectedEventTypeMeta.label}</Text>
+                            </View>
+                            <View style={styles.eventSummaryRow}>
+                              <Text style={styles.eventSummaryKey}>Squadra</Text>
+                              <Text style={styles.eventSummaryVal}>{eventTeamSide === 'home' ? match.home_team_name : match.away_team_name}</Text>
+                            </View>
+                            <View style={styles.eventSummaryRow}>
+                              <Text style={styles.eventSummaryKey}>Giocatore</Text>
+                              <Text style={styles.eventSummaryVal}>{selectedEventPlayer?.name || '-'}</Text>
+                            </View>
+                            {eventType === 'goal' ? (
+                              <View style={styles.eventSummaryRow}>
+                                <Text style={styles.eventSummaryKey}>Assistman</Text>
+                                <Text style={styles.eventSummaryVal}>{selectedEventAssistPlayer?.name || 'Nessuno'}</Text>
+                              </View>
+                            ) : null}
+                            <View style={styles.eventSummaryRow}>
+                              <Text style={styles.eventSummaryKey}>Minuto</Text>
+                              <Text style={styles.eventSummaryVal}>{(eventMinute || '').trim() || suggestedTimelineMinuteStr}</Text>
+                            </View>
+                          </View>
+                          {eventMinuteStepOpen ? (
+                            <View style={styles.eventMinuteStepCard}>
+                              <Text style={styles.editorLabel}>Minuto evento</Text>
+                              <TextInput
+                                style={styles.input}
+                                keyboardType="number-pad"
+                                maxLength={3}
+                                value={eventMinute}
+                                onChangeText={(t) => {
+                                  const d = t.replace(/\D/g, '').slice(0, 3);
+                                  setEventMinute(d);
+                                  if (d.trim() === '') {
+                                    eventMinuteClearedAtSuggestionRef.current = suggestedTimelineMinuteStr;
+                                    setEventMinuteDirty(false);
+                                  } else {
+                                    eventMinuteClearedAtSuggestionRef.current = null;
+                                    setEventMinuteDirty(true);
+                                  }
+                                }}
+                                placeholder={suggestedTimelineMinuteStr}
+                              />
+                              {isStoppageEditableEventType(eventType) && eventStoppagePeriodEndValue != null ? (
+                                <TouchableOpacity
+                                  style={styles.stoppageCheckRow}
+                                  activeOpacity={0.75}
+                                  onPress={() => setEventGoalInStoppage((v) => !v)}
+                                >
+                                  <Ionicons
+                                    name={eventGoalInStoppage ? 'checkbox' : 'square-outline'}
+                                    size={20}
+                                    color={eventGoalInStoppage ? '#667eea' : '#9ca3af'}
+                                  />
+                                  <View style={styles.stoppageCheckTextWrap}>
+                                    <Text style={styles.stoppageCheckLabel}>Evento nel recupero</Text>
+                                    <Text style={styles.stoppageCheckHint}>Mostra e ordina come {eventStoppageLabel}</Text>
+                                  </View>
+                                </TouchableOpacity>
+                              ) : null}
+                              <TouchableOpacity style={styles.secondaryBtnLite} onPress={() => setEventMinuteStepOpen(false)}>
+                                <Text style={styles.secondaryBtnLiteText}>Chiudi modifica minuto</Text>
+                              </TouchableOpacity>
+                            </View>
+                          ) : null}
+                          <View style={styles.eventSummaryActions}>
+                            <TouchableOpacity
+                              style={[styles.createEventBtn, savingEvent && styles.actionBtnDisabled]}
+                              disabled={savingEvent}
+                              onPress={submitEvent}
+                            >
+                              <Text style={styles.createEventBtnText}>{savingEvent ? 'Salvataggio...' : 'Crea evento'}</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={styles.eventMinuteToggleBtn}
+                              onPress={() => setEventMinuteStepOpen((v) => !v)}
+                              accessibilityLabel="Apri modifica minuto evento"
+                            >
+                              <MaterialCommunityIcons name="timer-outline" size={22} color="#111111" />
+                            </TouchableOpacity>
+                          </View>
+                        </>
+                      ) : null}
                     </>
                   )}
                 </ScrollView>
@@ -3347,6 +3780,72 @@ export default function MatchDetailScreen({ navigation, route }) {
                   </TouchableOpacity>
                   <TouchableOpacity style={[styles.confirmBtnCancel, styles.confirmBtnFull]} disabled={savingPhase} onPress={() => setConfirmAdvancePhase(null)}>
                     <Text style={styles.confirmBtnCancelText}>Annulla</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          </Modal>
+          <Modal
+            visible={!!confirmDeleteEvent}
+            transparent
+            animationType="fade"
+            onRequestClose={() => {
+              if (deletingLiveEventId) return;
+              setConfirmDeleteEvent(null);
+            }}
+          >
+            <View style={styles.confirmOverlay}>
+              <View style={styles.confirmContent}>
+                <View style={styles.confirmIconWrap}>
+                  <Ionicons name="trash-outline" size={38} color="#e53935" />
+                </View>
+                <Text style={styles.confirmTitle}>Elimina evento</Text>
+                <Text style={styles.confirmMessage}>
+                  Vuoi eliminare "{LIVE_EVENT_TYPE_LABELS[confirmDeleteEvent?.event_type] || confirmDeleteEvent?.event_type || 'evento'}"?
+                </Text>
+                <View style={styles.confirmButtons}>
+                  <TouchableOpacity
+                    style={styles.confirmBtnCancel}
+                    onPress={() => setConfirmDeleteEvent(null)}
+                    disabled={!!deletingLiveEventId}
+                  >
+                    <Text style={styles.confirmBtnCancelText}>Annulla</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.confirmBtnAction, styles.confirmBtnDestructive, deletingLiveEventId && styles.actionBtnDisabled]}
+                    onPress={submitDeleteLiveEvent}
+                    disabled={!!deletingLiveEventId}
+                  >
+                    <Text style={styles.confirmBtnActionText}>
+                      {deletingLiveEventId ? 'Eliminazione...' : 'Elimina'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          </Modal>
+          <Modal
+            visible={!!confirmTimerAdjust}
+            transparent
+            animationType="fade"
+            onRequestClose={cancelHeroTimerAdjust}
+          >
+            <View style={styles.confirmOverlay}>
+              <View style={styles.confirmContent}>
+                <View style={styles.confirmIconWrap}>
+                  <Ionicons name="timer-outline" size={38} color="#eab308" />
+                </View>
+                <Text style={styles.confirmTitle}>Modifica cronometro</Text>
+                <Text style={styles.confirmMessage}>
+                  Vuoi portare il minuto da {confirmTimerAdjust?.currentMinute ?? '-'}' a {confirmTimerAdjust?.targetMinute ?? '-'}'?
+                  Il tempo continuera da li.
+                </Text>
+                <View style={styles.confirmButtons}>
+                  <TouchableOpacity style={styles.confirmBtnCancel} onPress={cancelHeroTimerAdjust}>
+                    <Text style={styles.confirmBtnCancelText}>Annulla</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.confirmBtnAction} onPress={confirmHeroTimerAdjust}>
+                    <Text style={styles.confirmBtnActionText}>Conferma</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -3737,8 +4236,129 @@ const styles = StyleSheet.create({
   stoppageCheckLabel: { fontSize: 13, fontWeight: '800', color: '#111827' },
   stoppageCheckHint: { fontSize: 11, color: '#6b7280', marginTop: 1 },
   rowChips: { flexDirection: 'row', gap: 8, paddingVertical: 2 },
-  eventTypeScroll: { marginBottom: 4 },
-  eventTypeScrollContent: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 2, paddingRight: 16 },
+  eventWizardTopBar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  eventWizardStepText: { color: '#334155', fontSize: 12, fontWeight: '800' },
+  eventWizardNavBtns: { flexDirection: 'row', gap: 8 },
+  eventWizardNavBtn: {
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    backgroundColor: '#fff',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  eventWizardNavBtnPrimary: { borderColor: '#667eea', backgroundColor: '#eef2ff' },
+  eventWizardNavBtnDisabled: { opacity: 0.45 },
+  eventWizardNavBtnText: { color: '#475569', fontSize: 12, fontWeight: '700' },
+  eventWizardNavBtnTextDisabled: { color: '#94a3b8' },
+  eventWizardNavBtnPrimaryText: { color: '#4f46e5', fontSize: 12, fontWeight: '800' },
+  eventTypeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 4 },
+  eventTypeCard: {
+    width: '48%',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 10,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  eventTypeCardActive: { borderColor: '#16a34a', backgroundColor: '#f0fdf4' },
+  eventTypeCardText: { color: '#334155', fontSize: 13, fontWeight: '800', textAlign: 'center' },
+  eventTypeCardTextActive: { color: '#166534' },
+  eventTeamRow: { flexDirection: 'row', gap: 10, marginBottom: 4 },
+  eventTeamCard: {
+    flex: 1,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 10,
+    gap: 8,
+  },
+  eventTeamCardActive: { borderColor: '#16a34a', backgroundColor: '#f0fdf4' },
+  eventTeamCardText: { color: '#334155', fontWeight: '800', fontSize: 13, textAlign: 'center' },
+  eventTeamCardTextActive: { color: '#166534' },
+  eventPlayersList: { gap: 3, marginTop: 1 },
+  eventPlayerRow: {
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 12,
+    backgroundColor: '#fff',
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  eventPlayerRowActive: { borderColor: '#667eea', backgroundColor: '#eef2ff' },
+  eventPlayerJerseyBadge: {
+    width: 46,
+    height: 50,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+    overflow: 'visible',
+  },
+  eventPlayerJerseyIcon: { position: 'absolute' },
+  eventPlayerShirtNumber: { color: '#475569', fontSize: 12, fontWeight: '900', marginTop: -1 },
+  eventPlayerShirtNumberActive: { color: '#312e81' },
+  eventPlayerRoleTag: {
+    minWidth: 28,
+    borderRadius: 9,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 6,
+  },
+  eventPlayerRoleTagText: { color: '#fff', fontSize: 12, fontWeight: '800' },
+  eventPlayerName: { flex: 1, color: '#111827', fontSize: 14, fontWeight: '700' },
+  eventPlayerNameActive: { color: '#312e81' },
+  eventSummaryCard: {
+    borderWidth: 1,
+    borderColor: '#dbeafe',
+    backgroundColor: '#eff6ff',
+    borderRadius: 14,
+    padding: 12,
+    gap: 8,
+  },
+  eventSummaryRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
+  eventSummaryKey: { color: '#475569', fontSize: 12, fontWeight: '700' },
+  eventSummaryVal: { color: '#0f172a', fontSize: 13, fontWeight: '800', flexShrink: 1, textAlign: 'right' },
+  eventMinuteStepCard: {
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 12,
+    backgroundColor: '#f8fafc',
+    padding: 10,
+    gap: 8,
+  },
+  eventSummaryActions: { flexDirection: 'row', gap: 10, marginTop: 12 },
+  createEventBtn: {
+    flex: 1,
+    minHeight: 52,
+    borderRadius: 12,
+    backgroundColor: '#16a34a',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  createEventBtnText: { color: '#f0fdf4', fontSize: 16, fontWeight: '900' },
+  eventMinuteToggleBtn: {
+    width: 52,
+    height: 52,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#eab308',
+    backgroundColor: '#facc15',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   chip: { borderWidth: 1, borderColor: '#ddd', borderRadius: 16, paddingHorizontal: 10, paddingVertical: 6, backgroundColor: '#fff' },
   chipActive: { backgroundColor: '#667eea', borderColor: '#667eea' },
   chipText: { color: '#333', fontSize: 12, fontWeight: '600' },
@@ -3829,22 +4449,26 @@ const styles = StyleSheet.create({
   eventModalTitle: { fontSize: 18, fontWeight: '800', color: '#222' },
   eventModalClose: { padding: 4 },
   editorTabScroll: { flexGrow: 0, flexShrink: 0, marginBottom: 12 },
-  editorTabRow: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingRight: 6, paddingVertical: 2 },
+  editorTabRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingBottom: 4 },
+  editorTabRowSingle: { flexGrow: 1 },
   editorTabBtn: {
-    minWidth: 92,
-    minHeight: 42,
-    paddingVertical: 10,
-    paddingHorizontal: 3,
-    borderRadius: 12,
+    minHeight: 38,
+    paddingVertical: 5,
+    paddingHorizontal: 12,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#ddd',
-    backgroundColor: '#f9fafb',
+    borderColor: '#e2e8f0',
+    backgroundColor: '#fff',
     alignItems: 'center',
     justifyContent: 'center',
+    flexShrink: 0,
   },
-  editorTabBtnActive: { backgroundColor: '#667eea', borderColor: '#667eea' },
-  editorTabBtnText: { fontSize: 12, lineHeight: 15, fontWeight: '700', color: '#374151', textAlign: 'center' },
-  editorTabBtnTextActive: { color: '#fff' },
+  editorTabBtnSingle: { flex: 1 },
+  editorTabBtnActive: { borderColor: '#667eea', backgroundColor: '#eef2ff' },
+  editorTabWithIcon: { flexDirection: 'row', alignItems: 'center' },
+  editorTabIcon: { marginRight: 4 },
+  editorTabBtnText: { color: '#475569', fontWeight: '700', fontSize: 13, textAlign: 'center' },
+  editorTabBtnTextActive: { color: '#667eea' },
   phaseHint: { fontSize: 13, color: '#4b5563', lineHeight: 19, marginBottom: 12 },
   phaseDoneHint: { fontSize: 13, color: '#6b7280', lineHeight: 19, marginBottom: 14, fontStyle: 'italic' },
   phaseActionBtn: {
@@ -3852,7 +4476,29 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     paddingVertical: 12,
     alignItems: 'center',
+    justifyContent: 'center',
     marginBottom: 10,
+  },
+  phaseActionBtnStart: {
+    backgroundColor: '#16a34a',
+    borderColor: '#15803d',
+    borderWidth: 1,
+    minHeight: 74,
+    paddingVertical: 14,
+  },
+  phaseActionBtnPause: {
+    backgroundColor: '#facc15',
+    borderColor: '#eab308',
+    borderWidth: 1,
+    minHeight: 74,
+    paddingVertical: 14,
+  },
+  phaseActionBtnEnd: {
+    backgroundColor: '#dc2626',
+    borderColor: '#b91c1c',
+    borderWidth: 1,
+    minHeight: 74,
+    paddingVertical: 14,
   },
   phaseActionBtnOutline: {
     backgroundColor: '#fff',
@@ -3865,7 +4511,13 @@ const styles = StyleSheet.create({
   },
   phaseActionBtnOutlineText: { color: '#667eea', fontWeight: '800', fontSize: 15 },
   phaseActionBtnDisabled: { backgroundColor: '#c4c9d4' },
+  phaseActionBtnContent: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
+  phaseActionBtnStartIcon: { marginRight: 6 },
   phaseActionBtnText: { color: '#fff', fontWeight: '800', fontSize: 15 },
+  phaseActionBtnTextStart: { color: '#f0fdf4', fontSize: 20 },
+  phaseActionBtnTextPause: { color: '#111111', fontSize: 20 },
+  phaseActionBtnTextEnd: { color: '#fef2f2', fontSize: 20 },
+  phaseMinuteHintStart: { marginTop: 20, marginBottom: 3 },
   shootoutActionsRow: { flexDirection: 'row', gap: 10, marginTop: 16 },
   shootoutActionBtn: {
     flex: 1,

@@ -832,6 +832,147 @@ async function computeStandingsFromMatches({ leagueId, groupId }) {
   });
 }
 
+async function buildKnockoutBracketForLeague({ competitionId, leagueId }) {
+  const compId = Number(competitionId);
+  const lid = Number(leagueId);
+  if (!Number.isFinite(compId) || compId <= 0 || !Number.isFinite(lid) || lid <= 0) {
+    return { semifinals: [], final: null };
+  }
+
+  const knockoutRows = await query(
+    `
+    SELECT
+      m.id,
+      NULLIF(to_jsonb(m)->>'match_stage_id','')::int AS match_stage_id,
+      ms.name AS stage_name,
+      m.kickoff_at,
+      m.home_team_id,
+      ht.name AS home_team_name,
+      ht.logo_path AS home_team_logo_path,
+      m.away_team_id,
+      at.name AS away_team_name,
+      at.logo_path AS away_team_logo_path,
+      m.home_score,
+      m.away_score
+    FROM official_matches m
+    LEFT JOIN official_match_stages ms ON ms.id = NULLIF(to_jsonb(m)->>'match_stage_id','')::int
+    LEFT JOIN teams ht ON ht.id = m.home_team_id
+    LEFT JOIN teams at ON at.id = m.away_team_id
+    WHERE m.competition_id = ?
+      AND (
+        m.league_id = ?
+        OR (
+          m.league_id IS NULL
+          AND ht.league_id = ?
+          AND at.league_id = ?
+        )
+      )
+      AND NULLIF(to_jsonb(m)->>'match_stage_id','')::int IN (2, 3)
+    ORDER BY
+      NULLIF(to_jsonb(m)->>'match_stage_id','')::int ASC,
+      m.kickoff_at ASC NULLS LAST,
+      m.id ASC
+    `,
+    [compId, lid, lid, lid]
+  );
+
+  const knockoutIds = (Array.isArray(knockoutRows) ? knockoutRows : [])
+    .map((r) => Number(r.id))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  const knockoutTeamByMatchId = new Map(
+    (Array.isArray(knockoutRows) ? knockoutRows : []).map((r) => [
+      Number(r.id),
+      { home_team_id: Number(r.home_team_id || 0), away_team_id: Number(r.away_team_id || 0) },
+    ])
+  );
+  const liveScoreByMatch = new Map();
+  if (knockoutIds.length > 0) {
+    const ph = knockoutIds.map(() => '?').join(', ');
+    const evRows = await query(
+      `
+      SELECT match_id, event_type, team_side, team_id
+      FROM official_match_events
+      WHERE match_id IN (${ph})
+      ORDER BY id ASC
+      `,
+      knockoutIds
+    );
+    (Array.isArray(evRows) ? evRows : []).forEach((e) => {
+      const mid = Number(e.match_id);
+      if (!liveScoreByMatch.has(mid)) {
+        liveScoreByMatch.set(mid, { home: 0, away: 0, homeShootout: 0, awayShootout: 0, hasEvents: false, hasShootout: false });
+      }
+      const s = liveScoreByMatch.get(mid);
+      s.hasEvents = true;
+      const teamRef = knockoutTeamByMatchId.get(mid) || { home_team_id: 0, away_team_id: 0 };
+      const evTeamId = Number(e.team_id);
+      const byTeamId =
+        Number.isFinite(evTeamId) && evTeamId > 0 && teamRef.home_team_id > 0 && teamRef.away_team_id > 0;
+      if (e.event_type === 'shootout_goal') {
+        s.hasShootout = true;
+        if (byTeamId) {
+          if (evTeamId === teamRef.home_team_id) s.homeShootout += 1;
+          if (evTeamId === teamRef.away_team_id) s.awayShootout += 1;
+        } else {
+          if (e.team_side === 'home') s.homeShootout += 1;
+          if (e.team_side === 'away') s.awayShootout += 1;
+        }
+      } else if (e.event_type === 'shootout_missed') {
+        s.hasShootout = true;
+      } else if (e.event_type === 'goal') {
+        if (byTeamId) {
+          if (evTeamId === teamRef.home_team_id) s.home += 1;
+          if (evTeamId === teamRef.away_team_id) s.away += 1;
+        } else {
+          if (e.team_side === 'home') s.home += 1;
+          if (e.team_side === 'away') s.away += 1;
+        }
+      } else if (e.event_type === 'own_goal') {
+        if (byTeamId) {
+          if (evTeamId === teamRef.home_team_id) s.away += 1;
+          if (evTeamId === teamRef.away_team_id) s.home += 1;
+        } else {
+          if (e.team_side === 'home') s.away += 1;
+          if (e.team_side === 'away') s.home += 1;
+        }
+      }
+    });
+  }
+
+  const mapped = (Array.isArray(knockoutRows) ? knockoutRows : []).map((r) => {
+    const live = liveScoreByMatch.get(Number(r.id)) || null;
+    const hs = live?.hasEvents ? Number(live.home) : (r.home_score != null ? Number(r.home_score) : null);
+    const as = live?.hasEvents ? Number(live.away) : (r.away_score != null ? Number(r.away_score) : null);
+    const hps = live?.hasShootout ? Number(live.homeShootout) : null;
+    const aps = live?.hasShootout ? Number(live.awayShootout) : null;
+    const homeLogoPath = normalizeTeamLogoPathForApi(r?.home_team_logo_path);
+    const awayLogoPath = normalizeTeamLogoPathForApi(r?.away_team_logo_path);
+    return {
+      id: Number(r.id),
+      stage_id: Number(r.match_stage_id),
+      stage_name: r.stage_name != null ? String(r.stage_name) : null,
+      kickoff_at: r.kickoff_at,
+      home_team_id: r.home_team_id != null ? Number(r.home_team_id) : null,
+      home_team_name: r.home_team_name != null ? String(r.home_team_name) : null,
+      home_team_logo_path: homeLogoPath,
+      home_team_logo_url: logoUrlForPath(homeLogoPath),
+      away_team_id: r.away_team_id != null ? Number(r.away_team_id) : null,
+      away_team_name: r.away_team_name != null ? String(r.away_team_name) : null,
+      away_team_logo_path: awayLogoPath,
+      away_team_logo_url: logoUrlForPath(awayLogoPath),
+      home_score: Number.isFinite(hs) ? hs : null,
+      away_score: Number.isFinite(as) ? as : null,
+      home_shootout_score: Number.isFinite(hps) && Number.isFinite(aps) ? hps : null,
+      away_shootout_score: Number.isFinite(hps) && Number.isFinite(aps) ? aps : null,
+    };
+  });
+
+  return {
+    semifinals: mapped.filter((m) => m.stage_id === 2),
+    final: mapped.find((m) => m.stage_id === 3) || null,
+  };
+}
+
 async function getSuperuserLevel(userId) {
   try {
     const rows = await query(`SELECT COALESCE(is_superuser, 0) AS is_superuser FROM users WHERE id = ? LIMIT 1`, [
@@ -1040,6 +1181,7 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
       SELECT
         m.id,
         m.competition_id,
+        m.league_id,
         m.home_team_id,
         m.away_team_id,
         m.kickoff_at,
@@ -1140,14 +1282,18 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
     const homeUnavailable = homeLineup.filter((p) => unavailableSet.has(Number(p.id)));
     const awayUnavailable = awayLineup.filter((p) => unavailableSet.has(Number(p.id)));
 
+    const homeLeagueId = Number(match.home_league_id || 0);
+    const awayLeagueId = Number(match.away_league_id || 0);
+    const matchLeagueId = Number(match.league_id || 0);
+    const currentLeagueId =
+      matchLeagueId > 0 ? matchLeagueId : (homeLeagueId > 0 && homeLeagueId === awayLeagueId ? homeLeagueId : 0);
+
     // Standings: legacy calcola da lega ufficiale (se home/away nella stessa lega)
     let standings = [];
     try {
-      const homeLeagueId = Number(match.home_league_id || 0);
-      const awayLeagueId = Number(match.away_league_id || 0);
-      if (homeLeagueId > 0 && homeLeagueId === awayLeagueId) {
+      if (currentLeagueId > 0) {
         standings = await computeStandingsFromMatches({
-          leagueId: homeLeagueId,
+          leagueId: currentLeagueId,
           groupId: Number(match.competition_id),
         });
       }
@@ -1158,7 +1304,7 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
 
     let knockout = { semifinals: [], final: null };
     try {
-      const knockoutRows = await query(
+      const knockoutRows = currentLeagueId > 0 ? await query(
         `
         SELECT
           m.id,
@@ -1178,14 +1324,22 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
         LEFT JOIN teams ht ON ht.id = m.home_team_id
         LEFT JOIN teams at ON at.id = m.away_team_id
         WHERE m.competition_id = ?
+          AND (
+            m.league_id = ?
+            OR (
+              m.league_id IS NULL
+              AND ht.league_id = ?
+              AND at.league_id = ?
+            )
+          )
           AND NULLIF(to_jsonb(m)->>'match_stage_id','')::int IN (2, 3)
         ORDER BY
           NULLIF(to_jsonb(m)->>'match_stage_id','')::int ASC,
           m.kickoff_at ASC NULLS LAST,
           m.id ASC
         `,
-        [Number(match.competition_id)]
-      );
+        [Number(match.competition_id), currentLeagueId, currentLeagueId, currentLeagueId]
+      ) : [];
 
       const knockoutIds = (Array.isArray(knockoutRows) ? knockoutRows : [])
         .map((r) => Number(r.id))
@@ -1601,10 +1755,15 @@ router.get('/matches/teams/:teamId/season-standings', authenticateToken, async (
     }
 
     let standings = [];
+    let knockout = { semifinals: [], final: null };
     if (selectedLeagueId) {
       standings = await computeStandingsFromMatches({
         leagueId: selectedLeagueId,
         groupId: competitionId,
+      });
+      knockout = await buildKnockoutBracketForLeague({
+        leagueId: selectedLeagueId,
+        competitionId,
       });
     }
 
@@ -1613,6 +1772,7 @@ router.get('/matches/teams/:teamId/season-standings', authenticateToken, async (
       available_years: availableYears,
       selected_year: selectedYear,
       standings: Array.isArray(standings) ? standings : [],
+      knockout,
     });
   } catch (err) {
     if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);

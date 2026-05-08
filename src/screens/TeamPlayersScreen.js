@@ -9,6 +9,10 @@ import {
   ActivityIndicator,
   RefreshControl,
   Modal,
+  KeyboardAvoidingView,
+  Platform,
+  Keyboard,
+  TouchableWithoutFeedback,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -274,93 +278,102 @@ export default function TeamPlayersScreen({ route, navigation }) {
         visible={showEditModal}
         transparent={true}
         animationType="slide"
+        statusBarTranslucent={true}
+        hardwareAccelerated={true}
         onRequestClose={() => setShowEditModal(false)}
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContainer}>
-            <Text style={styles.modalTitle}>Modifica Giocatore</Text>
+        <KeyboardAvoidingView
+          style={styles.modalKeyboardWrap}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+            <View style={styles.modalOverlay}>
+              <View style={styles.modalContainer}>
+                <Text style={styles.modalTitle}>Modifica Giocatore</Text>
 
-            <View style={styles.formGroup}>
-              <Text style={styles.label}>Nome</Text>
-              <TextInput
-                style={styles.input}
-                value={firstName}
-                onChangeText={setFirstName}
-                placeholder="Nome"
-              />
-            </View>
+                <View style={styles.formGroup}>
+                  <Text style={styles.label}>Nome</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={firstName}
+                    onChangeText={setFirstName}
+                    placeholder="Nome"
+                  />
+                </View>
 
-            <View style={styles.formGroup}>
-              <Text style={styles.label}>Cognome</Text>
-              <TextInput
-                style={styles.input}
-                value={lastName}
-                onChangeText={setLastName}
-                placeholder="Cognome"
-              />
-            </View>
+                <View style={styles.formGroup}>
+                  <Text style={styles.label}>Cognome</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={lastName}
+                    onChangeText={setLastName}
+                    placeholder="Cognome"
+                  />
+                </View>
 
-            <View style={styles.formGroup}>
-              <Text style={styles.label}>Ruolo</Text>
-              <View style={styles.roleSelector}>
-                {['P', 'D', 'C', 'A'].map((r) => (
+                <View style={styles.formGroup}>
+                  <Text style={styles.label}>Ruolo</Text>
+                  <View style={styles.roleSelector}>
+                    {['P', 'D', 'C', 'A'].map((r) => (
+                      <TouchableOpacity
+                        key={r}
+                        style={[styles.roleOption, role === r && styles.roleOptionActive]}
+                        onPress={() => setRole(r)}
+                      >
+                        <Text style={[styles.roleOptionText, role === r && styles.roleOptionTextActive]}>
+                          {getRoleLabel(r)}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+
+                <View style={styles.formGroup}>
+                  <Text style={styles.label}>Valutazione</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={rating}
+                    onChangeText={setRating}
+                    placeholder="0.0"
+                    keyboardType="numeric"
+                  />
+                </View>
+
+                <View style={styles.formGroup}>
+                  <Text style={styles.label}>Numero maglia</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={shirtNumber}
+                    onChangeText={setShirtNumber}
+                    placeholder="es. 10"
+                    keyboardType="number-pad"
+                  />
+                </View>
+
+                <View style={styles.modalButtons}>
                   <TouchableOpacity
-                    key={r}
-                    style={[styles.roleOption, role === r && styles.roleOptionActive]}
-                    onPress={() => setRole(r)}
+                    style={[styles.cancelButton, saving && styles.buttonDisabled]}
+                    onPress={() => setShowEditModal(false)}
+                    disabled={saving}
                   >
-                    <Text style={[styles.roleOptionText, role === r && styles.roleOptionTextActive]}>
-                      {getRoleLabel(r)}
-                    </Text>
+                    <Text style={styles.cancelButtonText}>Annulla</Text>
                   </TouchableOpacity>
-                ))}
+                  <TouchableOpacity
+                    style={[styles.saveButton, saving && styles.buttonDisabled]}
+                    onPress={handleSavePlayer}
+                    disabled={saving}
+                  >
+                    {saving ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <Text style={styles.saveButtonText}>Salva</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
               </View>
             </View>
-
-            <View style={styles.formGroup}>
-              <Text style={styles.label}>Valutazione</Text>
-              <TextInput
-                style={styles.input}
-                value={rating}
-                onChangeText={setRating}
-                placeholder="0.0"
-                keyboardType="numeric"
-              />
-            </View>
-
-            <View style={styles.formGroup}>
-              <Text style={styles.label}>Numero maglia</Text>
-              <TextInput
-                style={styles.input}
-                value={shirtNumber}
-                onChangeText={setShirtNumber}
-                placeholder="es. 10"
-                keyboardType="number-pad"
-              />
-            </View>
-
-            <View style={styles.modalButtons}>
-              <TouchableOpacity
-                style={[styles.cancelButton, saving && styles.buttonDisabled]}
-                onPress={() => setShowEditModal(false)}
-                disabled={saving}
-              >
-                <Text style={styles.cancelButtonText}>Annulla</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.saveButton, saving && styles.buttonDisabled]}
-                onPress={handleSavePlayer}
-                disabled={saving}
-              >
-                {saving ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Text style={styles.saveButtonText}>Salva</Text>
-                )}
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
+          </TouchableWithoutFeedback>
+        </KeyboardAvoidingView>
       </Modal>
 
       {toastMsg && (
@@ -529,6 +542,10 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'center',
     alignItems: 'center',
+    paddingHorizontal: 12,
+  },
+  modalKeyboardWrap: {
+    flex: 1,
   },
   modalContainer: {
     backgroundColor: '#fff',

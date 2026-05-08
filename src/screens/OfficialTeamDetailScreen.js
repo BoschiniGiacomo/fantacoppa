@@ -46,6 +46,22 @@ function TeamRowLogo({ logoUrl, logoPath }) {
   return <Image source={{ uri }} style={styles.matchTeamLogo} onError={() => setFailed(true)} resizeMode="contain" />;
 }
 
+function SeasonKnockoutLogo({ logoUrl, logoPath }) {
+  const uri = logoUrl || publicAssetUrl(logoPath);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    setFailed(false);
+  }, [uri]);
+  if (!uri || failed) {
+    return (
+      <View style={styles.seasonKnockoutLogoFallback}>
+        <Ionicons name="shield-outline" size={17} color="#667eea" />
+      </View>
+    );
+  }
+  return <Image source={{ uri }} style={styles.seasonKnockoutLogo} onError={() => setFailed(true)} resizeMode="contain" />;
+}
+
 function formatKickoffTime(iso) {
   const d = parseAppDate(iso);
   if (!d || Number.isNaN(d.getTime())) return '--:--';
@@ -85,6 +101,12 @@ function formatMatchHeaderDate(iso, stageName) {
   return `${dateLabel} - ${stage}`;
 }
 
+function getMatchYear(iso) {
+  const d = parseAppDate(iso);
+  if (!d || Number.isNaN(d.getTime())) return null;
+  return d.getFullYear();
+}
+
 function getMatchStatusText(match) {
   const phase = String(match?.last_phase_type || '').trim();
   if (phase === 'match_end') return 'Partita\nterminata';
@@ -122,6 +144,24 @@ function TeamMatchScore({ score, shootoutScore }) {
         <>
           <View style={styles.matchShootoutDivider} />
           <Text style={styles.matchShootoutScore}>{shootoutScore}</Text>
+        </>
+      ) : null}
+    </View>
+  );
+}
+
+function hasKnockoutShootoutScore(matchRow) {
+  return Number.isFinite(Number(matchRow?.home_shootout_score)) && Number.isFinite(Number(matchRow?.away_shootout_score));
+}
+
+function SeasonKnockoutScoreText({ score, shootoutScore }) {
+  return (
+    <View style={styles.seasonKnockoutScoreTextRow}>
+      <Text style={styles.seasonKnockoutScoreText}>{score != null ? String(score) : ''}</Text>
+      {shootoutScore != null ? (
+        <>
+          <View style={styles.seasonKnockoutShootoutDivider} />
+          <Text style={styles.seasonKnockoutShootoutScoreText}>{shootoutScore}</Text>
         </>
       ) : null}
     </View>
@@ -202,6 +242,7 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
   const [seasonYears, setSeasonYears] = useState([]);
   const [selectedSeasonYear, setSelectedSeasonYear] = useState(null);
   const [seasonStandings, setSeasonStandings] = useState([]);
+  const [seasonKnockout, setSeasonKnockout] = useState({ semifinals: [], final: null });
   const [seasonPickerOpen, setSeasonPickerOpen] = useState(false);
   const [teamSeasonLoading, setTeamSeasonLoading] = useState(false);
   const [teamSeasonYears, setTeamSeasonYears] = useState([]);
@@ -278,9 +319,14 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
         const res = await matchesService.getOfficialTeamSeasonStandings(teamId, competitionId, targetYear);
         const years = Array.isArray(res?.data?.available_years) ? res.data.available_years : [];
         const standingsRows = Array.isArray(res?.data?.standings) ? res.data.standings : [];
+        const knockoutRows = res?.data?.knockout || { semifinals: [], final: null };
         const backendSelected = res?.data?.selected_year != null ? Number(res.data.selected_year) : null;
         setSeasonYears(years);
         setSeasonStandings(standingsRows);
+        setSeasonKnockout({
+          semifinals: Array.isArray(knockoutRows?.semifinals) ? knockoutRows.semifinals : [],
+          final: knockoutRows?.final || null,
+        });
         setSelectedSeasonYear((prev) => {
           if (backendSelected == null || !Number.isFinite(backendSelected)) return prev;
           return prev === backendSelected ? prev : backendSelected;
@@ -393,6 +439,151 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
     });
     return idx;
   }, [teamMatches]);
+  const hasSeasonKnockoutBracket =
+    (Array.isArray(seasonKnockout.semifinals) && seasonKnockout.semifinals.length > 0) || !!seasonKnockout.final;
+  const seasonKnockoutBracketGrid = useMemo(
+    () => (
+      <>
+        <View style={styles.seasonKnockoutHeaderRow}>
+          <Text style={styles.seasonKnockoutColumnTitle}>Semifinale</Text>
+          <Text style={styles.seasonKnockoutColumnTitleSpacer} />
+          <Text style={styles.seasonKnockoutColumnTitle}>Finale</Text>
+        </View>
+        <View style={styles.seasonKnockoutBracketRow}>
+          <View style={styles.seasonKnockoutSemisCol}>
+            {[0, 1].map((idx) => {
+              const semi = seasonKnockout.semifinals?.[idx] || null;
+              const semiHasShootout = hasKnockoutShootoutScore(semi);
+              return (
+                <View key={`season-semi-${idx}`} style={styles.seasonKnockoutSemiBlock}>
+                  <View style={styles.seasonKnockoutSemiLabelRow}>
+                    <Text style={styles.seasonKnockoutSemiSmallLabel}>SF {idx + 1}</Text>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.seasonKnockoutMatchStackMeasure}
+                    activeOpacity={0.78}
+                    disabled={!semi?.id}
+                    onPress={() => navigation.navigate('MatchDetail', { matchId: Number(semi.id), from: 'official-team-season' })}
+                    accessibilityRole={semi?.id ? 'button' : undefined}
+                    accessibilityLabel={semi?.id ? `Apri partita semifinale ${idx + 1}` : undefined}
+                  >
+                    <View style={styles.seasonKnockoutMatchStack}>
+                      <View style={styles.seasonKnockoutTeamBox}>
+                        <View style={styles.seasonKnockoutTeamRow}>
+                          {semi?.home_team_name ? (
+                            <SeasonKnockoutLogo logoUrl={semi?.home_team_logo_url} logoPath={semi?.home_team_logo_path} />
+                          ) : (
+                            <View style={styles.seasonKnockoutLogoPlaceholder} />
+                          )}
+                          <Text style={styles.seasonKnockoutTeamText} numberOfLines={1}>
+                            {semi?.home_team_name || '-'}
+                          </Text>
+                          <View style={styles.seasonKnockoutScoreBox}>
+                            <SeasonKnockoutScoreText
+                              score={semi?.home_score}
+                              shootoutScore={semiHasShootout ? semi?.home_shootout_score : null}
+                            />
+                          </View>
+                        </View>
+                      </View>
+                      <View style={styles.seasonKnockoutTeamBox}>
+                        <View style={styles.seasonKnockoutTeamRow}>
+                          {semi?.away_team_name ? (
+                            <SeasonKnockoutLogo logoUrl={semi?.away_team_logo_url} logoPath={semi?.away_team_logo_path} />
+                          ) : (
+                            <View style={styles.seasonKnockoutLogoPlaceholder} />
+                          )}
+                          <Text style={styles.seasonKnockoutTeamText} numberOfLines={1}>
+                            {semi?.away_team_name || '-'}
+                          </Text>
+                          <View style={styles.seasonKnockoutScoreBox}>
+                            <SeasonKnockoutScoreText
+                              score={semi?.away_score}
+                              shootoutScore={semiHasShootout ? semi?.away_shootout_score : null}
+                            />
+                          </View>
+                        </View>
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+                </View>
+              );
+            })}
+          </View>
+
+          <View style={styles.seasonKnockoutFlowCol}>
+            <View style={styles.seasonKnockoutBracketTopArm} />
+            <View style={styles.seasonKnockoutBracketBottomArm} />
+            <View style={styles.seasonKnockoutBracketVertical} />
+            <View style={styles.seasonKnockoutBracketMiddleArm} />
+          </View>
+
+          <View style={styles.seasonKnockoutFinalCol}>
+            <View style={styles.seasonKnockoutFinalLabelRow} />
+            {(() => {
+              const finalHasShootout = hasKnockoutShootoutScore(seasonKnockout.final);
+              return (
+                <TouchableOpacity
+                  style={styles.seasonKnockoutMatchStackMeasure}
+                  activeOpacity={0.78}
+                  disabled={!seasonKnockout.final?.id}
+                  onPress={() => navigation.navigate('MatchDetail', { matchId: Number(seasonKnockout.final.id), from: 'official-team-season' })}
+                  accessibilityRole={seasonKnockout.final?.id ? 'button' : undefined}
+                  accessibilityLabel={seasonKnockout.final?.id ? 'Apri partita finale' : undefined}
+                >
+                  <View style={styles.seasonKnockoutMatchStack}>
+                    <View style={styles.seasonKnockoutTeamBox}>
+                      <View style={styles.seasonKnockoutTeamRow}>
+                        {seasonKnockout.final?.home_team_name ? (
+                          <SeasonKnockoutLogo
+                            logoUrl={seasonKnockout.final?.home_team_logo_url}
+                            logoPath={seasonKnockout.final?.home_team_logo_path}
+                          />
+                        ) : (
+                          <View style={styles.seasonKnockoutLogoPlaceholder} />
+                        )}
+                        <Text style={styles.seasonKnockoutTeamText} numberOfLines={1}>
+                          {seasonKnockout.final?.home_team_name || '-'}
+                        </Text>
+                        <View style={styles.seasonKnockoutScoreBox}>
+                          <SeasonKnockoutScoreText
+                            score={seasonKnockout.final?.home_score}
+                            shootoutScore={finalHasShootout ? seasonKnockout.final?.home_shootout_score : null}
+                          />
+                        </View>
+                      </View>
+                    </View>
+                    <View style={styles.seasonKnockoutTeamBox}>
+                      <View style={styles.seasonKnockoutTeamRow}>
+                        {seasonKnockout.final?.away_team_name ? (
+                          <SeasonKnockoutLogo
+                            logoUrl={seasonKnockout.final?.away_team_logo_url}
+                            logoPath={seasonKnockout.final?.away_team_logo_path}
+                          />
+                        ) : (
+                          <View style={styles.seasonKnockoutLogoPlaceholder} />
+                        )}
+                        <Text style={styles.seasonKnockoutTeamText} numberOfLines={1}>
+                          {seasonKnockout.final?.away_team_name || '-'}
+                        </Text>
+                        <View style={styles.seasonKnockoutScoreBox}>
+                          <SeasonKnockoutScoreText
+                            score={seasonKnockout.final?.away_score}
+                            shootoutScore={finalHasShootout ? seasonKnockout.final?.away_shootout_score : null}
+                          />
+                        </View>
+                      </View>
+                    </View>
+                  </View>
+                </TouchableOpacity>
+              );
+            })()}
+          </View>
+        </View>
+      </>
+    ),
+    [navigation, seasonKnockout]
+  );
 
   useEffect(() => {
     const target = Math.max(0, Number(team.favorite_count) || 0);
@@ -539,6 +730,9 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
                   <Text style={styles.placeholderText}>Nessuna partita disponibile.</Text>
                 ) : (
                   teamMatches.map((m, idx) => {
+                    const matchYear = getMatchYear(m.kickoff_at);
+                    const previousMatchYear = idx > 0 ? getMatchYear(teamMatches[idx - 1]?.kickoff_at) : null;
+                    const showYearDivider = matchYear != null && matchYear !== previousMatchYear;
                     const hs = m.home_score != null ? Number(m.home_score) : null;
                     const as = m.away_score != null ? Number(m.away_score) : null;
                     const hasScore = Number.isFinite(hs) && Number.isFinite(as);
@@ -550,50 +744,59 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
                     const showShootoutStatus = isTerminated && hasShootout;
                     const outcomeAccentColor = isTerminated ? getOutcomeAccentColor(m, teamName) : '#e2e8f0';
                     return (
-                      <TouchableOpacity
-                        key={`team-match-${m.id}`}
-                        style={styles.matchRowCard}
-                        activeOpacity={0.75}
-                        onPress={() =>
-                          navigation.navigate('MatchDetail', {
-                            matchId: Number(m.id),
-                            from: 'official-team',
-                            teamId,
-                            competitionId,
-                            teamName,
-                          })
-                        }
-                        onLayout={(e) => {
-                          itemLayoutsRef.current[idx] = { y: e.nativeEvent.layout.y, h: e.nativeEvent.layout.height };
-                          setMatchesTick((v) => v + 1);
-                        }}
-                      >
-                        <Text style={styles.matchTopMeta} numberOfLines={1}>
-                          {formatMatchHeaderDate(m.kickoff_at, m.match_stage)}
-                        </Text>
-                        <View style={styles.matchTopDivider} />
-                        <View style={styles.matchBodyRow}>
-                          <View style={styles.matchTeamsCol}>
-                            <View style={styles.matchTeamRow}>
-                              <TeamRowLogo logoUrl={m.home_team_logo_url} logoPath={m.home_team_logo_path} />
-                              <Text style={styles.matchTeamName} numberOfLines={1}>{m.home_team_name || '-'}</Text>
-                              {hasScore ? <TeamMatchScore score={hs} shootoutScore={hasShootout ? hps : null} /> : null}
+                      <React.Fragment key={`team-match-wrap-${m.id}`}>
+                        {showYearDivider ? (
+                          <View style={styles.matchYearDivider}>
+                            <View style={styles.matchYearDividerLine} />
+                            <Text style={styles.matchYearDividerText}>{matchYear}</Text>
+                            <View style={styles.matchYearDividerLine} />
+                          </View>
+                        ) : null}
+                        <TouchableOpacity
+                          key={`team-match-${m.id}`}
+                          style={styles.matchRowCard}
+                          activeOpacity={0.75}
+                          onPress={() =>
+                            navigation.navigate('MatchDetail', {
+                              matchId: Number(m.id),
+                              from: 'official-team',
+                              teamId,
+                              competitionId,
+                              teamName,
+                            })
+                          }
+                          onLayout={(e) => {
+                            itemLayoutsRef.current[idx] = { y: e.nativeEvent.layout.y, h: e.nativeEvent.layout.height };
+                            setMatchesTick((v) => v + 1);
+                          }}
+                        >
+                          <Text style={styles.matchTopMeta} numberOfLines={1}>
+                            {formatMatchHeaderDate(m.kickoff_at, m.match_stage)}
+                          </Text>
+                          <View style={styles.matchTopDivider} />
+                          <View style={styles.matchBodyRow}>
+                            <View style={styles.matchTeamsCol}>
+                              <View style={styles.matchTeamRow}>
+                                <TeamRowLogo logoUrl={m.home_team_logo_url} logoPath={m.home_team_logo_path} />
+                                <Text style={styles.matchTeamName} numberOfLines={1}>{m.home_team_name || '-'}</Text>
+                                {hasScore ? <TeamMatchScore score={hs} shootoutScore={hasShootout ? hps : null} /> : null}
+                              </View>
+                              <View style={[styles.matchTeamRow, styles.matchTeamRowSecond]}>
+                                <TeamRowLogo logoUrl={m.away_team_logo_url} logoPath={m.away_team_logo_path} />
+                                <Text style={styles.matchTeamName} numberOfLines={1}>{m.away_team_name || '-'}</Text>
+                                {hasScore ? <TeamMatchScore score={as} shootoutScore={hasShootout ? aps : null} /> : null}
+                              </View>
                             </View>
-                            <View style={[styles.matchTeamRow, styles.matchTeamRowSecond]}>
-                              <TeamRowLogo logoUrl={m.away_team_logo_url} logoPath={m.away_team_logo_path} />
-                              <Text style={styles.matchTeamName} numberOfLines={1}>{m.away_team_name || '-'}</Text>
-                              {hasScore ? <TeamMatchScore score={as} shootoutScore={hasShootout ? aps : null} /> : null}
+                            <View style={styles.matchMetaCol}>
+                              <View style={[styles.matchMetaAccent, { backgroundColor: outcomeAccentColor }]} />
+                              <View style={styles.matchMetaTextWrap}>
+                                <Text style={styles.matchMetaText}>{statusText}</Text>
+                                {showShootoutStatus ? <Text style={styles.matchMetaShootoutText}>RIG.</Text> : null}
+                              </View>
                             </View>
                           </View>
-                          <View style={styles.matchMetaCol}>
-                            <View style={[styles.matchMetaAccent, { backgroundColor: outcomeAccentColor }]} />
-                            <View style={styles.matchMetaTextWrap}>
-                              <Text style={styles.matchMetaText}>{statusText}</Text>
-                              {showShootoutStatus ? <Text style={styles.matchMetaShootoutText}>RIG.</Text> : null}
-                            </View>
-                          </View>
-                        </View>
-                      </TouchableOpacity>
+                        </TouchableOpacity>
+                      </React.Fragment>
                     );
                   })
                 )}
@@ -601,8 +804,13 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
             )}
           </View>
         ) : activeTab === 'season' ? (
-          <View style={styles.card}>
-            <View style={styles.seasonPickerWrap}>
+          <ScrollView
+            style={styles.seasonScroll}
+            contentContainerStyle={[styles.seasonScrollContent, { paddingBottom: Math.max(insets.bottom, 5)}]}
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={styles.card}>
+              <View style={styles.seasonPickerWrap}>
               <TouchableOpacity
                 style={styles.seasonPickerBtn}
                 onPress={() => setSeasonPickerOpen((v) => !v)}
@@ -683,7 +891,14 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
                 })}
               </View>
             )}
-          </View>
+            </View>
+            {!seasonLoading && hasSeasonKnockoutBracket ? (
+              <View style={[styles.card, styles.seasonKnockoutCard]}>
+                <Text style={styles.seasonKnockoutTitle}>Fasi finali</Text>
+                {seasonKnockoutBracketGrid}
+              </View>
+            ) : null}
+          </ScrollView>
         ) : activeTab === 'stats' ? (
           <View style={[styles.card, styles.teamCard]}>
             <View style={styles.seasonPickerWrap}>
@@ -1045,9 +1260,35 @@ const styles = StyleSheet.create({
     flex: 1,
     minHeight: 0,
   },
+  seasonCard: {
+    flex: 1,
+    minHeight: 0,
+  },
+  seasonScroll: { flex: 1, marginHorizontal: -12 },
+  seasonScrollContent: { paddingBottom: 8, paddingHorizontal: 12 },
   matchesLoadingBox: { minHeight: 120, alignItems: 'center', justifyContent: 'center' },
   matchesList: { flex: 1 },
   matchesListContent: { paddingBottom: 12, width: '100%' },
+  matchYearDivider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 6,
+    marginBottom: 12,
+    paddingHorizontal: 4,
+  },
+  matchYearDividerLine: {
+    flex: 1,
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: '#cbd5e1',
+  },
+  matchYearDividerText: {
+    marginHorizontal: 12,
+    fontSize: 13,
+    fontWeight: '900',
+    color: '#334155',
+    letterSpacing: 0.6,
+  },
   matchRowCard: {
     flexDirection: 'column',
     paddingVertical: 11,
@@ -1175,6 +1416,69 @@ const styles = StyleSheet.create({
   },
   seasonTd: { fontSize: 13, fontWeight: '700', color: '#1f2937' },
   seasonTdTeamName: { flex: 1, minWidth: 0 },
+  seasonKnockoutCard: {
+    marginTop: 12,
+    marginHorizontal: -8,
+    borderRadius: 12,
+    paddingTop: 12,
+    paddingHorizontal: 5,
+    paddingBottom: 6,
+  },
+  seasonKnockoutTitle: { fontSize: 16, fontWeight: '800', color: '#111827', textAlign: 'center', marginBottom: 6 },
+  seasonKnockoutHeaderRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
+  seasonKnockoutColumnTitle: { flex: 1.2, fontSize: 12, fontWeight: '800', color: '#6b7280', textTransform: 'uppercase' },
+  seasonKnockoutColumnTitleSpacer: { width: 56 },
+  seasonKnockoutBracketRow: { flexDirection: 'row', alignItems: 'stretch', gap: 0 },
+  seasonKnockoutSemisCol: { flex: 1.2, gap: 6, alignSelf: 'flex-start', marginRight: -2 },
+  seasonKnockoutSemiBlock: { flexGrow: 0, flexShrink: 0 },
+  seasonKnockoutFinalCol: { flex: 1.08, alignSelf: 'stretch', justifyContent: 'center', paddingTop: 20, marginLeft: -2 },
+  seasonKnockoutSemiLabelRow: { marginBottom: 2 },
+  seasonKnockoutSemiSmallLabel: { fontSize: 11, fontWeight: '800', color: '#6b7280', textTransform: 'uppercase' },
+  seasonKnockoutFlowCol: {
+    width: 56,
+    height: 112,
+    marginTop: 46,
+    position: 'relative',
+  },
+  seasonKnockoutBracketTopArm: { position: 'absolute', left: 6, top: 10, width: 32, height: 1, backgroundColor: '#d1d5db' },
+  seasonKnockoutBracketBottomArm: { position: 'absolute', left: 6, bottom: 10, width: 32, height: 1, backgroundColor: '#d1d5db' },
+  seasonKnockoutBracketVertical: { position: 'absolute', left: 38, top: 10, width: 1, height: 92, backgroundColor: '#d1d5db' },
+  seasonKnockoutBracketMiddleArm: { position: 'absolute', left: 38, top: 56, width: 14, height: 1, backgroundColor: '#d1d5db' },
+  seasonKnockoutFinalLabelRow: { height: 0, marginBottom: 0 },
+  seasonKnockoutMatchStackMeasure: { width: '100%' },
+  seasonKnockoutMatchStack: { gap: 6, width: '100%' },
+  seasonKnockoutTeamRow: { flexDirection: 'row', alignItems: 'center', gap: 4, minHeight: 18 },
+  seasonKnockoutLogo: { width: 30, height: 30, borderRadius: 6, backgroundColor: '#f7f7f7' },
+  seasonKnockoutLogoFallback: { width: 30, height: 30, borderRadius: 6, backgroundColor: '#eef2ff', alignItems: 'center', justifyContent: 'center' },
+  seasonKnockoutLogoPlaceholder: { width: 30, height: 30 },
+  seasonKnockoutTeamBox: {
+    flex: 1,
+    minWidth: 0,
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    borderRadius: 7,
+    minHeight: 32,
+    paddingVertical: 0,
+    paddingLeft: 0,
+    paddingRight: 6,
+    backgroundColor: '#fff',
+  },
+  seasonKnockoutTeamText: { flex: 1, minWidth: 0, fontSize: 14, fontWeight: '700', color: '#111827' },
+  seasonKnockoutScoreBox: {
+    minWidth: 20,
+    height: 22,
+    paddingHorizontal: 2,
+    borderRadius: 5,
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  seasonKnockoutScoreTextRow: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+  seasonKnockoutScoreText: { fontSize: 12, fontWeight: '800', color: '#111827' },
+  seasonKnockoutShootoutDivider: { width: 1, height: 10, backgroundColor: '#d1d5db' },
+  seasonKnockoutShootoutScoreText: { fontSize: 8, fontWeight: '800', color: '#9ca3af' },
   teamSquadList: { flex: 1 },
   teamSquadListContent: { paddingBottom: 8, paddingTop: 2 },
   squadRow: {
