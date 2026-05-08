@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -9,11 +9,9 @@ import {
   ActivityIndicator,
   RefreshControl,
   Linking,
-  Platform,
   Modal,
   Image,
   Switch,
-  KeyboardAvoidingView,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -145,6 +143,28 @@ export default function TeamManagementScreen({ route, navigation }) {
   const lastNameInputRef = useRef(null);
   const ratingInputRef = useRef(null);
   const shirtNumberInputRef = useRef(null);
+  const editModalScrollRef = useRef(null);
+  const editFieldYRef = useRef({});
+
+  const closeEditModal = useCallback(() => {
+    setShowEditModal(false);
+    setEditingPlayer(null);
+    setFirstName('');
+    setLastName('');
+    setRole('P');
+    setRating('');
+    setShirtNumber('');
+    setSelectedTeamId(null);
+    setIsInjured(false);
+    setReplacementPlayerId(null);
+  }, []);
+
+  const scrollToEditField = useCallback((fieldKey) => {
+    const y = Number(editFieldYRef.current?.[fieldKey] ?? 0);
+    setTimeout(() => {
+      editModalScrollRef.current?.scrollTo?.({ y: Math.max(0, y - 22), animated: true });
+    }, 120);
+  }, []);
   
   const showToast = (text, type = 'error') => {
     setToastMsg({ text, type });
@@ -1388,33 +1408,32 @@ export default function TeamManagementScreen({ route, navigation }) {
         transparent={true}
         animationType="slide"
         onRequestClose={() => {
-          setShowEditModal(false);
-          setEditingPlayer(null);
-          setFirstName('');
-          setLastName('');
-          setRole('P');
-          setRating('');
-          setSelectedTeamId(null);
-          setIsInjured(false);
-          setReplacementPlayerId(null);
+          closeEditModal();
         }}
       >
-        <View style={styles.modalOverlay}>
-          <KeyboardAvoidingView
-            style={styles.modalKeyboardView}
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-            keyboardVerticalOffset={Math.max(insets.top, 0) + 8}
-          >
-            <View style={styles.modalContainer}>
-              <ScrollView
-                keyboardShouldPersistTaps="handled"
-                showsVerticalScrollIndicator={false}
-                contentContainerStyle={styles.modalScrollContent}
-              >
-                <Text style={styles.modalTitle}>Modifica Giocatore</Text>
+        <View style={styles.editModalRoot}>
+          <TouchableOpacity style={styles.editModalBackdrop} activeOpacity={1} onPress={closeEditModal} />
+          <View style={[styles.editModalSheet, { paddingBottom: Math.max(insets.bottom, 12) + 12 }]}>
+            <View style={styles.editModalHeader}>
+              <Text style={styles.editModalTitle}>Modifica Giocatore</Text>
+              <TouchableOpacity onPress={closeEditModal} style={styles.editModalCloseBtn}>
+                <Ionicons name="close" size={24} color="#475569" />
+              </TouchableOpacity>
+            </View>
+            <ScrollView
+              ref={editModalScrollRef}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={styles.editModalScrollContent}
+            >
                 {editingPlayer && (
                   <>
-                <View style={styles.formGroup}>
+                <View
+                  style={styles.formGroup}
+                  onLayout={(e) => {
+                    editFieldYRef.current.firstName = e.nativeEvent.layout.y;
+                  }}
+                >
                   <Text style={styles.label}>Nome</Text>
                   <TextInput
                     ref={firstNameInputRef}
@@ -1428,10 +1447,16 @@ export default function TeamManagementScreen({ route, navigation }) {
                     returnKeyType="next"
                     blurOnSubmit={false}
                     onSubmitEditing={() => lastNameInputRef.current?.focus()}
+                    onFocus={() => scrollToEditField('firstName')}
                   />
                 </View>
 
-                <View style={styles.formGroup}>
+                <View
+                  style={styles.formGroup}
+                  onLayout={(e) => {
+                    editFieldYRef.current.lastName = e.nativeEvent.layout.y;
+                  }}
+                >
                   <Text style={styles.label}>Cognome</Text>
                   <TextInput
                     ref={lastNameInputRef}
@@ -1445,6 +1470,7 @@ export default function TeamManagementScreen({ route, navigation }) {
                     returnKeyType="next"
                     blurOnSubmit={false}
                     onSubmitEditing={() => ratingInputRef.current?.focus()}
+                    onFocus={() => scrollToEditField('lastName')}
                   />
                 </View>
 
@@ -1496,7 +1522,12 @@ export default function TeamManagementScreen({ route, navigation }) {
                   </View>
                 </View>
 
-                <View style={styles.formGroup}>
+                <View
+                  style={styles.formGroup}
+                  onLayout={(e) => {
+                    editFieldYRef.current.rating = e.nativeEvent.layout.y;
+                  }}
+                >
                   <Text style={styles.label}>Valutazione</Text>
                   <TextInput
                     ref={ratingInputRef}
@@ -1510,9 +1541,15 @@ export default function TeamManagementScreen({ route, navigation }) {
                     returnKeyType="next"
                     blurOnSubmit={false}
                     onSubmitEditing={() => shirtNumberInputRef.current?.focus()}
+                    onFocus={() => scrollToEditField('rating')}
                   />
                 </View>
-                <View style={styles.formGroup}>
+                <View
+                  style={styles.formGroup}
+                  onLayout={(e) => {
+                    editFieldYRef.current.shirtNumber = e.nativeEvent.layout.y;
+                  }}
+                >
                   <Text style={styles.label}>Numero maglia</Text>
                   <TextInput
                     ref={shirtNumberInputRef}
@@ -1525,6 +1562,7 @@ export default function TeamManagementScreen({ route, navigation }) {
                     selectTextOnFocus
                     returnKeyType="done"
                     onSubmitEditing={handleSavePlayer}
+                    onFocus={() => scrollToEditField('shirtNumber')}
                   />
                 </View>
                 <View style={styles.formGroup}>
@@ -1575,18 +1613,7 @@ export default function TeamManagementScreen({ route, navigation }) {
                 <View style={styles.modalButtons}>
                   <TouchableOpacity
                     style={[styles.cancelButton, saving && styles.buttonDisabled]}
-                    onPress={() => {
-                      setShowEditModal(false);
-                      setEditingPlayer(null);
-                      setFirstName('');
-                      setLastName('');
-                      setRole('P');
-                      setRating('');
-                      setShirtNumber('');
-                      setSelectedTeamId(null);
-                      setIsInjured(false);
-                      setReplacementPlayerId(null);
-                    }}
+                    onPress={closeEditModal}
                     disabled={saving}
                   >
                     <Text style={styles.cancelButtonText}>Annulla</Text>
@@ -1604,8 +1631,7 @@ export default function TeamManagementScreen({ route, navigation }) {
                   </TouchableOpacity>
                 </View>
               </ScrollView>
-            </View>
-          </KeyboardAvoidingView>
+          </View>
         </View>
       </Modal>
 
@@ -1823,11 +1849,26 @@ const styles = StyleSheet.create({
   playerDeleteButton: { backgroundColor: '#e53935', justifyContent: 'center', alignItems: 'center', width: 52, height: '100%', borderRadius: 10 },
 
   // ── Edit modal ──
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center' },
-  modalKeyboardView: { width: '100%', flex: 1, justifyContent: 'center', alignItems: 'center' },
-  modalContainer: { backgroundColor: '#fff', borderRadius: 18, width: '90%', maxWidth: 400, maxHeight: '88%', overflow: 'hidden' },
-  modalScrollContent: { padding: 20, paddingBottom: 24 },
-  modalTitle: { fontSize: 18, fontWeight: '700', color: '#333', marginBottom: 18, textAlign: 'center' },
+  editModalRoot: { flex: 1, justifyContent: 'flex-end' },
+  editModalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)' },
+  editModalSheet: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    maxHeight: '94%',
+  },
+  editModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eef0f4',
+  },
+  editModalTitle: { fontSize: 18, fontWeight: '700', color: '#333' },
+  editModalCloseBtn: { padding: 4 },
+  editModalScrollContent: { padding: 20, paddingBottom: 24 },
   modalButtons: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 18, gap: 10 },
   cancelButton: { flex: 1, backgroundColor: '#f0f0f0', paddingVertical: 13, borderRadius: 10, alignItems: 'center' },
   cancelButtonText: { color: '#333', fontSize: 15, fontWeight: '600' },

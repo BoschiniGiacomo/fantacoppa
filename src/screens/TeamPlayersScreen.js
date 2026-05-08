@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -34,6 +34,15 @@ export default function TeamPlayersScreen({ route, navigation }) {
   const [shirtNumber, setShirtNumber] = useState('');
   const [toastMsg, setToastMsg] = useState(null);
   const [confirmModal, setConfirmModal] = useState(null);
+  const editModalScrollRef = useRef(null);
+  const editFieldYRef = useRef({});
+
+  const scrollToEditField = useCallback((fieldKey) => {
+    const y = Number(editFieldYRef.current?.[fieldKey] ?? 0);
+    setTimeout(() => {
+      editModalScrollRef.current?.scrollTo?.({ y: Math.max(0, y - 24), animated: true });
+    }, 120);
+  }, []);
   
   const showToast = (text, type = 'error') => {
     setToastMsg({ text, type });
@@ -288,24 +297,40 @@ export default function TeamPlayersScreen({ route, navigation }) {
               </TouchableOpacity>
             </View>
             <View style={styles.modalContainer}>
-              <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.modalScrollContent}>
-                <View style={styles.formGroup}>
+              <ScrollView
+                ref={editModalScrollRef}
+                keyboardShouldPersistTaps="handled"
+                contentContainerStyle={styles.modalScrollContent}
+              >
+                <View
+                  style={styles.formGroup}
+                  onLayout={(e) => {
+                    editFieldYRef.current.firstName = e.nativeEvent.layout.y;
+                  }}
+                >
                   <Text style={styles.label}>Nome</Text>
                   <TextInput
                     style={styles.input}
                     value={firstName}
                     onChangeText={setFirstName}
                     placeholder="Nome"
+                    onFocus={() => scrollToEditField('firstName')}
                   />
                 </View>
 
-                <View style={styles.formGroup}>
+                <View
+                  style={styles.formGroup}
+                  onLayout={(e) => {
+                    editFieldYRef.current.lastName = e.nativeEvent.layout.y;
+                  }}
+                >
                   <Text style={styles.label}>Cognome</Text>
                   <TextInput
                     style={styles.input}
                     value={lastName}
                     onChangeText={setLastName}
                     placeholder="Cognome"
+                    onFocus={() => scrollToEditField('lastName')}
                   />
                 </View>
 
@@ -326,7 +351,12 @@ export default function TeamPlayersScreen({ route, navigation }) {
                   </View>
                 </View>
 
-                <View style={styles.formGroup}>
+                <View
+                  style={styles.formGroup}
+                  onLayout={(e) => {
+                    editFieldYRef.current.rating = e.nativeEvent.layout.y;
+                  }}
+                >
                   <Text style={styles.label}>Valutazione</Text>
                   <TextInput
                     style={styles.input}
@@ -334,10 +364,16 @@ export default function TeamPlayersScreen({ route, navigation }) {
                     onChangeText={setRating}
                     placeholder="0.0"
                     keyboardType="numeric"
+                    onFocus={() => scrollToEditField('rating')}
                   />
                 </View>
 
-                <View style={styles.formGroup}>
+                <View
+                  style={styles.formGroup}
+                  onLayout={(e) => {
+                    editFieldYRef.current.shirtNumber = e.nativeEvent.layout.y;
+                  }}
+                >
                   <Text style={styles.label}>Numero maglia</Text>
                   <TextInput
                     style={styles.input}
@@ -345,6 +381,7 @@ export default function TeamPlayersScreen({ route, navigation }) {
                     onChangeText={setShirtNumber}
                     placeholder="es. 10"
                     keyboardType="number-pad"
+                    onFocus={() => scrollToEditField('shirtNumber')}
                   />
                 </View>
 
@@ -558,7 +595,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
-    maxHeight: '88%',
+    height: '94%',
   },
   modalContainer: {
     backgroundColor: '#fff',
