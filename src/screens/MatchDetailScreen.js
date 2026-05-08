@@ -1111,9 +1111,11 @@ export default function MatchDetailScreen({ navigation, route }) {
   const [savingEvent, setSavingEvent] = useState(false);
   const [savingPhase, setSavingPhase] = useState(false);
   const [shootoutTeamSide, setShootoutTeamSide] = useState('home');
+  const [shootoutEventType, setShootoutEventType] = useState('shootout_goal');
   const [shootoutPlayerName, setShootoutPlayerName] = useState('');
   const [shootoutPlayerId, setShootoutPlayerId] = useState(null);
-  const shootoutPlayersScrollRef = useRef(null);
+  const [shootoutWizardStep, setShootoutWizardStep] = useState(1);
+  const [shootoutPlayerSearch, setShootoutPlayerSearch] = useState('');
   const eventWizardScrollRef = useRef(null);
   const [matchEndClock, setMatchEndClock] = useState('');
   const [timingOpen, setTimingOpen] = useState(false);
@@ -1443,6 +1445,7 @@ export default function MatchDetailScreen({ navigation, route }) {
   const forceShootoutOnlyEditorTabs = showShootoutEditorTab;
   const showTimerEditorTab = matchHasStarted && !hasMatchEndEvent;
   const hasOnlyPhaseEditorTab = preMatchEditorMode && showPhaseEditorTab && !showShootoutEditorTab;
+  const hasOnlyShootoutEditorTab = forceShootoutOnlyEditorTabs && showShootoutEditorTab;
   const hasShootoutPhase = useMemo(
     () => liveEvents.some((e) => e.event_type === 'penalties_start' || isShootoutEventType(e.event_type)),
     [liveEvents]
@@ -1476,6 +1479,20 @@ export default function MatchDetailScreen({ navigation, route }) {
       return Number(a.order || 0) - Number(b.order || 0);
     });
   }, [liveEvents, shootoutTeamSide, teamPlayers]);
+  const filteredShootoutPlayers = useMemo(() => {
+    const q = String(shootoutPlayerSearch || '').trim().toLowerCase();
+    if (!q) return shootoutPlayersOrdered;
+    return shootoutPlayersOrdered.filter((p) => {
+      const name = String(p?.name || '').toLowerCase();
+      const shirt = String(p?.shirt_number ?? '').trim().toLowerCase();
+      return name.includes(q) || (shirt !== '' && shirt.includes(q));
+    });
+  }, [shootoutPlayersOrdered, shootoutPlayerSearch]);
+  const selectedShootoutPlayer = useMemo(
+    () => shootoutPlayersOrdered.find((p) => Number(p?.id) === Number(shootoutPlayerId)) || null,
+    [shootoutPlayersOrdered, shootoutPlayerId]
+  );
+  const shootoutWizardLastStep = 4;
   const showShootoutEndMatchAction = useMemo(
     () => showShootoutEditorTab && shootoutCanEnd(liveEvents),
     [showShootoutEditorTab, liveEvents]
@@ -1616,8 +1633,14 @@ export default function MatchDetailScreen({ navigation, route }) {
     if (!showEventEditor || !forceShootoutOnlyEditorTabs) return;
     if (editorModalTab !== 'shootout') {
       setEditorModalTab('shootout');
+      setShootoutTeamSide(nextShootoutTeamSide);
+      setShootoutEventType('shootout_goal');
+      setShootoutPlayerName('');
+      setShootoutPlayerId(null);
+      setShootoutPlayerSearch('');
+      setShootoutWizardStep(1);
     }
-  }, [showEventEditor, forceShootoutOnlyEditorTabs, editorModalTab]);
+  }, [showEventEditor, forceShootoutOnlyEditorTabs, editorModalTab, nextShootoutTeamSide]);
 
   useEffect(() => {
     if (!showEventEditor || editorModalTab !== 'events' || eventMinuteDirty) return;
@@ -1712,8 +1735,11 @@ export default function MatchDetailScreen({ navigation, route }) {
     setEventPlayerId(null);
     setEventAssistPlayerName('');
     setEventAssistPlayerId(null);
+    setShootoutEventType('shootout_goal');
     setShootoutPlayerName('');
     setShootoutPlayerId(null);
+    setShootoutWizardStep(1);
+    setShootoutPlayerSearch('');
     setEditingLiveEventId(null);
     setEditingLiveEventDraft(null);
     setEventWizardStep(1);
@@ -1785,7 +1811,9 @@ export default function MatchDetailScreen({ navigation, route }) {
       setShootoutPlayerName('');
       setShootoutPlayerId(null);
       setShootoutTeamSide(shootoutTeamSide === 'home' ? 'away' : 'home');
-      setTimeout(() => shootoutPlayersScrollRef.current?.scrollTo?.({ x: 0, animated: false }), 0);
+      setShootoutPlayerSearch('');
+      setShootoutEventType('shootout_goal');
+      setShootoutWizardStep(1);
       await loadDetail({ showLoading: false });
     } catch (err) {
       const body = err?.response?.data;
@@ -2833,8 +2861,11 @@ export default function MatchDetailScreen({ navigation, route }) {
                 }
                 if (showShootoutEditorTab) {
                   setShootoutTeamSide(nextShootoutTeamSide);
+                  setShootoutEventType('shootout_goal');
                   setShootoutPlayerName('');
                   setShootoutPlayerId(null);
+                  setShootoutPlayerSearch('');
+                  setShootoutWizardStep(1);
                 }
                 setEventMinuteDirty(false);
                 setEventWizardStep(1);
@@ -2870,7 +2901,10 @@ export default function MatchDetailScreen({ navigation, route }) {
                   horizontal={!hasOnlyPhaseEditorTab}
                   showsHorizontalScrollIndicator={false}
                   style={styles.editorTabScroll}
-                  contentContainerStyle={[styles.editorTabRow, hasOnlyPhaseEditorTab && styles.editorTabRowSingle]}
+                  contentContainerStyle={[
+                    styles.editorTabRow,
+                    (hasOnlyPhaseEditorTab || hasOnlyShootoutEditorTab) && styles.editorTabRowSingle,
+                  ]}
                 >
                   {!preMatchEditorMode && !forceShootoutOnlyEditorTabs ? (
                     <TouchableOpacity
@@ -2909,12 +2943,19 @@ export default function MatchDetailScreen({ navigation, route }) {
                   ) : null}
                   {showShootoutEditorTab ? (
                     <TouchableOpacity
-                      style={[styles.editorTabBtn, editorModalTab === 'shootout' && styles.editorTabBtnActive]}
+                      style={[
+                        styles.editorTabBtn,
+                        hasOnlyShootoutEditorTab && styles.editorTabBtnSingle,
+                        editorModalTab === 'shootout' && styles.editorTabBtnActive,
+                      ]}
                       onPress={() => {
                         setEditorModalTab('shootout');
                         setShootoutTeamSide(nextShootoutTeamSide);
+                        setShootoutEventType('shootout_goal');
                         setShootoutPlayerName('');
                         setShootoutPlayerId(null);
+                        setShootoutPlayerSearch('');
+                        setShootoutWizardStep(1);
                       }}
                     >
                       <Text style={[styles.editorTabBtnText, editorModalTab === 'shootout' && styles.editorTabBtnTextActive]}>Rigori</Text>
@@ -3111,62 +3152,192 @@ export default function MatchDetailScreen({ navigation, route }) {
                     </>
                   ) : editorModalTab === 'shootout' ? (
                     <>
-                      <Text style={styles.phaseHint}>Il tiratore è opzionale: puoi inserirlo dopo.</Text>
-                      <Text style={styles.editorLabel}>Squadra</Text>
-                      <View style={styles.rowChips}>
-                        <TouchableOpacity
-                          style={[styles.chip, shootoutTeamSide === 'home' && styles.chipActive]}
-                          onPress={() => { setShootoutTeamSide('home'); setShootoutPlayerName(''); setShootoutPlayerId(null); }}
-                        >
-                          <Text style={[styles.chipText, shootoutTeamSide === 'home' && styles.chipTextActive]}>{match.home_team_name}</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={[styles.chip, shootoutTeamSide === 'away' && styles.chipActive]}
-                          onPress={() => { setShootoutTeamSide('away'); setShootoutPlayerName(''); setShootoutPlayerId(null); }}
-                        >
-                          <Text style={[styles.chipText, shootoutTeamSide === 'away' && styles.chipTextActive]}>{match.away_team_name}</Text>
-                        </TouchableOpacity>
-                      </View>
-                      <Text style={styles.editorLabel}>Tiratore (opzionale)</Text>
-                      <ScrollView ref={shootoutPlayersScrollRef} horizontal showsHorizontalScrollIndicator={false}>
-                        <View style={styles.rowChips}>
+                      <View style={styles.eventWizardTopBar}>
+                        <Text style={styles.eventWizardStepText}>Step {shootoutWizardStep}/{shootoutWizardLastStep}</Text>
+                        <View style={styles.eventWizardNavBtns}>
                           <TouchableOpacity
-                            style={[styles.chip, !shootoutPlayerId && styles.chipActive]}
-                            onPress={() => { setShootoutPlayerName(''); setShootoutPlayerId(null); }}
+                            style={[styles.eventWizardNavBtn, shootoutWizardStep === 1 && styles.eventWizardNavBtnDisabled]}
+                            disabled={shootoutWizardStep === 1}
+                            onPress={() => setShootoutWizardStep((s) => Math.max(1, s - 1))}
                           >
-                            <Text style={[styles.chipText, !shootoutPlayerId && styles.chipTextActive]}>Non scelto</Text>
+                            <Text style={[styles.eventWizardNavBtnText, shootoutWizardStep === 1 && styles.eventWizardNavBtnTextDisabled]}>Indietro</Text>
                           </TouchableOpacity>
-                          {shootoutPlayersOrdered.map((p) => (
-                            <TouchableOpacity
-                              key={`shootout-player-${p.id || p.order}`}
-                              style={[styles.chip, Number(shootoutPlayerId) === Number(p.id) && styles.chipActive]}
-                              onPress={() => { setShootoutPlayerName(p.name); setShootoutPlayerId(Number(p.id) || null); }}
-                            >
-                              <Text style={[styles.chipText, Number(shootoutPlayerId) === Number(p.id) && styles.chipTextActive]}>
-                                #{p.shirt_number ?? '-'} {p.name}
-                              </Text>
-                            </TouchableOpacity>
-                          ))}
+                          <TouchableOpacity
+                            style={[
+                              styles.eventWizardNavBtn,
+                              styles.eventWizardNavBtnPrimary,
+                              (shootoutWizardStep >= shootoutWizardLastStep ||
+                                (shootoutWizardStep === 3 && !shootoutPlayerId)) &&
+                                styles.eventWizardNavBtnDisabled,
+                            ]}
+                            disabled={shootoutWizardStep >= shootoutWizardLastStep || (shootoutWizardStep === 3 && !shootoutPlayerId)}
+                            onPress={() => setShootoutWizardStep((s) => Math.min(shootoutWizardLastStep, s + 1))}
+                          >
+                            <Text style={styles.eventWizardNavBtnPrimaryText}>Avanti</Text>
+                          </TouchableOpacity>
                         </View>
-                      </ScrollView>
-                      <View style={styles.shootoutActionsRow}>
-                        <TouchableOpacity
-                          style={[styles.shootoutActionBtn, savingEvent && styles.actionBtnDisabled]}
-                          disabled={savingEvent}
-                          onPress={() => submitShootoutEvent('shootout_goal')}
-                        >
-                          <BonusIcon type="goal" size={26} />
-                          <Text style={styles.shootoutActionText}>{savingEvent ? 'Salvo...' : 'Goal'}</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={[styles.shootoutActionBtn, styles.shootoutActionBtnMissed, savingEvent && styles.actionBtnDisabled]}
-                          disabled={savingEvent}
-                          onPress={() => submitShootoutEvent('shootout_missed')}
-                        >
-                          <BonusIcon type="goals_conceded" size={26} />
-                          <Text style={styles.shootoutActionText}>{savingEvent ? 'Salvo...' : 'No goal'}</Text>
-                        </TouchableOpacity>
                       </View>
+                      {shootoutWizardStep === 1 ? (
+                        <>
+                          <Text style={styles.editorLabel}>1) Scegli squadra</Text>
+                          <View style={styles.eventTeamRow}>
+                            <TouchableOpacity
+                              style={[styles.eventTeamCard, shootoutTeamSide === 'home' && styles.eventTeamCardActive]}
+                              onPress={() => {
+                                setShootoutTeamSide('home');
+                                setShootoutPlayerName('');
+                                setShootoutPlayerId(null);
+                                setShootoutPlayerSearch('');
+                                setShootoutWizardStep(2);
+                              }}
+                            >
+                              <TableTeamLogo logoUrl={match.home_team_logo_url} logoPath={match.home_team_logo_path} size={44} />
+                              <Text style={[styles.eventTeamCardText, shootoutTeamSide === 'home' && styles.eventTeamCardTextActive]}>{match.home_team_name}</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={[styles.eventTeamCard, shootoutTeamSide === 'away' && styles.eventTeamCardActive]}
+                              onPress={() => {
+                                setShootoutTeamSide('away');
+                                setShootoutPlayerName('');
+                                setShootoutPlayerId(null);
+                                setShootoutPlayerSearch('');
+                                setShootoutWizardStep(2);
+                              }}
+                            >
+                              <TableTeamLogo logoUrl={match.away_team_logo_url} logoPath={match.away_team_logo_path} size={44} />
+                              <Text style={[styles.eventTeamCardText, shootoutTeamSide === 'away' && styles.eventTeamCardTextActive]}>{match.away_team_name}</Text>
+                            </TouchableOpacity>
+                          </View>
+                        </>
+                      ) : null}
+                      {shootoutWizardStep === 2 ? (
+                        <>
+                          <Text style={styles.editorLabel}>2) Goal o No goal</Text>
+                          <View style={styles.shootoutActionsRow}>
+                            <TouchableOpacity
+                              style={[
+                                styles.shootoutActionBtn,
+                                shootoutEventType === 'shootout_goal' && styles.shootoutActionBtnActive,
+                              ]}
+                              onPress={() => {
+                                setShootoutEventType('shootout_goal');
+                                setShootoutWizardStep(3);
+                              }}
+                            >
+                              <BonusIcon type="goal" size={26} />
+                              <Text style={styles.shootoutActionText}>Goal</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={[
+                                styles.shootoutActionBtn,
+                                styles.shootoutActionBtnMissed,
+                                shootoutEventType === 'shootout_missed' && styles.shootoutActionBtnActive,
+                              ]}
+                              onPress={() => {
+                                setShootoutEventType('shootout_missed');
+                                setShootoutWizardStep(3);
+                              }}
+                            >
+                              <BonusIcon type="goals_conceded" size={26} />
+                              <Text style={styles.shootoutActionText}>No goal</Text>
+                            </TouchableOpacity>
+                          </View>
+                        </>
+                      ) : null}
+                      {shootoutWizardStep === 3 ? (
+                        <>
+                          <Text style={styles.editorLabel}>3) Scegli tiratore</Text>
+                          <TextInput
+                            style={styles.input}
+                            value={shootoutPlayerSearch}
+                            onChangeText={setShootoutPlayerSearch}
+                            placeholder="Cerca nome, cognome o numero"
+                            autoCapitalize="words"
+                            autoCorrect={false}
+                          />
+                          <View style={styles.eventPlayersList}>
+                            <TouchableOpacity
+                              style={[styles.eventPlayerRow, !shootoutPlayerId && styles.eventPlayerRowActive]}
+                              onPress={() => {
+                                setShootoutPlayerName('');
+                                setShootoutPlayerId(null);
+                                setShootoutWizardStep(4);
+                              }}
+                            >
+                              <Text style={[styles.eventPlayerName, !shootoutPlayerId && styles.eventPlayerNameActive]} numberOfLines={1}>
+                                Non specificare ora
+                              </Text>
+                              <View style={[styles.eventPlayerRoleTag, { backgroundColor: '#94a3b8' }]}>
+                                <Text style={styles.eventPlayerRoleTagText}>-</Text>
+                              </View>
+                            </TouchableOpacity>
+                            {filteredShootoutPlayers.length === 0 ? (
+                              <Text style={styles.phaseDoneHint}>Nessun giocatore trovato.</Text>
+                            ) : (
+                              filteredShootoutPlayers.map((p) => {
+                                const selected = Number(shootoutPlayerId) === Number(p.id);
+                                const role = String(p?.role || '').toUpperCase();
+                                const teamBaseHex = shootoutTeamSide === 'home' ? homeKitBaseHex : awayKitBaseHex;
+                                const teamJerseyHex = shootoutTeamSide === 'home' ? homeJerseyColors.icon : awayJerseyColors.icon;
+                                const isGk = role === 'P';
+                                const shirtTint = isGk ? lineupGkShirtHex(teamBaseHex) : teamJerseyHex;
+                                const shirtHexForNumber = lineupShirtToHex6(shirtTint) || shirtTint;
+                                const numberTint = lineupJerseyNumberColorForShirt(shirtHexForNumber);
+                                return (
+                                  <TouchableOpacity
+                                    key={`shootout-player-${shootoutTeamSide}-${p.id || p.order}-${p.name}`}
+                                    style={[styles.eventPlayerRow, selected && styles.eventPlayerRowActive]}
+                                    onPress={() => {
+                                      setShootoutPlayerName(p.name);
+                                      setShootoutPlayerId(Number(p.id) || null);
+                                      setShootoutWizardStep(4);
+                                    }}
+                                  >
+                                    <View style={styles.eventPlayerJerseyBadge}>
+                                      <MaterialCommunityIcons name="tshirt-crew" size={42} color={shirtTint} style={styles.eventPlayerJerseyIcon} />
+                                      <Text style={[styles.eventPlayerShirtNumber, { color: numberTint }, selected && styles.eventPlayerShirtNumberActive]}>
+                                        {p.shirt_number ?? '-'}
+                                      </Text>
+                                    </View>
+                                    <Text style={[styles.eventPlayerName, selected && styles.eventPlayerNameActive]} numberOfLines={1}>
+                                      {p.name}
+                                    </Text>
+                                    <View style={[styles.eventPlayerRoleTag, { backgroundColor: lineupRoleColor(role) }]}>
+                                      <Text style={styles.eventPlayerRoleTagText}>{role || '-'}</Text>
+                                    </View>
+                                  </TouchableOpacity>
+                                );
+                              })
+                            )}
+                          </View>
+                        </>
+                      ) : null}
+                      {shootoutWizardStep === 4 ? (
+                        <>
+                          <Text style={styles.editorLabel}>4) Conferma rigore</Text>
+                          <View style={styles.eventSummaryCard}>
+                            <View style={styles.eventSummaryRow}>
+                              <Text style={styles.eventSummaryKey}>Squadra</Text>
+                              <Text style={styles.eventSummaryVal}>{shootoutTeamSide === 'home' ? match.home_team_name : match.away_team_name}</Text>
+                            </View>
+                            <View style={styles.eventSummaryRow}>
+                              <Text style={styles.eventSummaryKey}>Esito</Text>
+                              <Text style={styles.eventSummaryVal}>{shootoutEventType === 'shootout_goal' ? 'Goal' : 'No goal'}</Text>
+                            </View>
+                            <View style={styles.eventSummaryRow}>
+                              <Text style={styles.eventSummaryKey}>Tiratore</Text>
+                              <Text style={styles.eventSummaryVal}>{selectedShootoutPlayer?.name || '-'}</Text>
+                            </View>
+                          </View>
+                          <TouchableOpacity
+                            style={[styles.createEventBtn, savingEvent && styles.actionBtnDisabled]}
+                            disabled={savingEvent}
+                            onPress={() => submitShootoutEvent(shootoutEventType)}
+                          >
+                            <Text style={styles.createEventBtnText}>{savingEvent ? 'Salvataggio...' : 'Conferma rigore'}</Text>
+                          </TouchableOpacity>
+                        </>
+                      ) : null}
                       {showShootoutEndMatchAction ? (
                         <TouchableOpacity
                           style={[styles.shootoutEndMatchBtn, savingPhase && styles.actionBtnDisabled]}
