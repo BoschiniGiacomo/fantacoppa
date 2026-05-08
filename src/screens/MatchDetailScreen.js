@@ -115,8 +115,8 @@ const PHASE_ROW_LABELS = {
   half_time: 'Fine primo tempo',
   second_half_start: 'Inizio secondo tempo',
   extra_first_half_start: 'Inizio supplementari',
-  extra_half_time: 'Fine primo tempo supplementari',
-  extra_second_half_start: 'Inizio secondo tempo supplementari',
+  extra_half_time: 'Fine primo tempo supplementare',
+  extra_second_half_start: 'Inizio secondo tempo supplementare',
 };
 
 /** Timeline / pulsante fase: senza supplementari e senza rigori, fine 2°T = fine partita. */
@@ -131,7 +131,7 @@ function labelSecondHalfEnd(match) {
 function labelExtraSecondHalfEnd(match) {
   const pens = Number(match?.penalties_enabled) === 1;
   if (!pens) return 'Fine partita';
-  return 'Fine secondo tempo supplementari';
+  return 'Fine secondo tempo supplementare';
 }
 
 /** Dopo queste fasi la UI mostra «Fine partita» → persistiamo anche `match_end` (chiusura ufficiale). */
@@ -181,11 +181,11 @@ function buildPhaseSequence(match) {
   if (et) {
     seq.push(
       { type: 'extra_first_half_start', label: 'Inizio supplementari' },
-      { type: 'extra_half_time', label: 'Fine 1° tempo supplementari' },
-      { type: 'extra_second_half_start', label: 'Inizio 2° tempo supplementari' },
+      { type: 'extra_half_time', label: 'Fine 1° tempo supplementare' },
+      { type: 'extra_second_half_start', label: 'Inizio 2° tempo supplementare' },
       {
         type: 'extra_second_half_end',
-        label: Number(match?.penalties_enabled) === 1 ? 'Fine 2° tempo supplementari' : 'Fine partita',
+        label: Number(match?.penalties_enabled) === 1 ? 'Fine 2° tempo supplementare' : 'Fine partita',
       }
     );
   }
@@ -862,9 +862,9 @@ const LIVE_EVENT_TYPE_LABELS = {
   second_half_start: 'Inizio secondo tempo',
   second_half_end: 'Fine secondo tempo',
   extra_first_half_start: 'Inizio supplementari',
-  extra_half_time: 'Fine primo tempo supplementari',
-  extra_second_half_start: 'Inizio secondo tempo supplementari',
-  extra_second_half_end: 'Fine secondo tempo supplementari',
+  extra_half_time: 'Fine primo tempo supplementare',
+  extra_second_half_start: 'Inizio secondo tempo supplementare',
+  extra_second_half_end: 'Fine secondo tempo supplementare',
   penalties_start: 'Rigori',
   match_end: 'Fine partita',
 };
@@ -1440,6 +1440,7 @@ export default function MatchDetailScreen({ navigation, route }) {
     () => liveEvents.some((e) => e.event_type === 'penalties_start') && !hasMatchEndEvent,
     [liveEvents, hasMatchEndEvent]
   );
+  const forceShootoutOnlyEditorTabs = showShootoutEditorTab;
   const showTimerEditorTab = matchHasStarted && !hasMatchEndEvent;
   const hasOnlyPhaseEditorTab = preMatchEditorMode && showPhaseEditorTab && !showShootoutEditorTab;
   const hasShootoutPhase = useMemo(
@@ -1482,7 +1483,9 @@ export default function MatchDetailScreen({ navigation, route }) {
   const isPlayPhaseAction =
     nextPhaseStep?.type === 'match_start' ||
     nextPhaseStep?.type === 'second_half_start' ||
-    nextPhaseStep?.type === 'extra_first_half_start';
+    nextPhaseStep?.type === 'extra_first_half_start' ||
+    nextPhaseStep?.type === 'extra_second_half_start' ||
+    (nextPhaseStep?.type === 'extra_second_half_end' && Number(match?.penalties_enabled) === 1);
   const phaseTypeIsTrueMatchEnd = useCallback(
     (phaseType) => {
       if (phaseType === 'match_end') return true;
@@ -1497,7 +1500,8 @@ export default function MatchDetailScreen({ navigation, route }) {
     nextPhaseStep?.type === 'half_time' ||
     nextPhaseStep?.type === 'extra_half_time' ||
     ((nextPhaseStep?.type === 'second_half_end' || nextPhaseStep?.type === 'extra_second_half_end') &&
-      !phaseTypeIsTrueMatchEnd(nextPhaseStep?.type));
+      !phaseTypeIsTrueMatchEnd(nextPhaseStep?.type) &&
+      !isPlayPhaseAction);
   const isEndPhaseAction = phaseTypeIsTrueMatchEnd(nextPhaseStep?.type);
   const shouldCloseEditorOnPhaseSubmit = useCallback((phaseType) => (
     phaseType === 'match_start' ||
@@ -1607,6 +1611,13 @@ export default function MatchDetailScreen({ navigation, route }) {
       setEditorModalTab('phases');
     }
   }, [showEventEditor, editorModalTab, showTimerEditorTab]);
+
+  useEffect(() => {
+    if (!showEventEditor || !forceShootoutOnlyEditorTabs) return;
+    if (editorModalTab !== 'shootout') {
+      setEditorModalTab('shootout');
+    }
+  }, [showEventEditor, forceShootoutOnlyEditorTabs, editorModalTab]);
 
   useEffect(() => {
     if (!showEventEditor || editorModalTab !== 'events' || eventMinuteDirty) return;
@@ -2861,7 +2872,7 @@ export default function MatchDetailScreen({ navigation, route }) {
                   style={styles.editorTabScroll}
                   contentContainerStyle={[styles.editorTabRow, hasOnlyPhaseEditorTab && styles.editorTabRowSingle]}
                 >
-                  {!preMatchEditorMode ? (
+                  {!preMatchEditorMode && !forceShootoutOnlyEditorTabs ? (
                     <TouchableOpacity
                       style={[styles.editorTabBtn, editorModalTab === 'events' && styles.editorTabBtnActive]}
                       onPress={() => setEditorModalTab('events')}
@@ -2869,7 +2880,7 @@ export default function MatchDetailScreen({ navigation, route }) {
                       <Text style={[styles.editorTabBtnText, editorModalTab === 'events' && styles.editorTabBtnTextActive]}>Eventi</Text>
                     </TouchableOpacity>
                   ) : null}
-                  {showPhaseEditorTab ? (
+                  {showPhaseEditorTab && !forceShootoutOnlyEditorTabs ? (
                     <TouchableOpacity
                       style={[styles.editorTabBtn, hasOnlyPhaseEditorTab && styles.editorTabBtnSingle, editorModalTab === 'phases' && styles.editorTabBtnActive]}
                       onPress={() => {
@@ -2880,7 +2891,7 @@ export default function MatchDetailScreen({ navigation, route }) {
                       <Text style={[styles.editorTabBtnText, editorModalTab === 'phases' && styles.editorTabBtnTextActive]}>Fasi di gioco</Text>
                     </TouchableOpacity>
                   ) : null}
-                  {showTimerEditorTab ? (
+                  {showTimerEditorTab && !forceShootoutOnlyEditorTabs ? (
                     <TouchableOpacity
                       style={[styles.editorTabBtn, editorModalTab === 'timer' && styles.editorTabBtnActive]}
                       onPress={() => setEditorModalTab('timer')}
@@ -2909,7 +2920,7 @@ export default function MatchDetailScreen({ navigation, route }) {
                       <Text style={[styles.editorTabBtnText, editorModalTab === 'shootout' && styles.editorTabBtnTextActive]}>Rigori</Text>
                     </TouchableOpacity>
                   ) : null}
-                  {!preMatchEditorMode ? (
+                  {!preMatchEditorMode && !forceShootoutOnlyEditorTabs ? (
                     <TouchableOpacity
                       style={[styles.editorTabBtn, editorModalTab === 'editEvents' && styles.editorTabBtnActive]}
                       onPress={() => setEditorModalTab('editEvents')}

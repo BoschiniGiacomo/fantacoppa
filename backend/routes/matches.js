@@ -531,9 +531,9 @@ function buildEventTitleForDb(eventType, teamSide, payload) {
   if (eventType === 'second_half_start') return 'Inizio secondo tempo';
   if (eventType === 'second_half_end') return 'Fine secondo tempo';
   if (eventType === 'extra_first_half_start') return 'Inizio supplementari';
-  if (eventType === 'extra_half_time') return 'Fine primo tempo supplementari';
-  if (eventType === 'extra_second_half_start') return 'Inizio secondo tempo supplementari';
-  if (eventType === 'extra_second_half_end') return 'Fine secondo tempo supplementari';
+  if (eventType === 'extra_half_time') return 'Fine primo tempo supplementare';
+  if (eventType === 'extra_second_half_start') return 'Inizio secondo tempo supplementare';
+  if (eventType === 'extra_second_half_end') return 'Fine secondo tempo supplementare';
   // fallback
   const et = String(eventType || '').trim();
   return et ? et : null;
