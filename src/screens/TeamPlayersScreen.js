@@ -272,22 +272,22 @@ export default function TeamPlayersScreen({ route, navigation }) {
       {/* Edit Modal */}
       <Modal
         visible={showEditModal}
-        transparent={true}
-        animationType="fade"
+        transparent={false}
+        animationType="slide"
         statusBarTranslucent={true}
         hardwareAccelerated={true}
         onRequestClose={() => setShowEditModal(false)}
       >
-        <View style={styles.modalOverlay}>
-          <TouchableOpacity
-            style={styles.modalBackdrop}
-            activeOpacity={1}
-            onPress={() => setShowEditModal(false)}
-          />
+        <View style={[styles.modalFullScreen, { paddingTop: insets.top }]}>
+          <View style={styles.modalHeader}>
+            <TouchableOpacity onPress={() => setShowEditModal(false)} style={styles.modalHeaderBtn}>
+              <Ionicons name="close" size={24} color="#475569" />
+            </TouchableOpacity>
+            <Text style={styles.modalTitle}>Modifica Giocatore</Text>
+            <View style={styles.modalHeaderSpacer} />
+          </View>
           <View style={[styles.modalContainer, { paddingBottom: Math.max(insets.bottom, 12) }]}>
             <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.modalScrollContent}>
-                  <Text style={styles.modalTitle}>Modifica Giocatore</Text>
-
                   <View style={styles.formGroup}>
                     <Text style={styles.label}>Nome</Text>
                     <TextInput
@@ -533,21 +533,29 @@ const styles = StyleSheet.create({
     height: '100%',
     borderRadius: 8,
   },
-  modalOverlay: {
+  modalFullScreen: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end',
+    backgroundColor: '#f5f5f5',
   },
-  modalBackdrop: {
-    flex: 1,
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
   },
+  modalHeaderBtn: { padding: 6 },
+  modalHeaderSpacer: { width: 36 },
   modalContainer: {
     backgroundColor: '#fff',
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
+    borderTopLeftRadius: 0,
+    borderTopRightRadius: 0,
     padding: 20,
     width: '100%',
-    maxHeight: '88%',
+    flex: 1,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
@@ -558,10 +566,9 @@ const styles = StyleSheet.create({
     paddingBottom: 4,
   },
   modalTitle: {
-    fontSize: 20,
+    fontSize: 19,
     fontWeight: 'bold',
     color: '#333',
-    marginBottom: 20,
     textAlign: 'center',
   },
   formGroup: {
