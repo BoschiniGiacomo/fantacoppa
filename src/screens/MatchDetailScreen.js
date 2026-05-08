@@ -1114,6 +1114,7 @@ export default function MatchDetailScreen({ navigation, route }) {
   const [shootoutEventType, setShootoutEventType] = useState('shootout_goal');
   const [shootoutPlayerName, setShootoutPlayerName] = useState('');
   const [shootoutPlayerId, setShootoutPlayerId] = useState(null);
+  const [shootoutPlayerChosen, setShootoutPlayerChosen] = useState(false);
   const [shootoutWizardStep, setShootoutWizardStep] = useState(1);
   const [shootoutPlayerSearch, setShootoutPlayerSearch] = useState('');
   const eventWizardScrollRef = useRef(null);
@@ -1637,6 +1638,7 @@ export default function MatchDetailScreen({ navigation, route }) {
       setShootoutEventType('shootout_goal');
       setShootoutPlayerName('');
       setShootoutPlayerId(null);
+      setShootoutPlayerChosen(false);
       setShootoutPlayerSearch('');
       setShootoutWizardStep(1);
     }
@@ -1738,6 +1740,7 @@ export default function MatchDetailScreen({ navigation, route }) {
     setShootoutEventType('shootout_goal');
     setShootoutPlayerName('');
     setShootoutPlayerId(null);
+    setShootoutPlayerChosen(false);
     setShootoutWizardStep(1);
     setShootoutPlayerSearch('');
     setEditingLiveEventId(null);
@@ -1810,6 +1813,7 @@ export default function MatchDetailScreen({ navigation, route }) {
       });
       setShootoutPlayerName('');
       setShootoutPlayerId(null);
+      setShootoutPlayerChosen(false);
       setShootoutTeamSide(shootoutTeamSide === 'home' ? 'away' : 'home');
       setShootoutPlayerSearch('');
       setShootoutEventType('shootout_goal');
@@ -2864,6 +2868,7 @@ export default function MatchDetailScreen({ navigation, route }) {
                   setShootoutEventType('shootout_goal');
                   setShootoutPlayerName('');
                   setShootoutPlayerId(null);
+                  setShootoutPlayerChosen(false);
                   setShootoutPlayerSearch('');
                   setShootoutWizardStep(1);
                 }
@@ -2954,6 +2959,7 @@ export default function MatchDetailScreen({ navigation, route }) {
                         setShootoutEventType('shootout_goal');
                         setShootoutPlayerName('');
                         setShootoutPlayerId(null);
+                        setShootoutPlayerChosen(false);
                         setShootoutPlayerSearch('');
                         setShootoutWizardStep(1);
                       }}
@@ -3167,16 +3173,25 @@ export default function MatchDetailScreen({ navigation, route }) {
                               styles.eventWizardNavBtn,
                               styles.eventWizardNavBtnPrimary,
                               (shootoutWizardStep >= shootoutWizardLastStep ||
-                                (shootoutWizardStep === 3 && !shootoutPlayerId)) &&
+                                (shootoutWizardStep === 2 && !shootoutPlayerChosen)) &&
                                 styles.eventWizardNavBtnDisabled,
                             ]}
-                            disabled={shootoutWizardStep >= shootoutWizardLastStep || (shootoutWizardStep === 3 && !shootoutPlayerId)}
+                            disabled={shootoutWizardStep >= shootoutWizardLastStep || (shootoutWizardStep === 2 && !shootoutPlayerChosen)}
                             onPress={() => setShootoutWizardStep((s) => Math.min(shootoutWizardLastStep, s + 1))}
                           >
                             <Text style={styles.eventWizardNavBtnPrimaryText}>Avanti</Text>
                           </TouchableOpacity>
                         </View>
                       </View>
+                      {showShootoutEndMatchAction ? (
+                        <TouchableOpacity
+                          style={[styles.shootoutEndMatchBtn, savingPhase && styles.actionBtnDisabled]}
+                          disabled={savingPhase}
+                          onPress={() => submitPhaseEvent('match_end')}
+                        >
+                          <Text style={styles.shootoutEndMatchText}>{savingPhase ? 'Salvataggio...' : 'Fine partita'}</Text>
+                        </TouchableOpacity>
+                      ) : null}
                       {shootoutWizardStep === 1 ? (
                         <>
                           <Text style={styles.editorLabel}>1) Scegli squadra</Text>
@@ -3212,41 +3227,7 @@ export default function MatchDetailScreen({ navigation, route }) {
                       ) : null}
                       {shootoutWizardStep === 2 ? (
                         <>
-                          <Text style={styles.editorLabel}>2) Goal o No goal</Text>
-                          <View style={styles.shootoutActionsRow}>
-                            <TouchableOpacity
-                              style={[
-                                styles.shootoutActionBtn,
-                                shootoutEventType === 'shootout_goal' && styles.shootoutActionBtnActive,
-                              ]}
-                              onPress={() => {
-                                setShootoutEventType('shootout_goal');
-                                setShootoutWizardStep(3);
-                              }}
-                            >
-                              <BonusIcon type="goal" size={26} />
-                              <Text style={styles.shootoutActionText}>Goal</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                              style={[
-                                styles.shootoutActionBtn,
-                                styles.shootoutActionBtnMissed,
-                                shootoutEventType === 'shootout_missed' && styles.shootoutActionBtnActive,
-                              ]}
-                              onPress={() => {
-                                setShootoutEventType('shootout_missed');
-                                setShootoutWizardStep(3);
-                              }}
-                            >
-                              <BonusIcon type="goals_conceded" size={26} />
-                              <Text style={styles.shootoutActionText}>No goal</Text>
-                            </TouchableOpacity>
-                          </View>
-                        </>
-                      ) : null}
-                      {shootoutWizardStep === 3 ? (
-                        <>
-                          <Text style={styles.editorLabel}>3) Scegli tiratore</Text>
+                          <Text style={styles.editorLabel}>2) Scegli tiratore</Text>
                           <TextInput
                             style={styles.input}
                             value={shootoutPlayerSearch}
@@ -3261,7 +3242,8 @@ export default function MatchDetailScreen({ navigation, route }) {
                               onPress={() => {
                                 setShootoutPlayerName('');
                                 setShootoutPlayerId(null);
-                                setShootoutWizardStep(4);
+                                setShootoutPlayerChosen(true);
+                                setShootoutWizardStep(3);
                               }}
                             >
                               <Text style={[styles.eventPlayerName, !shootoutPlayerId && styles.eventPlayerNameActive]} numberOfLines={1}>
@@ -3290,7 +3272,8 @@ export default function MatchDetailScreen({ navigation, route }) {
                                     onPress={() => {
                                       setShootoutPlayerName(p.name);
                                       setShootoutPlayerId(Number(p.id) || null);
-                                      setShootoutWizardStep(4);
+                                      setShootoutPlayerChosen(true);
+                                      setShootoutWizardStep(3);
                                     }}
                                   >
                                     <View style={styles.eventPlayerJerseyBadge}>
@@ -3309,6 +3292,40 @@ export default function MatchDetailScreen({ navigation, route }) {
                                 );
                               })
                             )}
+                          </View>
+                        </>
+                      ) : null}
+                      {shootoutWizardStep === 3 ? (
+                        <>
+                          <Text style={styles.editorLabel}>3) Goal o No goal</Text>
+                          <View style={styles.shootoutActionsRow}>
+                            <TouchableOpacity
+                              style={[
+                                styles.shootoutActionBtn,
+                                shootoutEventType === 'shootout_goal' && styles.shootoutActionBtnActive,
+                              ]}
+                              onPress={() => {
+                                setShootoutEventType('shootout_goal');
+                                setShootoutWizardStep(4);
+                              }}
+                            >
+                              <BonusIcon type="goal" size={26} />
+                              <Text style={styles.shootoutActionText}>Goal</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={[
+                                styles.shootoutActionBtn,
+                                styles.shootoutActionBtnMissed,
+                                shootoutEventType === 'shootout_missed' && styles.shootoutActionBtnActive,
+                              ]}
+                              onPress={() => {
+                                setShootoutEventType('shootout_missed');
+                                setShootoutWizardStep(4);
+                              }}
+                            >
+                              <BonusIcon type="goals_conceded" size={26} />
+                              <Text style={styles.shootoutActionText}>No goal</Text>
+                            </TouchableOpacity>
                           </View>
                         </>
                       ) : null}
@@ -3337,15 +3354,6 @@ export default function MatchDetailScreen({ navigation, route }) {
                             <Text style={styles.createEventBtnText}>{savingEvent ? 'Salvataggio...' : 'Conferma rigore'}</Text>
                           </TouchableOpacity>
                         </>
-                      ) : null}
-                      {showShootoutEndMatchAction ? (
-                        <TouchableOpacity
-                          style={[styles.shootoutEndMatchBtn, savingPhase && styles.actionBtnDisabled]}
-                          disabled={savingPhase}
-                          onPress={() => submitPhaseEvent('match_end')}
-                        >
-                          <Text style={styles.shootoutEndMatchText}>{savingPhase ? 'Salvataggio...' : 'Fine partita'}</Text>
-                        </TouchableOpacity>
                       ) : null}
                     </>
                   ) : editorModalTab === 'editEvents' ? (
