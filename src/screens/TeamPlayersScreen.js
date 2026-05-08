@@ -272,102 +272,104 @@ export default function TeamPlayersScreen({ route, navigation }) {
       {/* Edit Modal */}
       <Modal
         visible={showEditModal}
-        transparent={false}
+        transparent={true}
         animationType="slide"
         statusBarTranslucent={true}
         hardwareAccelerated={true}
         onRequestClose={() => setShowEditModal(false)}
       >
-        <View style={[styles.modalFullScreen, { paddingTop: insets.top }]}>
-          <View style={styles.modalHeader}>
-            <TouchableOpacity onPress={() => setShowEditModal(false)} style={styles.modalHeaderBtn}>
-              <Ionicons name="close" size={24} color="#475569" />
-            </TouchableOpacity>
-            <Text style={styles.modalTitle}>Modifica Giocatore</Text>
-            <View style={styles.modalHeaderSpacer} />
-          </View>
-          <View style={[styles.modalContainer, { paddingBottom: Math.max(insets.bottom, 12) }]}>
-            <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.modalScrollContent}>
-                  <View style={styles.formGroup}>
-                    <Text style={styles.label}>Nome</Text>
-                    <TextInput
-                      style={styles.input}
-                      value={firstName}
-                      onChangeText={setFirstName}
-                      placeholder="Nome"
-                    />
-                  </View>
+        <View style={styles.modalRoot}>
+          <TouchableOpacity style={styles.modalBackdrop} activeOpacity={1} onPress={() => setShowEditModal(false)} />
+          <View style={[styles.modalSheet, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Modifica Giocatore</Text>
+              <TouchableOpacity onPress={() => setShowEditModal(false)} style={styles.modalHeaderBtn}>
+                <Ionicons name="close" size={24} color="#475569" />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.modalContainer}>
+              <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.modalScrollContent}>
+                <View style={styles.formGroup}>
+                  <Text style={styles.label}>Nome</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={firstName}
+                    onChangeText={setFirstName}
+                    placeholder="Nome"
+                  />
+                </View>
 
-                  <View style={styles.formGroup}>
-                    <Text style={styles.label}>Cognome</Text>
-                    <TextInput
-                      style={styles.input}
-                      value={lastName}
-                      onChangeText={setLastName}
-                      placeholder="Cognome"
-                    />
-                  </View>
+                <View style={styles.formGroup}>
+                  <Text style={styles.label}>Cognome</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={lastName}
+                    onChangeText={setLastName}
+                    placeholder="Cognome"
+                  />
+                </View>
 
-                  <View style={styles.formGroup}>
-                    <Text style={styles.label}>Ruolo</Text>
-                    <View style={styles.roleSelector}>
-                      {['P', 'D', 'C', 'A'].map((r) => (
-                        <TouchableOpacity
-                          key={r}
-                          style={[styles.roleOption, role === r && styles.roleOptionActive]}
-                          onPress={() => setRole(r)}
-                        >
-                          <Text style={[styles.roleOptionText, role === r && styles.roleOptionTextActive]}>
-                            {getRoleLabel(r)}
-                          </Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
+                <View style={styles.formGroup}>
+                  <Text style={styles.label}>Ruolo</Text>
+                  <View style={styles.roleSelector}>
+                    {['P', 'D', 'C', 'A'].map((r) => (
+                      <TouchableOpacity
+                        key={r}
+                        style={[styles.roleOption, role === r && styles.roleOptionActive]}
+                        onPress={() => setRole(r)}
+                      >
+                        <Text style={[styles.roleOptionText, role === r && styles.roleOptionTextActive]}>
+                          {getRoleLabel(r)}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
                   </View>
+                </View>
 
-                  <View style={styles.formGroup}>
-                    <Text style={styles.label}>Valutazione</Text>
-                    <TextInput
-                      style={styles.input}
-                      value={rating}
-                      onChangeText={setRating}
-                      placeholder="0.0"
-                      keyboardType="numeric"
-                    />
-                  </View>
+                <View style={styles.formGroup}>
+                  <Text style={styles.label}>Valutazione</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={rating}
+                    onChangeText={setRating}
+                    placeholder="0.0"
+                    keyboardType="numeric"
+                  />
+                </View>
 
-                  <View style={styles.formGroup}>
-                    <Text style={styles.label}>Numero maglia</Text>
-                    <TextInput
-                      style={styles.input}
-                      value={shirtNumber}
-                      onChangeText={setShirtNumber}
-                      placeholder="es. 10"
-                      keyboardType="number-pad"
-                    />
-                  </View>
+                <View style={styles.formGroup}>
+                  <Text style={styles.label}>Numero maglia</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={shirtNumber}
+                    onChangeText={setShirtNumber}
+                    placeholder="es. 10"
+                    keyboardType="number-pad"
+                  />
+                </View>
 
-                  <View style={styles.modalButtons}>
-                    <TouchableOpacity
-                      style={[styles.cancelButton, saving && styles.buttonDisabled]}
-                      onPress={() => setShowEditModal(false)}
-                      disabled={saving}
-                    >
-                      <Text style={styles.cancelButtonText}>Annulla</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.saveButton, saving && styles.buttonDisabled]}
-                      onPress={handleSavePlayer}
-                      disabled={saving}
-                    >
-                      {saving ? (
-                        <ActivityIndicator size="small" color="#fff" />
-                      ) : (
-                        <Text style={styles.saveButtonText}>Salva</Text>
-                      )}
-                    </TouchableOpacity>
-                  </View>
-            </ScrollView>
+                <View style={styles.modalButtons}>
+                  <TouchableOpacity
+                    style={[styles.cancelButton, saving && styles.buttonDisabled]}
+                    onPress={() => setShowEditModal(false)}
+                    disabled={saving}
+                  >
+                    <Text style={styles.cancelButtonText}>Annulla</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.saveButton, saving && styles.buttonDisabled]}
+                    onPress={handleSavePlayer}
+                    disabled={saving}
+                  >
+                    {saving ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <Text style={styles.saveButtonText}>Salva</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </ScrollView>
+            </View>
           </View>
         </View>
       </Modal>
@@ -533,9 +535,13 @@ const styles = StyleSheet.create({
     height: '100%',
     borderRadius: 8,
   },
-  modalFullScreen: {
+  modalRoot: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    justifyContent: 'flex-end',
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
   },
   modalHeader: {
     flexDirection: 'row',
@@ -548,14 +554,17 @@ const styles = StyleSheet.create({
     borderBottomColor: '#e5e7eb',
   },
   modalHeaderBtn: { padding: 6 },
-  modalHeaderSpacer: { width: 36 },
+  modalSheet: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    maxHeight: '88%',
+  },
   modalContainer: {
     backgroundColor: '#fff',
-    borderTopLeftRadius: 0,
-    borderTopRightRadius: 0,
     padding: 20,
     width: '100%',
-    flex: 1,
+    maxHeight: '100%',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,

@@ -2842,7 +2842,7 @@ export default function MatchDetailScreen({ navigation, route }) {
               <View
                 style={[
                   styles.eventModalSheet,
-                  { paddingBottom: editorModalTab === 'events' ? 12 : Math.max(insets.bottom, 12) + 12 },
+                  { paddingBottom: Math.max(insets.bottom, 12) + 12 },
                 ]}
               >
                 <View style={styles.eventModalHeader}>
