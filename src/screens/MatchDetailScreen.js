@@ -1479,7 +1479,10 @@ export default function MatchDetailScreen({ navigation, route }) {
     () => showShootoutEditorTab && shootoutCanEnd(liveEvents),
     [showShootoutEditorTab, liveEvents]
   );
-  const isPlayPhaseAction = nextPhaseStep?.type === 'match_start' || nextPhaseStep?.type === 'second_half_start';
+  const isPlayPhaseAction =
+    nextPhaseStep?.type === 'match_start' ||
+    nextPhaseStep?.type === 'second_half_start' ||
+    nextPhaseStep?.type === 'extra_first_half_start';
   const phaseTypeIsTrueMatchEnd = useCallback(
     (phaseType) => {
       if (phaseType === 'match_end') return true;
