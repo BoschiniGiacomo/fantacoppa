@@ -744,6 +744,19 @@ export default function TeamManagementScreen({ route, navigation }) {
       sorted.sort((a, b) => (a.first_name || '').localeCompare(b.first_name || ''));
     } else if (mode === 'surname') {
       sorted.sort((a, b) => (a.last_name || '').localeCompare(b.last_name || ''));
+    } else if (mode === 'shirt') {
+      sorted.sort((a, b) => {
+        const rawA = String(a?.shirt_number ?? '').trim();
+        const rawB = String(b?.shirt_number ?? '').trim();
+        const na = rawA !== '' ? Number(rawA) : NaN;
+        const nb = rawB !== '' ? Number(rawB) : NaN;
+        const va = Number.isFinite(na) && na > 0 ? na : 9999;
+        const vb = Number.isFinite(nb) && nb > 0 ? nb : 9999;
+        if (va !== vb) return va - vb;
+        const la = `${a?.last_name || ''} ${a?.first_name || ''}`.trim();
+        const lb = `${b?.last_name || ''} ${b?.first_name || ''}`.trim();
+        return la.localeCompare(lb);
+      });
     } else {
       sorted.sort((a, b) => (roleOrder[a.role] ?? 9) - (roleOrder[b.role] ?? 9));
     }
@@ -957,6 +970,7 @@ export default function TeamManagementScreen({ route, navigation }) {
                     { key: 'role', label: 'Ruolo', icon: 'layers-outline' },
                     { key: 'name', label: 'Nome', icon: 'text-outline' },
                     { key: 'surname', label: 'Cognome', icon: 'person-outline' },
+                    { key: 'shirt', label: 'Numero', icon: 'hash-outline' },
                   ].map((s) => {
                     const active = (playerSort[team.id] || 'role') === s.key;
                     return (
@@ -1426,7 +1440,7 @@ export default function TeamManagementScreen({ route, navigation }) {
               showsVerticalScrollIndicator={false}
               contentContainerStyle={[
                 styles.editModalScrollContent,
-                { paddingBottom: Math.max(insets.bottom, 12) + 84 },
+                { paddingBottom: Math.max(insets.bottom, 22) + 94 },
               ]}
             >
                 {editingPlayer && (
