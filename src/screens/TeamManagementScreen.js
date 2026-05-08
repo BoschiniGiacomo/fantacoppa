@@ -1427,7 +1427,7 @@ export default function TeamManagementScreen({ route, navigation }) {
       >
         <View style={styles.editModalRoot}>
           <TouchableOpacity style={styles.editModalBackdrop} activeOpacity={1} onPress={closeEditModal} />
-          <View style={[styles.editModalSheet, { paddingBottom: Math.max(insets.bottom, 12) + 12 }]}>
+          <View style={[styles.editModalSheet, { paddingBottom: Math.max(insets.bottom, 30) + 100 }]}>
             <View style={styles.editModalHeader}>
               <Text style={styles.editModalTitle}>Modifica Giocatore</Text>
               <TouchableOpacity onPress={closeEditModal} style={styles.editModalCloseBtn}>
