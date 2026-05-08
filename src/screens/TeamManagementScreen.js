@@ -1424,7 +1424,10 @@ export default function TeamManagementScreen({ route, navigation }) {
               ref={editModalScrollRef}
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}
-              contentContainerStyle={styles.editModalScrollContent}
+              contentContainerStyle={[
+                styles.editModalScrollContent,
+                { paddingBottom: Math.max(insets.bottom, 12) + 84 },
+              ]}
             >
                 {editingPlayer && (
                   <>
