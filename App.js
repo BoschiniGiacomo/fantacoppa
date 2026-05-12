@@ -52,7 +52,7 @@ import LeagueHamburgerMenu from './src/components/LeagueHamburgerMenu';
 import LeagueBottomMenu from './src/components/LeagueBottomMenu';
 import { OnboardingProvider } from './src/context/OnboardingContext';
 import { leagueService } from './src/services/api';
-import AppLoadingShell from './src/components/AppLoadingShell';
+import AppLoadingFullScreenModal from './src/components/AppLoadingFullScreenModal';
 
 const Stack = createStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -141,7 +141,7 @@ function MainTabs() {
 
 // Stack Navigator principale
 function AppNavigator() {
-  const { user, loading, updateRequiredInfo } = useAuth();
+  const { user, loading, updateRequiredInfo, bootstrapProgress } = useAuth();
   const { uri: loadingMediaUri, type: loadingMediaType } = useAppLoadingMedia();
   const [bootstrapTimedOut, setBootstrapTimedOut] = useState(false);
 
@@ -156,7 +156,12 @@ function AppNavigator() {
 
   if (loading && !bootstrapTimedOut) {
     return (
-      <AppLoadingShell uri={loadingMediaUri} mediaType={loadingMediaType} />
+      <AppLoadingFullScreenModal
+        visible
+        uri={loadingMediaUri}
+        mediaType={loadingMediaType}
+        progress={bootstrapProgress}
+      />
     );
   }
 

@@ -3,8 +3,9 @@ import { useVideoPlayer, VideoView } from 'expo-video';
 
 /**
  * Video locale/remoto in loop, muto, senza controlli nativi (expo-video).
+ * @param {'contain'|'cover'} contentFit
  */
-export default function LoopingVideoView({ uri, style, nativeControls = false }) {
+export default function LoopingVideoView({ uri, style, nativeControls = false, contentFit = 'contain' }) {
   const player = useVideoPlayer(uri, (p) => {
     p.loop = true;
     p.muted = true;
@@ -15,7 +16,7 @@ export default function LoopingVideoView({ uri, style, nativeControls = false })
     <VideoView
       player={player}
       style={style}
-      contentFit="contain"
+      contentFit={contentFit}
       nativeControls={nativeControls}
       allowsFullscreen={false}
     />

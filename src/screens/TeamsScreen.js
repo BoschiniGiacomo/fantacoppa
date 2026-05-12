@@ -19,7 +19,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { defaultLogosMap } from '../constants/defaultLogos';
 import { syncSubmittedFormationOnboarding } from '../utils/formationSubmission';
-import AppLoadingShell from '../components/AppLoadingShell';
+import AppLoadingFullScreenModal from '../components/AppLoadingFullScreenModal';
 
 export default function TeamsScreen({ route, navigation }) {
   const { user } = useAuth();
@@ -31,6 +31,7 @@ export default function TeamsScreen({ route, navigation }) {
   const [league, setLeague] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
+  const [loadingProgress, setLoadingProgress] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const [toastMsg, setToastMsg] = useState(null);
 
@@ -51,10 +52,30 @@ export default function TeamsScreen({ route, navigation }) {
   );
 
   const loadData = async () => {
+    setLoading(true);
+    setLoadingProgress(0);
     try {
-      await syncSubmittedFormationOnboarding({ leagueId, formationService, markDone });
-    } catch (_) {}
-    await Promise.all([loadTeams(), loadLeague()]);
+      try {
+        await syncSubmittedFormationOnboarding({ leagueId, formationService, markDone });
+      } catch (_) {}
+      setLoadingProgress(0.1);
+
+      let done = 0;
+      const onPartDone = () => {
+        done += 1;
+        setLoadingProgress(0.1 + (0.78 * done) / 2);
+      };
+
+      await Promise.all([
+        loadLeague().then(onPartDone).catch(onPartDone),
+        loadTeams().then(onPartDone).catch(onPartDone),
+      ]);
+      setLoadingProgress(1);
+      await new Promise((r) => setTimeout(r, 160));
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
   };
 
   const loadLeague = async () => {
@@ -79,9 +100,6 @@ export default function TeamsScreen({ route, navigation }) {
     } catch (error) {
       showToast('Impossibile caricare le squadre');
       console.error(error);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
     }
   };
 
@@ -157,7 +175,14 @@ export default function TeamsScreen({ route, navigation }) {
   };
 
   if (loading) {
-    return <AppLoadingShell uri={loadingShellUri} mediaType={loadingShellType} />;
+    return (
+      <AppLoadingFullScreenModal
+        visible
+        uri={loadingShellUri}
+        mediaType={loadingShellType}
+        progress={loadingProgress}
+      />
+    );
   }
 
   return (

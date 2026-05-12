@@ -1,86 +1,52 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useMemo } from 'react';
 import {
   View,
   StyleSheet,
   Image,
-  Animated,
   ActivityIndicator,
-  Easing,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import LoopingVideoView from './LoopingVideoView';
+import { mapRawProgressToBarFill01 } from '../utils/loadingBarProgress';
 
 /**
- * Schermata bootstrap leggera: media opzionale in loop (GIF / immagine / video corto)
- * e barra sottile animata in basso.
+ * @param {number} [progress] — progresso reale caricamento 0…1 (non mappato).
  */
-export default function AppLoadingShell({ uri, mediaType }) {
+export default function AppLoadingShell({ uri, mediaType, progress = 0 }) {
   const insets = useSafeAreaInsets();
-  const [trackW, setTrackW] = useState(0);
-  const slide = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    const loop = Animated.loop(
-      Animated.timing(slide, {
-        toValue: 1,
-        duration: 1400,
-        easing: Easing.inOut(Easing.quad),
-        useNativeDriver: true,
-      }),
-    );
-    loop.start();
-    return () => {
-      loop.stop();
-      slide.setValue(0);
-    };
-  }, [slide]);
-
   const isVideo = mediaType === 'video' && !!uri;
   const hasMedia = !!uri;
 
-  const segmentTranslate =
-    trackW > 0
-      ? slide.interpolate({
-          inputRange: [0, 1],
-          outputRange: [-trackW * 0.35, trackW * 0.65],
-        })
-      : 0;
+  const fillWidthPct = useMemo(
+    () => mapRawProgressToBarFill01(progress) * 100,
+    [progress],
+  );
+
+  /** Spazio extra sopra gesture bar / home indicator */
+  const barBottomPadding = Math.max(insets.bottom + 18, 26);
 
   return (
     <View style={styles.root} accessibilityLabel="Caricamento in corso">
       {hasMedia && !isVideo ? (
         <Image
           source={{ uri }}
-          style={styles.media}
-          resizeMode="contain"
+          style={styles.mediaFull}
+          resizeMode="cover"
           accessibilityIgnoresInvertColors
         />
       ) : null}
       {hasMedia && isVideo ? (
-        <LoopingVideoView uri={uri} style={styles.media} />
+        <LoopingVideoView uri={uri} style={styles.mediaFull} contentFit="cover" />
       ) : null}
       {!hasMedia ? (
         <View style={styles.spinnerWrap}>
-          <ActivityIndicator size="large" color="#667eea" />
+          <ActivityIndicator size="large" color="#a8b4ff" />
         </View>
       ) : null}
 
-      <View
-        style={[styles.barArea, { paddingBottom: Math.max(insets.bottom, 10) }]}
-        onLayout={(e) => setTrackW(e.nativeEvent.layout.width)}
-      >
+      <View style={[styles.barArea, { paddingBottom: barBottomPadding }]}>
         <View style={styles.track}>
-          {trackW > 0 ? (
-            <Animated.View
-              style={[
-                styles.segment,
-                {
-                  width: trackW * 0.28,
-                  transform: [{ translateX: segmentTranslate }],
-                },
-              ]}
-            />
-          ) : null}
+          <View style={[styles.fill, { width: `${fillWidthPct}%` }]} />
         </View>
       </View>
     </View>
@@ -90,20 +56,17 @@ export default function AppLoadingShell({ uri, mediaType }) {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: '#f4f5fa',
+    backgroundColor: '#000',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  media: {
-    width: '56%',
-    maxWidth: 280,
-    aspectRatio: 1,
-    maxHeight: '36%',
-    borderRadius: 12,
-    backgroundColor: 'rgba(255,255,255,0.5)',
+  mediaFull: {
+    ...StyleSheet.absoluteFillObject,
+    width: '100%',
+    height: '100%',
   },
   spinnerWrap: {
-    position: 'absolute',
+    ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -112,18 +75,20 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    paddingHorizontal: 24,
-    paddingTop: 8,
+    paddingHorizontal: 28,
+    paddingTop: 14,
+    zIndex: 4,
   },
   track: {
-    height: 3,
+    height: 4,
     borderRadius: 2,
-    backgroundColor: 'rgba(102, 126, 234, 0.15)',
+    backgroundColor: 'rgba(255, 255, 255, 0.18)',
     overflow: 'hidden',
   },
-  segment: {
+  fill: {
     height: '100%',
     borderRadius: 2,
     backgroundColor: '#667eea',
+    alignSelf: 'flex-start',
   },
 });

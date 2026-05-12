@@ -59,6 +59,7 @@ export const useAuth = () => {
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [bootstrapProgress, setBootstrapProgress] = useState(0);
   const [token, setToken] = useState(null);
   const [updateRequiredInfo, setUpdateRequiredInfo] = useState(null);
 
@@ -125,6 +126,7 @@ export const AuthProvider = ({ children }) => {
 
     // Failsafe: evita spinner infinito in caso di bootstrap bloccato.
     const guard = setTimeout(() => {
+      setBootstrapProgress(1);
       setLoading(false);
     }, 12000);
 
@@ -136,26 +138,32 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   const loadStoredAuth = async () => {
+    setBootstrapProgress(0);
     try {
+      setBootstrapProgress(0.06);
       const storedToken = await AsyncStorage.getItem('authToken');
       const storedUser = await AsyncStorage.getItem('user');
+      setBootstrapProgress(0.14);
 
       if (storedToken && storedUser) {
         authService.setAuthToken(storedToken);
-        // Non bloccare indefinitamente il bootstrap se la validazione sessione si pianta.
+        setBootstrapProgress(0.22);
         await Promise.race([
           authService.validateSession(),
           new Promise((_, reject) => setTimeout(() => reject(new Error('Session validation timeout')), 8000)),
         ]);
+        setBootstrapProgress(0.78);
         setToken(storedToken);
         try {
           setUser(JSON.parse(storedUser));
         } catch (_) {
           setUser(null);
         }
+        setBootstrapProgress(0.9);
         registerPushTokenIfPermitted().catch(() => {});
       } else {
         authService.setAuthToken(null);
+        setBootstrapProgress(0.55);
       }
     } catch (error) {
       await AsyncStorage.removeItem('authToken');
@@ -163,7 +171,9 @@ export const AuthProvider = ({ children }) => {
       setToken(null);
       setUser(null);
       authService.setAuthToken(null);
+      setBootstrapProgress(0.88);
     } finally {
+      setBootstrapProgress(1);
       setLoading(false);
     }
   };
@@ -244,6 +254,7 @@ export const AuthProvider = ({ children }) => {
     user,
     token,
     loading,
+    bootstrapProgress,
     updateRequiredInfo,
     login,
     register,

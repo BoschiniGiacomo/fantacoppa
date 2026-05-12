@@ -27,6 +27,14 @@ async function clearLegacyDeviceOnlyKeys() {
   await AsyncStorage.multiRemove([LEGACY_STORAGE_URI_KEY, LEGACY_STORAGE_TYPE_KEY]).catch(() => {});
 }
 
+export function guessPickMediaType(mimeType, fileName) {
+  const n = (fileName || '').toLowerCase();
+  const m = String(mimeType || '').toLowerCase();
+  if (m.startsWith('video/')) return 'video';
+  if (['.mp4', '.webm', '.mov', '.m4v'].some((ext) => n.endsWith(ext))) return 'video';
+  return 'image';
+}
+
 /**
  * Media di caricamento globale: legge dal backend (stesso file per tutti gli utenti).
  */
@@ -40,12 +48,13 @@ export async function getAppLoadingMediaSettings() {
       return {
         uri: publicAssetUrl(path),
         type: type === 'video' ? 'video' : 'image',
+        name: null,
       };
     }
     await clearLegacyDeviceOnlyKeys();
-    return { uri: null, type: null };
+    return { uri: null, type: null, name: null };
   } catch {
-    return { uri: null, type: null };
+    return { uri: null, type: null, name: null };
   }
 }
 
@@ -59,10 +68,11 @@ export async function saveAppLoadingMediaFromPicker(asset) {
   const res = await superuserService.uploadAppLoadingMedia(formData);
   emitChange();
   const path = res.data?.path;
-  if (!path) return { uri: null, type: null };
+  if (!path) return { uri: null, type: null, name: null };
   return {
     uri: publicAssetUrl(path),
     type: res.data?.type === 'video' ? 'video' : 'image',
+    name: asset?.name ? String(asset.name) : null,
   };
 }
 

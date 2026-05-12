@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import LoopingVideoView from '../components/LoopingVideoView';
+import AppLoadingFullScreenModal from '../components/AppLoadingFullScreenModal';
 import { useAuth } from '../context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import { superuserService } from '../services/api';
@@ -23,6 +24,7 @@ import {
   getAppLoadingMediaSettings,
   saveAppLoadingMediaFromPicker,
   clearAppLoadingMedia,
+  guessPickMediaType,
 } from '../utils/appLoadingMediaSettings';
 
 export default function SuperUserScreen() {
@@ -86,10 +88,14 @@ export default function SuperUserScreen() {
   const [hasAvailablePlayers, setHasAvailablePlayers] = useState(false);
   const [officialGroupsDisabled, setOfficialGroupsDisabled] = useState(false);
 
-  const [appLoadingPreview, setAppLoadingPreview] = useState({ uri: null, type: null });
+  const [appLoadingPreview, setAppLoadingPreview] = useState({ uri: null, type: null, name: null });
+  const [appLoadingPickStaging, setAppLoadingPickStaging] = useState(null);
   const [pickingAppLoading, setPickingAppLoading] = useState(false);
+  const [appLoadingSimulateOpen, setAppLoadingSimulateOpen] = useState(false);
+  const [simulateProgress, setSimulateProgress] = useState(0);
   
   const isSuperuser = !!(user?.is_superuser === true || user?.is_superuser === 1 || user?.is_superuser === '1');
+  const activeAppLoadingPreview = appLoadingPickStaging || appLoadingPreview;
   const isFeatureDisabledError = (error) => Number(error?.response?.status) === 410;
   
   // Verifica permessi
@@ -575,6 +581,23 @@ export default function SuperUserScreen() {
     getAppLoadingMediaSettings().then(setAppLoadingPreview);
   }, [activeTab, isSuperuser]);
 
+  useEffect(() => {
+    if (!appLoadingSimulateOpen) {
+      setSimulateProgress(0);
+      return;
+    }
+    let frame;
+    const start = Date.now();
+    const cycleMs = 4800;
+    const tick = () => {
+      const phase = ((Date.now() - start) % cycleMs) / cycleMs;
+      setSimulateProgress(phase);
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [appLoadingSimulateOpen]);
+
   const handlePickAppLoadingMedia = async () => {
     if (!isSuperuser) return;
     try {
@@ -590,14 +613,22 @@ export default function SuperUserScreen() {
         copyToCacheDirectory: true,
       });
       if (result.canceled || !result.assets || result.assets.length === 0) return;
+      const asset = result.assets[0];
+      const pickType = guessPickMediaType(asset.mimeType, asset.name);
+      setAppLoadingPickStaging({
+        uri: asset.uri,
+        type: pickType,
+        name: asset.name || 'file',
+      });
       setPickingAppLoading(true);
-      const saved = await saveAppLoadingMediaFromPicker(result.assets[0]);
+      const saved = await saveAppLoadingMediaFromPicker(asset);
       setAppLoadingPreview(saved);
       showToast('Schermata di caricamento aggiornata', 'success');
     } catch (e) {
       console.error('App loading media pick:', e);
       showToast(e?.message || 'Impossibile importare il file');
     } finally {
+      setAppLoadingPickStaging(null);
       setPickingAppLoading(false);
     }
   };
@@ -606,8 +637,9 @@ export default function SuperUserScreen() {
     if (!isSuperuser) return;
     try {
       setPickingAppLoading(true);
+      setAppLoadingPickStaging(null);
       await clearAppLoadingMedia();
-      setAppLoadingPreview({ uri: null, type: null });
+      setAppLoadingPreview({ uri: null, type: null, name: null });
       showToast('Ripristinata schermata predefinita', 'success');
     } catch (e) {
       showToast(e?.message || 'Impossibile rimuovere il file');
@@ -1540,37 +1572,25 @@ export default function SuperUserScreen() {
             keyboardShouldPersistTaps="handled"
           >
             <Text style={styles.appSettingsTitle}>Impostazioni app</Text>
-            <Text style={styles.appSettingsHint}>
-              Preferenze globali per tutti gli utenti: salvate sul server e mostrate a ogni installazione.
-              Altre opzioni da qui in futuro.
-            </Text>
 
             <View style={styles.appSettingsCard}>
-              <Text style={styles.appSettingsSectionTitle}>Schermata di caricamento (avvio)</Text>
+              <Text style={styles.appSettingsSectionTitle}>Schermata di caricamento (9:16)</Text>
               <Text style={styles.appSettingsBody}>
-                {`Caricato sul server (Supabase Storage): stesso GIF/video per tutti durante l'avvio dell'app. Meglio file leggeri e in loop.`}
+                {`File sul server: stesso media per tutti. Overlay nero a tutto schermo; immagine/video in loop con riempimento “cover” (come l’anteprima qui sotto).`}
               </Text>
 
-              {appLoadingPreview.uri ? (
-                <View style={styles.appLoadingPreviewBox}>
-                  {appLoadingPreview.type === 'video' ? (
-                    <LoopingVideoView
-                      uri={appLoadingPreview.uri}
-                      style={styles.appLoadingPreviewMedia}
-                    />
-                  ) : (
-                    <Image
-                      source={{ uri: appLoadingPreview.uri }}
-                      style={styles.appLoadingPreviewMedia}
-                      resizeMode="contain"
-                    />
-                  )}
-                </View>
-              ) : (
-                <Text style={styles.appSettingsMuted}>
-                  {`Nessun media: spinner classico all'avvio.`}
+              <View style={styles.appSettingsProportionsBox}>
+                <Text style={styles.appSettingsProportionsTitle}>Proporzioni consigliate</Text>
+                <Text style={styles.appSettingsProportionsLine}>
+                  {`• Formato verticale 9 : 16 (es. 1080×1920 o 720×1280 px): è il rapporto più vicino alla maggior parte degli smartphone in portrait, quindi tende a tagliare meno.`}
                 </Text>
-              )}
+                <Text style={styles.appSettingsProportionsLine}>
+                  {`• Evita video o immagini molto più larghi che alti (es. 16:9 orizzontale) o quadrati 1:1 se il soggetto importante è ai bordi: con “cover” i lati o l’alto/basso vengono tagliati.`}
+                </Text>
+                <Text style={styles.appSettingsProportionsLine}>
+                  {`• Su telefoni più “lunghi” (circa 19.5:9 o 20:9) può tagliare un filo in alto o in basso: tieni logo e testo nella zona centrale (~85% larghezza × ~80% altezza).`}
+                </Text>
+              </View>
 
               <TouchableOpacity
                 style={[styles.appSettingsPrimaryBtn, pickingAppLoading && styles.appSettingsBtnDisabled]}
@@ -1584,7 +1604,55 @@ export default function SuperUserScreen() {
                 )}
               </TouchableOpacity>
 
-              {appLoadingPreview.uri ? (
+              {!activeAppLoadingPreview?.uri ? (
+                <Text style={[styles.appSettingsMuted, { marginTop: 14 }]}>
+                  {`Nessun file: in caricamento reale vedrai solo lo spinner.`}
+                </Text>
+              ) : (
+                <>
+                  <Text style={styles.appSettingsPreviewTitle}>Anteprima sul telefono</Text>
+                  <View style={styles.appLoadingPreviewStage}>
+                    {activeAppLoadingPreview.type === 'video' ? (
+                      <LoopingVideoView
+                        uri={activeAppLoadingPreview.uri}
+                        style={StyleSheet.absoluteFillObject}
+                        contentFit="cover"
+                      />
+                    ) : (
+                      <Image
+                        source={{ uri: activeAppLoadingPreview.uri }}
+                        style={StyleSheet.absoluteFillObject}
+                        resizeMode="cover"
+                      />
+                    )}
+                    {pickingAppLoading && appLoadingPickStaging ? (
+                      <View style={styles.appLoadingPreviewUploadOverlay}>
+                        <ActivityIndicator color="#fff" size="large" />
+                        <Text style={styles.appLoadingPreviewUploadText}>Invio al server…</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                  {activeAppLoadingPreview.name ? (
+                    <Text style={styles.appSettingsFileName} numberOfLines={2}>
+                      {activeAppLoadingPreview.name}
+                    </Text>
+                  ) : null}
+                  <Text style={styles.appSettingsPreviewFoot}>
+                    {`Stesso taglio che in app. Per ritaglio, durata o punto d’inizio del clip, modifica il file con un editor e ricaricalo.`}
+                  </Text>
+                </>
+              )}
+
+              <TouchableOpacity
+                style={[styles.appSettingsOutlineBtn, { marginTop: 4 }]}
+                onPress={() => setAppLoadingSimulateOpen(true)}
+                disabled={pickingAppLoading}
+              >
+                <Ionicons name="phone-portrait-outline" size={20} color="#667eea" />
+                <Text style={styles.appSettingsOutlineBtnText}>Anteprima a tutto schermo (loop)</Text>
+              </TouchableOpacity>
+
+              {activeAppLoadingPreview?.uri ? (
                 <TouchableOpacity
                   style={styles.appSettingsSecondaryBtn}
                   onPress={handleClearAppLoadingMedia}
@@ -2349,6 +2417,15 @@ export default function SuperUserScreen() {
           </View>
         </View>
       </Modal>
+
+      <AppLoadingFullScreenModal
+        visible={appLoadingSimulateOpen}
+        uri={appLoadingPreview.uri}
+        mediaType={appLoadingPreview.type}
+        showClose
+        onClose={() => setAppLoadingSimulateOpen(false)}
+        progress={simulateProgress}
+      />
 
       {toastMsg && (
         <View style={[styles.toast, toastMsg.type === 'success' ? styles.toastSuccess : styles.toastError]}>
@@ -3461,31 +3538,95 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#555',
     lineHeight: 20,
+    marginBottom: 12,
+  },
+  appSettingsProportionsBox: {
+    backgroundColor: '#f0f1f7',
+    borderRadius: 10,
+    padding: 12,
     marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#e2e4ef',
+  },
+  appSettingsProportionsTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#333',
+    marginBottom: 6,
+  },
+  appSettingsProportionsLine: {
+    fontSize: 13,
+    color: '#444',
+    lineHeight: 20,
+    marginTop: 4,
+  },
+  appSettingsOutlineBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: '#667eea',
+    marginTop: 16,
+    marginBottom: 4,
+    backgroundColor: '#f8f9ff',
+  },
+  appSettingsOutlineBtnText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#667eea',
+  },
+  appSettingsPreviewTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#333',
+    marginTop: 18,
+    marginBottom: 10,
+  },
+  appLoadingPreviewStage: {
+    width: '100%',
+    maxHeight: 440,
+    aspectRatio: 9 / 16,
+    alignSelf: 'center',
+    borderRadius: 14,
+    overflow: 'hidden',
+    backgroundColor: '#000',
+    borderWidth: 2,
+    borderColor: '#2a2a2a',
+  },
+  appLoadingPreviewUploadOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  appLoadingPreviewUploadText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  appSettingsFileName: {
+    fontSize: 13,
+    color: '#555',
+    marginTop: 10,
+    marginBottom: 4,
+  },
+  appSettingsPreviewFoot: {
+    fontSize: 13,
+    color: '#666',
+    lineHeight: 19,
+    marginTop: 6,
+    marginBottom: 4,
   },
   appSettingsMuted: {
     fontSize: 14,
     color: '#999',
     marginBottom: 16,
     fontStyle: 'italic',
-  },
-  appLoadingPreviewBox: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#f8f8fc',
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 16,
-    minHeight: 140,
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
-  },
-  appLoadingPreviewMedia: {
-    width: '100%',
-    maxWidth: 220,
-    height: 140,
-    borderRadius: 8,
-    backgroundColor: '#eee',
   },
   appSettingsPrimaryBtn: {
     backgroundColor: '#667eea',
