@@ -6,11 +6,11 @@ import {
   FlatList,
   TouchableOpacity,
   RefreshControl,
-  ActivityIndicator,
   TextInput,
   Image,
 } from 'react-native';
 import { useAuth } from '../context/AuthContext';
+import { useAppLoadingMedia } from '../context/AppLoadingMediaContext';
 import { useOnboarding } from '../context/OnboardingContext';
 import { teamsService, leagueService, formationService } from '../services/api';
 import { Ionicons } from '@expo/vector-icons';
@@ -19,9 +19,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { defaultLogosMap } from '../constants/defaultLogos';
 import { syncSubmittedFormationOnboarding } from '../utils/formationSubmission';
+import AppLoadingShell from '../components/AppLoadingShell';
 
 export default function TeamsScreen({ route, navigation }) {
   const { user } = useAuth();
+  const { uri: loadingShellUri, type: loadingShellType } = useAppLoadingMedia();
   const { markDone } = useOnboarding();
   const { leagueId } = route.params || {};
   const insets = useSafeAreaInsets();
@@ -155,11 +157,7 @@ export default function TeamsScreen({ route, navigation }) {
   };
 
   if (loading) {
-    return (
-      <View style={styles.centerContainer}>
-        <ActivityIndicator size="large" color="#667eea" />
-      </View>
-    );
+    return <AppLoadingShell uri={loadingShellUri} mediaType={loadingShellType} />;
   }
 
   return (
@@ -234,11 +232,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f5f5f5',
-  },
-  centerContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   header: {
     backgroundColor: '#fff',

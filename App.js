@@ -11,6 +11,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 
 // Context
 import { AuthProvider, useAuth } from './src/context/AuthContext';
+import { AppLoadingMediaProvider, useAppLoadingMedia } from './src/context/AppLoadingMediaContext';
 
 // Screens
 import LoginScreen from './src/screens/LoginScreen';
@@ -52,10 +53,6 @@ import LeagueBottomMenu from './src/components/LeagueBottomMenu';
 import { OnboardingProvider } from './src/context/OnboardingContext';
 import { leagueService } from './src/services/api';
 import AppLoadingShell from './src/components/AppLoadingShell';
-import {
-  getAppLoadingMediaSettings,
-  subscribeAppLoadingMedia,
-} from './src/utils/appLoadingMediaSettings';
 
 const Stack = createStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -145,27 +142,12 @@ function MainTabs() {
 // Stack Navigator principale
 function AppNavigator() {
   const { user, loading, updateRequiredInfo } = useAuth();
+  const { uri: loadingMediaUri, type: loadingMediaType } = useAppLoadingMedia();
   const [bootstrapTimedOut, setBootstrapTimedOut] = useState(false);
-  const [loadingMedia, setLoadingMedia] = useState({ uri: null, type: null });
 
   useEffect(() => {
     const timer = setTimeout(() => setBootstrapTimedOut(true), 10000);
     return () => clearTimeout(timer);
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    const load = () => {
-      getAppLoadingMediaSettings().then((r) => {
-        if (!cancelled) setLoadingMedia(r);
-      });
-    };
-    load();
-    const unsub = subscribeAppLoadingMedia(load);
-    return () => {
-      cancelled = true;
-      unsub();
-    };
   }, []);
 
   if (updateRequiredInfo) {
@@ -174,7 +156,7 @@ function AppNavigator() {
 
   if (loading && !bootstrapTimedOut) {
     return (
-      <AppLoadingShell uri={loadingMedia.uri} mediaType={loadingMedia.type} />
+      <AppLoadingShell uri={loadingMediaUri} mediaType={loadingMediaType} />
     );
   }
 
@@ -320,10 +302,12 @@ function AppNavigator() {
 export default function App() {
   return (
     <SafeAreaProvider>
-      <AuthProvider>
-        <StatusBar style="auto" />
-        <AppNavigator />
-      </AuthProvider>
+      <AppLoadingMediaProvider>
+        <AuthProvider>
+          <StatusBar style="auto" />
+          <AppNavigator />
+        </AuthProvider>
+      </AppLoadingMediaProvider>
     </SafeAreaProvider>
   );
 }
