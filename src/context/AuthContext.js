@@ -6,6 +6,7 @@ import {
   setUnauthorizedHandler,
   setUpdateRequiredHandler,
 } from '../services/api';
+import { prefetchLeagueWarmData, invalidateAllLeagueWarmCache } from '../services/leagueWarmCache';
 import { registerPushTokenIfPermitted } from '../services/notificationService';
 
 const AuthContext = createContext({});
@@ -110,6 +111,7 @@ export const AuthProvider = ({ children }) => {
 
   useEffect(() => {
     setUnauthorizedHandler(async () => {
+      invalidateAllLeagueWarmCache();
       setToken(null);
       setUser(null);
       authService.setAuthToken(null);
@@ -152,14 +154,21 @@ export const AuthProvider = ({ children }) => {
           authService.validateSession(),
           new Promise((_, reject) => setTimeout(() => reject(new Error('Session validation timeout')), 8000)),
         ]);
-        setBootstrapProgress(0.78);
         setToken(storedToken);
+        let parsedUser = null;
         try {
-          setUser(JSON.parse(storedUser));
+          parsedUser = JSON.parse(storedUser);
+          setUser(parsedUser);
         } catch (_) {
           setUser(null);
         }
-        setBootstrapProgress(0.9);
+        if (parsedUser) {
+          setBootstrapProgress(0.7);
+          await prefetchLeagueWarmData({
+            onProgress: (f) => setBootstrapProgress(0.7 + Math.min(1, f) * 0.26),
+            userId: parsedUser?.id,
+          });
+        }
         registerPushTokenIfPermitted().catch(() => {});
       } else {
         authService.setAuthToken(null);
@@ -194,6 +203,7 @@ export const AuthProvider = ({ children }) => {
       setUser(newUser);
       authService.setAuthToken(newToken);
       registerPushTokenIfPermitted().catch(() => {});
+      prefetchLeagueWarmData({ onProgress: () => {}, userId: newUser?.id }).catch(() => {});
 
       return { success: true };
     } catch (error) {
@@ -228,6 +238,7 @@ export const AuthProvider = ({ children }) => {
       setUser(newUser);
       authService.setAuthToken(newToken);
       registerPushTokenIfPermitted().catch(() => {});
+      prefetchLeagueWarmData({ onProgress: () => {}, userId: newUser?.id }).catch(() => {});
 
       return { success: true };
     } catch (error) {
@@ -240,6 +251,7 @@ export const AuthProvider = ({ children }) => {
 
   const logout = async () => {
     try {
+      invalidateAllLeagueWarmCache();
       await AsyncStorage.removeItem('authToken');
       await AsyncStorage.removeItem('user');
       setToken(null);

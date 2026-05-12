@@ -10,6 +10,14 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { formationService, leagueService } from '../services/api';
+import {
+  peekLeagueDetail,
+  peekFormationMatchdays,
+  peekFormationPayload,
+  setLeagueDetail,
+  setFormationMatchdays,
+  setFormationPayload,
+} from '../services/leagueWarmCache';
 import { useOnboarding } from '../context/OnboardingContext';
 import { hasSubmittedFormationPayload } from '../utils/formationSubmission';
 import { parseAppDate } from '../utils/dateTime';
@@ -34,9 +42,62 @@ export default function CalendarScreen({ route, navigation }) {
 
   const parseDeadlineDate = (value) => parseAppDate(value);
 
+  const enrichMatchdays = async (leagueData, rawMatchdays) => {
+    const list = Array.isArray(rawMatchdays) ? rawMatchdays : [];
+    return Promise.all(
+      list.map(async (matchday) => {
+        let hasFormation = false;
+        if (leagueData?.auto_lineup_mode === 1) {
+          hasFormation = true;
+        } else {
+          const cached = peekFormationPayload(leagueId, matchday.giornata);
+          if (cached != null) {
+            hasFormation = hasSubmittedFormationPayload(cached);
+          } else {
+            try {
+              const formationRes = await formationService.getFormation(leagueId, matchday.giornata);
+              const fd = formationRes?.data;
+              setFormationPayload(leagueId, matchday.giornata, fd);
+              hasFormation = hasSubmittedFormationPayload(fd);
+            } catch (error) {
+              hasFormation = false;
+            }
+          }
+        }
+
+        const now = new Date();
+        const deadline = parseDeadlineDate(matchday.deadline);
+        const isExpired = deadline ? deadline < now : false;
+
+        return {
+          ...matchday,
+          hasFormation,
+          isExpired,
+        };
+      })
+    );
+  };
+
   const loadData = async () => {
-    try {
+    const warmL = peekLeagueDetail(leagueId);
+    const warmMd = peekFormationMatchdays(leagueId);
+    const hasWarmCore = warmL != null && warmMd != null;
+
+    if (hasWarmCore) {
+      setLeague(warmL);
+      try {
+        const initial = await enrichMatchdays(warmL, warmMd);
+        setMatchdays(initial);
+        if (initial.some((m) => m.hasFormation)) {
+          markDone('submitted_formation');
+        }
+      } catch (_) {}
+      setLoading(false);
+    } else {
       setLoading(true);
+    }
+
+    try {
       const [leagueRes, matchdaysRes] = await Promise.all([
         leagueService.getById(leagueId),
         formationService.getMatchdays(leagueId),
@@ -44,44 +105,25 @@ export default function CalendarScreen({ route, navigation }) {
 
       const leagueData = Array.isArray(leagueRes.data) ? leagueRes.data[0] : leagueRes.data;
       setLeague(leagueData);
+      if (leagueData && typeof leagueData === 'object') setLeagueDetail(leagueId, leagueData);
 
-      // Per ogni giornata, verifica se l'utente ha inviato la formazione
-      const matchdaysWithStatus = await Promise.all(
-        (matchdaysRes.data || []).map(async (matchday) => {
-          let hasFormation = false;
-          if (leagueData.auto_lineup_mode === 1) {
-            hasFormation = true;
-          } else {
-            try {
-              const formationRes = await formationService.getFormation(leagueId, matchday.giornata);
-              hasFormation = hasSubmittedFormationPayload(formationRes?.data);
-            } catch (error) {
-              hasFormation = false;
-            }
-          }
+      const rawMd = Array.isArray(matchdaysRes.data) ? matchdaysRes.data : [];
+      setFormationMatchdays(leagueId, rawMd);
 
-          // Controlla se la scadenza è nel passato
-          const now = new Date();
-          const deadline = parseDeadlineDate(matchday.deadline);
-          const isExpired = deadline < now;
-
-          return {
-            ...matchday,
-            hasFormation,
-            isExpired,
-          };
-        })
-      );
+      const matchdaysWithStatus = await enrichMatchdays(leagueData, rawMd);
 
       setMatchdays(matchdaysWithStatus);
 
-      // Se almeno una giornata ha una formazione inviata, rimuovi il badge
-      if (matchdaysWithStatus.some(m => m.hasFormation)) {
+      if (matchdaysWithStatus.some((m) => m.hasFormation)) {
         markDone('submitted_formation');
       }
     } catch (error) {
       console.error('Error loading calendar:', error);
-      showToast('Impossibile caricare il calendario');
+      if (!hasWarmCore) {
+        showToast('Impossibile caricare il calendario');
+      } else {
+        showToast('Impossibile aggiornare il calendario');
+      }
     } finally {
       setLoading(false);
     }

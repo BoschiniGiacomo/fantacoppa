@@ -11,6 +11,14 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
 import { leagueService, formationService } from '../services/api';
+import {
+  peekLeagueDetail,
+  peekStandingsFull,
+  peekFormationMatchdays,
+  setLeagueDetail,
+  setStandingsFull,
+  setFormationMatchdays,
+} from '../services/leagueWarmCache';
 import { useFocusEffect } from '@react-navigation/native';
 import BonusIcon from '../components/BonusIcon';
 
@@ -54,8 +62,28 @@ export default function StandingsScreen({ route, navigation }) {
   }, [activeTab, selectedMatchday]);
 
   const loadData = async () => {
-    try {
+    const warmL = peekLeagueDetail(leagueId);
+    const warmStand = peekStandingsFull(leagueId);
+    const warmMd = peekFormationMatchdays(leagueId);
+    const hasWarm = warmStand != null && warmMd != null;
+
+    if (hasWarm) {
+      if (warmL != null) setLeague(warmL);
+      const standingsData = warmStand;
+      if (Array.isArray(standingsData)) setStandings(standingsData);
+      else if (standingsData && typeof standingsData === 'object') setStandings(Object.values(standingsData));
+      else setStandings([]);
+      setMatchdays(Array.isArray(warmMd) ? warmMd : []);
+      const mdArr = Array.isArray(warmMd) ? warmMd : [];
+      if (mdArr.length > 0) {
+        setSelectedMatchday(mdArr[mdArr.length - 1].giornata);
+      }
+      setLoading(false);
+    } else {
       setLoading(true);
+    }
+
+    try {
       const [leagueRes, standingsRes, matchdaysRes] = await Promise.all([
         leagueService.getById(leagueId),
         leagueService.getStandingsFull(leagueId),
@@ -63,21 +91,26 @@ export default function StandingsScreen({ route, navigation }) {
       ]);
       const leagueData = Array.isArray(leagueRes.data) ? leagueRes.data[0] : leagueRes.data;
       setLeague(leagueData);
+      if (leagueData && typeof leagueData === 'object') setLeagueDetail(leagueId, leagueData);
 
       const standingsData = standingsRes.data;
       if (Array.isArray(standingsData)) setStandings(standingsData);
       else if (standingsData && typeof standingsData === 'object') setStandings(Object.values(standingsData));
       else setStandings([]);
+      setStandingsFull(leagueId, standingsRes.data);
 
       const matchdaysData = matchdaysRes.data;
-      setMatchdays(Array.isArray(matchdaysData) ? matchdaysData : []);
+      const mdList = Array.isArray(matchdaysData) ? matchdaysData : [];
+      setMatchdays(mdList);
+      setFormationMatchdays(leagueId, mdList);
 
-      if (matchdaysRes.data && matchdaysRes.data.length > 0) {
-        setSelectedMatchday(matchdaysRes.data[matchdaysRes.data.length - 1].giornata);
+      if (mdList.length > 0) {
+        setSelectedMatchday(mdList[mdList.length - 1].giornata);
       }
     } catch (error) {
       console.error('Error loading standings:', error);
-      showToast('Impossibile caricare la classifica');
+      if (!hasWarm) showToast('Impossibile caricare la classifica');
+      else showToast('Impossibile aggiornare la classifica');
     } finally {
       setLoading(false);
     }

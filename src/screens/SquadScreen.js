@@ -14,6 +14,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { useOnboarding } from '../context/OnboardingContext';
 import { squadService, formationService } from '../services/api';
+import { peekSquadBootstrap, setSquadBootstrap, invalidateLeagueWarmCache } from '../services/leagueWarmCache';
 import { Ionicons } from '@expo/vector-icons';
 import { syncSubmittedFormationOnboarding } from '../utils/formationSubmission';
 import InjurySwapIcon from '../components/InjurySwapIcon';
@@ -55,37 +56,53 @@ export default function SquadScreen({ route, navigation }) {
     A: 'Attaccanti',
   };
 
+  const applyBootstrap = (data) => {
+    const players = Array.isArray(data?.players)
+      ? data.players
+      : (Array.isArray(data?.squad) ? data.squad : []);
+    setSquad(players);
+
+    const budgetValue = data?.budget ?? 0;
+    setBudget(typeof budgetValue === 'number' ? budgetValue : parseFloat(budgetValue) || 0);
+
+    const computedTotalValue = Number(data?.total_value || 0);
+    setTotalValue(computedTotalValue);
+    setRoleLimits(data?.role_limits || {});
+    setMarketBlocked(Boolean(data?.market_blocked));
+    if (data?.league && typeof data.league === 'object') {
+      setLeague(data.league);
+    }
+  };
+
   const loadData = useCallback(async () => {
+    const warm = peekSquadBootstrap(leagueId);
+    if (warm != null) {
+      applyBootstrap(warm);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
+
     try {
       const bootstrapRes = await squadService.getBootstrap(leagueId);
       const data = bootstrapRes?.data || {};
-      const players = Array.isArray(data?.players)
-        ? data.players
-        : (Array.isArray(data?.squad) ? data.squad : []);
-      setSquad(players);
-
-      const budgetValue = data?.budget ?? 0;
-      setBudget(typeof budgetValue === 'number' ? budgetValue : parseFloat(budgetValue) || 0);
-
-      // Valore rosa: somma rating dei giocatori caricati
-      const computedTotalValue = Number(data?.total_value || 0);
-      setTotalValue(computedTotalValue);
-      setRoleLimits(data?.role_limits || {});
-      setMarketBlocked(Boolean(data?.market_blocked));
-      if (data?.league && typeof data.league === 'object') {
-        setLeague(data.league);
-      }
+      applyBootstrap(data);
+      setSquadBootstrap(leagueId, data);
 
       try {
         await syncSubmittedFormationOnboarding({ leagueId, formationService, markDone });
       } catch (_) {}
     } catch (error) {
       console.error('Error loading squad data:', error);
-      showToast('Impossibile caricare la rosa');
-      setBudget(0);
-      setTotalValue(0);
-      setSquad([]);
-      setMarketBlocked(false);
+      if (warm == null) {
+        showToast('Impossibile caricare la rosa');
+        setBudget(0);
+        setTotalValue(0);
+        setSquad([]);
+        setMarketBlocked(false);
+      } else {
+        showToast('Impossibile aggiornare la rosa');
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -112,6 +129,7 @@ export default function SquadScreen({ route, navigation }) {
 
   const onRefresh = () => {
     setRefreshing(true);
+    invalidateLeagueWarmCache(leagueId);
     loadData();
   };
 
@@ -131,6 +149,7 @@ export default function SquadScreen({ route, navigation }) {
       setRemoveFeedback(`${confirmPlayer.first_name} ${confirmPlayer.last_name} rimosso`);
       setTimeout(() => setRemoveFeedback(''), 2000);
       setConfirmPlayer(null);
+      invalidateLeagueWarmCache(leagueId);
       loadData();
     } catch (error) {
       showToast(error.response?.data?.message || 'Errore durante la rimozione');

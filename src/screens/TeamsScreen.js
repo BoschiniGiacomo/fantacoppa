@@ -13,6 +13,13 @@ import { useAuth } from '../context/AuthContext';
 import { useAppLoadingMedia } from '../context/AppLoadingMediaContext';
 import { useOnboarding } from '../context/OnboardingContext';
 import { teamsService, leagueService, formationService } from '../services/api';
+import {
+  peekLeagueDetail,
+  peekTeamsRows,
+  setLeagueDetail,
+  setTeamsRows,
+  invalidateLeagueWarmCache,
+} from '../services/leagueWarmCache';
 import { Ionicons } from '@expo/vector-icons';
 import { publicAssetUrl } from '../services/api';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -52,26 +59,47 @@ export default function TeamsScreen({ route, navigation }) {
   );
 
   const loadData = async () => {
-    setLoading(true);
-    setLoadingProgress(0);
+    const warmL = peekLeagueDetail(leagueId);
+    const warmRows = peekTeamsRows(leagueId);
+    const hasWarm = warmL != null || warmRows != null;
+
+    if (warmL != null) setLeague(warmL);
+    if (warmRows != null) {
+      const normalizedWarm = warmRows.map((row) => ({
+        ...row,
+        budget: safeNumber(row?.budget, 0),
+      }));
+      setTeams(normalizedWarm);
+    }
+
+    if (hasWarm) {
+      setLoading(false);
+      setLoadingProgress(1);
+    } else {
+      setLoading(true);
+      setLoadingProgress(0);
+    }
+
     try {
       try {
         await syncSubmittedFormationOnboarding({ leagueId, formationService, markDone });
       } catch (_) {}
-      setLoadingProgress(0.1);
+      if (!hasWarm) setLoadingProgress(0.1);
 
       let done = 0;
       const onPartDone = () => {
         done += 1;
-        setLoadingProgress(0.1 + (0.78 * done) / 2);
+        if (!hasWarm) setLoadingProgress(0.1 + (0.78 * done) / 2);
       };
 
       await Promise.all([
         loadLeague().then(onPartDone).catch(onPartDone),
         loadTeams().then(onPartDone).catch(onPartDone),
       ]);
-      setLoadingProgress(1);
-      await new Promise((r) => setTimeout(r, 160));
+      if (!hasWarm) {
+        setLoadingProgress(1);
+        await new Promise((r) => setTimeout(r, 160));
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -83,6 +111,7 @@ export default function TeamsScreen({ route, navigation }) {
       const res = await leagueService.getById(leagueId);
       const leagueData = Array.isArray(res.data) ? res.data[0] : res.data;
       setLeague(leagueData);
+      if (leagueData && typeof leagueData === 'object') setLeagueDetail(leagueId, leagueData);
     } catch (error) {
       console.error('Error loading league:', error);
     }
@@ -92,6 +121,7 @@ export default function TeamsScreen({ route, navigation }) {
     try {
       const response = await teamsService.getTeams(leagueId);
       const rows = Array.isArray(response.data) ? response.data : [];
+      setTeamsRows(leagueId, rows);
       const normalized = rows.map((row) => ({
         ...row,
         budget: safeNumber(row?.budget, 0),
@@ -105,7 +135,8 @@ export default function TeamsScreen({ route, navigation }) {
 
   const onRefresh = () => {
     setRefreshing(true);
-    loadTeams();
+    invalidateLeagueWarmCache(leagueId);
+    loadData();
   };
 
   const filteredTeams = useMemo(() => {

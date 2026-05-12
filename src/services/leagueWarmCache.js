@@ -1,0 +1,473 @@
+import {
+  leagueService,
+  teamsService,
+  marketService,
+  squadService,
+  formationService,
+} from './api';
+import { hiddenLeagues } from '../utils/dashboardEvents';
+import { parseAppDate } from '../utils/dateTime';
+
+/** Dati mostrabili subito dopo prefetch; la schermata rifà sempre la fetch e aggiorna. */
+export const WARM_MAX_AGE_MS = 120000;
+
+const dashboardById = new Map();
+const leagueDetailById = new Map();
+const teamsRowsById = new Map();
+const marketBootstrapById = new Map();
+const squadBootstrapById = new Map();
+const standingsFullById = new Map();
+const formationMatchdaysById = new Map();
+const leagueSettingsById = new Map();
+const squadPlayersDataById = new Map();
+const formationPayloadByKey = new Map();
+const teamDetailByKey = new Map();
+
+function nid(leagueId) {
+  const n = Number(leagueId);
+  return Number.isFinite(n) ? n : null;
+}
+
+function isStale(row) {
+  return !row || Date.now() - row.ts > WARM_MAX_AGE_MS;
+}
+
+export function peekDashboard(leagueId) {
+  const id = nid(leagueId);
+  if (id == null) return null;
+  const row = dashboardById.get(id);
+  if (isStale(row)) return null;
+  return row.payload;
+}
+
+export function setDashboard(leagueId, payload) {
+  const id = nid(leagueId);
+  if (id == null) return;
+  dashboardById.set(id, { payload: payload && typeof payload === 'object' ? payload : {}, ts: Date.now() });
+}
+
+export function peekLeagueDetail(leagueId) {
+  const id = nid(leagueId);
+  if (id == null) return null;
+  const row = leagueDetailById.get(id);
+  if (isStale(row)) return null;
+  return row.data;
+}
+
+export function setLeagueDetail(leagueId, data) {
+  const id = nid(leagueId);
+  if (id == null) return;
+  leagueDetailById.set(id, { data, ts: Date.now() });
+}
+
+/** null = nessuna cache; array (anche vuota) = cache valida */
+export function peekTeamsRows(leagueId) {
+  const id = nid(leagueId);
+  if (id == null) return null;
+  const row = teamsRowsById.get(id);
+  if (isStale(row)) return null;
+  return Array.isArray(row.rows) ? row.rows : [];
+}
+
+export function setTeamsRows(leagueId, rows) {
+  const id = nid(leagueId);
+  if (id == null) return;
+  teamsRowsById.set(id, { rows: Array.isArray(rows) ? rows : [], ts: Date.now() });
+}
+
+/** Mercato con filtri default (tutti i ruoli, senza ricerca) — come all’ingresso in MarketScreen */
+export function peekMarketBootstrapDefault(leagueId) {
+  const id = nid(leagueId);
+  if (id == null) return null;
+  const row = marketBootstrapById.get(id);
+  if (isStale(row)) return null;
+  return row.data && typeof row.data === 'object' ? row.data : null;
+}
+
+export function setMarketBootstrapDefault(leagueId, data) {
+  const id = nid(leagueId);
+  if (id == null) return;
+  marketBootstrapById.set(id, { data: data && typeof data === 'object' ? data : {}, ts: Date.now() });
+}
+
+export function peekSquadBootstrap(leagueId) {
+  const id = nid(leagueId);
+  if (id == null) return null;
+  const row = squadBootstrapById.get(id);
+  if (isStale(row)) return null;
+  return row.data && typeof row.data === 'object' ? row.data : null;
+}
+
+export function setSquadBootstrap(leagueId, data) {
+  const id = nid(leagueId);
+  if (id == null) return;
+  squadBootstrapById.set(id, { data: data && typeof data === 'object' ? data : {}, ts: Date.now() });
+}
+
+export function peekStandingsFull(leagueId) {
+  const id = nid(leagueId);
+  if (id == null) return null;
+  const row = standingsFullById.get(id);
+  if (isStale(row)) return null;
+  return row.data;
+}
+
+export function setStandingsFull(leagueId, data) {
+  const id = nid(leagueId);
+  if (id == null) return;
+  standingsFullById.set(id, { data, ts: Date.now() });
+}
+
+/** null = assente; [] = nessuna giornata */
+export function peekFormationMatchdays(leagueId) {
+  const id = nid(leagueId);
+  if (id == null) return null;
+  const row = formationMatchdaysById.get(id);
+  if (isStale(row)) return null;
+  return Array.isArray(row.matchdays) ? row.matchdays : [];
+}
+
+export function setFormationMatchdays(leagueId, matchdays) {
+  const id = nid(leagueId);
+  if (id == null) return;
+  formationMatchdaysById.set(id, {
+    matchdays: Array.isArray(matchdays) ? matchdays : [],
+    ts: Date.now(),
+  });
+}
+
+export function peekLeagueSettings(leagueId) {
+  const id = nid(leagueId);
+  if (id == null) return null;
+  const row = leagueSettingsById.get(id);
+  if (isStale(row)) return null;
+  return row.data && typeof row.data === 'object' ? row.data : null;
+}
+
+export function setLeagueSettings(leagueId, data) {
+  const id = nid(leagueId);
+  if (id == null) return;
+  leagueSettingsById.set(id, { data: data && typeof data === 'object' ? data : {}, ts: Date.now() });
+}
+
+/** Risposta grezza di GET /squad/:leagueId (oggetto con players, ecc.) */
+export function peekSquadPlayersData(leagueId) {
+  const id = nid(leagueId);
+  if (id == null) return null;
+  const row = squadPlayersDataById.get(id);
+  if (isStale(row)) return null;
+  return row.data && typeof row.data === 'object' ? row.data : null;
+}
+
+export function setSquadPlayersData(leagueId, data) {
+  const id = nid(leagueId);
+  if (id == null) return;
+  squadPlayersDataById.set(id, { data: data && typeof data === 'object' ? data : {}, ts: Date.now() });
+}
+
+function formationPayloadKey(leagueId, giornata) {
+  const lid = nid(leagueId);
+  const g = Number(giornata);
+  if (lid == null || !Number.isFinite(g)) return null;
+  return `${lid}:${g}`;
+}
+
+/** null = non in cache */
+export function peekFormationPayload(leagueId, giornata) {
+  const k = formationPayloadKey(leagueId, giornata);
+  if (!k) return null;
+  const row = formationPayloadByKey.get(k);
+  if (isStale(row)) return null;
+  return row.payload != null ? row.payload : null;
+}
+
+export function setFormationPayload(leagueId, giornata, payload) {
+  const k = formationPayloadKey(leagueId, giornata);
+  if (!k) return;
+  formationPayloadByKey.set(k, { payload, ts: Date.now() });
+}
+
+export function peekTeamDetail(leagueId, userId) {
+  const lid = nid(leagueId);
+  const uid = nid(userId);
+  if (lid == null || uid == null) return null;
+  const k = `${lid}:${uid}`;
+  const row = teamDetailByKey.get(k);
+  if (isStale(row)) return null;
+  return row.payload && typeof row.payload === 'object' ? row.payload : null;
+}
+
+export function setTeamDetail(leagueId, userId, payload) {
+  const lid = nid(leagueId);
+  const uid = nid(userId);
+  if (lid == null || uid == null) return;
+  const k = `${lid}:${uid}`;
+  teamDetailByKey.set(k, { payload: payload && typeof payload === 'object' ? payload : {}, ts: Date.now() });
+}
+
+export function pickDefaultFormationGiornata(matchdays) {
+  const md = Array.isArray(matchdays) ? matchdays : [];
+  if (!md.length) return null;
+  const now = Date.now();
+  const future = md.find((m) => {
+    const d = parseAppDate(m?.deadline);
+    return d && d.getTime() > now;
+  });
+  if (future != null) return Number(future.giornata) || null;
+  const last = md[md.length - 1];
+  return Number(last?.giornata) || null;
+}
+
+export function invalidateLeagueWarmCache(leagueId) {
+  const id = nid(leagueId);
+  if (id == null) return;
+  dashboardById.delete(id);
+  leagueDetailById.delete(id);
+  teamsRowsById.delete(id);
+  marketBootstrapById.delete(id);
+  squadBootstrapById.delete(id);
+  standingsFullById.delete(id);
+  formationMatchdaysById.delete(id);
+  leagueSettingsById.delete(id);
+  squadPlayersDataById.delete(id);
+  for (const k of formationPayloadByKey.keys()) {
+    if (k.startsWith(`${id}:`)) formationPayloadByKey.delete(k);
+  }
+  for (const k of teamDetailByKey.keys()) {
+    if (k.startsWith(`${id}:`)) teamDetailByKey.delete(k);
+  }
+}
+
+export function invalidateAllLeagueWarmCache() {
+  dashboardById.clear();
+  leagueDetailById.clear();
+  teamsRowsById.clear();
+  marketBootstrapById.clear();
+  squadBootstrapById.clear();
+  standingsFullById.clear();
+  formationMatchdaysById.clear();
+  leagueSettingsById.clear();
+  squadPlayersDataById.clear();
+  formationPayloadByKey.clear();
+  teamDetailByKey.clear();
+}
+
+function normalizeLeagueList(raw) {
+  const data = Array.isArray(raw) ? raw : [];
+  return data.map((league) => ({
+    ...league,
+    favorite: Number(league?.favorite) === 1 || league?.favorite === true,
+    archived: Number(league?.archived) === 1 || league?.archived === true,
+    is_official: Number(league?.is_official) === 1 || league?.is_official === true,
+    reference_year: (() => {
+      const y = Number(league?.reference_year);
+      return Number.isFinite(y) ? y : null;
+    })(),
+  }));
+}
+
+function isOfficialLeague(league) {
+  return Number(league?.is_official) === 1 || league?.is_official === true;
+}
+
+function referenceYearOf(league) {
+  const y = Number(league?.reference_year);
+  return Number.isFinite(y) ? y : null;
+}
+
+/**
+ * Ordine prefetch: leghe ufficiali prima; tra ufficiali prima `reference_year` === anno di calendario;
+ * poi preferite non archiviate, altre non archiviate, archiviate.
+ */
+export function sortLeaguesForPrefetch(normalizedList, calendarYear = new Date().getFullYear()) {
+  const list = Array.isArray(normalizedList) ? [...normalizedList] : [];
+  list.sort((a, b) => {
+    const oa = isOfficialLeague(a);
+    const ob = isOfficialLeague(b);
+    if (oa !== ob) return oa ? -1 : 1;
+
+    if (oa) {
+      const ya = referenceYearOf(a);
+      const yb = referenceYearOf(b);
+      const ca = ya === calendarYear;
+      const cb = yb === calendarYear;
+      if (ca !== cb) return ca ? -1 : 1;
+      if (ya != null && yb != null && ya !== yb) return yb - ya;
+      if (ya != null && yb == null) return -1;
+      if (ya == null && yb != null) return 1;
+    }
+
+    const bucket = (l) => {
+      if (l.favorite && !l.archived) return 0;
+      if (!l.archived) return 1;
+      return 2;
+    };
+    const ba = bucket(a);
+    const bb = bucket(b);
+    if (ba !== bb) return ba - bb;
+    return 0;
+  });
+  return list;
+}
+
+export function pickPrefetchLeagueIds(normalizedList, maxLeagues, calendarYear = new Date().getFullYear()) {
+  const list = Array.isArray(normalizedList) ? normalizedList : [];
+  const filtered =
+    hiddenLeagues.size > 0 ? list.filter((l) => !hiddenLeagues.has(l.id)) : list;
+  const merged = sortLeaguesForPrefetch(filtered, calendarYear);
+  const seen = new Set();
+  const out = [];
+  for (const l of merged) {
+    const leagueNid = nid(l?.id);
+    if (leagueNid == null || seen.has(leagueNid)) continue;
+    seen.add(leagueNid);
+    out.push(leagueNid);
+    if (out.length >= maxLeagues) break;
+  }
+  return out;
+}
+
+async function mapPool(items, concurrency, iterator) {
+  if (!items.length) return;
+  let next = 0;
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (true) {
+      const i = next;
+      next += 1;
+      if (i >= items.length) return;
+      await iterator(items[i], i);
+    }
+  });
+  await Promise.all(workers);
+}
+
+const MAX_FORMATION_PREFETCH_PER_LEAGUE = 12;
+
+/**
+ * Dopo login/sessione valida: prefetch per leghe in ordine {@link sortLeaguesForPrefetch}.
+ * @param {{ onProgress?: (0..1) => void, maxLeagues?: number, concurrency?: number, userId?: number|string, calendarYear?: number }} opts
+ */
+export async function prefetchLeagueWarmData(opts = {}) {
+  const { onProgress, maxLeagues = 6, concurrency = 2, userId: userIdOpt, calendarYear } = opts;
+  const year = Number.isFinite(Number(calendarYear)) ? Number(calendarYear) : new Date().getFullYear();
+  const userId = nid(userIdOpt);
+  const report = (v) => {
+    try {
+      onProgress?.(Math.max(0, Math.min(1, v)));
+    } catch (_) {}
+  };
+  report(0);
+  try {
+    const res = await leagueService.getAll();
+    const normalized = normalizeLeagueList(res?.data);
+    const ids = pickPrefetchLeagueIds(normalized, maxLeagues, year);
+    report(0.04);
+    if (!ids.length) {
+      report(1);
+      return;
+    }
+    let done = 0;
+    const bump = () => {
+      done += 1;
+      report(0.04 + (0.96 * done) / ids.length);
+    };
+
+    await mapPool(ids, concurrency, async (id) => {
+      try {
+        const baseCalls = [
+          leagueService.getDashboardData(id),
+          leagueService.getById(id),
+          teamsService.getTeams(id),
+          marketService.getBootstrap(id, {}),
+          squadService.getBootstrap(id),
+          leagueService.getStandingsFull(id),
+          formationService.getMatchdays(id),
+          squadService.getSquad(id),
+          leagueService.getSettings(id),
+        ];
+        if (userId != null) {
+          baseCalls.push(teamsService.getTeamDetail(id, userId));
+        }
+        const results = await Promise.allSettled(baseCalls);
+        let ri = 0;
+        const dashR = results[ri++];
+        const detailR = results[ri++];
+        const teamsR = results[ri++];
+        const marketR = results[ri++];
+        const squadBootR = results[ri++];
+        const standingsR = results[ri++];
+        const matchdaysR = results[ri++];
+        const squadListR = results[ri++];
+        const settingsR = results[ri++];
+        const teamDetailR = userId != null ? results[ri++] : null;
+
+        if (dashR.status === 'fulfilled') {
+          const payload = dashR.value?.data;
+          if (payload && typeof payload === 'object') setDashboard(id, payload);
+        }
+        if (detailR.status === 'fulfilled') {
+          const d = detailR.value?.data;
+          const leagueData = Array.isArray(d) ? d[0] : d;
+          if (leagueData && typeof leagueData === 'object') setLeagueDetail(id, leagueData);
+        }
+        if (teamsR.status === 'fulfilled') {
+          const rows = teamsR.value?.data;
+          setTeamsRows(id, Array.isArray(rows) ? rows : []);
+        }
+        if (marketR.status === 'fulfilled') {
+          const data = marketR.value?.data;
+          if (data && typeof data === 'object') setMarketBootstrapDefault(id, data);
+        }
+        if (squadBootR.status === 'fulfilled') {
+          const data = squadBootR.value?.data;
+          if (data && typeof data === 'object') setSquadBootstrap(id, data);
+        }
+        if (standingsR.status === 'fulfilled') {
+          setStandingsFull(id, standingsR.value?.data);
+        }
+        let md = [];
+        if (matchdaysR.status === 'fulfilled') {
+          md = Array.isArray(matchdaysR.value?.data) ? matchdaysR.value.data : [];
+          setFormationMatchdays(id, md);
+        }
+        if (squadListR.status === 'fulfilled') {
+          const sd = squadListR.value?.data;
+          if (sd && typeof sd === 'object') setSquadPlayersData(id, sd);
+        }
+        if (settingsR.status === 'fulfilled') {
+          const sd = settingsR.value?.data;
+          if (sd && typeof sd === 'object') setLeagueSettings(id, sd);
+        }
+        if (teamDetailR?.status === 'fulfilled' && userId != null) {
+          const payload = teamDetailR.value?.data;
+          if (payload && typeof payload === 'object') setTeamDetail(id, userId, payload);
+        }
+
+        const defaultG = pickDefaultFormationGiornata(md);
+        const prefetchGiornate = new Set();
+        if (defaultG != null) prefetchGiornate.add(defaultG);
+        const tail = md.length <= MAX_FORMATION_PREFETCH_PER_LEAGUE
+          ? md
+          : md.slice(-MAX_FORMATION_PREFETCH_PER_LEAGUE);
+        tail.forEach((m) => {
+          const g = Number(m?.giornata);
+          if (Number.isFinite(g)) prefetchGiornate.add(g);
+        });
+
+        await Promise.all(
+          [...prefetchGiornate].map(async (g) => {
+            try {
+              const fr = await formationService.getFormation(id, g);
+              setFormationPayload(id, g, fr?.data);
+            } catch (_) {}
+          })
+        );
+      } finally {
+        bump();
+      }
+    });
+    report(1);
+  } catch (_) {
+    report(1);
+  }
+}

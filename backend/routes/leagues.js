@@ -665,6 +665,8 @@ router.get('/', authenticateToken, async (req, res) => {
               l.initial_budget, l.default_deadline_time, l.max_portieri, l.max_difensori,
               l.max_centrocampisti, l.max_attaccanti, l.numero_titolari, l.auto_lineup_mode,
               l.linked_to_league_id,
+              COALESCE(l.is_official, 0) AS is_official,
+              l.reference_year,
               ll.name AS linked_league_name,
               lm.role, ub.team_name, ub.coach_name, ub.team_logo,
               COALESCE(ulp.favorite, 0) AS favorite,

@@ -7,6 +7,18 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { useOnboarding } from '../context/OnboardingContext';
 import { formationService, leagueService, squadService } from '../services/api';
+import {
+  peekFormationMatchdays,
+  peekLeagueDetail,
+  peekSquadPlayersData,
+  peekLeagueSettings,
+  peekFormationPayload,
+  setFormationMatchdays,
+  setLeagueDetail,
+  setSquadPlayersData,
+  setLeagueSettings,
+  setFormationPayload,
+} from '../services/leagueWarmCache';
 import { Ionicons } from '@expo/vector-icons';
 import { parseAppDate } from '../utils/dateTime';
 
@@ -217,56 +229,17 @@ export default function FormationScreen({ route }) {
   // ============================================================
   // LOAD DATA
   // ============================================================
-  const loadInitialData = async () => {
+  const loadFormationForMatchday = async (giornata, squadOverride, warmPayload = null) => {
     try {
-      setLoading(true);
-      const [matchdaysRes, leagueRes, squadRes, settingsRes] = await Promise.all([
-        formationService.getMatchdays(leagueId),
-        leagueService.getById(leagueId).catch(() => ({ data: null })),
-        squadService.getSquad(leagueId).catch(() => ({ data: { players: [] } })),
-        leagueService.getSettings(leagueId).catch(() => ({ data: {} })),
-      ]);
-
-      const md = matchdaysRes.data || [];
-      setMatchdays(md);
-
-      if (leagueRes?.data) {
-        const ld = Array.isArray(leagueRes.data) ? leagueRes.data[0] : leagueRes.data;
-        setLeague(ld);
+      let data = {};
+      if (warmPayload != null && typeof warmPayload === 'object') {
+        data = warmPayload;
+        setFormationPayload(leagueId, giornata, data);
+      } else {
+        const res = await formationService.getFormation(leagueId, giornata);
+        data = res.data || {};
+        setFormationPayload(leagueId, giornata, data);
       }
-
-      const playersRaw = squadRes?.data?.players || [];
-      const activePlayers = playersRaw.filter((p) => Number(p?.is_injured || 0) !== 1);
-      setSquad(activePlayers);
-
-      const nt = settingsRes?.data?.numero_titolari || 10;
-      const al = !!(settingsRes?.data?.auto_lineup_mode);
-      setNumeroTitolari(nt);
-      setAutoLineup(al);
-
-      // Seleziona giornata default: la prima con scadenza futura, altrimenti l'ultima
-      if (md.length > 0) {
-        const now = new Date();
-        const futureMatchday = md.find((m) => {
-          const d = parseDeadlineDate(m?.deadline);
-          return !!d && d > now;
-        });
-        const defaultMd = futureMatchday ? futureMatchday.giornata : md[md.length - 1].giornata;
-        setSelectedMatchday(defaultMd);
-        await loadFormationForMatchday(defaultMd, activePlayers);
-      }
-    } catch (error) {
-      console.error('FormationScreen loadInitialData:', error);
-      showToast('Impossibile caricare i dati');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const loadFormationForMatchday = async (giornata, squadOverride) => {
-    try {
-      const res = await formationService.getFormation(leagueId, giornata);
-      const data = res.data || {};
       setDeadlineStr(data.deadline || null);
       setIsExpired(!!data.isExpired);
       setCanEdit(data.canEdit !== false);
@@ -314,6 +287,92 @@ export default function FormationScreen({ route }) {
       }
     } catch (error) {
       console.error('loadFormation error:', error);
+    }
+  };
+
+  const loadInitialData = async () => {
+    const warmMd = peekFormationMatchdays(leagueId);
+    const warmL = peekLeagueDetail(leagueId);
+    const warmSquad = peekSquadPlayersData(leagueId);
+    const warmSet = peekLeagueSettings(leagueId);
+    const hasWarmCore = warmMd != null && warmL != null && warmSquad != null && warmSet != null;
+
+    if (hasWarmCore) {
+      setMatchdays(warmMd);
+      setLeague(warmL);
+      const playersRaw = warmSquad?.players || [];
+      const activePlayers = playersRaw.filter((p) => Number(p?.is_injured || 0) !== 1);
+      setSquad(activePlayers);
+      const nt = warmSet.numero_titolari || 10;
+      const al = !!warmSet.auto_lineup_mode;
+      setNumeroTitolari(nt);
+      setAutoLineup(al);
+      if (warmMd.length > 0) {
+        const now = new Date();
+        const futureMatchday = warmMd.find((m) => {
+          const d = parseDeadlineDate(m?.deadline);
+          return !!d && d > now;
+        });
+        const defaultMd = futureMatchday ? futureMatchday.giornata : warmMd[warmMd.length - 1].giornata;
+        setSelectedMatchday(defaultMd);
+        const wf = peekFormationPayload(leagueId, defaultMd);
+        await loadFormationForMatchday(defaultMd, activePlayers, wf);
+      }
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
+
+    try {
+      const [matchdaysRes, leagueRes, squadRes, settingsRes] = await Promise.all([
+        formationService.getMatchdays(leagueId),
+        leagueService.getById(leagueId).catch(() => ({ data: null })),
+        squadService.getSquad(leagueId).catch(() => ({ data: { players: [] } })),
+        leagueService.getSettings(leagueId).catch(() => ({ data: {} })),
+      ]);
+
+      const md = matchdaysRes.data || [];
+      setMatchdays(md);
+      setFormationMatchdays(leagueId, md);
+
+      if (leagueRes?.data) {
+        const ld = Array.isArray(leagueRes.data) ? leagueRes.data[0] : leagueRes.data;
+        setLeague(ld);
+        if (ld && typeof ld === 'object') setLeagueDetail(leagueId, ld);
+      }
+
+      const squadPayload = squadRes?.data;
+      if (squadPayload && typeof squadPayload === 'object') setSquadPlayersData(leagueId, squadPayload);
+
+      const playersRaw = squadRes?.data?.players || [];
+      const activePlayers = playersRaw.filter((p) => Number(p?.is_injured || 0) !== 1);
+      setSquad(activePlayers);
+
+      const settingsPayload = settingsRes?.data;
+      if (settingsPayload && typeof settingsPayload === 'object') setLeagueSettings(leagueId, settingsPayload);
+
+      const nt = settingsRes?.data?.numero_titolari || 10;
+      const al = !!(settingsRes?.data?.auto_lineup_mode);
+      setNumeroTitolari(nt);
+      setAutoLineup(al);
+
+      // Seleziona giornata default: la prima con scadenza futura, altrimenti l'ultima
+      if (md.length > 0) {
+        const now = new Date();
+        const futureMatchday = md.find((m) => {
+          const d = parseDeadlineDate(m?.deadline);
+          return !!d && d > now;
+        });
+        const defaultMd = futureMatchday ? futureMatchday.giornata : md[md.length - 1].giornata;
+        setSelectedMatchday(defaultMd);
+        await loadFormationForMatchday(defaultMd, activePlayers);
+      }
+    } catch (error) {
+      console.error('FormationScreen loadInitialData:', error);
+      if (!hasWarmCore) showToast('Impossibile caricare i dati');
+      else showToast('Impossibile aggiornare i dati');
+    } finally {
+      setLoading(false);
     }
   };
 

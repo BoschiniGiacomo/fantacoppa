@@ -15,6 +15,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { useOnboarding } from '../context/OnboardingContext';
 import { marketService, formationService } from '../services/api';
+import { peekMarketBootstrapDefault, setMarketBootstrapDefault, invalidateLeagueWarmCache } from '../services/leagueWarmCache';
 import { Ionicons } from '@expo/vector-icons';
 import { syncSubmittedFormationOnboarding } from '../utils/formationSubmission';
 
@@ -84,44 +85,61 @@ export default function MarketScreen({ route, navigation }) {
     }, [leagueId, selectedRole, searchQuery])
   );
 
+  const applyBootstrapData = (data) => {
+    const playersList = Array.isArray(data.players) ? data.players : [];
+    setPlayers(playersList);
+    const budgetValue = data?.budget ?? 0;
+    setBudget(typeof budgetValue === 'number' ? budgetValue : parseFloat(budgetValue) || 0);
+    setMarketBlocked(Boolean(data.market_blocked || data.blocked));
+    setMarketBlockReason(String(data.block_reason || 'none'));
+    if (data.league && typeof data.league === 'object') {
+      setLeague(data.league);
+    }
+    const limits = data?.role_limits || {};
+    setRoleLimits({
+      P: Number(limits.P || 0) || 3,
+      D: Number(limits.D || 0) || 8,
+      C: Number(limits.C || 0) || 8,
+      A: Number(limits.A || 0) || 6,
+    });
+    const counts = data?.owned_counts || {};
+    setOwnedCounts({
+      P: Number(counts.P || 0),
+      D: Number(counts.D || 0),
+      C: Number(counts.C || 0),
+      A: Number(counts.A || 0),
+    });
+  };
+
   const loadData = async () => {
+    const useDefaultFilters = selectedRole === '' && !String(searchQuery || '').trim();
+    const warm = useDefaultFilters ? peekMarketBootstrapDefault(leagueId) : null;
+    if (warm != null) {
+      applyBootstrapData(warm);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
     try {
       const bootstrapRes = await marketService.getBootstrap(leagueId, { role: selectedRole, search: searchQuery });
       const data = bootstrapRes?.data || {};
-      const playersList = Array.isArray(data.players) ? data.players : [];
-      setPlayers(playersList);
-      const budgetValue = data?.budget ?? 0;
-      setBudget(typeof budgetValue === 'number' ? budgetValue : parseFloat(budgetValue) || 0);
-      setMarketBlocked(Boolean(data.market_blocked || data.blocked));
-      setMarketBlockReason(String(data.block_reason || 'none'));
-      if (data.league && typeof data.league === 'object') {
-        setLeague(data.league);
-      }
-      const limits = data?.role_limits || {};
-      setRoleLimits({
-        P: Number(limits.P || 0) || 3,
-        D: Number(limits.D || 0) || 8,
-        C: Number(limits.C || 0) || 8,
-        A: Number(limits.A || 0) || 6,
-      });
-      const counts = data?.owned_counts || {};
-      setOwnedCounts({
-        P: Number(counts.P || 0),
-        D: Number(counts.D || 0),
-        C: Number(counts.C || 0),
-        A: Number(counts.A || 0),
-      });
+      applyBootstrapData(data);
+      if (useDefaultFilters) setMarketBootstrapDefault(leagueId, data);
 
       try {
         await syncSubmittedFormationOnboarding({ leagueId, formationService, markDone });
       } catch (_) {}
     } catch (error) {
       console.error('Error loading market data:', error);
-      showError('Impossibile caricare i dati del mercato');
-      setBudget(0);
-      setPlayers([]);
-      setMarketBlocked(false);
-      setMarketBlockReason('none');
+      if (warm == null) {
+        showError('Impossibile caricare i dati del mercato');
+        setBudget(0);
+        setPlayers([]);
+        setMarketBlocked(false);
+        setMarketBlockReason('none');
+      } else {
+        showError('Impossibile aggiornare i dati del mercato');
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -130,6 +148,7 @@ export default function MarketScreen({ route, navigation }) {
 
   const onRefresh = () => {
     setRefreshing(true);
+    invalidateLeagueWarmCache(leagueId);
     loadData();
   };
 

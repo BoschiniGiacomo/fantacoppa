@@ -12,6 +12,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { useOnboarding } from '../context/OnboardingContext';
 import { teamsService, formationService } from '../services/api';
+import { peekTeamDetail, setTeamDetail } from '../services/leagueWarmCache';
 import { Ionicons } from '@expo/vector-icons';
 import { publicAssetUrl } from '../services/api';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -54,35 +55,50 @@ export default function TeamDetailScreen({ route, navigation }) {
     }, [leagueId, userId])
   );
 
+  const applyDetailPayload = (payload) => {
+    const teamData = payload?.team || payload;
+    const squadData = Array.isArray(payload?.squad)
+      ? payload.squad
+      : (Array.isArray(payload?.players) ? payload.players : []);
+    const resultsData = Array.isArray(payload?.results) ? payload.results : [];
+
+    const normalizedTeam = teamData && typeof teamData === 'object'
+      ? {
+          ...teamData,
+          budget: Number.isFinite(Number(teamData?.budget)) ? Number(teamData.budget) : 0,
+        }
+      : null;
+
+    setTeam(normalizedTeam);
+    setSquad(squadData);
+    setResults(resultsData);
+  };
+
   const loadTeamDetail = async () => {
+    const warm = peekTeamDetail(leagueId, userId);
+    if (warm != null) {
+      applyDetailPayload(warm);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
+
     try {
       try {
         await syncSubmittedFormationOnboarding({ leagueId, formationService, markDone });
       } catch (_) {}
       const response = await teamsService.getTeamDetail(leagueId, userId);
       const payload = response?.data || {};
-
-      // Compat: alcuni backend rispondono con { team, squad, results },
-      // altri con oggetto team "piatto" + players.
-      const teamData = payload?.team || payload;
-      const squadData = Array.isArray(payload?.squad)
-        ? payload.squad
-        : (Array.isArray(payload?.players) ? payload.players : []);
-      const resultsData = Array.isArray(payload?.results) ? payload.results : [];
-
-      const normalizedTeam = teamData && typeof teamData === 'object'
-        ? {
-            ...teamData,
-            budget: Number.isFinite(Number(teamData?.budget)) ? Number(teamData.budget) : 0,
-          }
-        : null;
-
-      setTeam(normalizedTeam);
-      setSquad(squadData);
-      setResults(resultsData);
+      applyDetailPayload(payload);
+      setTeamDetail(leagueId, userId, payload);
     } catch (error) {
-      showToast('Impossibile caricare i dettagli della squadra');
-      console.error(error);
+      if (warm == null) {
+        showToast('Impossibile caricare i dettagli della squadra');
+        console.error(error);
+      } else {
+        showToast('Impossibile aggiornare i dettagli della squadra');
+        console.error(error);
+      }
     } finally {
       setLoading(false);
     }

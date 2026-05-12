@@ -13,6 +13,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { useOnboarding } from '../context/OnboardingContext';
 import { leagueService, formationService } from '../services/api';
+import { peekDashboard, setDashboard } from '../services/leagueWarmCache';
 import { Ionicons } from '@expo/vector-icons';
 import { publicAssetUrl } from '../services/api';
 import TeamInfoModal from '../components/TeamInfoModal';
@@ -114,19 +115,17 @@ export default function LeagueScreen({ route, navigation }) {
   }, [hasDefaultNamesCheck, squadPlayersCount, marketPlayersCount]);
 
   const loadData = async () => {
-    try {
-      const res = await leagueService.getDashboardData(leagueId);
-      const payload = res?.data || {};
-      const leagueData = payload?.league && typeof payload.league === 'object'
-        ? payload.league
+    const applyFromPayload = (payload) => {
+      const payloadObj = payload && typeof payload === 'object' ? payload : {};
+      const leagueData = payloadObj?.league && typeof payloadObj.league === 'object'
+        ? payloadObj.league
         : { id: Number(leagueId), name: 'Lega' };
       const leagueName = String(leagueData.name || '').trim();
       const safeLeague = { ...leagueData, name: leagueName || `Lega ${leagueId}` };
       const isSuperuserViewer = String(safeLeague?.role || '') === 'superuser_viewer';
-      const teamInfo = payload?.user_team_info || {};
+      const teamInfo = payloadObj?.user_team_info || {};
       const safeTeamLogo = String(teamInfo.team_logo || safeLeague.team_logo || 'default_1').trim() || 'default_1';
 
-      // First paint: header + card squadra immediati.
       setLeague(safeLeague);
       setUserTeamInfo({
         team_name: String(teamInfo.team_name || safeLeague.team_name || '').trim(),
@@ -135,9 +134,9 @@ export default function LeagueScreen({ route, navigation }) {
       });
       updateAutoDetect({ autoLineupMode: !!safeLeague.auto_lineup_mode });
 
-      if (payload.needs_info && !isSuperuserViewer) {
-        setDefaultTeamName(String(payload.default_team_name || '').trim());
-        setDefaultCoachName(String(payload.default_coach_name || '').trim());
+      if (payloadObj.needs_info && !isSuperuserViewer) {
+        setDefaultTeamName(String(payloadObj.default_team_name || '').trim());
+        setDefaultCoachName(String(payloadObj.default_coach_name || '').trim());
         setShowTeamInfoModal(true);
       } else {
         setShowTeamInfoModal(false);
@@ -145,31 +144,30 @@ export default function LeagueScreen({ route, navigation }) {
 
       setLoading(false);
 
-      // Dati secondari in background per ridurre il tempo percepito.
       requestAnimationFrame(() => {
-        const top = Array.isArray(payload.top_standings) ? payload.top_standings : [];
+        const top = Array.isArray(payloadObj.top_standings) ? payloadObj.top_standings : [];
         setTopStandings(top.slice(0, 5));
 
-        const us = payload.user_stats;
+        const us = payloadObj.user_stats;
         setUserStats(us ? {
           position: Number(us.position || 0),
           totalPoints: Number(Number(us.totalPoints || 0).toFixed(1)),
           avgPoints: Number(Number(us.avgPoints || 0).toFixed(2)),
         } : null);
 
-        const scoresNorm = normalizeUserScores(Array.isArray(payload.user_scores) ? payload.user_scores : []);
+        const scoresNorm = normalizeUserScores(Array.isArray(payloadObj.user_scores) ? payloadObj.user_scores : []);
         if (scoresNorm.length >= 5) setUserScores(scoresNorm.slice(-5).reverse());
         else setUserScores(scoresNorm);
 
-        setSquadPlayersCount(Number(payload.squad_players_count || 0));
-        setMarketPlayersCount(Number(payload.market_players_count || 0));
-        setLiveMatchday(Number(payload.live_matchday || 0) || null);
+        setSquadPlayersCount(Number(payloadObj.squad_players_count || 0));
+        setMarketPlayersCount(Number(payloadObj.market_players_count || 0));
+        setLiveMatchday(Number(payloadObj.live_matchday || 0) || null);
 
         const isAutoLineupMode = Number(safeLeague?.auto_lineup_mode || 0) === 1;
         if (isAutoLineupMode) {
           setNextDeadline(null);
         } else {
-          const nd = payload?.next_deadline;
+          const nd = payloadObj?.next_deadline;
           setNextDeadline(
             nd && nd.deadline
               ? { giornata: Number(nd.giornata || 0), deadline: String(nd.deadline) }
@@ -178,21 +176,39 @@ export default function LeagueScreen({ route, navigation }) {
         }
 
         updateAutoDetect({
-          squadFull: !!payload.squad_full,
+          squadFull: !!payloadObj.squad_full,
         });
       });
+    };
 
-      // Mantiene il check onboarding "formazione inviata" senza bloccare la UI.
+    const warm = peekDashboard(leagueId);
+    if (warm != null) {
+      applyFromPayload(warm);
+    } else {
+      setLoading(true);
+    }
+
+    try {
+      const res = await leagueService.getDashboardData(leagueId);
+      const payload = res?.data || {};
+      applyFromPayload(payload);
+      setDashboard(leagueId, payload);
+
       try {
         await syncSubmittedFormationOnboarding({ leagueId, formationService, markDone });
       } catch (_) {}
     } catch (error) {
-      showToast('Impossibile caricare i dati della lega');
-      console.error('Error loading league data:', error);
-      console.error('Error details:', error.response?.data || error.message);
-      setTopStandings([]);
-      setSquadPlayersCount(0);
-      setMarketPlayersCount(0);
+      if (warm == null) {
+        showToast('Impossibile caricare i dati della lega');
+        console.error('Error loading league data:', error);
+        console.error('Error details:', error.response?.data || error.message);
+        setTopStandings([]);
+        setSquadPlayersCount(0);
+        setMarketPlayersCount(0);
+      } else {
+        showToast('Impossibile aggiornare i dati della lega');
+        console.error('Error loading league data:', error);
+      }
       setLoading(false);
     }
   };

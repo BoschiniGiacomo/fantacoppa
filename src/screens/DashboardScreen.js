@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { useAuth } from '../context/AuthContext';
 import { leagueService } from '../services/api';
+import { invalidateAllLeagueWarmCache, invalidateLeagueWarmCache } from '../services/leagueWarmCache';
 import { registerPushTokenIfPermitted, syncLeagueNotifications } from '../services/notificationService';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
@@ -57,6 +58,11 @@ export default function DashboardScreen({ navigation, route }) {
         favorite: Number(league?.favorite) === 1 || league?.favorite === true,
         archived: Number(league?.archived) === 1 || league?.archived === true,
         notifications_enabled: Number(league?.notifications_enabled) === 1 || league?.notifications_enabled === true,
+        is_official: Number(league?.is_official) === 1 || league?.is_official === true,
+        reference_year: (() => {
+          const y = Number(league?.reference_year);
+          return Number.isFinite(y) ? y : null;
+        })(),
       }));
       const filtered = hiddenLeagues.size > 0
         ? normalized.filter(l => !hiddenLeagues.has(l.id))
@@ -74,6 +80,7 @@ export default function DashboardScreen({ navigation, route }) {
 
   const onRefresh = () => {
     setRefreshing(true);
+    invalidateAllLeagueWarmCache();
     loadLeagues();
   };
 
@@ -110,6 +117,7 @@ export default function DashboardScreen({ navigation, route }) {
         archived: league?.archived ? 1 : 0,
         notifications_enabled: league?.notifications_enabled === false ? 0 : 1,
       });
+      invalidateLeagueWarmCache(leagueId);
       // Ricarica le leghe
       loadLeagues();
     } catch (error) {
@@ -128,6 +136,7 @@ export default function DashboardScreen({ navigation, route }) {
         archived: !currentArchived ? 1 : 0,
         notifications_enabled: league?.notifications_enabled === false ? 0 : 1,
       });
+      invalidateLeagueWarmCache(leagueId);
       // Ricarica le leghe
       loadLeagues();
     } catch (error) {
@@ -145,6 +154,7 @@ export default function DashboardScreen({ navigation, route }) {
         archived: league?.archived ? 1 : 0,
         notifications_enabled: currentEnabled ? 0 : 1,
       });
+      invalidateLeagueWarmCache(leagueId);
       loadLeagues();
     } catch (error) {
       const errorMessage = error.response?.data?.message || error.message || 'Impossibile aggiornare notifiche lega';
