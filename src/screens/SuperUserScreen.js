@@ -1575,22 +1575,6 @@ export default function SuperUserScreen() {
 
             <View style={styles.appSettingsCard}>
               <Text style={styles.appSettingsSectionTitle}>Schermata di caricamento (9:16)</Text>
-              <Text style={styles.appSettingsBody}>
-                {`File sul server: stesso media per tutti. Overlay nero a tutto schermo; immagine/video in loop con riempimento “cover” (come l’anteprima qui sotto).`}
-              </Text>
-
-              <View style={styles.appSettingsProportionsBox}>
-                <Text style={styles.appSettingsProportionsTitle}>Proporzioni consigliate</Text>
-                <Text style={styles.appSettingsProportionsLine}>
-                  {`• Formato verticale 9 : 16 (es. 1080×1920 o 720×1280 px): è il rapporto più vicino alla maggior parte degli smartphone in portrait, quindi tende a tagliare meno.`}
-                </Text>
-                <Text style={styles.appSettingsProportionsLine}>
-                  {`• Evita video o immagini molto più larghi che alti (es. 16:9 orizzontale) o quadrati 1:1 se il soggetto importante è ai bordi: con “cover” i lati o l’alto/basso vengono tagliati.`}
-                </Text>
-                <Text style={styles.appSettingsProportionsLine}>
-                  {`• Su telefoni più “lunghi” (circa 19.5:9 o 20:9) può tagliare un filo in alto o in basso: tieni logo e testo nella zona centrale (~85% larghezza × ~80% altezza).`}
-                </Text>
-              </View>
 
               <TouchableOpacity
                 style={[styles.appSettingsPrimaryBtn, pickingAppLoading && styles.appSettingsBtnDisabled]}
@@ -1637,9 +1621,6 @@ export default function SuperUserScreen() {
                       {activeAppLoadingPreview.name}
                     </Text>
                   ) : null}
-                  <Text style={styles.appSettingsPreviewFoot}>
-                    {`Stesso taglio che in app. Per ritaglio, durata o punto d’inizio del clip, modifica il file con un editor e ricaricalo.`}
-                  </Text>
                 </>
               )}
 
