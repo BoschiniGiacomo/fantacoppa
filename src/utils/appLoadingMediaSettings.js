@@ -1,0 +1,72 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import api, { publicAssetUrl, superuserService } from '../services/api';
+
+const LEGACY_STORAGE_URI_KEY = 'app_loading_media_uri';
+const LEGACY_STORAGE_TYPE_KEY = 'app_loading_media_render';
+
+let subscribers = [];
+
+export function subscribeAppLoadingMedia(callback) {
+  subscribers.push(callback);
+  return () => {
+    subscribers = subscribers.filter((fn) => fn !== callback);
+  };
+}
+
+function emitChange() {
+  subscribers.forEach((fn) => {
+    try {
+      fn();
+    } catch (e) {
+      console.warn('appLoadingMedia subscriber', e);
+    }
+  });
+}
+
+async function clearLegacyDeviceOnlyKeys() {
+  await AsyncStorage.multiRemove([LEGACY_STORAGE_URI_KEY, LEGACY_STORAGE_TYPE_KEY]).catch(() => {});
+}
+
+/**
+ * Media di caricamento globale: legge dal backend (stesso file per tutti gli utenti).
+ */
+export async function getAppLoadingMediaSettings() {
+  try {
+    const res = await api.get('/public/app-loading');
+    const path = res.data?.path;
+    const type = res.data?.type;
+    if (path) {
+      await clearLegacyDeviceOnlyKeys();
+      return {
+        uri: publicAssetUrl(path),
+        type: type === 'video' ? 'video' : 'image',
+      };
+    }
+    await clearLegacyDeviceOnlyKeys();
+    return { uri: null, type: null };
+  } catch {
+    return { uri: null, type: null };
+  }
+}
+
+export async function saveAppLoadingMediaFromPicker(asset) {
+  const formData = new FormData();
+  formData.append('media', {
+    uri: asset.uri,
+    name: asset.name || 'upload.bin',
+    type: asset.mimeType || 'application/octet-stream',
+  });
+  const res = await superuserService.uploadAppLoadingMedia(formData);
+  emitChange();
+  const path = res.data?.path;
+  if (!path) return { uri: null, type: null };
+  return {
+    uri: publicAssetUrl(path),
+    type: res.data?.type === 'video' ? 'video' : 'image',
+  };
+}
+
+export async function clearAppLoadingMedia() {
+  await superuserService.deleteAppLoadingMedia();
+  emitChange();
+}

@@ -20,6 +20,7 @@ const matchesRoutes = require('./routes/matches');
 const superuserRoutes = require('./routes/superuser');
 const playerStatsRoutes = require('./routes/playerStats');
 const notificationsRoutes = require('./routes/notifications');
+const publicAppRoutes = require('./routes/publicApp');
 
 // Import database (per testare connessione all'avvio)
 const { pool } = require('./config/database');
@@ -39,6 +40,11 @@ app.use('/api/uploads', express.static(path.resolve(__dirname, 'uploads')));
 // Enforce versione minima app su tutte le API del nuovo backend.
 app.use('/api', (req, res, next) => {
   if (MIN_SUPPORTED_APP_VERSION_CODE <= 0) {
+    return next();
+  }
+
+  // Endpoint pubblici senza controllo versione (bootstrap / asset globali).
+  if (req.path === '/public/app-loading') {
     return next();
   }
 
@@ -73,6 +79,7 @@ app.use('/api/formation', formationRoutes);
 app.use('/api/teams', teamsRoutes);
 app.use('/api/official-leagues', officialLeaguesRoutes);
 app.use('/api', matchesRoutes);
+app.use('/api/public', publicAppRoutes);
 app.use('/api/superuser', superuserRoutes);
 app.use('/api/players', playerStatsRoutes);
 app.use('/api/notifications', notificationsRoutes);

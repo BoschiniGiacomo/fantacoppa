@@ -643,6 +643,17 @@ export const superuserService = {
     if (params.length > 0) url += `?${params.join('&')}`;
     return api.get(url);
   },
+  uploadAppLoadingMedia: async (formData) => {
+    const headers = await buildAuthVersionHeaders();
+    return axios.post(`${API_BASE_URL}/superuser/app-loading-media`, formData, {
+      headers: {
+        ...headers,
+        'Content-Type': 'multipart/form-data',
+      },
+      timeout: 60000,
+    });
+  },
+  deleteAppLoadingMedia: () => api.delete('/superuser/app-loading-media'),
 };
 
 // Player statistics service

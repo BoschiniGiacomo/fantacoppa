@@ -4,8 +4,8 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { StatusBar } from 'expo-status-bar';
-import { ActivityIndicator, View } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { View } from 'react-native';
+import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 
@@ -51,6 +51,11 @@ import LeagueHamburgerMenu from './src/components/LeagueHamburgerMenu';
 import LeagueBottomMenu from './src/components/LeagueBottomMenu';
 import { OnboardingProvider } from './src/context/OnboardingContext';
 import { leagueService } from './src/services/api';
+import AppLoadingShell from './src/components/AppLoadingShell';
+import {
+  getAppLoadingMediaSettings,
+  subscribeAppLoadingMedia,
+} from './src/utils/appLoadingMediaSettings';
 
 const Stack = createStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -141,10 +146,26 @@ function MainTabs() {
 function AppNavigator() {
   const { user, loading, updateRequiredInfo } = useAuth();
   const [bootstrapTimedOut, setBootstrapTimedOut] = useState(false);
+  const [loadingMedia, setLoadingMedia] = useState({ uri: null, type: null });
 
   useEffect(() => {
     const timer = setTimeout(() => setBootstrapTimedOut(true), 10000);
     return () => clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = () => {
+      getAppLoadingMediaSettings().then((r) => {
+        if (!cancelled) setLoadingMedia(r);
+      });
+    };
+    load();
+    const unsub = subscribeAppLoadingMedia(load);
+    return () => {
+      cancelled = true;
+      unsub();
+    };
   }, []);
 
   if (updateRequiredInfo) {
@@ -153,9 +174,7 @@ function AppNavigator() {
 
   if (loading && !bootstrapTimedOut) {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-        <ActivityIndicator size="large" color="#667eea" />
-      </View>
+      <AppLoadingShell uri={loadingMedia.uri} mediaType={loadingMedia.type} />
     );
   }
 
@@ -300,9 +319,11 @@ function AppNavigator() {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <StatusBar style="auto" />
-      <AppNavigator />
-    </AuthProvider>
+    <SafeAreaProvider>
+      <AuthProvider>
+        <StatusBar style="auto" />
+        <AppNavigator />
+      </AuthProvider>
+    </SafeAreaProvider>
   );
 }

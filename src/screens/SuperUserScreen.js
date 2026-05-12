@@ -10,18 +10,26 @@ import {
   RefreshControl,
   TextInput,
   Modal,
+  Image,
 } from 'react-native';
+import * as DocumentPicker from 'expo-document-picker';
+import LoopingVideoView from '../components/LoopingVideoView';
 import { useAuth } from '../context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import { superuserService } from '../services/api';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import {
+  getAppLoadingMediaSettings,
+  saveAppLoadingMediaFromPicker,
+  clearAppLoadingMedia,
+} from '../utils/appLoadingMediaSettings';
 
 export default function SuperUserScreen() {
   const { user } = useAuth();
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
-  const [activeTab, setActiveTab] = useState('users'); // 'users', 'leagues', 'officials', 'clusters'
+  const [activeTab, setActiveTab] = useState('users'); // 'users', 'leagues', 'officials', 'clusters', 'appSettings'
   const [users, setUsers] = useState([]);
   const [leagues, setLeagues] = useState([]);
   const [officialGroups, setOfficialGroups] = useState([]);
@@ -77,6 +85,9 @@ export default function SuperUserScreen() {
   const [showAddPlayers, setShowAddPlayers] = useState(false);
   const [hasAvailablePlayers, setHasAvailablePlayers] = useState(false);
   const [officialGroupsDisabled, setOfficialGroupsDisabled] = useState(false);
+
+  const [appLoadingPreview, setAppLoadingPreview] = useState({ uri: null, type: null });
+  const [pickingAppLoading, setPickingAppLoading] = useState(false);
   
   const isSuperuser = !!(user?.is_superuser === true || user?.is_superuser === 1 || user?.is_superuser === '1');
   const isFeatureDisabledError = (error) => Number(error?.response?.status) === 410;
@@ -558,6 +569,52 @@ export default function SuperUserScreen() {
       }
     }
   }, [activeTab, isSuperuser]);
+
+  useEffect(() => {
+    if (!isSuperuser || activeTab !== 'appSettings') return;
+    getAppLoadingMediaSettings().then(setAppLoadingPreview);
+  }, [activeTab, isSuperuser]);
+
+  const handlePickAppLoadingMedia = async () => {
+    if (!isSuperuser) return;
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: [
+          'image/gif',
+          'image/png',
+          'image/jpeg',
+          'video/mp4',
+          'video/quicktime',
+          'video/webm',
+        ],
+        copyToCacheDirectory: true,
+      });
+      if (result.canceled || !result.assets || result.assets.length === 0) return;
+      setPickingAppLoading(true);
+      const saved = await saveAppLoadingMediaFromPicker(result.assets[0]);
+      setAppLoadingPreview(saved);
+      showToast('Schermata di caricamento aggiornata', 'success');
+    } catch (e) {
+      console.error('App loading media pick:', e);
+      showToast(e?.message || 'Impossibile importare il file');
+    } finally {
+      setPickingAppLoading(false);
+    }
+  };
+
+  const handleClearAppLoadingMedia = async () => {
+    if (!isSuperuser) return;
+    try {
+      setPickingAppLoading(true);
+      await clearAppLoadingMedia();
+      setAppLoadingPreview({ uri: null, type: null });
+      showToast('Ripristinata schermata predefinita', 'success');
+    } catch (e) {
+      showToast(e?.message || 'Impossibile rimuovere il file');
+    } finally {
+      setPickingAppLoading(false);
+    }
+  };
   
   // Imposta livello superuser: 0 = nessun ruolo, 1 = super user, 2 = gestore partite
   const handleSetSuperuserLevel = async (userId, currentLevel, nextLevel) => {
@@ -1119,7 +1176,12 @@ export default function SuperUserScreen() {
       </View>
 
       {/* Tab Navigation */}
-      <View style={styles.tabContainer}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.tabContainer}
+        contentContainerStyle={styles.tabScrollContent}
+      >
         <TouchableOpacity
           style={[styles.tab, activeTab === 'users' && styles.tabActive]}
           onPress={() => setActiveTab('users')}
@@ -1177,7 +1239,27 @@ export default function SuperUserScreen() {
             Cluster
           </Text>
         </TouchableOpacity>
-      </View>
+        <TouchableOpacity
+          style={[styles.tab, activeTab === 'appSettings' && styles.tabActive]}
+          onPress={() => setActiveTab('appSettings')}
+        >
+          <Ionicons
+            name={activeTab === 'appSettings' ? 'settings' : 'settings-outline'}
+            size={20}
+            color={activeTab === 'appSettings' ? '#fff' : '#666'}
+          />
+          <Text
+            style={[
+              styles.tabText,
+              activeTab === 'appSettings' && styles.tabTextActive,
+              styles.tabAppSettingsLabel,
+            ]}
+            numberOfLines={2}
+          >
+            Impostazioni app
+          </Text>
+        </TouchableOpacity>
+      </ScrollView>
 
       {/* Tab Content */}
       <View style={styles.content}>
@@ -1449,6 +1531,70 @@ export default function SuperUserScreen() {
               />
             )}
           </>
+        )}
+
+        {activeTab === 'appSettings' && (
+          <ScrollView
+            style={styles.appSettingsRoot}
+            contentContainerStyle={styles.appSettingsScroll}
+            keyboardShouldPersistTaps="handled"
+          >
+            <Text style={styles.appSettingsTitle}>Impostazioni app</Text>
+            <Text style={styles.appSettingsHint}>
+              Preferenze globali per tutti gli utenti: salvate sul server e mostrate a ogni installazione.
+              Altre opzioni da qui in futuro.
+            </Text>
+
+            <View style={styles.appSettingsCard}>
+              <Text style={styles.appSettingsSectionTitle}>Schermata di caricamento (avvio)</Text>
+              <Text style={styles.appSettingsBody}>
+                {`Caricato sul server (Supabase Storage): stesso GIF/video per tutti durante l'avvio dell'app. Meglio file leggeri e in loop.`}
+              </Text>
+
+              {appLoadingPreview.uri ? (
+                <View style={styles.appLoadingPreviewBox}>
+                  {appLoadingPreview.type === 'video' ? (
+                    <LoopingVideoView
+                      uri={appLoadingPreview.uri}
+                      style={styles.appLoadingPreviewMedia}
+                    />
+                  ) : (
+                    <Image
+                      source={{ uri: appLoadingPreview.uri }}
+                      style={styles.appLoadingPreviewMedia}
+                      resizeMode="contain"
+                    />
+                  )}
+                </View>
+              ) : (
+                <Text style={styles.appSettingsMuted}>
+                  {`Nessun media: spinner classico all'avvio.`}
+                </Text>
+              )}
+
+              <TouchableOpacity
+                style={[styles.appSettingsPrimaryBtn, pickingAppLoading && styles.appSettingsBtnDisabled]}
+                onPress={handlePickAppLoadingMedia}
+                disabled={pickingAppLoading}
+              >
+                {pickingAppLoading ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.appSettingsPrimaryBtnText}>Scegli file (GIF / immagine / video)</Text>
+                )}
+              </TouchableOpacity>
+
+              {appLoadingPreview.uri ? (
+                <TouchableOpacity
+                  style={styles.appSettingsSecondaryBtn}
+                  onPress={handleClearAppLoadingMedia}
+                  disabled={pickingAppLoading}
+                >
+                  <Text style={styles.appSettingsSecondaryBtnText}>Rimuovi personalizzazione</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          </ScrollView>
         )}
       </View>
 
@@ -2262,18 +2408,22 @@ const styles = StyleSheet.create({
     width: 40,
   },
   tabContainer: {
-    flexDirection: 'row',
     backgroundColor: '#fff',
     borderBottomWidth: 1,
     borderBottomColor: '#e0e0e0',
+    maxHeight: 52,
+  },
+  tabScrollContent: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
   },
   tab: {
-    flex: 1,
+    minWidth: 108,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 12,
-    paddingHorizontal: 8,
+    paddingHorizontal: 10,
     gap: 6,
   },
   tabActive: {
@@ -2287,6 +2437,12 @@ const styles = StyleSheet.create({
   tabTextActive: {
     color: '#fff',
     fontWeight: '600',
+  },
+  tabAppSettingsLabel: {
+    fontSize: 11,
+    textAlign: 'center',
+    lineHeight: 13,
+    maxWidth: 92,
   },
   content: {
     flex: 1,
@@ -3268,5 +3424,96 @@ const styles = StyleSheet.create({
   confirmBtnCancelText: { color: '#333', fontSize: 16, fontWeight: '600' },
   confirmBtnAction: { flex: 1, paddingVertical: 12, borderRadius: 8, alignItems: 'center', backgroundColor: '#667eea' },
   confirmBtnActionText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  appSettingsRoot: {
+    flex: 1,
+    backgroundColor: '#f4f5fa',
+  },
+  appSettingsScroll: {
+    padding: 16,
+    paddingBottom: 32,
+  },
+  appSettingsTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#333',
+    marginBottom: 8,
+  },
+  appSettingsHint: {
+    fontSize: 14,
+    color: '#666',
+    lineHeight: 20,
+    marginBottom: 20,
+  },
+  appSettingsCard: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#e8e8ee',
+  },
+  appSettingsSectionTitle: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 8,
+  },
+  appSettingsBody: {
+    fontSize: 14,
+    color: '#555',
+    lineHeight: 20,
+    marginBottom: 16,
+  },
+  appSettingsMuted: {
+    fontSize: 14,
+    color: '#999',
+    marginBottom: 16,
+    fontStyle: 'italic',
+  },
+  appLoadingPreviewBox: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#f8f8fc',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 16,
+    minHeight: 140,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  appLoadingPreviewMedia: {
+    width: '100%',
+    maxWidth: 220,
+    height: 140,
+    borderRadius: 8,
+    backgroundColor: '#eee',
+  },
+  appSettingsPrimaryBtn: {
+    backgroundColor: '#667eea',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 48,
+  },
+  appSettingsPrimaryBtnText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  appSettingsBtnDisabled: {
+    opacity: 0.7,
+  },
+  appSettingsSecondaryBtn: {
+    marginTop: 12,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  appSettingsSecondaryBtnText: {
+    color: '#667eea',
+    fontSize: 15,
+    fontWeight: '600',
+  },
 });
 

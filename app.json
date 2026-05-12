@@ -53,7 +53,8 @@
           "defaultChannel": "fantacoppa-reminders",
           "color": "#667eea"
         }
-      ]
+      ],
+      "expo-video"
     ]
   }
 }

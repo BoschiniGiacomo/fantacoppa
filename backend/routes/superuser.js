@@ -1,7 +1,11 @@
 const express = require('express');
+const path = require('path');
+const multer = require('multer');
+const { createClient } = require('@supabase/supabase-js');
 const router = express.Router();
 const { query } = require('../config/database');
 const { authenticateToken } = require('../middleware/auth');
+const { ensureAppSettingsTable } = require('../utils/appSettingsStore');
 
 let superuserTablesReady = false;
 async function ensureSuperuserTables() {
@@ -20,6 +24,56 @@ async function requireSuperuser(req, res, next) {
   } catch (_) {
     return res.status(403).json({ message: 'Accesso non autorizzato' });
   }
+}
+
+const appLoadingUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 12 * 1024 * 1024 },
+});
+
+let supabaseStorageClient = null;
+function getSupabaseStorageClient() {
+  if (supabaseStorageClient) return supabaseStorageClient;
+  const supabaseUrl = String(process.env.SUPABASE_URL || process.env.EXPO_PUBLIC_SUPABASE_URL || '').trim();
+  const supabaseKey = String(process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
+  if (!supabaseUrl || !supabaseKey) return null;
+  supabaseStorageClient = createClient(supabaseUrl, supabaseKey);
+  return supabaseStorageClient;
+}
+
+async function requireSuperuserLevel1(req, res, next) {
+  try {
+    const rows = await query(`SELECT COALESCE(is_superuser, 0) AS is_superuser FROM users WHERE id = ? LIMIT 1`, [
+      Number(req.user?.userId),
+    ]);
+    const level = Number(rows[0]?.is_superuser || 0);
+    if (level === 1) return next();
+    return res.status(403).json({ message: 'Operazione riservata al super user (livello 1)' });
+  } catch (_) {
+    return res.status(403).json({ message: 'Accesso non autorizzato' });
+  }
+}
+
+function guessLoadingMediaType(mimetype, originalname) {
+  const n = String(originalname || '').toLowerCase();
+  const m = String(mimetype || '').toLowerCase();
+  if (m.startsWith('video/')) return 'video';
+  if (['.mp4', '.webm', '.mov', '.m4v'].some((e) => n.endsWith(e))) return 'video';
+  return 'image';
+}
+
+function allowedLoadingMime(mimetype, originalname) {
+  const m = String(mimetype || '').toLowerCase();
+  const n = String(originalname || '').toLowerCase();
+  const okMime = ['image/gif', 'image/png', 'image/jpeg', 'video/mp4', 'video/webm', 'video/quicktime'].includes(m);
+  if (okMime) return true;
+  return ['.gif', '.png', '.jpg', '.jpeg', '.mp4', '.webm', '.mov', '.m4v'].some((e) => n.endsWith(e));
+}
+
+async function removeStoredLoadingMedia(supabase, relativePath) {
+  if (!relativePath || !String(relativePath).startsWith('uploads/')) return;
+  const storagePath = String(relativePath).replace(/^uploads\//, '');
+  await supabase.storage.from('uploads').remove([storagePath]).catch(() => {});
 }
 
 async function getGroupLeagueIds(groupId) {
@@ -781,6 +835,80 @@ router.get('/players/search/:groupId', authenticateToken, requireSuperuser, asyn
     return res.json({ players: players.map(normalizePlayerRow) });
   } catch (error) {
     return res.status(500).json({ message: 'Errore ricerca giocatori', error: error.message });
+  }
+});
+
+router.post(
+  '/app-loading-media',
+  authenticateToken,
+  requireSuperuserLevel1,
+  appLoadingUpload.single('media'),
+  async (req, res) => {
+    try {
+      if (!req.file) return res.status(400).json({ message: 'File mancante' });
+      if (!allowedLoadingMime(req.file.mimetype, req.file.originalname)) {
+        return res.status(400).json({ message: 'Formato non supportato (GIF, PNG, JPEG, MP4, WEBM, MOV)' });
+      }
+      const supabase = getSupabaseStorageClient();
+      if (!supabase) {
+        return res.status(500).json({
+          message: 'Supabase Storage non configurato sul server (SUPABASE_SERVICE_ROLE_KEY)',
+        });
+      }
+      await ensureAppSettingsTable();
+
+      const ext = path.extname(String(req.file.originalname || '')).toLowerCase();
+      const safeExt = ['.gif', '.png', '.jpg', '.jpeg', '.webp', '.mp4', '.webm', '.mov', '.m4v'].includes(ext)
+        ? ext
+        : '.bin';
+      const filename = `app_loading_${Date.now()}_${Math.random().toString(36).slice(2, 8)}${safeExt}`;
+      const storagePath = `app_loading/${filename}`;
+      const mediaType = guessLoadingMediaType(req.file.mimetype, req.file.originalname);
+
+      const prevRows = await query(`SELECT loading_media_path FROM app_settings WHERE id = 1`);
+      const prevPath = prevRows[0]?.loading_media_path;
+
+      const { error: storageError } = await supabase.storage
+        .from('uploads')
+        .upload(storagePath, req.file.buffer, {
+          contentType: req.file.mimetype || (mediaType === 'video' ? 'video/mp4' : 'application/octet-stream'),
+          upsert: true,
+          cacheControl: '300',
+        });
+      if (storageError) {
+        return res.status(500).json({ message: 'Errore upload su storage', error: storageError.message });
+      }
+
+      const dbPath = `uploads/${storagePath}`;
+      await removeStoredLoadingMedia(supabase, prevPath);
+
+      await query(
+        `UPDATE app_settings SET loading_media_path = ?, loading_media_type = ?, updated_at = NOW() WHERE id = 1`,
+        [dbPath, mediaType]
+      );
+
+      return res.json({ success: true, path: dbPath, type: mediaType });
+    } catch (error) {
+      console.error('Upload app loading media:', error);
+      return res.status(500).json({ message: 'Errore upload', error: error.message });
+    }
+  }
+);
+
+router.delete('/app-loading-media', authenticateToken, requireSuperuserLevel1, async (_req, res) => {
+  try {
+    const supabase = getSupabaseStorageClient();
+    await ensureAppSettingsTable();
+    const prevRows = await query(`SELECT loading_media_path FROM app_settings WHERE id = 1`);
+    const prevPath = prevRows[0]?.loading_media_path;
+    if (supabase && prevPath) await removeStoredLoadingMedia(supabase, prevPath);
+    await query(
+      `UPDATE app_settings SET loading_media_path = NULL, loading_media_type = NULL, updated_at = NOW() WHERE id = 1`
+    );
+    return res.json({ success: true });
+  } catch (error) {
+    console.error('Delete app loading media:', error);
+    return res.status(500).json({ message: 'Errore rimozione', error: error.message });
   }
 });
 
