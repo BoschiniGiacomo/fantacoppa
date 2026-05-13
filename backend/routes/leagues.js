@@ -1794,6 +1794,87 @@ router.delete('/:id/teams/:teamId/logo', authenticateToken, async (req, res) => 
   }
 });
 
+// POST /api/leagues/:id/teams/:teamId/players/:playerId/photo
+const playerPhotoUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 2 * 1024 * 1024 } });
+router.post('/:id/teams/:teamId/players/:playerId/photo', authenticateToken, playerPhotoUpload.single('photo'), async (req, res) => {
+  try {
+    const leagueId = toValidLeagueId(req.params.id);
+    const teamId = Number(req.params.teamId);
+    const playerId = Number(req.params.playerId);
+    if (!leagueId || !Number.isFinite(teamId) || teamId <= 0 || !Number.isFinite(playerId) || playerId <= 0) {
+      return res.status(400).json({ message: 'Parametri non validi' });
+    }
+    if (!req.file) return res.status(400).json({ message: 'File foto mancante' });
+    const supabase = getSupabaseStorageClient();
+    if (!supabase) {
+      return res.status(500).json({ message: 'Supabase Storage non configurato' });
+    }
+    const ext = path.extname(String(req.file.originalname || '')).toLowerCase();
+    const safeExt = ['.jpg', '.jpeg', '.png', '.webp'].includes(ext) ? ext : '.jpg';
+    const ts = Math.floor(Date.now() / 1000);
+    const rand = Math.random().toString(36).slice(2, 8);
+    const filename = `player_${playerId}_${ts}_${rand}${safeExt}`;
+    const storagePath = `player_photos/${filename}`;
+
+    try {
+      const { data: existing } = await supabase.storage.from('uploads').list('player_photos', { limit: 2000 });
+      if (Array.isArray(existing)) {
+        const toDelete = existing
+          .map((f) => String(f?.name || '').trim())
+          .filter((name) => name.startsWith(`player_${playerId}_`))
+          .map((name) => `player_photos/${name}`);
+        if (toDelete.length > 0) await supabase.storage.from('uploads').remove(toDelete);
+      }
+    } catch (_) {}
+
+    const { error: storageError } = await supabase.storage
+      .from('uploads')
+      .upload(storagePath, req.file.buffer, {
+        contentType: req.file.mimetype || 'image/jpeg',
+        upsert: true,
+        cacheControl: '3600',
+      });
+    if (storageError) {
+      return res.status(500).json({ message: 'Errore upload foto', error: storageError.message });
+    }
+    const photoPath = `uploads/${storagePath}`;
+    await query(`UPDATE players SET photo_path = ? WHERE id = ? AND team_id IN (SELECT id FROM teams WHERE league_id = ?)`, [photoPath, playerId, leagueId]);
+    res.json({ message: 'Foto giocatore aggiornata', photo_path: photoPath });
+  } catch (error) {
+    console.error('Upload player photo error:', error);
+    res.status(500).json({ message: 'Errore upload foto giocatore' });
+  }
+});
+
+// DELETE /api/leagues/:id/teams/:teamId/players/:playerId/photo
+router.delete('/:id/teams/:teamId/players/:playerId/photo', authenticateToken, async (req, res) => {
+  try {
+    const leagueId = toValidLeagueId(req.params.id);
+    const playerId = Number(req.params.playerId);
+    if (!leagueId || !Number.isFinite(playerId) || playerId <= 0) {
+      return res.status(400).json({ message: 'Parametri non validi' });
+    }
+    const supabase = getSupabaseStorageClient();
+    if (supabase) {
+      try {
+        const { data: existing } = await supabase.storage.from('uploads').list('player_photos', { limit: 2000 });
+        if (Array.isArray(existing)) {
+          const toDelete = existing
+            .map((f) => String(f?.name || '').trim())
+            .filter((name) => name.startsWith(`player_${playerId}_`))
+            .map((name) => `player_photos/${name}`);
+          if (toDelete.length > 0) await supabase.storage.from('uploads').remove(toDelete);
+        }
+      } catch (_) {}
+    }
+    await query(`UPDATE players SET photo_path = NULL WHERE id = ? AND team_id IN (SELECT id FROM teams WHERE league_id = ?)`, [playerId, leagueId]);
+    res.json({ message: 'Foto giocatore rimossa' });
+  } catch (error) {
+    console.error('Delete player photo error:', error);
+    res.status(500).json({ message: 'Errore rimozione foto giocatore' });
+  }
+});
+
 // PUT /api/leagues/:id/teams/:teamId
 router.put('/:id/teams/:teamId', authenticateToken, async (req, res) => {
   try {
@@ -1876,7 +1957,8 @@ router.get('/:id/teams/:teamId/players', authenticateToken, async (req, res) => 
                 END
               ) AS shirt_number,
               COALESCE(p.is_injured, 0)::int AS is_injured,
-              p.injury_replacement_player_id
+              p.injury_replacement_player_id,
+              COALESCE(p.photo_path, '') AS photo_path
        FROM players p
        JOIN teams t ON t.id = p.team_id
        WHERE p.team_id = ? AND t.league_id = ?

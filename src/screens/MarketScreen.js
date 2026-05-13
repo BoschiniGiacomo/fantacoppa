@@ -9,12 +9,13 @@ import {
   Alert,
   ActivityIndicator,
   RefreshControl,
+  Image,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { useOnboarding } from '../context/OnboardingContext';
-import { marketService, formationService } from '../services/api';
+import { marketService, formationService, publicAssetUrl } from '../services/api';
 import { peekMarketBootstrapDefault, setMarketBootstrapDefault, invalidateLeagueWarmCache } from '../services/leagueWarmCache';
 import { Ionicons } from '@expo/vector-icons';
 import { syncSubmittedFormationOnboarding } from '../utils/formationSubmission';
@@ -270,9 +271,18 @@ export default function MarketScreen({ route, navigation }) {
           {/* Info giocatore */}
           <View style={styles.playerInfo}>
             <View style={styles.playerNameRow}>
-              <View style={[styles.roleBadgeMini, { backgroundColor: roleColor }]}>
-                <Text style={styles.roleBadgeMiniText}>{item.role}</Text>
-              </View>
+              {item.photo_path ? (
+                <View style={styles.playerPhotoBadgeWrap}>
+                  <Image source={{ uri: publicAssetUrl(item.photo_path) }} style={styles.playerPhotoBadge} />
+                  <View style={[styles.playerPhotoRoleOverlay, { backgroundColor: roleColor }]}>
+                    <Text style={styles.playerPhotoRoleText}>{item.role}</Text>
+                  </View>
+                </View>
+              ) : (
+                <View style={[styles.roleBadgeMini, { backgroundColor: roleColor }]}>
+                  <Text style={styles.roleBadgeMiniText}>{item.role}</Text>
+                </View>
+              )}
               <Text style={styles.playerName} numberOfLines={1}>
                 {item.first_name} {item.last_name}
               </Text>
@@ -870,6 +880,33 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
     marginBottom: 2,
+  },
+  playerPhotoBadgeWrap: {
+    width: 30,
+    height: 30,
+    position: 'relative',
+  },
+  playerPhotoBadge: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+  },
+  playerPhotoRoleOverlay: {
+    position: 'absolute',
+    bottom: -2,
+    right: -2,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#fff',
+  },
+  playerPhotoRoleText: {
+    color: '#fff',
+    fontSize: 8,
+    fontWeight: 'bold',
   },
   roleBadgeMini: {
     width: 22,

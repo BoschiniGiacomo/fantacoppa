@@ -80,6 +80,7 @@ router.get('/:leagueId/players', authenticateToken, async (req, res) => {
     let sql = `
       SELECT p.id, p.first_name, p.last_name, p.role, p.rating,
              COALESCE(p.is_injured, 0)::int AS is_injured,
+             COALESCE(p.photo_path, '') AS photo_path,
              COALESCE(t.name, '') AS team_name,
              CASE
                WHEN EXISTS (
@@ -205,6 +206,7 @@ router.get('/:leagueId/bootstrap', authenticateToken, async (req, res) => {
     let sql = `
       SELECT p.id, p.first_name, p.last_name, p.role, p.rating,
              COALESCE(p.is_injured, 0)::int AS is_injured,
+             COALESCE(p.photo_path, '') AS photo_path,
              COALESCE(t.name, '') AS team_name,
              CASE
                WHEN EXISTS (

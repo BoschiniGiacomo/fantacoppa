@@ -308,6 +308,27 @@ export const leagueService = {
     }
   },
   removeOfficialTeamLogo: (leagueId, teamId) => api.delete(`/leagues/${leagueId}/teams/${teamId}/logo`),
+  uploadPlayerPhoto: async (leagueId, teamId, playerId, imageUri) => {
+    const formData = new FormData();
+    const filename = imageUri.split('/').pop();
+    const match = /\.(\w+)$/.exec(filename);
+    const type = match ? `image/${match[1] === 'jpg' ? 'jpeg' : match[1]}` : 'image/jpeg';
+    formData.append('photo', { uri: imageUri, name: filename, type });
+    const headers = await buildAuthVersionHeaders();
+    const doUpload = () =>
+      axios.post(`${API_BASE_URL}/leagues/${leagueId}/teams/${teamId}/players/${playerId}/photo`, formData, {
+        headers: { ...headers, 'Content-Type': 'multipart/form-data' },
+        timeout: 30000,
+      });
+    try {
+      return await doUpload();
+    } catch (err) {
+      if (err?.message !== 'Network Error' && err?.code !== 'ECONNABORTED') throw err;
+      return await doUpload();
+    }
+  },
+  deletePlayerPhoto: (leagueId, teamId, playerId) =>
+    api.delete(`/leagues/${leagueId}/teams/${teamId}/players/${playerId}/photo`),
   /** Colore maglia (#RRGGBB / #RGB) per formazioni partite; stringa vuota o null = predefinito app */
   updateOfficialTeamJerseyColor: (leagueId, teamId, jerseyColor) =>
     api.put(`/leagues/${leagueId}/teams/${teamId}`, { jersey_color: jerseyColor }),

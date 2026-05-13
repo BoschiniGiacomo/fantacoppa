@@ -122,6 +122,9 @@ export default function TeamManagementScreen({ route, navigation }) {
   const [replacementPlayerId, setReplacementPlayerId] = useState(null);
   const [playerOptions, setPlayerOptions] = useState([]);
   const [applyingReplacement, setApplyingReplacement] = useState(false);
+  const [playerPhotoUri, setPlayerPhotoUri] = useState(null);
+  const [playerPhotoNew, setPlayerPhotoNew] = useState(null);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
   
   // Form fields per aggiunta nuovo giocatore
   const [newPlayerFirstName, setNewPlayerFirstName] = useState('');
@@ -157,6 +160,8 @@ export default function TeamManagementScreen({ route, navigation }) {
     setSelectedTeamId(null);
     setIsInjured(false);
     setReplacementPlayerId(null);
+    setPlayerPhotoUri(null);
+    setPlayerPhotoNew(null);
   }, []);
 
   const scrollToEditField = useCallback((fieldKey) => {
@@ -538,6 +543,8 @@ export default function TeamManagementScreen({ route, navigation }) {
     
     const playerWithTeamId = { ...player, teamId };
     setEditingPlayer(playerWithTeamId);
+    setPlayerPhotoUri(player.photo_path ? publicAssetUrl(player.photo_path) : null);
+    setPlayerPhotoNew(null);
     await loadPlayerOptions();
     setShowEditModal(true);
   };
@@ -588,6 +595,19 @@ export default function TeamManagementScreen({ route, navigation }) {
       }
       
       const response = await leagueService.updatePlayer(leagueId, originalTeamId, savedPlayerId, dataToSave);
+
+      if (playerPhotoNew) {
+        try {
+          await leagueService.uploadPlayerPhoto(leagueId, newTeamId, savedPlayerId, playerPhotoNew);
+        } catch (photoErr) {
+          showToast('Errore upload foto giocatore');
+        }
+      } else if (playerPhotoUri === null && editingPlayer.photo_path) {
+        try {
+          await leagueService.deletePlayerPhoto(leagueId, newTeamId, savedPlayerId);
+        } catch (_) {}
+      }
+
       await loadTeamPlayers(originalTeamId);
       
       // Controlla se il messaggio indica che non ci sono modifiche
@@ -1445,6 +1465,52 @@ export default function TeamManagementScreen({ route, navigation }) {
             >
                 {editingPlayer && (
                   <>
+                <View style={styles.playerPhotoSection}>
+                  <TouchableOpacity
+                    style={styles.playerPhotoPickerBtn}
+                    activeOpacity={0.7}
+                    disabled={isReadOnlyObserver}
+                    onPress={async () => {
+                      if (isReadOnlyObserver) return;
+                      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+                      if (status !== 'granted') {
+                        showToast('Concedi accesso alla galleria');
+                        return;
+                      }
+                      const result = await ImagePicker.launchImageLibraryAsync({
+                        mediaTypes: ImagePicker.MediaType?.Images || 'images',
+                        allowsEditing: true,
+                        aspect: [1, 1],
+                        quality: 0.7,
+                      });
+                      if (result.canceled || !result.assets?.length) return;
+                      const picked = result.assets[0];
+                      const sizeMb = Number(picked?.fileSize || 0) / (1024 * 1024);
+                      if (sizeMb > 2) { showToast('Immagine troppo grande (max 2MB)'); return; }
+                      setPlayerPhotoNew(picked.uri);
+                      setPlayerPhotoUri(picked.uri);
+                    }}
+                  >
+                    {(playerPhotoUri) ? (
+                      <Image source={{ uri: playerPhotoUri }} style={styles.playerPhotoPreview} />
+                    ) : (
+                      <View style={styles.playerPhotoPlaceholder}>
+                        <Ionicons name="camera-outline" size={32} color="#94a3b8" />
+                        <Text style={styles.playerPhotoPlaceholderText}>Foto</Text>
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                  {playerPhotoUri && !isReadOnlyObserver && (
+                    <TouchableOpacity
+                      style={styles.playerPhotoRemoveBtn}
+                      onPress={() => { setPlayerPhotoUri(null); setPlayerPhotoNew(null); }}
+                    >
+                      <Ionicons name="trash-outline" size={16} color="#ef4444" />
+                      <Text style={styles.playerPhotoRemoveText}>Rimuovi</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+
                 <View
                   style={styles.formGroup}
                   onLayout={(e) => {
@@ -1722,6 +1788,13 @@ const styles = StyleSheet.create({
   // ── Input / forms ──
   inputContainer: { flexDirection: 'row', gap: 8 },
   inputRow: { flexDirection: 'row', gap: 8 },
+  playerPhotoSection: { alignItems: 'center', marginBottom: 16 },
+  playerPhotoPickerBtn: { width: 80, height: 80, borderRadius: 40, overflow: 'hidden', backgroundColor: '#f0f2f5', justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: '#e2e8f0', borderStyle: 'dashed' },
+  playerPhotoPreview: { width: 80, height: 80, borderRadius: 40 },
+  playerPhotoPlaceholder: { alignItems: 'center', justifyContent: 'center' },
+  playerPhotoPlaceholderText: { fontSize: 11, color: '#94a3b8', marginTop: 2 },
+  playerPhotoRemoveBtn: { flexDirection: 'row', alignItems: 'center', marginTop: 6, gap: 4 },
+  playerPhotoRemoveText: { fontSize: 12, color: '#ef4444' },
   formGroup: { marginBottom: 12 },
   label: { fontSize: 13, fontWeight: '600', color: '#555', marginBottom: 6 },
   input: { flex: 1, backgroundColor: '#f8f9fa', borderWidth: 1, borderColor: '#e8e8e8', borderRadius: 10, padding: 11, fontSize: 15, color: '#333' },
