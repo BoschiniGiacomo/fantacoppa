@@ -70,12 +70,13 @@ router.get('/:leagueId/:userId', authenticateToken, async (req, res) => {
                 COALESCE(p.is_injured, 0)::int AS is_injured,
                 p.injury_replacement_player_id,
                 COALESCE(t.name, '') AS team_name,
+                COALESCE(p.photo_path, '') AS photo_path,
                 MAX(ep.acquired_as_injury_replacement)::int AS acquired_as_injury_replacement,
                 MAX(ep.directly_owned)::int AS directly_owned
          FROM effective_players ep
          JOIN players p ON p.id = ep.player_id
          LEFT JOIN teams t ON t.id = p.team_id
-         GROUP BY p.id, p.first_name, p.last_name, p.role, p.rating, p.is_injured, p.injury_replacement_player_id, t.name`,
+         GROUP BY p.id, p.first_name, p.last_name, p.role, p.rating, p.is_injured, p.injury_replacement_player_id, t.name, p.photo_path`,
         [userId, leagueId]
       );
     } catch (_) {

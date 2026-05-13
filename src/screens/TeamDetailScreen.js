@@ -230,9 +230,20 @@ export default function TeamDetailScreen({ route, navigation }) {
                       })}
                       activeOpacity={0.7}
                     >
-                      <View style={[styles.roleBadge, { backgroundColor: ROLE_COLORS[player.role] || '#999' }]}>
-                        <Text style={styles.roleBadgeText}>{player.role}</Text>
-                      </View>
+                      {player.photo_path ? (
+                        <View style={styles.playerPhotoCol}>
+                          <Image source={{ uri: publicAssetUrl(player.photo_path) }} style={styles.playerPhotoBadge} />
+                          <View style={[styles.playerPhotoRoleOverlay, { backgroundColor: ROLE_COLORS[player.role] || '#999' }]}>
+                            <Text style={styles.playerPhotoRoleText}>{player.role}</Text>
+                          </View>
+                        </View>
+                      ) : (
+                        <View style={styles.roleBadgeCol}>
+                          <View style={[styles.roleBadge, { backgroundColor: ROLE_COLORS[player.role] || '#999' }]}>
+                            <Text style={styles.roleBadgeText}>{player.role}</Text>
+                          </View>
+                        </View>
+                      )}
                       <View style={styles.playerInfo}>
                         <Text style={styles.playerName} numberOfLines={1}>
                           {player.first_name} {player.last_name}
@@ -490,22 +501,54 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#fff',
     borderRadius: 10,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
+    paddingVertical: 4,
+    paddingLeft: 8,
+    paddingRight: 12,
     marginBottom: 6,
+    minHeight: 64,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.04,
     shadowRadius: 2,
     elevation: 1,
   },
+  playerPhotoCol: {
+    width: 56,
+    height: 56,
+    position: 'relative',
+  },
+  playerPhotoBadge: {
+    width: 56,
+    height: 56,
+  },
+  playerPhotoRoleOverlay: {
+    position: 'absolute',
+    bottom: -1,
+    right: -1,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: '#fff',
+  },
+  playerPhotoRoleText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
+  roleBadgeCol: {
+    width: 56,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   roleBadge: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 22,
+    height: 22,
+    borderRadius: 6,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 10,
   },
   roleBadgeText: {
     fontSize: 11,
@@ -515,6 +558,9 @@ const styles = StyleSheet.create({
   playerInfo: {
     flex: 1,
     marginRight: 8,
+    marginLeft: 16,
+    justifyContent: 'center',
+    alignItems: 'flex-start',
   },
   playerName: {
     fontSize: 14,
