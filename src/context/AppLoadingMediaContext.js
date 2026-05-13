@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import {
   getAppLoadingMediaSettings,
+  getCachedAppLoadingMedia,
   subscribeAppLoadingMedia,
 } from '../utils/appLoadingMediaSettings';
 
@@ -19,6 +20,16 @@ export function AppLoadingMediaProvider({ children }) {
 
   useEffect(() => {
     let cancelled = false;
+
+    // Instant: read cached URI from AsyncStorage (~5ms vs ~1s API)
+    getCachedAppLoadingMedia().then((cached) => {
+      if (!cancelled && cached?.uri) {
+        console.log(`[PERF][LoadingMedia] cache HIT — video URI available instantly`);
+        setState(cached);
+      }
+    });
+
+    // Background: fetch fresh from API and update if changed
     const load = () => {
       getAppLoadingMediaSettings().then((r) => {
         if (!cancelled) setState(r);

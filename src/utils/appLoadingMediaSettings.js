@@ -3,6 +3,7 @@ import api, { publicAssetUrl, superuserService } from '../services/api';
 
 const LEGACY_STORAGE_URI_KEY = 'app_loading_media_uri';
 const LEGACY_STORAGE_TYPE_KEY = 'app_loading_media_render';
+const CACHE_KEY = 'app_loading_media_cache';
 
 let subscribers = [];
 
@@ -36,7 +37,34 @@ export function guessPickMediaType(mimeType, fileName) {
 }
 
 /**
+ * Read cached loading media from AsyncStorage (synchronous-ish, ~5ms).
+ * Returns { uri, type } or null if no cache.
+ */
+export async function getCachedAppLoadingMedia() {
+  try {
+    const raw = await AsyncStorage.getItem(CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed?.uri) return { uri: parsed.uri, type: parsed.type || 'image', name: null };
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+async function persistMediaCache(uri, type) {
+  try {
+    if (uri) {
+      await AsyncStorage.setItem(CACHE_KEY, JSON.stringify({ uri, type }));
+    } else {
+      await AsyncStorage.removeItem(CACHE_KEY);
+    }
+  } catch {}
+}
+
+/**
  * Media di caricamento globale: legge dal backend (stesso file per tutti gli utenti).
+ * Aggiorna anche la cache locale per avvii futuri istantanei.
  */
 export async function getAppLoadingMediaSettings() {
   try {
@@ -47,13 +75,13 @@ export async function getAppLoadingMediaSettings() {
     const type = res.data?.type;
     if (path) {
       await clearLegacyDeviceOnlyKeys();
-      return {
-        uri: publicAssetUrl(path),
-        type: type === 'video' ? 'video' : 'image',
-        name: null,
-      };
+      const uri = publicAssetUrl(path);
+      const mediaType = type === 'video' ? 'video' : 'image';
+      persistMediaCache(uri, mediaType);
+      return { uri, type: mediaType, name: null };
     }
     await clearLegacyDeviceOnlyKeys();
+    persistMediaCache(null, null);
     return { uri: null, type: null, name: null };
   } catch {
     return { uri: null, type: null, name: null };
