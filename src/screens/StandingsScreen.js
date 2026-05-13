@@ -10,7 +10,7 @@ import {
   Dimensions,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
 import { leagueService, formationService, publicAssetUrl } from '../services/api';
 import {
@@ -37,7 +37,7 @@ const ALL_MODULES = {
   '4-4-2': [4,4,2], '4-3-3': [4,3,3], '3-5-2': [3,5,2], '4-5-1': [4,5,1], '5-3-2': [5,3,2],
   '5-4-1': [5,4,1], '5-2-3': [5,2,3], '3-4-3': [3,4,3],
 };
-const MINI_FIELD_H = 300;
+const MINI_FIELD_H = 380;
 
 const midTruncate = (str, max = 8) => {
   if (!str || str.length <= max) return str || '';
@@ -69,7 +69,7 @@ function getStandingsEmptyFormationCopy(formationData, league, selectedMatchday)
     Number.isFinite(sel) &&
     sel < Number(firstSaved)
   ) {
-    return `Per questa giornata non risulta una formazione schierata: la prima volta che compaiono titolari salvati è dalla ${firstSaved}ª giornata (es. iscrizione alla lega o schieramenti successivi al calcolo di questa giornata).`;
+    return `Per questa giornata non risulta una formazione schierata: la prima volta che compaiono titolari salvati è dalla ${firstSaved}ª giornata.`;
   }
   return 'Nessuna formazione inviata per questa giornata.';
 }
@@ -283,13 +283,13 @@ export default function StandingsScreen({ route, navigation }) {
             ) : formationData && formationData.formation && formationData.formation.length > 0 ? (
               <View>
                 {/* Tab icons campo / lista (solo se non auto-lineup) */}
-                {Number(league?.auto_lineup_mode) !== 1 && formationData.modulo && ALL_MODULES[formationData.modulo] && (
+                {formationData.modulo && ALL_MODULES[formationData.modulo] && (
                   <View style={styles.fViewTabs}>
                     <TouchableOpacity
                       style={[styles.fViewTab, (formationViewMode[item?.id] || 'field') === 'field' && styles.fViewTabActive]}
                       onPress={() => setFormationViewMode(prev => ({ ...prev, [item?.id]: 'field' }))}
                     >
-                      <Ionicons name="football" size={18} color={(formationViewMode[item?.id] || 'field') === 'field' ? '#667eea' : '#bbb'} />
+                      <MaterialCommunityIcons name="soccer-field" size={20} color={(formationViewMode[item?.id] || 'field') === 'field' ? '#667eea' : '#bbb'} />
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={[styles.fViewTab, formationViewMode[item?.id] === 'list' && styles.fViewTabActive]}
@@ -311,7 +311,7 @@ export default function StandingsScreen({ route, navigation }) {
                     { role: 'D', slots: players.slice(1, 1 + d) },
                     { role: 'P', slots: [players[0]] },
                   ];
-                  const slotSize = 54;
+                  const slotSize = 68;
                   return (
                     <View style={styles.miniField}>
                       <View style={styles.miniFieldCenter} />
@@ -320,14 +320,40 @@ export default function StandingsScreen({ route, navigation }) {
                       <View style={styles.miniFieldAreaBottom} />
                       {rows.map((row, ri) => {
                         const cnt = row.slots.length;
-                        const topPct = ri === 0 ? 4 : ri === 1 ? (cnt <= 4 ? 32 : 28) : ri === 2 ? 56 : 80;
-                        const marginH = cnt >= 7 ? -8 : cnt >= 6 ? -6 : cnt >= 5 ? -2 : 0;
+                        const topPct = ri === 0 ? 4
+                          : ri === 1 ? (cnt <= 4 ? 32 : 28)
+                          : ri === 2 ? 56 : 80;
+                        const slotMarginH = cnt >= 7 ? -10 : cnt >= 6 ? -8 : cnt >= 5 ? -3 : 0;
                         return (
-                          <View key={ri} style={[styles.miniFieldRow, { top: `${topPct}%` }, cnt >= 5 && { justifyContent: 'center', marginHorizontal: 4 }]}>
+                          <View key={ri} style={[styles.miniFieldRow, { top: `${topPct}%` }, cnt >= 5 && { justifyContent: 'center', marginHorizontal: 4 }, cnt === 4 && { justifyContent: 'center', gap: 2 }]}>
                             {row.slots.map((p, si) => {
                               if (!p) return <View key={si} style={{ width: slotSize, height: slotSize }} />;
                               const roleColor = ROLE_COLORS[p.role] || '#999';
                               const hasPhoto = !!p.photo_path;
+
+                              let yOffset = 0;
+                              if (cnt >= 5) {
+                                const center = (cnt - 1) / 2;
+                                const dist = Math.abs(si - center) / center;
+                                const up = cnt >= 7 ? -125 : cnt >= 6 ? -115 : -105;
+                                const down = cnt >= 7 ? 18 : cnt >= 6 ? 16 : 14;
+                                yOffset = Math.round(up * dist + down * (1 - dist));
+                              }
+
+                              const bonusItems = [];
+                              if (formationData.bonus_enabled) {
+                                const bs = formationData.bonus_settings || {};
+                                if (p.goals > 0 && bs.enable_goal) bonusItems.push({ type: 'goal', count: p.goals });
+                                if (p.assists > 0 && bs.enable_assist) bonusItems.push({ type: 'assist', count: p.assists });
+                                if (p.yellow_cards > 0 && bs.enable_yellow_card) bonusItems.push({ type: 'yellow_card', count: p.yellow_cards });
+                                if (p.red_cards > 0 && bs.enable_red_card) bonusItems.push({ type: 'red_card', count: p.red_cards });
+                                if (p.goals_conceded > 0 && bs.enable_goals_conceded) bonusItems.push({ type: 'goals_conceded', count: p.goals_conceded });
+                                if (p.own_goals > 0 && bs.enable_own_goal) bonusItems.push({ type: 'own_goal', count: p.own_goals });
+                                if (p.penalty_missed > 0 && bs.enable_penalty_missed) bonusItems.push({ type: 'penalty_missed', count: p.penalty_missed });
+                                if (p.penalty_saved > 0 && bs.enable_penalty_saved) bonusItems.push({ type: 'penalty_saved', count: p.penalty_saved });
+                                if (p.clean_sheet > 0 && bs.enable_clean_sheet) bonusItems.push({ type: 'clean_sheet', count: p.clean_sheet });
+                              }
+
                               return (
                                 <View
                                   key={p.id || si}
@@ -337,23 +363,34 @@ export default function StandingsScreen({ route, navigation }) {
                                       width: slotSize, height: slotSize, borderRadius: slotSize / 2,
                                       borderColor: roleColor,
                                       backgroundColor: hasPhoto ? 'transparent' : roleColor,
-                                      ...(marginH !== 0 ? { marginHorizontal: marginH } : {}),
+                                      ...(slotMarginH !== 0 ? { marginHorizontal: slotMarginH } : {}),
+                                      ...(yOffset !== 0 ? { marginTop: yOffset } : {}),
                                     },
                                     hasPhoto && { borderWidth: 0, overflow: 'hidden' },
                                   ]}
                                 >
                                   {hasPhoto ? (
                                     <>
-                                      <Image source={{ uri: publicAssetUrl(p.photo_path) }} style={{ width: slotSize * 0.85, height: slotSize * 0.85, position: 'absolute', top: -slotSize * 0.22 }} />
+                                      <Image source={{ uri: publicAssetUrl(p.photo_path) }} style={{ width: slotSize * 0.90, height: slotSize * 0.90, position: 'absolute', top: -slotSize * 0.11 }} />
                                       <View style={[styles.miniSlotOverlay, { backgroundColor: roleColor }]}>
                                         <Text style={styles.miniSlotOverlayText}>{midTruncate(p.last_name)}</Text>
                                       </View>
                                     </>
                                   ) : (
                                     <>
-                                      <Text style={styles.miniSlotName} numberOfLines={1}>{midTruncate(p.last_name)}</Text>
-                                      <Text style={styles.miniSlotTeam} numberOfLines={1}>{midTruncate(p.team_name, 7)}</Text>
+                                      <Text style={styles.miniSlotName} numberOfLines={1}>{midTruncate(p.last_name, 10)}</Text>
+                                      <Text style={styles.miniSlotTeam} numberOfLines={1}>{midTruncate(p.team_name, 9)}</Text>
                                     </>
+                                  )}
+                                  {bonusItems.length > 0 && (
+                                    <View style={styles.fieldBonusCol}>
+                                      {bonusItems.map((b, idx) => (
+                                        <View key={idx} style={styles.fieldBonusChip}>
+                                          <BonusIcon type={b.type} size={17} />
+                                          {b.count > 1 && <Text style={styles.fieldBonusCount}>x{b.count}</Text>}
+                                        </View>
+                                      ))}
+                                    </View>
                                   )}
                                 </View>
                               );
@@ -633,6 +670,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: 10,
     marginTop: 10,
+    marginHorizontal: -6,
     borderTopWidth: 1,
     borderTopColor: '#f0f0f0',
   },
@@ -678,22 +716,25 @@ const styles = StyleSheet.create({
   },
 
   /* Formation view tabs */
-  fViewTabs: { flexDirection: 'row', justifyContent: 'center', gap: 6, marginBottom: 10 },
-  fViewTab: { paddingVertical: 5, paddingHorizontal: 14, borderRadius: 8, backgroundColor: '#f0f0f0' },
+  fViewTabs: { flexDirection: 'row', gap: 6, marginBottom: 10 },
+  fViewTab: { flex: 1, paddingVertical: 6, borderRadius: 8, backgroundColor: '#f0f0f0', alignItems: 'center', justifyContent: 'center' },
   fViewTabActive: { backgroundColor: '#e8ecff' },
 
   /* Mini field */
-  miniField: { height: MINI_FIELD_H, backgroundColor: '#2e8b57', borderRadius: 10, position: 'relative', overflow: 'hidden' },
+  miniField: { height: MINI_FIELD_H, backgroundColor: '#2e8b57', borderRadius: 8, position: 'relative', overflow: 'hidden', marginHorizontal: -10 },
   miniFieldCenter: { position: 'absolute', top: '49%', left: 0, right: 0, height: 2, backgroundColor: 'rgba(255,255,255,0.25)' },
-  miniFieldCircle: { position: 'absolute', top: '50%', left: '50%', width: 50, height: 50, borderRadius: 25, borderWidth: 2, borderColor: 'rgba(255,255,255,0.2)', marginLeft: -25, marginTop: -25 },
+  miniFieldCircle: { position: 'absolute', top: '50%', left: '50%', width: 60, height: 60, borderRadius: 30, borderWidth: 2, borderColor: 'rgba(255,255,255,0.2)', marginLeft: -30, marginTop: -30 },
   miniFieldAreaTop: { position: 'absolute', top: 0, left: '25%', right: '25%', height: 30, borderWidth: 2, borderTopWidth: 0, borderColor: 'rgba(255,255,255,0.18)', borderBottomLeftRadius: 6, borderBottomRightRadius: 6 },
   miniFieldAreaBottom: { position: 'absolute', bottom: 0, left: '25%', right: '25%', height: 30, borderWidth: 2, borderBottomWidth: 0, borderColor: 'rgba(255,255,255,0.18)', borderTopLeftRadius: 6, borderTopRightRadius: 6 },
   miniFieldRow: { position: 'absolute', left: 0, right: 0, flexDirection: 'row', justifyContent: 'space-evenly', alignItems: 'center' },
   miniSlot: { borderWidth: 2, justifyContent: 'center', alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.2, shadowRadius: 2, elevation: 3 },
-  miniSlotName: { color: '#fff', fontWeight: '700', fontSize: 9, textAlign: 'center', paddingHorizontal: 2 },
+  miniSlotName: { color: '#fff', fontWeight: '700', fontSize: 10, textAlign: 'center' },
   miniSlotTeam: { color: 'rgba(255,255,255,0.75)', fontSize: 7, textAlign: 'center', marginTop: 1 },
   miniSlotOverlay: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingVertical: 2, alignItems: 'center', borderBottomLeftRadius: 999, borderBottomRightRadius: 999 },
-  miniSlotOverlayText: { color: '#fff', fontSize: 8, fontWeight: '700', textAlign: 'center' },
+  miniSlotOverlayText: { color: '#fff', fontSize: 9, fontWeight: '700', textAlign: 'center' },
+  fieldBonusCol: { position: 'absolute', top: -4, right: -6, flexDirection: 'column', gap: 1, alignItems: 'flex-end' },
+  fieldBonusChip: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 6, paddingHorizontal: 2, paddingVertical: 1 },
+  fieldBonusCount: { color: '#333', fontSize: 9, fontWeight: '700', marginLeft: 1 },
 
   /* Empty */
   emptyBox: { alignItems: 'center', paddingVertical: 50 },
