@@ -3294,6 +3294,12 @@ const styles = StyleSheet.create({
     color: '#666',
     marginTop: 2,
   },
+  suggestionRoleWarning: {
+    fontSize: 11,
+    color: '#e6a800',
+    fontWeight: '600',
+    marginTop: 2,
+  },
   suggestionActions: {
     flexDirection: 'row',
     alignItems: 'center',
