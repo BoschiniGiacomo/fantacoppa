@@ -52,12 +52,10 @@ export default function DashboardScreen({ navigation, route }) {
 
   const loadLeagues = async () => {
     registerPushTokenIfPermitted().catch(() => {});
-    // Controlla se c'è un toast pendente da mostrare
     const toast = consumePendingToast();
     if (toast) showToast(toast.text, toast.type);
     try {
       const response = await leagueService.getAll();
-      // Filtra le leghe appena abbandonate (in attesa che l'API completi)
       const raw = response?.data;
       const data = Array.isArray(raw) ? raw : [];
       const normalized = data.map((league) => ({

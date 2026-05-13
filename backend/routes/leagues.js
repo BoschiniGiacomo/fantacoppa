@@ -919,6 +919,9 @@ router.get('/:id', authenticateToken, async (req, res) => {
 // GET /api/leagues/:id/dashboard-data - payload aggregato dashboard lega
 router.get('/:id/dashboard-data', authenticateToken, async (req, res) => {
   try {
+    const t0 = Date.now();
+    const timings = {};
+    const lap = (label) => { timings[label] = Date.now() - t0; };
     const userId = Number(req.user.userId);
     const leagueId = Number(req.params.id);
     if (!Number.isFinite(leagueId) || leagueId <= 0) {
@@ -932,6 +935,7 @@ router.get('/:id/dashboard-data', authenticateToken, async (req, res) => {
         league = await getLeagueByIdForSuperuserViewer(leagueId, userId);
       }
     }
+    lap('1_getLeague');
     if (!league) {
       return res.status(404).json({ message: 'Lega non trovata o accesso negato' });
     }
@@ -943,6 +947,7 @@ router.get('/:id/dashboard-data', authenticateToken, async (req, res) => {
        LIMIT 1`,
       [userId, leagueId]
     );
+    lap('2_teamInfo');
     const teamName = String(teamRows[0]?.team_name || '').trim();
     const coachName = String(teamRows[0]?.coach_name || '').trim();
     const teamLogo = String(teamRows[0]?.team_logo || 'default_1').trim() || 'default_1';
@@ -965,6 +970,7 @@ router.get('/:id/dashboard-data', authenticateToken, async (req, res) => {
        ORDER BY punteggio DESC, media_punti DESC`,
       [leagueId]
     );
+    lap('3_standings');
     const standingsFull = Array.isArray(standingsRows) && standingsRows.length > 0
       ? standingsRows
       : await query(
@@ -979,6 +985,7 @@ router.get('/:id/dashboard-data', authenticateToken, async (req, res) => {
            ORDER BY u.username ASC`,
           [leagueId]
         );
+    lap('3b_standingsFallback');
 
     const topStandings = standingsFull.slice(0, 5);
     const userIdx = standingsFull.findIndex((r) => Number(r.id) === userId);
@@ -1006,6 +1013,7 @@ router.get('/:id/dashboard-data', authenticateToken, async (req, res) => {
     } catch (_) {
       userScores = [];
     }
+    lap('4_userScores');
 
     const squadCountRows = await query(
       `SELECT COUNT(*)::int AS c
@@ -1014,8 +1022,10 @@ router.get('/:id/dashboard-data', authenticateToken, async (req, res) => {
       [userId, leagueId]
     );
     const squadPlayersCount = Number(squadCountRows[0]?.c || 0);
+    lap('5_squadCount');
 
     const effectiveLeagueId = await getEffectiveLeagueId(leagueId);
+    lap('6_effectiveLeagueId');
     const marketCountRows = await query(
       `SELECT COUNT(*)::int AS c
        FROM players p
@@ -1024,6 +1034,7 @@ router.get('/:id/dashboard-data', authenticateToken, async (req, res) => {
       [effectiveLeagueId]
     );
     const marketPlayersCount = Number(marketCountRows[0]?.c || 0);
+    lap('7_marketCount');
 
     const roleLimitsRows = await query(
       `SELECT max_portieri, max_difensori, max_centrocampisti, max_attaccanti
@@ -1041,6 +1052,7 @@ router.get('/:id/dashboard-data', authenticateToken, async (req, res) => {
        GROUP BY p.role`,
       [userId, leagueId]
     );
+    lap('8_roleLimits');
     const ownedByRole = { P: 0, D: 0, C: 0, A: 0 };
     roleOwnedRows.forEach((r) => {
       const role = String(r.role || '').trim().toUpperCase();
@@ -1081,6 +1093,7 @@ router.get('/:id/dashboard-data', authenticateToken, async (req, res) => {
     } catch (_) {
       liveMatchday = null;
     }
+    lap('9_liveMatchday');
 
     let nextDeadline = null;
     if (Number(league.auto_lineup_mode || 0) !== 1) {
@@ -1105,6 +1118,10 @@ router.get('/:id/dashboard-data', authenticateToken, async (req, res) => {
         nextDeadline = null;
       }
     }
+    lap('10_nextDeadline');
+
+    const total = Date.now() - t0;
+    console.log(`[PERF][GET /:id/dashboard-data] leagueId=${leagueId} TOTAL=${total}ms | ${Object.entries(timings).map(([k, v]) => `${k}=${v}ms`).join(' | ')}`);
 
     return res.json({
       league,

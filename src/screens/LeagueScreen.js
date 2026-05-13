@@ -181,21 +181,32 @@ export default function LeagueScreen({ route, navigation }) {
       });
     };
 
+    const t0 = Date.now();
+    console.log(`[PERF][LeagueHome] loadData START (leagueId=${leagueId})`);
+
     const warm = peekDashboard(leagueId);
     if (warm != null) {
+      console.log(`[PERF][LeagueHome] warm cache HIT — skip loading spinner`);
       applyFromPayload(warm);
     } else {
+      console.log(`[PERF][LeagueHome] warm cache MISS — showing spinner`);
       setLoading(true);
     }
 
     try {
+      const tApi = Date.now();
       const res = await leagueService.getDashboardData(leagueId);
+      const tApiEnd = Date.now();
+      const payloadSize = JSON.stringify(res?.data)?.length ?? 0;
+      console.log(`[PERF][LeagueHome] GET /dashboard-data: ${tApiEnd - tApi}ms (payload: ${payloadSize} bytes)`);
       const payload = res?.data || {};
       applyFromPayload(payload);
       setDashboard(leagueId, payload);
 
       try {
+        const tOnb = Date.now();
         await syncSubmittedFormationOnboarding({ leagueId, formationService, markDone });
+        console.log(`[PERF][LeagueHome] syncOnboarding: ${Date.now() - tOnb}ms`);
       } catch (_) {}
     } catch (error) {
       if (warm == null) {
@@ -210,6 +221,8 @@ export default function LeagueScreen({ route, navigation }) {
         console.error('Error loading league data:', error);
       }
       setLoading(false);
+    } finally {
+      console.log(`[PERF][LeagueHome] loadData TOTAL: ${Date.now() - t0}ms`);
     }
   };
 
