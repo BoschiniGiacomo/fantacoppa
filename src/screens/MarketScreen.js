@@ -108,24 +108,16 @@ export default function MarketScreen({ route, navigation }) {
   };
 
   const loadData = async () => {
-    const t0 = Date.now();
-    console.log(`[PERF][Market] loadData START (leagueId=${leagueId})`);
     const warm = peekMarketBootstrapDefault(leagueId);
     if (warm != null) {
-      console.log(`[PERF][Market] warm cache HIT`);
       applyBootstrapData(warm);
       setLoading(false);
     } else {
-      console.log(`[PERF][Market] warm cache MISS — showing spinner`);
       setLoading(true);
     }
     try {
-      const tApi = Date.now();
       const bootstrapRes = await marketService.getBootstrap(leagueId, {});
-      const tApiEnd = Date.now();
       const data = bootstrapRes?.data || {};
-      const payloadSize = JSON.stringify(data)?.length ?? 0;
-      console.log(`[PERF][Market] GET /market/bootstrap: ${tApiEnd - tApi}ms (payload: ${payloadSize} bytes, ${Array.isArray(data.players) ? data.players.length : 0} players)`);
       applyBootstrapData(data);
       setMarketBootstrapDefault(leagueId, data);
     } catch (error) {
@@ -142,7 +134,6 @@ export default function MarketScreen({ route, navigation }) {
     } finally {
       setLoading(false);
       setRefreshing(false);
-      console.log(`[PERF][Market] loadData TOTAL: ${Date.now() - t0}ms`);
     }
   };
 

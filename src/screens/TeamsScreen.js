@@ -11,8 +11,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { useAuth } from '../context/AuthContext';
-import { useOnboarding } from '../context/OnboardingContext';
-import { teamsService, leagueService, formationService } from '../services/api';
+import { teamsService, leagueService } from '../services/api';
 import {
   peekLeagueDetail,
   peekTeamsRows,
@@ -25,10 +24,8 @@ import { publicAssetUrl } from '../services/api';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { defaultLogosMap } from '../constants/defaultLogos';
-import { syncSubmittedFormationOnboarding } from '../utils/formationSubmission';
 export default function TeamsScreen({ route, navigation }) {
   const { user } = useAuth();
-  const { markDone } = useOnboarding();
   const { leagueId } = route.params || {};
   const insets = useSafeAreaInsets();
   const [teams, setTeams] = useState([]);
@@ -55,6 +52,8 @@ export default function TeamsScreen({ route, navigation }) {
   );
 
   const loadData = async () => {
+    const t0 = Date.now();
+    console.log(`[PERF][Teams] loadData START (leagueId=${leagueId})`);
     const warmL = peekLeagueDetail(leagueId);
     const warmRows = peekTeamsRows(leagueId);
     const hasWarm = warmL != null || warmRows != null;
@@ -69,23 +68,24 @@ export default function TeamsScreen({ route, navigation }) {
     }
 
     if (hasWarm) {
+      console.log(`[PERF][Teams] warm cache HIT`);
       setLoading(false);
     } else {
+      console.log(`[PERF][Teams] warm cache MISS — showing spinner`);
       setLoading(true);
     }
 
     try {
-      try {
-        await syncSubmittedFormationOnboarding({ leagueId, formationService, markDone });
-      } catch (_) {}
-
+      const tApi = Date.now();
       await Promise.all([
         loadLeague().catch(() => {}),
         loadTeams().catch(() => {}),
       ]);
+      console.log(`[PERF][Teams] loadLeague+loadTeams: ${Date.now() - tApi}ms`);
     } finally {
       setLoading(false);
       setRefreshing(false);
+      console.log(`[PERF][Teams] loadData TOTAL: ${Date.now() - t0}ms`);
     }
   };
 

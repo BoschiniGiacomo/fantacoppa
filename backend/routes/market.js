@@ -130,9 +130,6 @@ router.get('/:leagueId/players', authenticateToken, async (req, res) => {
 // Payload aggregato per schermata Mercato (caricamento iniziale/refresh).
 router.get('/:leagueId/bootstrap', authenticateToken, async (req, res) => {
   try {
-    const t0 = Date.now();
-    const timings = {};
-    const lap = (label) => { timings[label] = Date.now() - t0; };
     const leagueId = toLeagueId(req.params.leagueId);
     if (!leagueId) return res.status(400).json({ message: 'League ID non valido' });
     const role = String(req.query?.role || '').trim();
@@ -183,7 +180,6 @@ router.get('/:leagueId/bootstrap', authenticateToken, async (req, res) => {
         [userId, leagueId, userId, leagueId]
       ),
     ]);
-    lap('1_phase1_allMeta');
 
     const blocked = isUserEffectivelyBlocked(flags.market_locked, userBlockValue);
     const blockReason = blocked
@@ -251,11 +247,6 @@ router.get('/:leagueId/bootstrap', authenticateToken, async (req, res) => {
     }
     sql += ' ORDER BY p.rating DESC, p.last_name ASC LIMIT 1000';
     const players = await query(sql, params);
-    lap('2_phase2_players');
-
-    const total = Date.now() - t0;
-    console.log(`[PERF][GET /market/bootstrap] leagueId=${leagueId} TOTAL=${total}ms rows=${players.length} | ${Object.entries(timings).map(([k, v]) => `${k}=${v}ms`).join(' | ')}`);
-
     return res.json({
       league,
       players,

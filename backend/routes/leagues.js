@@ -893,6 +893,7 @@ router.get('/search', authenticateToken, async (req, res) => {
 // GET /api/leagues/:id - dettaglio lega (solo se membro)
 router.get('/:id', authenticateToken, async (req, res) => {
   try {
+    const t0 = Date.now();
     const userId = Number(req.user.userId);
     const leagueId = Number(req.params.id);
     if (!Number.isFinite(leagueId) || leagueId <= 0) {
@@ -909,6 +910,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
     if (!league) {
       return res.status(404).json({ message: 'Lega non trovata o accesso negato' });
     }
+    console.log(`[PERF][GET /leagues/:id] leagueId=${leagueId} TOTAL=${Date.now() - t0}ms`);
     res.json(league);
   } catch (error) {
     console.error('Get league by id error:', error);

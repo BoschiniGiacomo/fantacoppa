@@ -6,6 +6,7 @@ const { authenticateToken } = require('../middleware/auth');
 // GET /api/teams/:leagueId
 router.get('/:leagueId', authenticateToken, async (req, res) => {
   try {
+    const t0 = Date.now();
     const leagueId = Number(req.params.leagueId);
     if (!Number.isFinite(leagueId) || leagueId <= 0) {
       return res.status(400).json({ message: 'League ID non valido' });
@@ -21,6 +22,7 @@ router.get('/:leagueId', authenticateToken, async (req, res) => {
        ORDER BY u.username ASC`,
       [leagueId]
     );
+    console.log(`[PERF][GET /teams/:leagueId] leagueId=${leagueId} TOTAL=${Date.now() - t0}ms rows=${rows.length}`);
     res.json(rows);
   } catch (error) {
     console.error('Get teams list error:', error);
