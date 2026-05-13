@@ -276,8 +276,10 @@ export default function MarketScreen({ route, navigation }) {
               </View>
             </View>
           ) : (
-            <View style={[styles.roleBadgeMini, { backgroundColor: roleColor }]}>
-              <Text style={styles.roleBadgeMiniText}>{item.role}</Text>
+            <View style={styles.roleBadgeCol}>
+              <View style={[styles.roleBadgeMini, { backgroundColor: roleColor }]}>
+                <Text style={styles.roleBadgeMiniText}>{item.role}</Text>
+              </View>
             </View>
           )}
           {/* Info giocatore */}
@@ -866,32 +868,34 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 10,
+    paddingVertical: 4,
     paddingHorizontal: 12,
+    minHeight: 64,
   },
   playerInfo: {
     flex: 1,
     marginRight: 8,
     marginLeft: 10,
-    justifyContent: 'center',
+    justifyContent: 'left',
+    alignItems: 'flex-start',
   },
   playerPhotoCol: {
-    width: 42,
-    height: 42,
+    width: 56,
+    height: 56,
     position: 'relative',
   },
   playerPhotoBadge: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
   },
   playerPhotoRoleOverlay: {
     position: 'absolute',
-    bottom: -2,
-    right: -2,
-    width: 16,
-    height: 16,
-    borderRadius: 8,
+    bottom: -1,
+    right: -1,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1.5,
@@ -899,8 +903,13 @@ const styles = StyleSheet.create({
   },
   playerPhotoRoleText: {
     color: '#fff',
-    fontSize: 9,
+    fontSize: 10,
     fontWeight: 'bold',
+  },
+  roleBadgeCol: {
+    width: 56,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   roleBadgeMini: {
     width: 22,
@@ -918,12 +927,10 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
     color: '#333',
-    flex: 1,
   },
   playerTeam: {
     fontSize: 12,
     color: '#888',
-    marginLeft: 28,
   },
   playerRight: {
     flexDirection: 'row',
