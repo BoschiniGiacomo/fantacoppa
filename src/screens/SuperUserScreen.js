@@ -280,20 +280,39 @@ export default function SuperUserScreen() {
   };
   
   // Crea cluster da suggerimento
-  const handleCreateClusterFromSuggestion = async (player1, player2, groupId) => {
+  const handleApproveSuggestion = async (suggestion, groupId) => {
     try {
-      await superuserService.createPlayerCluster({
+      const allPlayerIds = [
+        ...suggestion.existing_leagues.map((l) => l.player_id),
+        ...suggestion.all_new_player_ids,
+      ];
+      await superuserService.approveSuggestion({
         official_group_id: groupId,
-        player_ids: [player1.id, player2.id],
-        suggested_by_system: true,
-        status: 'pending'
+        cluster_id: suggestion.cluster_id || null,
+        player_ids: allPlayerIds,
       });
-      showToast('Cluster creato e in attesa di approvazione', 'success');
+      showToast('Cluster approvato', 'success');
+      await loadClusterSuggestions(groupId);
       await loadClusters(groupId, clusterFilterStatus);
+    } catch (error) {
+      showToast(error.response?.data?.message || 'Errore approvazione');
+    }
+  };
+
+  const handleDismissSuggestion = async (suggestion, groupId) => {
+    try {
+      const allPlayerIds = [
+        ...suggestion.existing_leagues.map((l) => l.player_id),
+        ...suggestion.all_new_player_ids,
+      ];
+      await superuserService.dismissSuggestion({
+        official_group_id: groupId,
+        player_ids: allPlayerIds,
+      });
+      showToast('Suggerimento nascosto', 'success');
       await loadClusterSuggestions(groupId);
     } catch (error) {
-      console.error('Error creating cluster:', error);
-      showToast(error.response?.data?.message || 'Errore durante la creazione del cluster');
+      showToast(error.response?.data?.message || 'Errore');
     }
   };
   
@@ -2080,26 +2099,36 @@ export default function SuperUserScreen() {
                   {/* Suggerimenti automatici */}
                   {clusterFilterStatus === null && (
                     <>
-                      <Text style={styles.clusterSectionTitle}>Suggerimenti Automatici</Text>
+                      <Text style={styles.clusterSectionTitle}>Suggerimenti</Text>
                       {loadingSuggestions ? (
                         <ActivityIndicator size="small" color="#667eea" style={{ padding: 20 }} />
                       ) : suggestions.length > 0 ? (
                         suggestions.map((suggestion, index) => (
-                          <View key={index} style={styles.suggestionItem}>
-                            <View style={styles.suggestionPlayers}>
-                              <Text style={styles.suggestionPlayerName}>{suggestion.player_1.name}</Text>
-                              <Text style={styles.suggestionLeague}>{suggestion.player_1.league_name}</Text>
-                              <Text style={styles.suggestionArrow}>⇄</Text>
-                              <Text style={styles.suggestionPlayerName}>{suggestion.player_2.name}</Text>
-                              <Text style={styles.suggestionLeague}>{suggestion.player_2.league_name}</Text>
+                          <View key={index} style={styles.suggestionRow}>
+                            <View style={styles.suggestionInfo}>
+                              <Text style={styles.suggestionPlayerName}>{suggestion.name}</Text>
+                              <Text style={styles.suggestionLeagueLabel}>
+                                {suggestion.existing_leagues.length > 0
+                                  ? suggestion.existing_leagues.map((l) => l.league_name).join(', ')
+                                  : 'new'}
+                                {'  →  '}
+                                {suggestion.new_leagues.map((l) => l.league_name).join(', ')}
+                              </Text>
                             </View>
-                            <TouchableOpacity
-                              style={styles.suggestionButton}
-                              onPress={() => handleCreateClusterFromSuggestion(suggestion.player_1, suggestion.player_2, selectedGroupForEdit.id)}
-                            >
-                              <Ionicons name="checkmark" size={18} color="#4CAF50" />
-                              <Text style={styles.suggestionButtonText}>Approva</Text>
-                            </TouchableOpacity>
+                            <View style={styles.suggestionActions}>
+                              <TouchableOpacity
+                                style={styles.suggestionApprove}
+                                onPress={() => handleApproveSuggestion(suggestion, selectedGroupForEdit.id)}
+                              >
+                                <Ionicons name="checkmark" size={20} color="#4CAF50" />
+                              </TouchableOpacity>
+                              <TouchableOpacity
+                                style={styles.suggestionDismiss}
+                                onPress={() => handleDismissSuggestion(suggestion, selectedGroupForEdit.id)}
+                              >
+                                <Ionicons name="close" size={20} color="#F44336" />
+                              </TouchableOpacity>
+                            </View>
                           </View>
                         ))
                       ) : (
@@ -3270,50 +3299,50 @@ const styles = StyleSheet.create({
     marginTop: 16,
     marginBottom: 12,
   },
-  suggestionItem: {
-    padding: 16,
+  suggestionRow: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     backgroundColor: '#f9f9f9',
     marginHorizontal: 16,
     marginBottom: 8,
     borderRadius: 8,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
   },
-  suggestionPlayers: {
+  suggestionInfo: {
     flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    flexWrap: 'wrap',
+    marginRight: 12,
   },
   suggestionPlayerName: {
     fontSize: 14,
-    fontWeight: '600',
-    color: '#333',
+    fontWeight: '700',
+    color: '#222',
   },
-  suggestionLeague: {
+  suggestionLeagueLabel: {
     fontSize: 12,
     color: '#666',
+    marginTop: 2,
   },
-  suggestionArrow: {
-    fontSize: 16,
-    color: '#667eea',
-    marginHorizontal: 4,
-  },
-  suggestionButton: {
+  suggestionActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
-    backgroundColor: '#e8f5e9',
-    gap: 4,
+    gap: 10,
   },
-  suggestionButtonText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#4CAF50',
+  suggestionApprove: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#e8f5e9',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  suggestionDismiss: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#fce4ec',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   clusterItem: {
     padding: 16,

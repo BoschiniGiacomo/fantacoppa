@@ -502,49 +502,161 @@ router.get('/player-clusters/suggestions/:groupId', authenticateToken, requireSu
     const leagueIds = await getGroupLeagueIds(groupId);
     if (!leagueIds.length) return res.json({ suggestions: [] });
 
-    const placeholders = leagueIds.map(() => '?').join(', ');
-    const suggestions = await query(
-      `SELECT p1.id AS player_id_1, p1.first_name, p1.last_name, t1.league_id AS league_id_1, l1.name AS league_name_1,
-              p2.id AS player_id_2, t2.league_id AS league_id_2, l2.name AS league_name_2
-       FROM players p1
-       JOIN teams t1 ON p1.team_id = t1.id
-       JOIN leagues l1 ON t1.league_id = l1.id
-       JOIN players p2 ON p1.first_name = p2.first_name AND p1.last_name = p2.last_name AND p1.id < p2.id
-       JOIN teams t2 ON p2.team_id = t2.id
-       JOIN leagues l2 ON t2.league_id = l2.id
-       WHERE t1.league_id IN (${placeholders}) AND t2.league_id IN (${placeholders})
-         AND t1.league_id <> t2.league_id
-         AND NOT EXISTS (
-           SELECT 1
-           FROM player_cluster_members pcm1
-           JOIN player_clusters pc ON pcm1.cluster_id = pc.id
-           WHERE (pcm1.player_id = p1.id OR pcm1.player_id = p2.id)
-             AND pc.official_group_id = ?
-         )
-       GROUP BY p1.id, p2.id, p1.first_name, p1.last_name, t1.league_id, l1.name, t2.league_id, l2.name
-       ORDER BY p1.last_name, p1.first_name
-       LIMIT 200`,
-      [...leagueIds, ...leagueIds, groupId]
+    const ph = leagueIds.map(() => '?').join(', ');
+
+    // All players in the group's leagues with their league info
+    const allPlayers = await query(
+      `SELECT p.id, p.first_name, p.last_name, t.league_id, l.name AS league_name
+       FROM players p
+       JOIN teams t ON p.team_id = t.id
+       JOIN leagues l ON t.league_id = l.id
+       WHERE t.league_id IN (${ph})
+       ORDER BY p.last_name, p.first_name`,
+      leagueIds
     );
+    if (!Array.isArray(allPlayers) || allPlayers.length === 0) return res.json({ suggestions: [] });
 
-    const mapped = suggestions.map((row) => ({
-      player_1: {
-        id: Number(row.player_id_1),
-        name: `${row.first_name || ''} ${row.last_name || ''}`.trim(),
-        league_id: Number(row.league_id_1),
-        league_name: row.league_name_1 || '-',
-      },
-      player_2: {
-        id: Number(row.player_id_2),
-        name: `${row.first_name || ''} ${row.last_name || ''}`.trim(),
-        league_id: Number(row.league_id_2),
-        league_name: row.league_name_2 || '-',
-      },
-    }));
+    // Players already in a cluster (approved or rejected) for this group
+    const clusteredRows = await query(
+      `SELECT pcm.player_id, pc.id AS cluster_id, pc.status
+       FROM player_cluster_members pcm
+       JOIN player_clusters pc ON pcm.cluster_id = pc.id
+       WHERE pc.official_group_id = ?`,
+      [groupId]
+    );
+    const rejectedPlayerIds = new Set();
+    const approvedPlayerMap = new Map();
+    for (const r of (clusteredRows || [])) {
+      if (r.status === 'rejected') rejectedPlayerIds.add(Number(r.player_id));
+      if (r.status === 'approved') approvedPlayerMap.set(Number(r.player_id), Number(r.cluster_id));
+    }
 
-    return res.json({ suggestions: mapped });
+    // Group players by normalized name
+    const nameGroups = new Map();
+    for (const p of allPlayers) {
+      const key = `${(p.first_name || '').trim().toLowerCase()}|${(p.last_name || '').trim().toLowerCase()}`;
+      if (!nameGroups.has(key)) nameGroups.set(key, []);
+      nameGroups.get(key).push(p);
+    }
+
+    const suggestions = [];
+    for (const [, players] of nameGroups) {
+      if (players.length < 2) continue;
+
+      // Skip if ALL players are in a rejected cluster
+      const nonRejected = players.filter((p) => !rejectedPlayerIds.has(Number(p.id)));
+      if (nonRejected.length < 2) continue;
+
+      const existingLeagues = [];
+      const newLeagues = [];
+      let clusterId = null;
+
+      for (const p of nonRejected) {
+        const pid = Number(p.id);
+        if (approvedPlayerMap.has(pid)) {
+          if (!clusterId) clusterId = approvedPlayerMap.get(pid);
+          existingLeagues.push({ player_id: pid, league_id: Number(p.league_id), league_name: p.league_name || '-' });
+        } else {
+          newLeagues.push({ player_id: pid, league_id: Number(p.league_id), league_name: p.league_name || '-' });
+        }
+      }
+
+      if (newLeagues.length === 0) continue;
+
+      const first = nonRejected[0];
+      const fullName = `${(first.first_name || '').trim()} ${(first.last_name || '').trim()}`.trim();
+
+      suggestions.push({
+        name: fullName,
+        cluster_id: clusterId,
+        existing_leagues: existingLeagues,
+        new_leagues: newLeagues,
+        all_new_player_ids: newLeagues.map((l) => l.player_id),
+      });
+    }
+
+    suggestions.sort((a, b) => a.name.localeCompare(b.name, 'it'));
+    return res.json({ suggestions });
   } catch (error) {
     return res.status(500).json({ message: 'Errore suggerimenti cluster', error: error.message });
+  }
+});
+
+// POST /player-clusters/approve-suggestion — approve or extend a cluster in one step
+router.post('/player-clusters/approve-suggestion', authenticateToken, requireSuperuser, async (req, res) => {
+  try {
+    const userId = Number(req.user?.userId);
+    const groupId = Number(req.body?.official_group_id);
+    const existingClusterId = req.body?.cluster_id ? Number(req.body.cluster_id) : null;
+    const playerIds = Array.isArray(req.body?.player_ids) ? req.body.player_ids.map((v) => Number(v)).filter((v) => v > 0) : [];
+
+    if (!groupId || playerIds.length === 0) return res.status(400).json({ message: 'Dati non validi' });
+
+    if (existingClusterId) {
+      for (const pid of playerIds) {
+        const already = await query(
+          `SELECT 1 FROM player_cluster_members WHERE cluster_id = ? AND player_id = ? LIMIT 1`,
+          [existingClusterId, pid]
+        );
+        if (already.length === 0) {
+          await query(
+            `INSERT INTO player_cluster_members (cluster_id, player_id, added_by) VALUES (?, ?, ?)`,
+            [existingClusterId, pid, userId]
+          );
+        }
+      }
+      return res.json({ message: 'Giocatori aggiunti al cluster esistente', cluster_id: existingClusterId });
+    }
+
+    const allPlayerIds = playerIds;
+    const clusterRows = await query(
+      `INSERT INTO player_clusters (official_group_id, status, suggested_by_system, created_by, approved_by, approved_at)
+       VALUES (?, 'approved', 1, ?, ?, NOW())
+       RETURNING id`,
+      [groupId, userId, userId]
+    );
+    const clusterId = Number(clusterRows[0]?.id || 0);
+    if (!clusterId) return res.status(500).json({ message: 'Errore creazione cluster' });
+
+    for (const pid of allPlayerIds) {
+      await query(
+        `INSERT INTO player_cluster_members (cluster_id, player_id, added_by) VALUES (?, ?, ?)`,
+        [clusterId, pid, userId]
+      );
+    }
+    return res.json({ message: 'Cluster creato e approvato', cluster_id: clusterId });
+  } catch (error) {
+    return res.status(500).json({ message: 'Errore approvazione suggerimento', error: error.message });
+  }
+});
+
+// POST /player-clusters/dismiss-suggestion — create a rejected cluster so suggestion won't appear again
+router.post('/player-clusters/dismiss-suggestion', authenticateToken, requireSuperuser, async (req, res) => {
+  try {
+    const userId = Number(req.user?.userId);
+    const groupId = Number(req.body?.official_group_id);
+    const playerIds = Array.isArray(req.body?.player_ids) ? req.body.player_ids.map((v) => Number(v)).filter((v) => v > 0) : [];
+
+    if (!groupId || playerIds.length < 2) return res.status(400).json({ message: 'Dati non validi' });
+
+    const clusterRows = await query(
+      `INSERT INTO player_clusters (official_group_id, status, suggested_by_system, created_by, approved_by, approved_at)
+       VALUES (?, 'rejected', 1, ?, ?, NOW())
+       RETURNING id`,
+      [groupId, userId, userId]
+    );
+    const clusterId = Number(clusterRows[0]?.id || 0);
+    if (!clusterId) return res.status(500).json({ message: 'Errore creazione cluster' });
+
+    for (const pid of playerIds) {
+      await query(
+        `INSERT INTO player_cluster_members (cluster_id, player_id, added_by) VALUES (?, ?, ?)`,
+        [clusterId, pid, userId]
+      );
+    }
+    return res.json({ message: 'Suggerimento nascosto', cluster_id: clusterId });
+  } catch (error) {
+    return res.status(500).json({ message: 'Errore dismissione suggerimento', error: error.message });
   }
 });
 

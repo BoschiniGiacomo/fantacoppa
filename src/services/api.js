@@ -633,6 +633,8 @@ export const superuserService = {
 
   // Player cluster management
   getPlayerClusterSuggestions: (groupId) => api.get(`/superuser/player-clusters/suggestions/${groupId}`),
+  approveSuggestion: (data) => api.post('/superuser/player-clusters/approve-suggestion', data),
+  dismissSuggestion: (data) => api.post('/superuser/player-clusters/dismiss-suggestion', data),
   createPlayerCluster: (data) => api.post('/superuser/player-clusters', data),
   approvePlayerCluster: (clusterId) => api.put(`/superuser/player-clusters/${clusterId}/approve`),
   rejectPlayerCluster: (clusterId) => api.put(`/superuser/player-clusters/${clusterId}/reject`),
