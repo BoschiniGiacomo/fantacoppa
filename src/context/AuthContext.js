@@ -140,26 +140,20 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   const loadStoredAuth = async () => {
-    const t0 = Date.now();
-    console.log(`[PERF][Bootstrap] START`);
     setBootstrapProgress(0);
     try {
       setBootstrapProgress(0.04);
-      const tStorage = Date.now();
       const storedToken = await AsyncStorage.getItem('authToken');
       const storedUser = await AsyncStorage.getItem('user');
-      console.log(`[PERF][Bootstrap] AsyncStorage read: ${Date.now() - tStorage}ms`);
       setBootstrapProgress(0.1);
 
       if (storedToken && storedUser) {
         authService.setAuthToken(storedToken);
         setBootstrapProgress(0.16);
-        const tValidate = Date.now();
         await Promise.race([
           authService.validateSession(),
           new Promise((_, reject) => setTimeout(() => reject(new Error('Session validation timeout')), 8000)),
         ]);
-        console.log(`[PERF][Bootstrap] validateSession: ${Date.now() - tValidate}ms`);
         setBootstrapProgress(0.24);
         setToken(storedToken);
         let parsedUser = null;
@@ -170,12 +164,10 @@ export const AuthProvider = ({ children }) => {
           setUser(null);
         }
         if (parsedUser) {
-          const tWarm = Date.now();
           await prefetchLeagueWarmData({
             onProgress: (f) => setBootstrapProgress(0.24 + Math.min(1, f) * 0.7),
             userId: parsedUser?.id,
           });
-          console.log(`[PERF][Bootstrap] prefetchLeagueWarmData: ${Date.now() - tWarm}ms`);
         }
         setBootstrapProgress(0.98);
         registerPushTokenIfPermitted().catch(() => {});
@@ -193,7 +185,6 @@ export const AuthProvider = ({ children }) => {
     } finally {
       setBootstrapProgress(1);
       setLoading(false);
-      console.log(`[PERF][Bootstrap] TOTAL: ${Date.now() - t0}ms`);
     }
   };
 

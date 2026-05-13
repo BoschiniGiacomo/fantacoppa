@@ -80,15 +80,15 @@ const styles = StyleSheet.create({
     zIndex: 4,
   },
   track: {
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: 'rgba(255, 255, 255, 0.18)',
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
     overflow: 'hidden',
   },
   fill: {
     height: '100%',
-    borderRadius: 2,
-    backgroundColor: '#667eea',
+    borderRadius: 3,
+    backgroundColor: '#000',
     alignSelf: 'flex-start',
   },
 });

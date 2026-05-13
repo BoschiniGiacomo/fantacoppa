@@ -24,7 +24,6 @@ export function AppLoadingMediaProvider({ children }) {
     // Instant: read cached URI from AsyncStorage (~5ms vs ~1s API)
     getCachedAppLoadingMedia().then((cached) => {
       if (!cancelled && cached?.uri) {
-        console.log(`[PERF][LoadingMedia] cache HIT — video URI available instantly`);
         setState(cached);
       }
     });
