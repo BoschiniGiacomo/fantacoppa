@@ -40,7 +40,9 @@ export function guessPickMediaType(mimeType, fileName) {
  */
 export async function getAppLoadingMediaSettings() {
   try {
+    const t0 = Date.now();
     const res = await api.get('/public/app-loading');
+    console.log(`[PERF][LoadingMedia] GET /public/app-loading: ${Date.now() - t0}ms`);
     const path = res.data?.path;
     const type = res.data?.type;
     if (path) {

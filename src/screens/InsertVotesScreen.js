@@ -293,18 +293,13 @@ export default function InsertVotesScreen({ route, navigation }) {
 
   const loadInitialData = async () => {
     try {
-      const t0 = Date.now();
-      console.log(`[PERF][InsertVotes] loadInitialData START (leagueId=${leagueId})`);
       setLoading(true);
 
-      // Phase 1: matchdays + bonusSettings + players all in parallel
-      const tApi = Date.now();
       const [matchdaysRes, bonusSettingsRes, playersRes] = await Promise.all([
         leagueService.getVotesMatchdays(leagueId),
         leagueService.getBonusSettings(leagueId).catch(() => ({ data: null })),
         leagueService.getVotesPlayers(leagueId),
       ]);
-      console.log(`[PERF][InsertVotes] phase1 (3 parallel: matchdays+bonus+players): ${Date.now() - tApi}ms`);
 
       const matchdaysData = matchdaysRes.data?.matchdays || [];
       setMatchdays(matchdaysData);
@@ -332,9 +327,7 @@ export default function InsertVotesScreen({ route, navigation }) {
         const defaultMatchday = matchdaysRes.data?.last_matchday_with_votes || matchdaysData[0].giornata;
         // Phase 2: only votes for matchday (players already loaded)
         try {
-          const tVotes = Date.now();
           const votesRes = await leagueService.getVotesForMatchday(leagueId, defaultMatchday).catch(() => ({ data: {} }));
-          console.log(`[PERF][InsertVotes] phase2 (getVotes g=${defaultMatchday}): ${Date.now() - tVotes}ms`);
           const loadedVotes = votesRes.data || {};
           setVotes(loadedVotes);
           savedVotesSnapshot.current = JSON.stringify(loadedVotes);
@@ -345,7 +338,6 @@ export default function InsertVotesScreen({ route, navigation }) {
       } else {
         setLoading(false);
       }
-      console.log(`[PERF][InsertVotes] loadInitialData TOTAL: ${Date.now() - t0}ms`);
     } catch (error) {
       console.error('Error loading initial data:', error);
       showToast('Impossibile caricare i dati: ' + (error.response?.data?.error || error.message));
