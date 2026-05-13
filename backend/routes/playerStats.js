@@ -171,30 +171,10 @@ router.get('/:playerId/stats/aggregated/:leagueId', authenticateToken, async (re
          AND pcm1.player_id = ?`,
       [groupId, playerId]
     );
-    let aggregatedPlayerIds = clusterRows.map((r) => Number(r.player_id)).filter((n) => Number.isFinite(n) && n > 0);
+    const aggregatedPlayerIds = clusterRows.map((r) => Number(r.player_id)).filter((n) => Number.isFinite(n) && n > 0);
 
-    if (!aggregatedPlayerIds.length) {
-      const sameNameRows = await query(
-        `SELECT p.id
-         FROM players p
-         JOIN teams t ON t.id = p.team_id
-         JOIN leagues l ON l.id = t.league_id
-         WHERE l.official_group_id = ?
-           AND COALESCE(l.is_official, 0) = 1
-           AND COALESCE(l.is_official_squad_public, 0) = 1
-           AND p.role = ?
-           AND LOWER(TRIM(COALESCE(p.first_name, ''))) = LOWER(TRIM(COALESCE(?, '')))
-           AND LOWER(TRIM(COALESCE(p.last_name, ''))) = LOWER(TRIM(COALESCE(?, '')))`,
-        [groupId, basePlayer.role, basePlayer.first_name, basePlayer.last_name]
-      );
-      aggregatedPlayerIds = sameNameRows.map((r) => Number(r.id)).filter((n) => Number.isFinite(n) && n > 0);
-    }
-
-    const idsSet = new Set(aggregatedPlayerIds);
-    idsSet.add(playerId);
-    aggregatedPlayerIds = Array.from(idsSet);
-    if (!aggregatedPlayerIds.length) {
-      return res.status(404).json({ message: 'Statistiche aggregate non disponibili per questo giocatore' });
+    if (aggregatedPlayerIds.length < 2) {
+      return res.status(404).json({ message: 'Giocatore non associato a un cluster' });
     }
 
     const playerPh = aggregatedPlayerIds.map(() => '?').join(',');

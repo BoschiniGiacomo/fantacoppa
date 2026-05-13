@@ -77,12 +77,12 @@ export default function MarketScreen({ route, navigation }) {
 
   useEffect(() => {
     loadData();
-  }, [leagueId, selectedRole, searchQuery]);
+  }, [leagueId]);
 
   useFocusEffect(
     useCallback(() => {
       loadData();
-    }, [leagueId, selectedRole, searchQuery])
+    }, [leagueId])
   );
 
   const applyBootstrapData = (data) => {
@@ -112,8 +112,7 @@ export default function MarketScreen({ route, navigation }) {
   };
 
   const loadData = async () => {
-    const useDefaultFilters = selectedRole === '' && !String(searchQuery || '').trim();
-    const warm = useDefaultFilters ? peekMarketBootstrapDefault(leagueId) : null;
+    const warm = peekMarketBootstrapDefault(leagueId);
     if (warm != null) {
       applyBootstrapData(warm);
       setLoading(false);
@@ -121,10 +120,10 @@ export default function MarketScreen({ route, navigation }) {
       setLoading(true);
     }
     try {
-      const bootstrapRes = await marketService.getBootstrap(leagueId, { role: selectedRole, search: searchQuery });
+      const bootstrapRes = await marketService.getBootstrap(leagueId, {});
       const data = bootstrapRes?.data || {};
       applyBootstrapData(data);
-      if (useDefaultFilters) setMarketBootstrapDefault(leagueId, data);
+      setMarketBootstrapDefault(leagueId, data);
 
       try {
         await syncSubmittedFormationOnboarding({ leagueId, formationService, markDone });
@@ -208,9 +207,20 @@ export default function MarketScreen({ route, navigation }) {
     }
   };
 
-  // Ordinamento locale
+  // Filtro + ordinamento locale
   const sortedPlayers = useMemo(() => {
-    const sorted = [...players];
+    let filtered = players;
+    if (selectedRole) {
+      filtered = filtered.filter((p) => p.role === selectedRole);
+    }
+    const q = String(searchQuery || '').trim().toLowerCase();
+    if (q) {
+      filtered = filtered.filter((p) => {
+        const full = `${p.first_name || ''} ${p.last_name || ''} ${p.team_name || ''}`.toLowerCase();
+        return full.includes(q);
+      });
+    }
+    const sorted = [...filtered];
     const dir = sortAsc ? 1 : -1;
     switch (sortBy) {
       case 'name':
@@ -225,7 +235,7 @@ export default function MarketScreen({ route, navigation }) {
         break;
     }
     return sorted;
-  }, [players, sortBy, sortAsc]);
+  }, [players, sortBy, sortAsc, selectedRole, searchQuery]);
 
   const budgetValue = typeof budget === 'number' ? budget : 0;
   const initialBudget = league?.initial_budget || league?.budget || 500;

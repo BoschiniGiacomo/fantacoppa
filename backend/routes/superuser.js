@@ -608,9 +608,9 @@ router.post('/player-clusters/approve-suggestion', authenticateToken, requireSup
       return res.json({ message: 'Giocatori aggiunti al cluster esistente', cluster_id: existingClusterId });
     }
 
-    let clusterResult;
+    let ins;
     try {
-      clusterResult = await query(
+      ins = await query(
         `INSERT INTO player_clusters (official_group_id, status, suggested_by_system, created_by, approved_by, approved_at)
          VALUES (?, 'approved', 1, ?, ?, NOW())
          RETURNING id`,
@@ -618,7 +618,7 @@ router.post('/player-clusters/approve-suggestion', authenticateToken, requireSup
       );
     } catch (insertErr) {
       if (insertErr && /approved_by|approved_at/i.test(String(insertErr.message || ''))) {
-        clusterResult = await query(
+        ins = await query(
           `INSERT INTO player_clusters (official_group_id, status, suggested_by_system, created_by)
            VALUES (?, 'approved', 1, ?)
            RETURNING id`,
@@ -628,8 +628,7 @@ router.post('/player-clusters/approve-suggestion', authenticateToken, requireSup
         throw insertErr;
       }
     }
-    const rows = Array.isArray(clusterResult) ? clusterResult : clusterResult?.rows || [];
-    const clusterId = Number(rows[0]?.id || 0);
+    const clusterId = Number(ins?.insertId || ins?.rows?.[0]?.id || 0);
     if (!clusterId) return res.status(500).json({ message: 'Errore creazione cluster' });
 
     for (const pid of playerIds) {
@@ -653,9 +652,9 @@ router.post('/player-clusters/dismiss-suggestion', authenticateToken, requireSup
 
     if (!groupId || playerIds.length < 2) return res.status(400).json({ message: 'Dati non validi' });
 
-    let clusterResult;
+    let ins;
     try {
-      clusterResult = await query(
+      ins = await query(
         `INSERT INTO player_clusters (official_group_id, status, suggested_by_system, created_by, approved_by, approved_at)
          VALUES (?, 'rejected', 1, ?, ?, NOW())
          RETURNING id`,
@@ -663,7 +662,7 @@ router.post('/player-clusters/dismiss-suggestion', authenticateToken, requireSup
       );
     } catch (insertErr) {
       if (insertErr && /approved_by|approved_at/i.test(String(insertErr.message || ''))) {
-        clusterResult = await query(
+        ins = await query(
           `INSERT INTO player_clusters (official_group_id, status, suggested_by_system, created_by)
            VALUES (?, 'rejected', 1, ?)
            RETURNING id`,
@@ -673,8 +672,7 @@ router.post('/player-clusters/dismiss-suggestion', authenticateToken, requireSup
         throw insertErr;
       }
     }
-    const rows = Array.isArray(clusterResult) ? clusterResult : clusterResult?.rows || [];
-    const clusterId = Number(rows[0]?.id || 0);
+    const clusterId = Number(ins?.insertId || ins?.rows?.[0]?.id || 0);
     if (!clusterId) return res.status(500).json({ message: 'Errore creazione cluster' });
 
     for (const pid of playerIds) {
