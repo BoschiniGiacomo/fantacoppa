@@ -216,8 +216,7 @@ export default function StandingsScreen({ route, navigation }) {
 
   const formatRating = (rating) => {
     if (rating === null || rating === undefined) return '-';
-    if (rating === Math.floor(rating) + 0.25 || rating === Math.floor(rating) + 0.75) return rating.toFixed(2);
-    return rating.toFixed(1);
+    return rating.toFixed(2);
   };
 
   const renderStandingsItem = (item, position) => {
@@ -255,12 +254,12 @@ export default function StandingsScreen({ route, navigation }) {
 
             {/* Punteggi */}
             <View style={styles.cardScores}>
-              <Text style={styles.scoreMain}>{punteggio.toFixed(1)}</Text>
+              <Text style={styles.scoreMain}>{punteggio.toFixed(2)}</Text>
               <Text style={styles.scoreLabel}>{activeTab === 'giornata' ? 'Punti' : 'Tot.'}</Text>
             </View>
             {activeTab === 'generale' && mediaPunti !== undefined && !isNaN(mediaPunti) && (
               <View style={styles.cardScores}>
-                <Text style={[styles.scoreMain, { color: '#6c757d', fontSize: 15 }]}>{mediaPunti.toFixed(1)}</Text>
+                <Text style={[styles.scoreMain, { color: '#6c757d', fontSize: 15 }]}>{mediaPunti.toFixed(2)}</Text>
                 <Text style={styles.scoreLabel}>Media</Text>
               </View>
             )}

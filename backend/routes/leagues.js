@@ -919,9 +919,6 @@ router.get('/:id', authenticateToken, async (req, res) => {
 // GET /api/leagues/:id/dashboard-data - payload aggregato dashboard lega
 router.get('/:id/dashboard-data', authenticateToken, async (req, res) => {
   try {
-    const t0 = Date.now();
-    const timings = {};
-    const lap = (label) => { timings[label] = Date.now() - t0; };
     const userId = Number(req.user.userId);
     const leagueId = Number(req.params.id);
     if (!Number.isFinite(leagueId) || leagueId <= 0) {
@@ -940,7 +937,6 @@ router.get('/:id/dashboard-data', authenticateToken, async (req, res) => {
       })(),
       getEffectiveLeagueId(leagueId),
     ]);
-    lap('1_phase1_league+effective');
     const league = leagueResult;
     if (!league) {
       return res.status(404).json({ message: 'Lega non trovata o accesso negato' });
@@ -1056,7 +1052,6 @@ router.get('/:id/dashboard-data', authenticateToken, async (req, res) => {
         [leagueId, userId]
       ).catch(() => []),
     ]);
-    lap('2_phase2_allQueries');
 
     // ── Process results ──
     const teamName = String(teamRows[0]?.team_name || '').trim();
@@ -1081,7 +1076,6 @@ router.get('/:id/dashboard-data', authenticateToken, async (req, res) => {
          ORDER BY u.username ASC`,
         [leagueId]
       );
-      lap('2b_standingsFallback');
     }
 
     const topStandings = standingsFull.slice(0, 5);
@@ -1126,9 +1120,6 @@ router.get('/:id/dashboard-data', authenticateToken, async (req, res) => {
     }
 
     const hasSubmittedFormation = Array.isArray(sfRows) && sfRows.length > 0;
-
-    const total = Date.now() - t0;
-    console.log(`[PERF][GET /:id/dashboard-data] leagueId=${leagueId} TOTAL=${total}ms | ${Object.entries(timings).map(([k, v]) => `${k}=${v}ms`).join(' | ')}`);
 
     return res.json({
       league,

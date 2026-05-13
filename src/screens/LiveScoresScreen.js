@@ -211,13 +211,13 @@ export default function LiveScoresScreen({ route, navigation }) {
                         <Text style={styles.roleBadgeText}>{p.player_role}</Text>
                       </View>
                       <Text style={styles.playerName} numberOfLines={1}>{p.player_name}</Text>
-                      <Text style={styles.playerRating}>{p.rating > 0 ? p.rating.toFixed(1) : 'S.V.'}</Text>
+                      <Text style={styles.playerRating}>{p.rating > 0 ? p.rating.toFixed(2) : 'S.V.'}</Text>
                       {p.bonus_total !== 0 && (
                         <Text style={[styles.playerBonus, p.bonus_total > 0 ? styles.bonusPositive : styles.bonusNegative]}>
-                          {p.bonus_total > 0 ? '+' : ''}{p.bonus_total.toFixed(1)}
+                          {p.bonus_total > 0 ? '+' : ''}{p.bonus_total.toFixed(2)}
                         </Text>
                       )}
-                      <Text style={styles.playerTotal}>{p.total_score.toFixed(1)}</Text>
+                      <Text style={styles.playerTotal}>{p.total_score.toFixed(2)}</Text>
                     </View>
                   ))}
                 </View>

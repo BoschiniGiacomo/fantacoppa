@@ -175,7 +175,7 @@ export default function TeamDetailScreen({ route, navigation }) {
 
             {/* Budget */}
             <View style={styles.budgetBox}>
-              <Text style={styles.budgetValue}>{team.budget?.toFixed(1) || '0.0'}</Text>
+              <Text style={styles.budgetValue}>{team.budget?.toFixed(2) || '0.00'}</Text>
               <Text style={styles.budgetLabel}>{team.budget === 1 ? 'credito' : 'crediti'}</Text>
             </View>
           </View>
@@ -263,7 +263,7 @@ export default function TeamDetailScreen({ route, navigation }) {
                             <Ionicons name="bandage" size={22} color="#e65050" />
                           </View>
                         )}
-                        <Text style={styles.playerRating}>{player.rating?.toFixed(1) || '-'}</Text>
+                        <Text style={styles.playerRating}>{player.rating?.toFixed(2) || '-'}</Text>
                       </View>
                     </TouchableOpacity>
                   ))}
@@ -294,7 +294,7 @@ export default function TeamDetailScreen({ route, navigation }) {
                     <View style={styles.resultBody}>
                       <View style={styles.resultTop}>
                         <Text style={styles.resultTitle}>{item.giornata}ª Giornata</Text>
-                        <Text style={styles.resultPts}>{pts.toFixed(1)}</Text>
+                        <Text style={styles.resultPts}>{pts.toFixed(2)}</Text>
                       </View>
                       {item.deadline && (
                         <View style={styles.resultMeta}>

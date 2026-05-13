@@ -177,7 +177,7 @@ export default function TeamsScreen({ route, navigation }) {
           <View style={styles.teamMeta}>
             <Text style={styles.username} numberOfLines={1}>{item.username}</Text>
             <View style={styles.budgetChip}>
-              <Text style={styles.budgetText}>{budgetValue.toFixed(1)} {budgetValue === 1 ? 'credito' : 'crediti'}</Text>
+              <Text style={styles.budgetText}>{budgetValue.toFixed(2)} {budgetValue === 1 ? 'credito' : 'crediti'}</Text>
             </View>
           </View>
         </View>

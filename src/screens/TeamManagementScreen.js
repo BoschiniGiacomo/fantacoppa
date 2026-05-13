@@ -824,7 +824,7 @@ export default function TeamManagementScreen({ route, navigation }) {
                 </View>
                 <View style={styles.ratingBadge}>
                   <Text style={styles.ratingText}>
-                    {Number.isFinite(Number(player?.rating)) ? Number(player.rating).toFixed(1) : '0.0'}
+                    {Number.isFinite(Number(player?.rating)) ? Number(player.rating).toFixed(2) : '0.00'}
                   </Text>
                 </View>
                 <View style={styles.ratingBadge}>

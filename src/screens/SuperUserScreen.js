@@ -2243,7 +2243,7 @@ export default function SuperUserScreen() {
                           <View style={styles.searchPlayerInfo}>
                             <Text style={styles.searchPlayerName}>{player.full_name}</Text>
                             <Text style={styles.searchPlayerDetails}>
-                              {player.league_name} • {player.role} • {player.rating.toFixed(1)} {player.rating === 1 ? 'credito' : 'crediti'}
+                              {player.league_name} • {player.role} • {player.rating.toFixed(2)} {player.rating === 1 ? 'credito' : 'crediti'}
                             </Text>
                           </View>
                           {isSelected && (

@@ -150,7 +150,7 @@ export default function LeagueScreen({ route, navigation }) {
         const us = payloadObj.user_stats;
         setUserStats(us ? {
           position: Number(us.position || 0),
-          totalPoints: Number(Number(us.totalPoints || 0).toFixed(1)),
+          totalPoints: Number(Number(us.totalPoints || 0).toFixed(2)),
           avgPoints: Number(Number(us.avgPoints || 0).toFixed(2)),
         } : null);
 
@@ -180,24 +180,15 @@ export default function LeagueScreen({ route, navigation }) {
       });
     };
 
-    const t0 = Date.now();
-    console.log(`[PERF][LeagueHome] loadData START (leagueId=${leagueId})`);
-
     const warm = peekDashboard(leagueId);
     if (warm != null) {
-      console.log(`[PERF][LeagueHome] warm cache HIT — skip loading spinner`);
       applyFromPayload(warm);
     } else {
-      console.log(`[PERF][LeagueHome] warm cache MISS — showing spinner`);
       setLoading(true);
     }
 
     try {
-      const tApi = Date.now();
       const res = await leagueService.getDashboardData(leagueId);
-      const tApiEnd = Date.now();
-      const payloadSize = JSON.stringify(res?.data)?.length ?? 0;
-      console.log(`[PERF][LeagueHome] GET /dashboard-data: ${tApiEnd - tApi}ms (payload: ${payloadSize} bytes)`);
       const payload = res?.data || {};
       applyFromPayload(payload);
       setDashboard(leagueId, payload);
@@ -218,8 +209,6 @@ export default function LeagueScreen({ route, navigation }) {
         console.error('Error loading league data:', error);
       }
       setLoading(false);
-    } finally {
-      console.log(`[PERF][LeagueHome] loadData TOTAL: ${Date.now() - t0}ms`);
     }
   };
 
@@ -412,7 +401,7 @@ export default function LeagueScreen({ route, navigation }) {
         {topStandings.length > 0 ? (
           topStandings.slice(0, 5).map((team, index) => {
             const tName = team.team_name || team.username || 'Squadra';
-            const pts = parseFloat(team.punteggio || 0).toFixed(1);
+            const pts = parseFloat(team.punteggio || 0).toFixed(2);
             const isMe = team.id === user?.id;
             const tLogo = team.team_logo && team.team_logo.trim() !== '' ? team.team_logo : 'default_1';
             return (
@@ -451,7 +440,7 @@ export default function LeagueScreen({ route, navigation }) {
             {userScores.map((score, index) => (
               <View key={`s-${score.giornata}-${index}`} style={styles.scoreChip}>
                 <Text style={styles.scoreGiornata}>{score.giornata}ª</Text>
-                <Text style={styles.scorePts}>{parseFloat(score.punteggio || 0).toFixed(1)}</Text>
+                <Text style={styles.scorePts}>{parseFloat(score.punteggio || 0).toFixed(2)}</Text>
               </View>
             ))}
           </View>

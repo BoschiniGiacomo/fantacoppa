@@ -130,17 +130,22 @@ router.get('/:leagueId/players', authenticateToken, async (req, res) => {
 // Payload aggregato per schermata Mercato (caricamento iniziale/refresh).
 router.get('/:leagueId/bootstrap', authenticateToken, async (req, res) => {
   try {
+    const t0 = Date.now();
+    const timings = {};
+    const lap = (label) => { timings[label] = Date.now() - t0; };
     const leagueId = toLeagueId(req.params.leagueId);
     if (!leagueId) return res.status(400).json({ message: 'League ID non valido' });
     const role = String(req.query?.role || '').trim();
     const search = String(req.query?.search || '').trim();
     const userId = Number(req.user.userId);
     const sourceLeagueId = await getEffectiveSourceLeagueId(leagueId);
+    lap('1_effectiveSource');
 
     const [flags, userBlockValue] = await Promise.all([
       getLeagueMarketFlags(leagueId),
       getUserMarketBlockValue(leagueId, userId),
     ]);
+    lap('2_marketFlags');
     const blocked = isUserEffectivelyBlocked(flags.market_locked, userBlockValue);
     const blockReason = blocked
       ? (Number(flags.market_locked) === 1 ? 'global' : 'user')
@@ -153,6 +158,7 @@ router.get('/:leagueId/bootstrap', authenticateToken, async (req, res) => {
        LIMIT 1`,
       [userId, leagueId]
     );
+    lap('3_budget');
     const budget = Number(budgetRows[0]?.budget || 0);
 
     const limitsRows = await query(
@@ -163,6 +169,7 @@ router.get('/:leagueId/bootstrap', authenticateToken, async (req, res) => {
        LIMIT 1`,
       [leagueId]
     );
+    lap('4_limits');
     const l = limitsRows[0] || {};
     const roleLimits = {
       P: Number(l.max_portieri || 0),
@@ -197,6 +204,7 @@ router.get('/:leagueId/bootstrap', authenticateToken, async (req, res) => {
        GROUP BY p.role`,
       [userId, leagueId, userId, leagueId]
     );
+    lap('5_ownedCounts');
     const ownedCounts = { P: 0, D: 0, C: 0, A: 0 };
     ownedRows.forEach((r) => {
       const key = String(r.role || '').trim().toUpperCase();
@@ -245,6 +253,10 @@ router.get('/:leagueId/bootstrap', authenticateToken, async (req, res) => {
     }
     sql += ' ORDER BY p.rating DESC, p.last_name ASC LIMIT 1000';
     const players = await query(sql, params);
+    lap('6_playersQuery');
+
+    const total = Date.now() - t0;
+    console.log(`[PERF][GET /market/bootstrap] leagueId=${leagueId} TOTAL=${total}ms rows=${players.length} | ${Object.entries(timings).map(([k, v]) => `${k}=${v}ms`).join(' | ')}`);
 
     return res.json({
       league,

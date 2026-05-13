@@ -15,10 +15,9 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { useOnboarding } from '../context/OnboardingContext';
-import { marketService, formationService, publicAssetUrl } from '../services/api';
+import { marketService, publicAssetUrl } from '../services/api';
 import { peekMarketBootstrapDefault, setMarketBootstrapDefault, invalidateLeagueWarmCache } from '../services/leagueWarmCache';
 import { Ionicons } from '@expo/vector-icons';
-import { syncSubmittedFormationOnboarding } from '../utils/formationSubmission';
 
 export default function MarketScreen({ route, navigation }) {
   const { user } = useAuth();
@@ -113,22 +112,26 @@ export default function MarketScreen({ route, navigation }) {
   };
 
   const loadData = async () => {
+    const t0 = Date.now();
+    console.log(`[PERF][Market] loadData START (leagueId=${leagueId})`);
     const warm = peekMarketBootstrapDefault(leagueId);
     if (warm != null) {
+      console.log(`[PERF][Market] warm cache HIT`);
       applyBootstrapData(warm);
       setLoading(false);
     } else {
+      console.log(`[PERF][Market] warm cache MISS — showing spinner`);
       setLoading(true);
     }
     try {
+      const tApi = Date.now();
       const bootstrapRes = await marketService.getBootstrap(leagueId, {});
+      const tApiEnd = Date.now();
       const data = bootstrapRes?.data || {};
+      const payloadSize = JSON.stringify(data)?.length ?? 0;
+      console.log(`[PERF][Market] GET /market/bootstrap: ${tApiEnd - tApi}ms (payload: ${payloadSize} bytes, ${Array.isArray(data.players) ? data.players.length : 0} players)`);
       applyBootstrapData(data);
       setMarketBootstrapDefault(leagueId, data);
-
-      try {
-        await syncSubmittedFormationOnboarding({ leagueId, formationService, markDone });
-      } catch (_) {}
     } catch (error) {
       console.error('Error loading market data:', error);
       if (warm == null) {
@@ -143,6 +146,7 @@ export default function MarketScreen({ route, navigation }) {
     } finally {
       setLoading(false);
       setRefreshing(false);
+      console.log(`[PERF][Market] loadData TOTAL: ${Date.now() - t0}ms`);
     }
   };
 
@@ -370,7 +374,7 @@ export default function MarketScreen({ route, navigation }) {
         <View style={styles.budgetSection}>
           <View style={styles.budgetRow}>
             <Ionicons name="cash-outline" size={18} color="#198754" />
-            <Text style={styles.budgetAmount}>{budgetValue.toFixed(1)}</Text>
+            <Text style={styles.budgetAmount}>{budgetValue.toFixed(2)}</Text>
             <Text style={styles.budgetTotal}>/ {initialBudget}</Text>
           </View>
           <View style={styles.budgetBarBg}>
