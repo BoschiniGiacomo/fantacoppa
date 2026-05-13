@@ -551,13 +551,16 @@ router.get('/player-clusters/suggestions/:groupId', authenticateToken, requireSu
       const newLeagues = [];
       let clusterId = null;
 
+      const rolesSet = new Set();
       for (const p of nonRejected) {
         const pid = Number(p.id);
+        const role = (p.role || '').trim().toUpperCase();
+        rolesSet.add(role);
         if (approvedPlayerMap.has(pid)) {
           if (!clusterId) clusterId = approvedPlayerMap.get(pid);
-          existingLeagues.push({ player_id: pid, league_id: Number(p.league_id), league_name: p.league_name || '-' });
+          existingLeagues.push({ player_id: pid, league_id: Number(p.league_id), league_name: p.league_name || '-', role });
         } else {
-          newLeagues.push({ player_id: pid, league_id: Number(p.league_id), league_name: p.league_name || '-' });
+          newLeagues.push({ player_id: pid, league_id: Number(p.league_id), league_name: p.league_name || '-', role });
         }
       }
 
@@ -569,6 +572,7 @@ router.get('/player-clusters/suggestions/:groupId', authenticateToken, requireSu
       suggestions.push({
         name: fullName,
         cluster_id: clusterId,
+        role_changed: rolesSet.size > 1,
         existing_leagues: existingLeagues,
         new_leagues: newLeagues,
         all_new_player_ids: newLeagues.map((l) => l.player_id),

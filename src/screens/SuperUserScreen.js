@@ -283,24 +283,20 @@ export default function SuperUserScreen() {
   
   // Crea cluster da suggerimento
   const handleApproveSuggestion = async (suggestion, groupId) => {
-    console.log('[Cluster] handleApproveSuggestion called', suggestion.name, groupId);
     try {
       const allPlayerIds = [
         ...(suggestion.existing_leagues || []).map((l) => l.player_id),
         ...(suggestion.all_new_player_ids || []),
       ];
-      console.log('[Cluster] approve playerIds:', allPlayerIds, 'cluster_id:', suggestion.cluster_id);
-      const resp = await superuserService.approveSuggestion({
+      await superuserService.approveSuggestion({
         official_group_id: groupId,
         cluster_id: suggestion.cluster_id || null,
         player_ids: allPlayerIds,
       });
-      console.log('[Cluster] approve response:', resp?.status, resp?.data);
       showToast('Cluster approvato', 'success');
       await loadClusterSuggestions(groupId);
       await loadClusters(groupId, clusterFilterStatus);
     } catch (error) {
-      console.error('[Cluster] approve error:', error?.message, error?.response?.status, error?.response?.data);
       showToast(error.response?.data?.message || 'Errore approvazione');
     }
   };
@@ -2077,16 +2073,7 @@ export default function SuperUserScreen() {
                       loadClusters(selectedGroupForEdit.id, null);
                     }}
                   >
-                    <Text style={[styles.clusterFilterText, clusterFilterStatus === null && styles.clusterFilterTextActive]}>Tutti</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.clusterFilterButton, clusterFilterStatus === 'pending' && styles.clusterFilterButtonActive]}
-                    onPress={() => {
-                      setClusterFilterStatus('pending');
-                      loadClusters(selectedGroupForEdit.id, 'pending');
-                    }}
-                  >
-                    <Text style={[styles.clusterFilterText, clusterFilterStatus === 'pending' && styles.clusterFilterTextActive]}>In Attesa</Text>
+                    <Text style={[styles.clusterFilterText, clusterFilterStatus === null && styles.clusterFilterTextActive]}>Suggeriti</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={[styles.clusterFilterButton, clusterFilterStatus === 'approved' && styles.clusterFilterButtonActive]}
@@ -2115,11 +2102,14 @@ export default function SuperUserScreen() {
                               <Text style={styles.suggestionPlayerName}>{suggestion.name}</Text>
                               <Text style={styles.suggestionLeagueLabel}>
                                 {(suggestion.existing_leagues || []).length > 0
-                                  ? (suggestion.existing_leagues || []).map((l) => l.league_name).join(', ')
+                                  ? (suggestion.existing_leagues || []).map((l) => suggestion.role_changed ? `${l.league_name} (${l.role})` : l.league_name).join(', ')
                                   : 'new'}
                                 {'  →  '}
-                                {(suggestion.new_leagues || []).map((l) => l.league_name).join(', ')}
+                                {(suggestion.new_leagues || []).map((l) => suggestion.role_changed ? `${l.league_name} (${l.role})` : l.league_name).join(', ')}
                               </Text>
+                              {suggestion.role_changed && (
+                                <Text style={styles.suggestionRoleWarning}>⚠ Ruolo diverso tra le leghe</Text>
+                              )}
                             </View>
                             <View style={styles.suggestionActions}>
                               <TouchableOpacity
@@ -2154,56 +2144,31 @@ export default function SuperUserScreen() {
                     </>
                   )}
                   
-                  {/* Cluster esistenti */}
-                  <Text style={styles.clusterSectionTitle}>
-                    Cluster ({clusters.length})
-                  </Text>
-                  {loadingClusters ? (
-                    <ActivityIndicator size="small" color="#667eea" />
-                  ) : clusters.length > 0 ? (
-                    clusters.map((cluster) => (
-                      <View key={cluster.id} style={styles.clusterItem}>
-                        <View style={styles.clusterInfo}>
-                          <View style={styles.clusterHeader}>
-                            <Text style={styles.clusterStatus}>
-                              {cluster.status === 'approved' ? '✓ Approvato' : 
-                               cluster.status === 'pending' ? '⏳ In Attesa' : '✗ Rifiutato'}
-                            </Text>
-                            <Text style={styles.clusterPlayersCount}>
-                              {cluster.players_count} giocatori
-                            </Text>
-                          </View>
-                          {cluster.players && cluster.players.map((player, idx) => (
-                            <View key={idx} style={styles.clusterPlayer}>
-                              <Text style={styles.clusterPlayerName}>
-                                {player.full_name}
-                              </Text>
-                              <Text style={styles.clusterPlayerLeague}>
-                                {player.league_name} • {player.role}
-                              </Text>
+                  {/* Cluster esistenti — solo nel tab Approvati */}
+                  {clusterFilterStatus === 'approved' && (
+                    <>
+                      <Text style={styles.clusterSectionTitle}>
+                        Cluster ({clusters.length})
+                      </Text>
+                      {loadingClusters ? (
+                        <ActivityIndicator size="small" color="#667eea" />
+                      ) : clusters.length > 0 ? (
+                        clusters.map((cluster) => {
+                          const playerName = (cluster.players || [])[0]?.full_name || '-';
+                          const leagues = (cluster.players || []).map((p) => p.league_name).join(', ');
+                          return (
+                            <View key={cluster.id} style={styles.clusterItem}>
+                              <View style={styles.clusterInfo}>
+                                <Text style={styles.clusterPlayerName}>{playerName}</Text>
+                                <Text style={styles.clusterPlayerLeague}>{leagues}</Text>
+                              </View>
                             </View>
-                          ))}
-                        </View>
-                        {cluster.status === 'pending' && (
-                          <View style={styles.clusterActions}>
-                            <TouchableOpacity
-                              style={styles.clusterActionButton}
-                              onPress={() => handleApproveCluster(cluster.id, selectedGroupForEdit.id)}
-                            >
-                              <Ionicons name="checkmark-circle" size={20} color="#4CAF50" />
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                              style={styles.clusterActionButton}
-                              onPress={() => handleRejectCluster(cluster.id, selectedGroupForEdit.id)}
-                            >
-                              <Ionicons name="close-circle" size={20} color="#F44336" />
-                            </TouchableOpacity>
-                          </View>
-                        )}
-                      </View>
-                    ))
-                  ) : (
-                    <Text style={styles.clusterEmptyText}>Nessun cluster trovato</Text>
+                          );
+                        })
+                      ) : (
+                        <Text style={styles.clusterEmptyText}>Nessun cluster trovato</Text>
+                      )}
+                    </>
                   )}
                 </ScrollView>
               </View>
