@@ -875,10 +875,12 @@ export default function SuperUserScreen() {
   // Gestisce il toggle "visibile per collegamento"
   const handleToggleVisibleForLinking = async (league) => {
     try {
-      await superuserService.toggleVisibleForLinking(league.id);
+      console.log(`[DEBUG] toggleVisibleForLinking START league=${league.id} current=${league.is_visible_for_linking}`);
+      const res = await superuserService.toggleVisibleForLinking(league.id);
+      console.log(`[DEBUG] toggleVisibleForLinking RESPONSE:`, JSON.stringify(res?.data));
       await loadLeagues();
     } catch (error) {
-      console.error('Error toggling visible for linking:', error);
+      console.error('[DEBUG] toggleVisibleForLinking ERROR:', error?.response?.status, error?.response?.data);
       showToast(error.response?.data?.message || 'Errore durante l\'operazione');
     }
   };

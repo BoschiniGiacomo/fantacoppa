@@ -274,10 +274,16 @@ router.put('/leagues/:id/visible-for-linking', authenticateToken, requireSuperus
     const leagueId = Number(req.params.id);
     let next = 1;
     const rows = await query(`SELECT COALESCE(is_visible_for_linking, 1) AS current FROM leagues WHERE id = ? LIMIT 1`, [leagueId]);
-    next = Number(rows[0]?.current || 1) ? 0 : 1;
+    const rawCurrent = rows[0]?.current;
+    const currentVal = Number(rawCurrent ?? 1);
+    next = currentVal ? 0 : 1;
+    console.log(`[DEBUG] visible-for-linking league=${leagueId} rawCurrent=${rawCurrent} currentVal=${currentVal} next=${next}`);
     await query(`UPDATE leagues SET is_visible_for_linking = ? WHERE id = ?`, [next, leagueId]);
+    const verify = await query(`SELECT is_visible_for_linking FROM leagues WHERE id = ? LIMIT 1`, [leagueId]);
+    console.log(`[DEBUG] visible-for-linking AFTER UPDATE: ${JSON.stringify(verify[0])}`);
     return res.json({ success: true, is_visible_for_linking: next });
   } catch (error) {
+    console.error('[DEBUG] visible-for-linking ERROR:', error);
     return res.status(500).json({ message: 'Errore aggiornamento visibilità', error: error.message });
   }
 });
