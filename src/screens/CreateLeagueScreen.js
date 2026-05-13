@@ -545,7 +545,10 @@ export default function CreateLeagueScreen({ navigation }) {
       
       if (createdLeagueId) {
         await AsyncStorage.removeItem(CREATE_LEAGUE_DRAFT_KEY).catch(() => {});
-        navigation.navigate('League', { leagueId: createdLeagueId });
+        navigation.navigate('League', {
+          leagueId: createdLeagueId,
+          leagueBootstrap: { auto_lineup_mode: formData.autoLineupMode ? 1 : 0 },
+        });
       } else {
         showToast('Lega creata con successo!', 'success');
         await AsyncStorage.removeItem(CREATE_LEAGUE_DRAFT_KEY).catch(() => {});
@@ -568,7 +571,14 @@ export default function CreateLeagueScreen({ navigation }) {
           if (fallbackLeague?.id) {
             showToast('Lega creata con successo!', 'success');
             await AsyncStorage.removeItem(CREATE_LEAGUE_DRAFT_KEY).catch(() => {});
-            setTimeout(() => navigation.navigate('League', { leagueId: fallbackLeague.id }), 350);
+            setTimeout(
+              () =>
+                navigation.navigate('League', {
+                  leagueId: fallbackLeague.id,
+                  leagueBootstrap: { auto_lineup_mode: formData.autoLineupMode ? 1 : 0 },
+                }),
+              350
+            );
             return;
           }
         } catch (_) {

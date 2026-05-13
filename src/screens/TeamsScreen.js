@@ -8,9 +8,9 @@ import {
   RefreshControl,
   TextInput,
   Image,
+  ActivityIndicator,
 } from 'react-native';
 import { useAuth } from '../context/AuthContext';
-import { useAppLoadingMedia } from '../context/AppLoadingMediaContext';
 import { useOnboarding } from '../context/OnboardingContext';
 import { teamsService, leagueService, formationService } from '../services/api';
 import {
@@ -26,11 +26,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { defaultLogosMap } from '../constants/defaultLogos';
 import { syncSubmittedFormationOnboarding } from '../utils/formationSubmission';
-import AppLoadingFullScreenModal from '../components/AppLoadingFullScreenModal';
-
 export default function TeamsScreen({ route, navigation }) {
   const { user } = useAuth();
-  const { uri: loadingShellUri, type: loadingShellType } = useAppLoadingMedia();
   const { markDone } = useOnboarding();
   const { leagueId } = route.params || {};
   const insets = useSafeAreaInsets();
@@ -38,7 +35,6 @@ export default function TeamsScreen({ route, navigation }) {
   const [league, setLeague] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
-  const [loadingProgress, setLoadingProgress] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const [toastMsg, setToastMsg] = useState(null);
 
@@ -74,32 +70,19 @@ export default function TeamsScreen({ route, navigation }) {
 
     if (hasWarm) {
       setLoading(false);
-      setLoadingProgress(1);
     } else {
       setLoading(true);
-      setLoadingProgress(0);
     }
 
     try {
       try {
         await syncSubmittedFormationOnboarding({ leagueId, formationService, markDone });
       } catch (_) {}
-      if (!hasWarm) setLoadingProgress(0.1);
-
-      let done = 0;
-      const onPartDone = () => {
-        done += 1;
-        if (!hasWarm) setLoadingProgress(0.1 + (0.78 * done) / 2);
-      };
 
       await Promise.all([
-        loadLeague().then(onPartDone).catch(onPartDone),
-        loadTeams().then(onPartDone).catch(onPartDone),
+        loadLeague().catch(() => {}),
+        loadTeams().catch(() => {}),
       ]);
-      if (!hasWarm) {
-        setLoadingProgress(1);
-        await new Promise((r) => setTimeout(r, 160));
-      }
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -207,12 +190,9 @@ export default function TeamsScreen({ route, navigation }) {
 
   if (loading) {
     return (
-      <AppLoadingFullScreenModal
-        visible
-        uri={loadingShellUri}
-        mediaType={loadingShellType}
-        progress={loadingProgress}
-      />
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#f5f5f5' }}>
+        <ActivityIndicator size="large" color="#667eea" />
+      </View>
     );
   }
 

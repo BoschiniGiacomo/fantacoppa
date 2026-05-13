@@ -72,6 +72,10 @@ export default function LeagueBottomMenu({ leagueId, league, navigation, insets 
            (screenName === 'League' && activeRoute === 'League');
   };
   
+  const isAutoLineupLeague =
+    league != null && (Number(league.auto_lineup_mode) === 1 || league.auto_lineup_mode === true);
+  const isManualLineupLeague = league != null && !isAutoLineupLeague;
+
   const handleTabPress = (screenName) => {
     if (screenName === 'Squadre') {
       // Se non siamo già in Teams, vai a Teams (incluso se siamo in TeamDetail)
@@ -158,21 +162,41 @@ export default function LeagueBottomMenu({ leagueId, league, navigation, insets 
         />
         <Text style={{ fontSize: 10, color: isActive('Classifica') ? '#667eea' : 'gray', marginTop: 4 }}>Classifica</Text>
       </TouchableOpacity>
-      {league && league.auto_lineup_mode === 0 && (
-        <TouchableOpacity 
+      {isManualLineupLeague ? (
+        <TouchableOpacity
           style={{ alignItems: 'center', flex: 1 }}
           onPress={() => handleTabPress('Formazione')}
         >
           <View style={{ position: 'relative' }}>
-            <Ionicons 
-              name={isActive('Formazione') ? "football" : "football-outline"} 
-              size={24} 
-              color={isActive('Formazione') ? "#667eea" : "gray"} 
+            <Ionicons
+              name={isActive('Formazione') ? 'football' : 'football-outline'}
+              size={24}
+              color={isActive('Formazione') ? '#667eea' : 'gray'}
             />
             {badges.formation && <BadgeDot />}
           </View>
-          <Text style={{ fontSize: 10, color: isActive('Formazione') ? '#667eea' : 'gray', marginTop: 4 }}>Formazione</Text>
+          <Text style={{ fontSize: 10, color: isActive('Formazione') ? '#667eea' : 'gray', marginTop: 4 }}>
+            Formazione
+          </Text>
         </TouchableOpacity>
+      ) : isAutoLineupLeague ? (
+        <View
+          style={{ alignItems: 'center', flex: 1, opacity: 0.72 }}
+          accessibilityRole="text"
+          accessibilityLabel="Formazione gestita in automatico dalla lega"
+        >
+          <Ionicons name="flash-outline" size={24} color="#9e9e9e" />
+          <Text style={{ fontSize: 10, color: '#9e9e9e', marginTop: 4 }}>Auto</Text>
+        </View>
+      ) : (
+        <View
+          style={{ alignItems: 'center', flex: 1, opacity: 0.42 }}
+          accessibilityRole="text"
+          accessibilityLabel="Caricamento informazioni lega"
+        >
+          <Ionicons name="football-outline" size={24} color="gray" />
+          <Text style={{ fontSize: 10, color: 'gray', marginTop: 4 }}>Formazione</Text>
+        </View>
       )}
     </View>
   );

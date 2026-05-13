@@ -23,6 +23,32 @@ const squadPlayersDataById = new Map();
 const formationPayloadByKey = new Map();
 const teamDetailByKey = new Map();
 
+/** Lista leghe (GET /leagues) salvata durante prefetch bootstrap: primo paint Dashboard senza secondo spinner full-screen. */
+let homeLeaguesBootstrapSnapshot = null;
+
+function filterLeaguesForDashboardVisibility(normalizedList) {
+  const list = Array.isArray(normalizedList) ? normalizedList : [];
+  return hiddenLeagues.size > 0 ? list.filter((l) => !hiddenLeagues.has(l.id)) : list;
+}
+
+export function setHomeLeaguesBootstrapSnapshot(normalizedList) {
+  homeLeaguesBootstrapSnapshot = {
+    leagues: filterLeaguesForDashboardVisibility(normalizedList),
+    ts: Date.now(),
+  };
+}
+
+/** null = nessuno snapshot; array (anche vuota) = dati freschi per la home dopo bootstrap. */
+export function peekHomeLeaguesBootstrapSnapshot() {
+  if (!homeLeaguesBootstrapSnapshot) return null;
+  if (Date.now() - homeLeaguesBootstrapSnapshot.ts > 180000) return null;
+  return homeLeaguesBootstrapSnapshot.leagues;
+}
+
+export function clearHomeLeaguesBootstrapSnapshot() {
+  homeLeaguesBootstrapSnapshot = null;
+}
+
 function nid(leagueId) {
   const n = Number(leagueId);
   return Number.isFinite(n) ? n : null;
@@ -250,6 +276,7 @@ export function invalidateAllLeagueWarmCache() {
   squadPlayersDataById.clear();
   formationPayloadByKey.clear();
   teamDetailByKey.clear();
+  clearHomeLeaguesBootstrapSnapshot();
 }
 
 function normalizeLeagueList(raw) {
@@ -258,10 +285,16 @@ function normalizeLeagueList(raw) {
     ...league,
     favorite: Number(league?.favorite) === 1 || league?.favorite === true,
     archived: Number(league?.archived) === 1 || league?.archived === true,
+    notifications_enabled:
+      Number(league?.notifications_enabled) === 1 || league?.notifications_enabled === true,
     is_official: Number(league?.is_official) === 1 || league?.is_official === true,
     reference_year: (() => {
       const y = Number(league?.reference_year);
       return Number.isFinite(y) ? y : null;
+    })(),
+    official_group_id: (() => {
+      const g = Number(league?.official_group_id);
+      return Number.isFinite(g) && g > 0 ? g : null;
     })(),
   }));
 }
@@ -273,6 +306,38 @@ function isOfficialLeague(league) {
 function referenceYearOf(league) {
   const y = Number(league?.reference_year);
   return Number.isFinite(y) ? y : null;
+}
+
+function officialGroupIdOf(league) {
+  const g = Number(league?.official_group_id);
+  return Number.isFinite(g) && g > 0 ? g : null;
+}
+
+/**
+ * Una sola lega ufficiale con `reference_year` === anno di calendario (per prefetch leggero).
+ * Se più candidate: `official_group_id` minore, poi `id` lega minore.
+ */
+export function pickOfficialCurrentYearLeagueId(normalizedList, calendarYear = new Date().getFullYear()) {
+  const year = Number.isFinite(Number(calendarYear)) ? Number(calendarYear) : new Date().getFullYear();
+  const list = Array.isArray(normalizedList) ? normalizedList : [];
+  const candidates = list.filter((l) => {
+    if (!isOfficialLeague(l)) return false;
+    if (referenceYearOf(l) !== year) return false;
+    if (hiddenLeagues.size > 0 && hiddenLeagues.has(l.id)) return false;
+    return nid(l?.id) != null;
+  });
+  if (candidates.length === 0) return null;
+  candidates.sort((a, b) => {
+    const ga = officialGroupIdOf(a);
+    const gb = officialGroupIdOf(b);
+    const ha = ga != null ? ga : Number.POSITIVE_INFINITY;
+    const hb = gb != null ? gb : Number.POSITIVE_INFINITY;
+    if (ha !== hb) return ha - hb;
+    const ia = nid(a.id);
+    const ib = nid(b.id);
+    return (ia ?? 0) - (ib ?? 0);
+  });
+  return nid(candidates[0].id);
 }
 
 /**
@@ -314,7 +379,14 @@ export function pickPrefetchLeagueIds(normalizedList, maxLeagues, calendarYear =
   const list = Array.isArray(normalizedList) ? normalizedList : [];
   const filtered =
     hiddenLeagues.size > 0 ? list.filter((l) => !hiddenLeagues.has(l.id)) : list;
-  const merged = sortLeaguesForPrefetch(filtered, calendarYear);
+  const year = Number.isFinite(Number(calendarYear)) ? Number(calendarYear) : new Date().getFullYear();
+  const officialCurrentId = pickOfficialCurrentYearLeagueId(filtered, year);
+  /** Prefetch warm: al massimo una lega ufficiale (stagione anno corrente); le altre ufficiali escluse per non appesantire. */
+  const eligible = filtered.filter((l) => {
+    if (!isOfficialLeague(l)) return true;
+    return officialCurrentId != null && nid(l?.id) === officialCurrentId;
+  });
+  const merged = sortLeaguesForPrefetch(eligible, year);
   const seen = new Set();
   const out = [];
   for (const l of merged) {
@@ -356,12 +428,12 @@ export async function prefetchLeagueWarmData(opts = {}) {
       onProgress?.(Math.max(0, Math.min(1, v)));
     } catch (_) {}
   };
-  report(0);
   try {
     const res = await leagueService.getAll();
     const normalized = normalizeLeagueList(res?.data);
+    setHomeLeaguesBootstrapSnapshot(normalized);
     const ids = pickPrefetchLeagueIds(normalized, maxLeagues, year);
-    report(0.04);
+    report(0.06);
     if (!ids.length) {
       report(1);
       return;
@@ -369,7 +441,7 @@ export async function prefetchLeagueWarmData(opts = {}) {
     let done = 0;
     const bump = () => {
       done += 1;
-      report(0.04 + (0.96 * done) / ids.length);
+      report(0.06 + (0.94 * done) / ids.length);
     };
 
     await mapPool(ids, concurrency, async (id) => {

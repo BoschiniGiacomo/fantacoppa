@@ -167,7 +167,7 @@ export default function CalendarManagementScreen({ route, navigation }) {
     if (isReadOnlyObserver) return;
     setConfirmModal({
       title: 'Conferma eliminazione',
-      message: `Sei sicuro di voler eliminare la Giornata ${matchday.giornata}?`,
+      message: `Eliminando la ${matchday.giornata}ª giornata verranno rimossi anche voti inseriti, risultati calcolati e formazioni inviate per quella giornata. Continuare?`,
       confirmText: 'Elimina',
       destructive: true,
       onConfirm: async () => {

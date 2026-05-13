@@ -215,6 +215,20 @@ export default function MatchesScreen() {
   const [followDraft, setFollowDraft] = useState([]);
   const [followError, setFollowError] = useState(null);
   const [liveListTick, setLiveListTick] = useState(0);
+  const [heartTeams, setHeartTeams] = useState([]);
+
+  const loadStripTeams = useCallback(async () => {
+    try {
+      const res = await matchesService.getStripTeams();
+      setHeartTeams(Array.isArray(res?.data?.teams) ? res.data.teams : []);
+    } catch (_) {}
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadStripTeams();
+    }, [loadStripTeams])
+  );
 
   const selectDate = useCallback((dateKey) => {
     selectedDateRef.current = dateKey;
@@ -437,7 +451,7 @@ export default function MatchesScreen() {
         })),
       });
       setFollowModalVisible(false);
-      await load(selectedDate, true);
+      await Promise.all([load(selectedDate, true), loadStripTeams()]);
     } catch (e) {
       setFollowError(e?.response?.data?.message || e?.message || 'Salvataggio non riuscito');
     } finally {
@@ -460,6 +474,45 @@ export default function MatchesScreen() {
           <View style={styles.headerEditBtnPlaceholder} />
         )}
       </View>
+
+      {heartTeams.length > 0 && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.heartStrip}
+        >
+          {heartTeams.map((t, idx) => {
+            const logoUri = t.logo_url || publicAssetUrl(t.logo_path);
+            return (
+              <TouchableOpacity
+                key={`heart-${t.team_id ?? idx}-${t.name}`}
+                style={styles.heartTeamItem}
+                activeOpacity={0.7}
+                onPress={() => {
+                  if (t.team_id && t.competition_id) {
+                    navigation.navigate('OfficialTeamDetail', {
+                      teamId: t.team_id,
+                      competitionId: t.competition_id,
+                      teamName: t.name,
+                    });
+                  }
+                }}
+              >
+                <View style={styles.heartTeamCircle}>
+                  {logoUri ? (
+                    <Image source={{ uri: logoUri }} style={styles.heartTeamLogo} resizeMode="contain" />
+                  ) : (
+                    <Ionicons name="shield-outline" size={28} color="#667eea" />
+                  )}
+                </View>
+                <Text style={styles.heartTeamName} numberOfLines={1} ellipsizeMode="tail">
+                  {t.name}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      )}
 
       <View style={[styles.content, { paddingTop: 10 }]}>
       <View style={styles.daysControlsRow}>
@@ -857,5 +910,38 @@ const styles = StyleSheet.create({
   },
   followIconBtnActive: { backgroundColor: '#f0f4ff' },
   mutedSmall: { fontSize: 12, color: '#999' },
+  heartStrip: {
+    paddingHorizontal: 12,
+    paddingTop: 12,
+    paddingBottom: 6,
+    gap: 16,
+  },
+  heartTeamItem: {
+    alignItems: 'center',
+    width: 72,
+  },
+  heartTeamCircle: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    borderWidth: 2.5,
+    borderColor: '#667eea',
+    backgroundColor: '#111',
+    justifyContent: 'center',
+    alignItems: 'center',
+    overflow: 'hidden',
+  },
+  heartTeamLogo: {
+    width: 36,
+    height: 36,
+  },
+  heartTeamName: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#333',
+    marginTop: 5,
+    textAlign: 'center',
+    maxWidth: 72,
+  },
 });
 

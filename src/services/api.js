@@ -539,6 +539,7 @@ export const matchesService = {
       team_name: teamName,
       enabled: enabled ? 1 : 0,
     }),
+  getStripTeams: () => api.get('matches/strip-teams'),
   /** Competizioni, squadre ufficiali e preferenze utente (stellina + notifiche squadra) */
   getFollowSetup: () => api.get('matches/follow-setup'),
   /** Body: { competitions: [{ official_group_id, heart_team_names[], notify_team_names[] }] } */
@@ -577,9 +578,14 @@ export const adminMatchesService = {
 
 export const adminCompetitionsService = {
   getAll: () => api.get('admin/competitions'),
+  update: (competitionId, fields) => api.put(`admin/competitions/${competitionId}`, fields),
   setVisibleForMatches: (competitionId, isEnabled) =>
     api.put(`admin/competitions/${competitionId}`, {
       is_match_competition_enabled: isEnabled ? 1 : 0,
+    }),
+  setShowTeamsInStrip: (competitionId, show) =>
+    api.put(`admin/competitions/${competitionId}`, {
+      show_teams_in_matches_strip: show ? 1 : 0,
     }),
 };
 

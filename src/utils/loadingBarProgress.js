@@ -1,8 +1,9 @@
 /**
- * Mappa il progresso reale 0–1 in riempimento barra: molto movimento all'inizio,
- * sempre meno pixel per incremento vicino al 100% (ease-out cubico).
+ * Mappa il progresso reale 0–1 in riempimento barra.
+ * Lineare: il valore raw segue le fasi reali (auth + prefetch); evita che la barra
+ * sembri già piena a metà bootstrap e poi resti ferma in fondo (comportamento del vecchio ease-out cubico).
  */
 export function mapRawProgressToBarFill01(raw) {
   const t = Math.min(1, Math.max(0, Number(raw) || 0));
-  return 1 - (1 - t) ** 3;
+  return t;
 }

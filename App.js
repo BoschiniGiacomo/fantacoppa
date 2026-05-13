@@ -52,6 +52,18 @@ import LeagueHamburgerMenu from './src/components/LeagueHamburgerMenu';
 import LeagueBottomMenu from './src/components/LeagueBottomMenu';
 import { OnboardingProvider } from './src/context/OnboardingContext';
 import { leagueService } from './src/services/api';
+import { peekLeagueDetail, peekHomeLeaguesBootstrapSnapshot } from './src/services/leagueWarmCache';
+
+function readLeagueBootstrapFromCache(leagueId) {
+  const n = Number(leagueId);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  const detail = peekLeagueDetail(n);
+  if (detail && typeof detail === 'object') return detail;
+  const snap = peekHomeLeaguesBootstrapSnapshot();
+  if (!Array.isArray(snap)) return null;
+  const row = snap.find((l) => Number(l?.id) === n);
+  return row && typeof row === 'object' ? row : null;
+}
 import AppLoadingFullScreenModal from './src/components/AppLoadingFullScreenModal';
 
 const Stack = createStackNavigator();
@@ -62,7 +74,13 @@ function withLeagueWrapper(ScreenComponent) {
   return function LeagueWrapper({ route, navigation }) {
     const { leagueId } = route.params || {};
     const insets = useSafeAreaInsets();
-    const [league, setLeague] = useState(null);
+    const [league, setLeague] = useState(() => {
+      const boot = route.params?.leagueBootstrap;
+      if (boot && typeof boot === 'object' && leagueId) {
+        return { id: Number(leagueId), ...boot };
+      }
+      return readLeagueBootstrapFromCache(leagueId);
+    });
 
     useEffect(() => {
       if (leagueId) {
@@ -146,7 +164,7 @@ function AppNavigator() {
   const [bootstrapTimedOut, setBootstrapTimedOut] = useState(false);
 
   useEffect(() => {
-    const timer = setTimeout(() => setBootstrapTimedOut(true), 10000);
+    const timer = setTimeout(() => setBootstrapTimedOut(true), 16000);
     return () => clearTimeout(timer);
   }, []);
 

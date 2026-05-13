@@ -12,7 +12,11 @@ import {
 } from 'react-native';
 import { useAuth } from '../context/AuthContext';
 import { leagueService } from '../services/api';
-import { invalidateAllLeagueWarmCache, invalidateLeagueWarmCache } from '../services/leagueWarmCache';
+import {
+  invalidateAllLeagueWarmCache,
+  invalidateLeagueWarmCache,
+  peekHomeLeaguesBootstrapSnapshot,
+} from '../services/leagueWarmCache';
 import { registerPushTokenIfPermitted, syncLeagueNotifications } from '../services/notificationService';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
@@ -20,9 +24,12 @@ import { hiddenLeagues, consumePendingToast } from '../utils/dashboardEvents';
 
 export default function DashboardScreen({ navigation, route }) {
   const { user } = useAuth();
-  const [leagues, setLeagues] = useState([]);
+  const [leagues, setLeagues] = useState(() => {
+    const snap = peekHomeLeaguesBootstrapSnapshot();
+    return snap != null ? snap : [];
+  });
   const [searchQuery, setSearchQuery] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => peekHomeLeaguesBootstrapSnapshot() == null);
   const [refreshing, setRefreshing] = useState(false);
   const [archivedExpanded, setArchivedExpanded] = useState(false);
   const [toastMsg, setToastMsg] = useState(null);

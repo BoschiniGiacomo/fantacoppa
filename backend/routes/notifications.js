@@ -208,6 +208,7 @@ async function sendCalculatedMatchdayNotifications() {
       candidates: 0,
       reserved: 0,
       skipped_no_token: 0,
+      skipped_past_calendar_year: 0,
       released_failed_reservations: 0,
       sent: 0,
       invalidated: 0,
@@ -234,12 +235,17 @@ async function sendCalculatedMatchdayNotifications() {
   const messages = [];
   let reserved = 0;
   let skippedNoToken = 0;
+  let skippedPastCalendarYear = 0;
   const reservedDedupeKeys = new Set();
 
   for (const c of candidates) {
     const leagueId = Number(c.league_id);
     const giornata = Number(c.giornata);
     if (!leagueId || !giornata) continue;
+    if (await shouldSuppressMatchdayCalculatedPush(leagueId, giornata)) {
+      skippedPastCalendarYear += 1;
+      continue;
+    }
     const userIds = membersByLeague.get(leagueId) || [];
     for (const userId of userIds) {
       const tokens = tokensByUser.get(userId) || [];
@@ -283,6 +289,7 @@ async function sendCalculatedMatchdayNotifications() {
     candidates: candidates.length,
     reserved,
     skipped_no_token: skippedNoToken,
+    skipped_past_calendar_year: skippedPastCalendarYear,
     released_failed_reservations: releasedFailedReservations,
     sent: pushStats.sent,
     invalidated: pushStats.invalidated,
@@ -415,11 +422,92 @@ async function runNotificationsCronJob() {
   return { calculated: calcStats, formation_reminders: reminderStats };
 }
 
+async function getEffectiveLeagueIdForNotifications(leagueId) {
+  try {
+    const rows = await query(
+      `SELECT linked_to_league_id FROM leagues WHERE id = ? LIMIT 1`,
+      [leagueId]
+    );
+    const linked = Number(rows[0]?.linked_to_league_id || 0);
+    return linked > 0 ? linked : Number(leagueId);
+  } catch (_) {
+    return Number(leagueId);
+  }
+}
+
+/** Anno solare (Europe/Rome) della deadline della giornata in matchdays; null se manca la riga. */
+async function getMatchdayDeadlineCalendarYear(leagueId, giornata) {
+  const g = Number(giornata);
+  const lid = Number(leagueId);
+  if (!lid || !Number.isFinite(g)) return null;
+  try {
+    const effectiveId = await getEffectiveLeagueIdForNotifications(lid);
+    const mdRows = await query(
+      `SELECT EXTRACT(YEAR FROM (deadline AT TIME ZONE 'Europe/Rome'))::int AS y
+       FROM matchdays
+       WHERE league_id = ? AND giornata = ?
+       LIMIT 1`,
+      [effectiveId, g]
+    );
+    const y = Number(mdRows[0]?.y);
+    return Number.isFinite(y) ? y : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+async function getCurrentCalendarYearItaly() {
+  try {
+    const rows = await query(
+      `SELECT EXTRACT(YEAR FROM (NOW() AT TIME ZONE 'Europe/Rome'))::int AS y`
+    );
+    const y = Number(rows[0]?.y);
+    return Number.isFinite(y) ? y : new Date().getFullYear();
+  } catch (_) {
+    return new Date().getFullYear();
+  }
+}
+
+/**
+ * Non inviare push "giornata calcolata" per giornate di anno solare già passato rispetto ad oggi (Europe/Rome),
+ * tipico quando l'admin ricalcola/corregge stagioni vecchie.
+ */
+async function shouldSuppressMatchdayCalculatedPush(leagueId, giornata) {
+  const deadlineYear = await getMatchdayDeadlineCalendarYear(leagueId, giornata);
+  const nowYear = await getCurrentCalendarYearItaly();
+  if (deadlineYear != null && deadlineYear < nowYear) return true;
+  if (deadlineYear == null) {
+    try {
+      const refRows = await query(
+        `SELECT reference_year FROM leagues WHERE id = ? LIMIT 1`,
+        [Number(leagueId)]
+      );
+      const ry = Number(refRows[0]?.reference_year);
+      if (Number.isFinite(ry) && ry < nowYear) return true;
+    } catch (_) {
+      /* ignore */
+    }
+  }
+  return false;
+}
+
 async function triggerCalculatedNotificationForLeagueMatchday(leagueId, giornata) {
   const lid = Number(leagueId);
   const g = Number(giornata);
   if (!lid || !g) {
     return { candidates: 0, reserved: 0, sent: 0, invalidated: 0, errors: 0 };
+  }
+  if (await shouldSuppressMatchdayCalculatedPush(lid, g)) {
+    return {
+      candidates: 0,
+      reserved: 0,
+      skipped_no_token: 0,
+      skipped_past_calendar_year: 1,
+      released_failed_reservations: 0,
+      sent: 0,
+      invalidated: 0,
+      errors: 0,
+    };
   }
   await ensureNotificationsTables();
   const leagueRows = await query(
@@ -484,6 +572,7 @@ async function triggerCalculatedNotificationForLeagueMatchday(leagueId, giornata
     candidates: 1,
     reserved,
     skipped_no_token: skippedNoToken,
+    skipped_past_calendar_year: 0,
     released_failed_reservations: releasedFailedReservations,
     sent: pushStats.sent,
     invalidated: pushStats.invalidated,

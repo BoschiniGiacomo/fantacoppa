@@ -216,6 +216,31 @@ function parseIdsArray(raw) {
   return [];
 }
 
+/**
+ * Rimuove risultati giornata, dettaglio voti, formazioni e rosa per utente+lega
+ * così l'utente non resta in classifica dopo kick o abbandono.
+ */
+async function deleteUserFantasyLeagueParticipationData(leagueId, userId) {
+  const lid = toValidLeagueId(leagueId);
+  const uid = Number(userId);
+  if (!lid || !Number.isFinite(uid) || uid <= 0) return;
+  const statements = [
+    ['DELETE FROM matchday_player_scores WHERE league_id = ? AND user_id = ?', [lid, uid]],
+    ['DELETE FROM matchday_results WHERE league_id = ? AND user_id = ?', [lid, uid]],
+    ['DELETE FROM user_lineups WHERE league_id = ? AND user_id = ?', [lid, uid]],
+    ['DELETE FROM user_players WHERE league_id = ? AND user_id = ?', [lid, uid]],
+    ['DELETE FROM user_market_blocks WHERE league_id = ? AND user_id = ?', [lid, uid]],
+    ['DELETE FROM league_join_requests WHERE league_id = ? AND user_id = ?', [lid, uid]],
+  ];
+  for (const [sql, params] of statements) {
+    try {
+      await query(sql, params);
+    } catch (_) {
+      /* tabelle opzionali o non presenti */
+    }
+  }
+}
+
 function computeBonusTotal(vote, bonusSettings) {
   if (Number(bonusSettings.enable_bonus_malus || 0) !== 1) return 0;
   let bonus = 0;
@@ -573,6 +598,76 @@ async function getEffectiveLeagueId(leagueId) {
   }
 }
 
+/**
+ * Tutti i `league_id` su cui possono esistere dati giornata (matchdays, user_lineups, risultati).
+ * @param {number|null} leagueId - Lega dalla URL / contesto.
+ * @param {number|number[]|null} extraSeedLeagueIds - Es. `league_id` della riga in `matchdays` da eliminare (se diversa dalla URL).
+ */
+async function getLeagueIdsForMatchdayDataCleanup(leagueId, extraSeedLeagueIds = null) {
+  const seeds = new Set();
+  const lid = toValidLeagueId(leagueId);
+  if (lid) seeds.add(lid);
+  const extras = Array.isArray(extraSeedLeagueIds) ? extraSeedLeagueIds : [extraSeedLeagueIds];
+  for (const raw of extras) {
+    const n = Number(raw);
+    if (Number.isFinite(n) && n > 0) seeds.add(n);
+  }
+  const ids = new Set();
+  for (const seed of seeds) {
+    const effectiveId = await getEffectiveLeagueId(seed);
+    [seed, effectiveId].forEach((x) => {
+      const n = Number(x);
+      if (Number.isFinite(n) && n > 0) ids.add(n);
+    });
+    try {
+      const rows = await query(
+        `SELECT id FROM leagues WHERE id = ? OR id = ? OR linked_to_league_id = ?`,
+        [seed, effectiveId, effectiveId]
+      );
+      for (const r of rows || []) {
+        const id = Number(r.id);
+        if (Number.isFinite(id) && id > 0) ids.add(id);
+      }
+    } catch (_) {
+      /* */
+    }
+  }
+  return [...ids];
+}
+
+/**
+ * Elimina voti inseriti, risultati calcolati, formazioni inviate per quella giornata
+ * e record notifiche collegati (prima di rimuovere la riga da matchdays).
+ * `extraSeedLeagueIds`: includere sempre `league_id` della riga `matchdays` così non si perde nessun id DB.
+ */
+async function deleteAllDataForLeagueGiornata(leagueId, giornata, extraSeedLeagueIds = null) {
+  const g = Number(giornata);
+  if (!Number.isFinite(g) || g <= 0) return;
+  const leagueIds = await getLeagueIdsForMatchdayDataCleanup(leagueId, extraSeedLeagueIds);
+  if (leagueIds.length === 0) return;
+  const inPh = leagueIds.map(() => '?').join(', ');
+  const params = [...leagueIds, g];
+
+  await query(
+    `DELETE FROM user_lineups WHERE league_id IN (${inPh}) AND giornata::numeric = ?::numeric`,
+    params
+  );
+
+  const optionalStatements = [
+    `DELETE FROM matchday_player_scores WHERE league_id IN (${inPh}) AND giornata::numeric = ?::numeric`,
+    `DELETE FROM matchday_results WHERE league_id IN (${inPh}) AND giornata::numeric = ?::numeric`,
+    `DELETE FROM push_notification_sends WHERE league_id IN (${inPh}) AND giornata::numeric = ?::numeric AND notification_type = 'matchday_calculated'`,
+    `DELETE FROM player_ratings WHERE league_id IN (${inPh}) AND giornata::numeric = ?::numeric`,
+  ];
+  for (const sql of optionalStatements) {
+    try {
+      await query(sql, params);
+    } catch (_) {
+      /* tabelle opzionali o permessi */
+    }
+  }
+}
+
 let joinRequestsTableReady = false;
 async function ensureJoinRequestsTable() {
   if (joinRequestsTableReady) return true;
@@ -602,6 +697,7 @@ async function getLeagueByIdForUser(leagueId, userId) {
             l.initial_budget, l.default_deadline_time, l.max_portieri, l.max_difensori,
             l.max_centrocampisti, l.max_attaccanti, l.numero_titolari, l.auto_lineup_mode,
             l.linked_to_league_id,
+            COALESCE(l.recover_previous_lineup_if_missing, 1) AS recover_previous_lineup_if_missing,
             ll.name AS linked_league_name,
             lm.role, ub.team_name, ub.coach_name, ub.team_logo,
             COALESCE(ulp.favorite, 0) AS favorite,
@@ -640,6 +736,7 @@ async function getLeagueByIdForSuperuserViewer(leagueId, userId) {
             l.initial_budget, l.default_deadline_time, l.max_portieri, l.max_difensori,
             l.max_centrocampisti, l.max_attaccanti, l.numero_titolari, l.auto_lineup_mode,
             l.linked_to_league_id,
+            COALESCE(l.recover_previous_lineup_if_missing, 1) AS recover_previous_lineup_if_missing,
             ll.name AS linked_league_name,
             'superuser_viewer'::text AS role, ub.team_name, ub.coach_name, ub.team_logo,
             COALESCE(ulp.favorite, 0) AS favorite,
@@ -666,6 +763,7 @@ router.get('/', authenticateToken, async (req, res) => {
               l.max_centrocampisti, l.max_attaccanti, l.numero_titolari, l.auto_lineup_mode,
               l.linked_to_league_id,
               COALESCE(l.is_official, 0) AS is_official,
+              l.official_group_id,
               l.reference_year,
               ll.name AS linked_league_name,
               lm.role, ub.team_name, ub.coach_name, ub.team_logo,
@@ -1353,6 +1451,7 @@ router.post('/:id/remove-user', authenticateToken, async (req, res) => {
     if (targetUserId === actorId) {
       return res.status(400).json({ message: 'Usa "lascia lega" per uscire dalla lega' });
     }
+    await deleteUserFantasyLeagueParticipationData(leagueId, targetUserId);
     await query(`DELETE FROM league_members WHERE league_id = ? AND user_id = ?`, [leagueId, targetUserId]);
     await query(`DELETE FROM user_budget WHERE league_id = ? AND user_id = ?`, [leagueId, targetUserId]);
     await query(`DELETE FROM user_league_prefs WHERE league_id = ? AND user_id = ?`, [leagueId, targetUserId]);
@@ -2269,6 +2368,7 @@ router.get('/:id/standings/matchday/:giornata/formation/:userId', authenticateTo
     const hasDirectLineupForMatchday = !!lineRows[0];
     let playerIds = parseIdsArray(lineRows[0]?.titolari);
     let formationRecovered = false;
+    let formationRecoveryKind = null;
 
     if (playerIds.length < 1 && !isCalculated) {
       if (recoverPrevious) {
@@ -2282,10 +2382,11 @@ router.get('/:id/standings/matchday/:giornata/formation/:userId', authenticateTo
         );
         playerIds = parseIdsArray(previousRows[0]?.titolari);
         formationRecovered = playerIds.length > 0;
+        if (formationRecovered) formationRecoveryKind = 'previous_matchday';
       }
     }
 
-    if (hasDirectLineupForMatchday && recoverPrevious && isCalculated) {
+    if (hasDirectLineupForMatchday && recoverPrevious && isCalculated && playerIds.length < 1) {
       try {
         const prevCountRows = await query(
           `SELECT COUNT(*)::int AS c
@@ -2295,19 +2396,63 @@ router.get('/:id/standings/matchday/:giornata/formation/:userId', authenticateTo
         );
         const hadPreviousLineups = Number(prevCountRows[0]?.c || 0) > 0;
         if (!hadPreviousLineups) {
-          // Prima formazione storica utente su giornata già calcolata:
-          // può essere stata generata dal sistema per il calcolo.
+          // Riga su user_lineups per questa giornata ma titolari vuoti, nessuno storico precedente:
+          // tipicamente formazione generata dal sistema per il calcolo.
           formationRecovered = true;
+          formationRecoveryKind = 'system_first_on_calculated';
         }
       } catch (_) {
         // Ignora errori di detection.
       }
     }
 
+    const formationDebug = {
+      has_lineup_row_this_matchday: hasDirectLineupForMatchday,
+      recover_previous_lineup_if_missing: recoverPrevious,
+      is_matchday_calculated: isCalculated,
+      formation_recovery_kind: formationRecoveryKind,
+    };
+
     if (playerIds.length < 1) {
+      let squadPlayersCount = 0;
+      let requiredTitolari = 10;
+      let firstSavedLineupGiornata = null;
+      try {
+        const [squadRows, titRows, lineupMetaRows] = await Promise.all([
+          query(
+            `SELECT COUNT(*)::int AS c FROM user_players WHERE user_id = ? AND league_id = ?`,
+            [targetUserId, leagueId]
+          ),
+          query(
+            `SELECT COALESCE(numero_titolari, 10) AS numero_titolari FROM leagues WHERE id = ? LIMIT 1`,
+            [leagueId]
+          ),
+          query(
+            `SELECT giornata, titolari FROM user_lineups WHERE league_id = ? AND user_id = ? ORDER BY giornata ASC`,
+            [leagueId, targetUserId]
+          ),
+        ]);
+        squadPlayersCount = Number(squadRows[0]?.c || 0);
+        requiredTitolari = Math.max(1, Number(titRows[0]?.numero_titolari || 10));
+        for (const row of lineupMetaRows || []) {
+          if (parseIdsArray(row?.titolari).length > 0) {
+            const g = Number(row.giornata);
+            if (Number.isFinite(g)) {
+              firstSavedLineupGiornata = g;
+              break;
+            }
+          }
+        }
+      } catch (_) {
+        // Campi opzionali per messaggistica client: ignora errori.
+      }
       return res.json({
         formation: [],
-        formation_recovered: false,
+        formation_recovered: formationRecovered,
+        ...formationDebug,
+        squad_players_count: squadPlayersCount,
+        required_titolari: requiredTitolari,
+        first_saved_lineup_giornata: firstSavedLineupGiornata,
         bonus_enabled: Number(bonusSettings.enable_bonus_malus) === 1,
         bonus_settings: bonusSettings,
       });
@@ -2404,6 +2549,7 @@ router.get('/:id/standings/matchday/:giornata/formation/:userId', authenticateTo
     res.json({
       formation,
       formation_recovered: formationRecovered,
+      ...formationDebug,
       bonus_enabled: Number(bonusSettings.enable_bonus_malus) === 1,
       bonus_settings: bonusSettings,
     });
@@ -3438,6 +3584,9 @@ router.post('/:id/matchdays', authenticateToken, async (req, res) => {
   try {
     const leagueId = toValidLeagueId(req.params.id);
     if (!leagueId) return res.status(400).json({ message: 'League ID non valido' });
+    const effectiveLeagueId = await getEffectiveLeagueId(leagueId);
+    const leagueIds = await getLeagueIdsForMatchdayDataCleanup(leagueId);
+    const inPh = leagueIds.map(() => '?').join(', ');
     const deadlineDate = String(req.body?.deadline_date || '').trim();
     const deadlineTime = String(req.body?.deadline_time || '20:00').trim();
     if (!deadlineDate) return res.status(400).json({ message: 'deadline_date obbligatoria' });
@@ -3451,21 +3600,21 @@ router.post('/:id/matchdays', authenticateToken, async (req, res) => {
       await query(
         `UPDATE matchdays
          SET deadline = (?::timestamp AT TIME ZONE 'Europe/Rome')
-         WHERE id = ? AND league_id = ?`,
-        [deadline, matchdayId, leagueId]
+         WHERE id = ? AND league_id IN (${inPh})`,
+        [deadline, matchdayId, ...leagueIds]
       );
     } else {
       const maxRows = await query(
         `SELECT COALESCE(MAX(giornata), 0) AS max_giornata
          FROM matchdays
-         WHERE league_id = ?`,
-        [leagueId]
+         WHERE league_id IN (${inPh})`,
+        [...leagueIds]
       );
       const nextGiornata = Number(maxRows[0]?.max_giornata || 0) + 1;
       await query(
         `INSERT INTO matchdays (league_id, giornata, deadline)
          VALUES (?, ?, (?::timestamp AT TIME ZONE 'Europe/Rome'))`,
-        [leagueId, nextGiornata, deadline]
+        [effectiveLeagueId, nextGiornata, deadline]
       );
     }
     res.json({ message: 'Giornata salvata' });
@@ -3483,7 +3632,26 @@ router.delete('/:id/matchdays/:matchdayId', authenticateToken, async (req, res) 
     if (!leagueId || !Number.isFinite(matchdayId) || matchdayId <= 0) {
       return res.status(400).json({ message: 'Parametri non validi' });
     }
-    await query('DELETE FROM matchdays WHERE id = ? AND league_id = ?', [matchdayId, leagueId]);
+    const leagueIdsForLookup = await getLeagueIdsForMatchdayDataCleanup(leagueId);
+    const inPhLookup = leagueIdsForLookup.map(() => '?').join(', ');
+    const mdRows = await query(
+      `SELECT giornata, league_id FROM matchdays WHERE id = ? AND league_id IN (${inPhLookup}) LIMIT 1`,
+      [matchdayId, ...leagueIdsForLookup]
+    );
+    if (!mdRows[0]) {
+      return res.status(404).json({ message: 'Giornata non trovata' });
+    }
+    const giornata = Number(mdRows[0].giornata);
+    if (!Number.isFinite(giornata) || giornata <= 0) {
+      return res.status(400).json({ message: 'Numero giornata non valido' });
+    }
+    const rowLeagueId = Number(mdRows[0].league_id);
+    const rowLeagueSeed = Number.isFinite(rowLeagueId) && rowLeagueId > 0 ? rowLeagueId : null;
+    const leagueIds = await getLeagueIdsForMatchdayDataCleanup(leagueId, rowLeagueSeed);
+    await deleteAllDataForLeagueGiornata(leagueId, giornata, rowLeagueSeed);
+    await query('DELETE FROM matchdays WHERE id = ?', [matchdayId]);
+    const inPh = leagueIds.map(() => '?').join(', ');
+    await query(`DELETE FROM matchdays WHERE giornata = ? AND league_id IN (${inPh})`, [giornata, ...leagueIds]);
     res.json({ message: 'Giornata eliminata' });
   } catch (error) {
     console.error('Delete matchday error:', error);
@@ -3760,6 +3928,7 @@ router.post('/:id/leave', authenticateToken, async (req, res) => {
       );
     }
 
+    await deleteUserFantasyLeagueParticipationData(leagueId, userId);
     await query(`DELETE FROM league_members WHERE league_id = ? AND user_id = ?`, [leagueId, userId]);
     await query(`DELETE FROM user_budget WHERE league_id = ? AND user_id = ?`, [leagueId, userId]);
     await query(`DELETE FROM user_league_prefs WHERE league_id = ? AND user_id = ?`, [leagueId, userId]);

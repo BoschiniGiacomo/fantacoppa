@@ -282,7 +282,7 @@ export default function ManageMatchesScreen() {
 
   const loadOfficialGroups = async () => {
     if (!canManageCompetitions) return;
-    const res = await superuserService.getOfficialGroups();
+    const res = await adminCompetitionsService.getAll();
     const list = Array.isArray(res?.data) ? res.data : [];
     setOfficialGroups(list);
   };
@@ -852,15 +852,18 @@ export default function ManageMatchesScreen() {
     });
   };
 
-  const toggleCompetitionVisibility = async (groupId, currentEnabled) => {
+  const updateCompetitionField = async (groupId, field, newValue) => {
+    const numVal = newValue ? 1 : 0;
+    setOfficialGroups((prev) =>
+      prev.map((g) => (g.id === groupId ? { ...g, [field]: numVal } : g))
+    );
     try {
-      await adminCompetitionsService.setVisibleForMatches(groupId, !currentEnabled);
-      await Promise.all([loadCompetitions(), loadOfficialGroups()]);
-      if (competitionId === groupId && currentEnabled) {
-        setCompetitionId(null);
-      }
+      await adminCompetitionsService.update(groupId, { [field]: numVal });
+      await loadCompetitions();
     } catch (e) {
-      showToast(e?.response?.data?.message || e?.message || 'Aggiornamento non riuscito');
+      console.error('[Competitions] updateField error', field, e?.response?.status, e?.response?.data || e?.message);
+      showToast(e?.response?.data?.message || e?.message || 'Salvataggio non riuscito');
+      await loadOfficialGroups();
     }
   };
 
@@ -1275,19 +1278,25 @@ export default function ManageMatchesScreen() {
             <Text style={styles.muted}>Scegli quali gruppi mostrare nel form "Nuova partita".</Text>
             {officialGroups.map((g) => (
               <View key={g.id} style={styles.groupRow}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.groupName}>{g.name}</Text>
-                  <Text style={styles.groupMeta}>{Number(g.is_match_competition_enabled) === 1 ? 'Visibile in nuova partita' : 'Nascosta in nuova partita'}</Text>
+                <Text style={styles.groupName}>{g.name}</Text>
+                <View style={styles.switchRow}>
+                  <Text style={styles.switchLabel}>Visibile in nuova partita</Text>
+                  <Switch
+                    value={Number(g.is_match_competition_enabled) === 1}
+                    onValueChange={(val) => updateCompetitionField(g.id, 'is_match_competition_enabled', val)}
+                    trackColor={{ false: '#ccc', true: '#a5b4fc' }}
+                    thumbColor={Number(g.is_match_competition_enabled) === 1 ? '#667eea' : '#f4f3f4'}
+                  />
                 </View>
-                <TouchableOpacity
-                  style={styles.checkboxRow}
-                  onPress={() => toggleCompetitionVisibility(g.id, Number(g.is_match_competition_enabled) === 1)}
-                >
-                  <View style={[styles.checkboxBase, Number(g.is_match_competition_enabled) === 1 && styles.checkboxChecked]}>
-                    {Number(g.is_match_competition_enabled) === 1 ? <Text style={styles.checkboxTick}>✓</Text> : null}
-                  </View>
-                  <Text style={styles.checkboxLabel}>Mostra</Text>
-                </TouchableOpacity>
+                <View style={styles.switchRow}>
+                  <Text style={styles.switchLabel}>Squadre in Partite</Text>
+                  <Switch
+                    value={Number(g.show_teams_in_matches_strip) === 1}
+                    onValueChange={(val) => updateCompetitionField(g.id, 'show_teams_in_matches_strip', val)}
+                    trackColor={{ false: '#ccc', true: '#a5b4fc' }}
+                    thumbColor={Number(g.show_teams_in_matches_strip) === 1 ? '#667eea' : '#f4f3f4'}
+                  />
+                </View>
               </View>
             ))}
           </View>
@@ -2344,9 +2353,11 @@ const styles = StyleSheet.create({
   },
   secondaryBtnText: { color: '#333', fontWeight: '700' },
   groupRow: { borderTopWidth: 1, borderTopColor: '#f1f1f1', paddingTop: 10, marginTop: 10 },
-  groupName: { color: '#222', fontWeight: '700' },
+  groupName: { color: '#222', fontWeight: '700', marginBottom: 6 },
   groupMeta: { color: '#777', fontSize: 12, marginTop: 2 },
-  checkboxRow: { flexDirection: 'row', alignItems: 'center', gap: 8, alignSelf: 'center' },
+  switchRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4, paddingVertical: 2 },
+  switchLabel: { color: '#333', fontWeight: '600', fontSize: 13, flex: 1 },
+  checkboxRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   checkboxBase: {
     width: 22,
     height: 22,

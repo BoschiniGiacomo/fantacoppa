@@ -2414,6 +2414,66 @@ router.post('/matches/favorites/team-notifications', authenticateToken, async (r
   }
 });
 
+// GET /matches/strip-teams — squadre delle competizioni abilitate dal super admin per la strip in alto
+router.get('/matches/strip-teams', authenticateToken, async (_req, res) => {
+  try {
+    const comps = await query(
+      `SELECT id, name FROM official_league_groups
+       WHERE COALESCE(show_teams_in_matches_strip, 0) = 1
+       ORDER BY name ASC`
+    );
+    const compIds = comps.map((c) => Number(c.id)).filter((x) => x > 0);
+    if (compIds.length === 0) return res.json({ teams: [] });
+
+    const ph = compIds.map(() => '?').join(', ');
+    const teamRows = await query(
+      `WITH comp_teams AS (
+         SELECT m.competition_id, t.id AS team_id, t.name, t.logo_path
+         FROM official_matches m
+         INNER JOIN teams t ON t.id = m.home_team_id
+         WHERE m.competition_id IN (${ph})
+         UNION
+         SELECT m.competition_id, t.id AS team_id, t.name, t.logo_path
+         FROM official_matches m
+         INNER JOIN teams t ON t.id = m.away_team_id
+         WHERE m.competition_id IN (${ph})
+       ),
+       ranked AS (
+         SELECT competition_id, team_id, name, logo_path,
+           ROW_NUMBER() OVER (
+             PARTITION BY competition_id, LOWER(TRIM(name))
+             ORDER BY
+               CASE WHEN NULLIF(TRIM(logo_path),'') IS NOT NULL THEN 0 ELSE 1 END,
+               team_id DESC
+           ) AS rn
+         FROM comp_teams
+         WHERE name IS NOT NULL AND TRIM(name) <> ''
+       )
+       SELECT competition_id, team_id, name, logo_path
+       FROM ranked WHERE rn = 1
+       ORDER BY name ASC`,
+      [...compIds, ...compIds]
+    );
+
+    const compNameMap = new Map(comps.map((c) => [Number(c.id), c.name]));
+    const teams = (teamRows || []).map((r) => {
+      const logoPath = normalizeTeamLogoPathForApi(r?.logo_path);
+      return {
+        team_id: Number(r.team_id),
+        name: String(r.name || '').trim(),
+        competition_id: Number(r.competition_id),
+        competition_name: compNameMap.get(Number(r.competition_id)) || null,
+        logo_path: logoPath,
+        logo_url: logoUrlForPath(logoPath),
+      };
+    });
+    return res.json({ teams });
+  } catch (err) {
+    if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
+    return res.status(500).json({ message: 'Errore caricamento squadre strip', error: err.message });
+  }
+});
+
 // GET /matches/follow-setup — competizioni visibili, squadre e preferenze utente
 router.get('/matches/follow-setup', authenticateToken, async (req, res) => {
   try {
@@ -2623,7 +2683,9 @@ router.put('/matches/follow-preferences', authenticateToken, async (req, res) =>
 router.get('/admin/competitions', authenticateToken, requireSuperuserLevels([1, 2]), async (_req, res) => {
   try {
     const rows = await query(
-      `SELECT og.id, og.name, COALESCE(og.is_match_competition_enabled, 1) AS is_match_competition_enabled
+      `SELECT og.id, og.name,
+              COALESCE(og.is_match_competition_enabled, 1) AS is_match_competition_enabled,
+              COALESCE(og.show_teams_in_matches_strip, 0) AS show_teams_in_matches_strip
        FROM official_league_groups og
        ORDER BY og.name ASC`
     );
@@ -2634,15 +2696,31 @@ router.get('/admin/competitions', authenticateToken, requireSuperuserLevels([1, 
   }
 });
 
-// PUT /admin/competitions/:competitionId — toggle visibilità
-router.put('/admin/competitions/:competitionId', authenticateToken, requireSuperuserLevels([1]), async (req, res) => {
+// PUT /admin/competitions/:competitionId — toggle visibilità e strip
+router.put('/admin/competitions/:competitionId', authenticateToken, requireSuperuserLevels([1, 2]), async (req, res) => {
   try {
     const id = Number(req.params.competitionId);
-    const enabled = Number(req.body?.is_match_competition_enabled) ? 1 : 0;
     if (!id || id <= 0) return res.status(400).json({ message: 'competitionId non valido' });
-    await query(`UPDATE official_league_groups SET is_match_competition_enabled = ? WHERE id = ?`, [enabled, id]);
-    return res.json({ message: 'Visibilità competizione aggiornata', id, is_match_competition_enabled: enabled });
+
+    const sets = [];
+    const params = [];
+    if (req.body?.is_match_competition_enabled != null) {
+      sets.push('is_match_competition_enabled = ?');
+      params.push(Number(req.body.is_match_competition_enabled) ? 1 : 0);
+    }
+    if (req.body?.show_teams_in_matches_strip != null) {
+      sets.push('show_teams_in_matches_strip = ?');
+      params.push(Number(req.body.show_teams_in_matches_strip) ? 1 : 0);
+    }
+    if (sets.length === 0) return res.status(400).json({ message: 'Nessun campo da aggiornare' });
+    params.push(id);
+    console.log('[PUT /admin/competitions]', { id, sets, params, body: req.body });
+    const result = await query(`UPDATE official_league_groups SET ${sets.join(', ')} WHERE id = ?`, params);
+    console.log('[PUT /admin/competitions] result', result);
+
+    return res.json({ message: 'Competizione aggiornata', id });
   } catch (err) {
+    console.error('[PUT /admin/competitions] error', err?.message);
     if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
     return res.status(500).json({ message: 'Errore aggiornamento competizione', error: err.message });
   }

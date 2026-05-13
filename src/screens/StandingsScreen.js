@@ -24,6 +24,34 @@ import BonusIcon from '../components/BonusIcon';
 
 const ROLE_COLORS = { P: '#0d6efd', D: '#198754', C: '#e6a817', A: '#dc3545' };
 
+/** Messaggio sotto la classifica “per giornata” quando non ci sono titolari da mostrare (evita “nessuna formazione inviata” fuorviante). */
+function getStandingsEmptyFormationCopy(formationData, league, selectedMatchday) {
+  if (Number(league?.auto_lineup_mode) === 1) {
+    return 'Formazione automatica con i migliori per ruolo.';
+  }
+  const data = formationData && typeof formationData === 'object' ? formationData : {};
+  const squad = Number(data.squad_players_count);
+  const needRaw = data.required_titolari ?? league?.numero_titolari;
+  const need = Math.max(1, Number(needRaw) || 10);
+  const firstSaved = data.first_saved_lineup_giornata;
+  const isCalculated = data.is_matchday_calculated === true;
+  const sel = Number(selectedMatchday);
+
+  if (Number.isFinite(squad) && squad >= 0 && squad < need) {
+    return `Rosa insufficiente: servono almeno ${need} giocatori in rosa per poter schierare la formazione. Al momento ne hai ${squad}.`;
+  }
+  if (
+    isCalculated &&
+    firstSaved != null &&
+    Number.isFinite(Number(firstSaved)) &&
+    Number.isFinite(sel) &&
+    sel < Number(firstSaved)
+  ) {
+    return `Per questa giornata non risulta una formazione schierata: la prima volta che compaiono titolari salvati è dalla ${firstSaved}ª giornata (es. iscrizione alla lega o schieramenti successivi al calcolo di questa giornata).`;
+  }
+  return 'Nessuna formazione inviata per questa giornata.';
+}
+
 export default function StandingsScreen({ route, navigation }) {
   const { user } = useAuth();
   const { leagueId } = route.params || {};
@@ -120,9 +148,11 @@ export default function StandingsScreen({ route, navigation }) {
     try {
       const resultsRes = await leagueService.getMatchdayResults(leagueId, selectedMatchday);
       const resultsData = resultsRes.data;
-      if (Array.isArray(resultsData)) setMatchdayResults(resultsData);
-      else if (resultsData && typeof resultsData === 'object') setMatchdayResults(Object.values(resultsData));
-      else setMatchdayResults([]);
+      let rows = [];
+      if (Array.isArray(resultsData)) rows = resultsData;
+      else if (resultsData && typeof resultsData === 'object') rows = Object.values(resultsData);
+      setMatchdayResults(rows);
+
     } catch (error) {
       console.error('Error loading matchday results:', error);
       setMatchdayResults([]);
@@ -135,17 +165,20 @@ export default function StandingsScreen({ route, navigation }) {
       setExpandedFormations(prev => ({ ...prev, [userId]: false }));
     } else {
       setExpandedFormations(prev => ({ ...prev, [userId]: true }));
-      if (!formations[userId] && !loadingFormations[userId] && selectedMatchday) {
-        setLoadingFormations(prev => ({ ...prev, [userId]: true }));
-        try {
-          const formationRes = await leagueService.getMatchdayFormation(leagueId, selectedMatchday, userId);
-          setFormations(prev => ({ ...prev, [userId]: formationRes.data }));
-        } catch (error) {
-          console.error('Error loading formation:', error);
-          showToast('Impossibile caricare la formazione');
-        } finally {
-          setLoadingFormations(prev => ({ ...prev, [userId]: false }));
-        }
+      if (!selectedMatchday || loadingFormations[userId]) return;
+
+      if (formations[userId]) return;
+
+      setLoadingFormations(prev => ({ ...prev, [userId]: true }));
+      try {
+        const formationRes = await leagueService.getMatchdayFormation(leagueId, selectedMatchday, userId);
+        const data = formationRes.data;
+        setFormations(prev => ({ ...prev, [userId]: data }));
+      } catch (error) {
+        console.error('Error loading formation:', error);
+        showToast('Impossibile caricare la formazione');
+      } finally {
+        setLoadingFormations(prev => ({ ...prev, [userId]: false }));
       }
     }
   };
@@ -283,9 +316,7 @@ export default function StandingsScreen({ route, navigation }) {
               </View>
             ) : (
               <Text style={styles.noFormation}>
-                {league?.auto_lineup_mode
-                  ? 'Formazione automatica con i migliori per ruolo.'
-                  : 'Nessuna formazione inviata'}
+                {getStandingsEmptyFormationCopy(formationData, league, selectedMatchday)}
               </Text>
             )}
           </View>

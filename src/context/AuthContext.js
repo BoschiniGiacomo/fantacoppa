@@ -142,18 +142,19 @@ export const AuthProvider = ({ children }) => {
   const loadStoredAuth = async () => {
     setBootstrapProgress(0);
     try {
-      setBootstrapProgress(0.06);
+      setBootstrapProgress(0.04);
       const storedToken = await AsyncStorage.getItem('authToken');
       const storedUser = await AsyncStorage.getItem('user');
-      setBootstrapProgress(0.14);
+      setBootstrapProgress(0.1);
 
       if (storedToken && storedUser) {
         authService.setAuthToken(storedToken);
-        setBootstrapProgress(0.22);
+        setBootstrapProgress(0.16);
         await Promise.race([
           authService.validateSession(),
           new Promise((_, reject) => setTimeout(() => reject(new Error('Session validation timeout')), 8000)),
         ]);
+        setBootstrapProgress(0.24);
         setToken(storedToken);
         let parsedUser = null;
         try {
@@ -163,16 +164,16 @@ export const AuthProvider = ({ children }) => {
           setUser(null);
         }
         if (parsedUser) {
-          setBootstrapProgress(0.7);
           await prefetchLeagueWarmData({
-            onProgress: (f) => setBootstrapProgress(0.7 + Math.min(1, f) * 0.26),
+            onProgress: (f) => setBootstrapProgress(0.24 + Math.min(1, f) * 0.7),
             userId: parsedUser?.id,
           });
         }
+        setBootstrapProgress(0.98);
         registerPushTokenIfPermitted().catch(() => {});
       } else {
         authService.setAuthToken(null);
-        setBootstrapProgress(0.55);
+        setBootstrapProgress(0.45);
       }
     } catch (error) {
       await AsyncStorage.removeItem('authToken');
@@ -180,7 +181,7 @@ export const AuthProvider = ({ children }) => {
       setToken(null);
       setUser(null);
       authService.setAuthToken(null);
-      setBootstrapProgress(0.88);
+      setBootstrapProgress(0.75);
     } finally {
       setBootstrapProgress(1);
       setLoading(false);
@@ -203,7 +204,7 @@ export const AuthProvider = ({ children }) => {
       setUser(newUser);
       authService.setAuthToken(newToken);
       registerPushTokenIfPermitted().catch(() => {});
-      prefetchLeagueWarmData({ onProgress: () => {}, userId: newUser?.id }).catch(() => {});
+      await prefetchLeagueWarmData({ onProgress: () => {}, userId: newUser?.id });
 
       return { success: true };
     } catch (error) {
@@ -238,7 +239,7 @@ export const AuthProvider = ({ children }) => {
       setUser(newUser);
       authService.setAuthToken(newToken);
       registerPushTokenIfPermitted().catch(() => {});
-      prefetchLeagueWarmData({ onProgress: () => {}, userId: newUser?.id }).catch(() => {});
+      await prefetchLeagueWarmData({ onProgress: () => {}, userId: newUser?.id });
 
       return { success: true };
     } catch (error) {
