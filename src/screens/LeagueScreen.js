@@ -12,13 +12,12 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { useOnboarding } from '../context/OnboardingContext';
-import { leagueService, formationService } from '../services/api';
+import { leagueService } from '../services/api';
 import { peekDashboard, setDashboard } from '../services/leagueWarmCache';
 import { Ionicons } from '@expo/vector-icons';
 import { publicAssetUrl } from '../services/api';
 import TeamInfoModal from '../components/TeamInfoModal';
 import { defaultLogosMap } from '../constants/defaultLogos';
-import { syncSubmittedFormationOnboarding } from '../utils/formationSubmission';
 import { parseAppDate } from '../utils/dateTime';
 
 export default function LeagueScreen({ route, navigation }) {
@@ -203,11 +202,9 @@ export default function LeagueScreen({ route, navigation }) {
       applyFromPayload(payload);
       setDashboard(leagueId, payload);
 
-      try {
-        const tOnb = Date.now();
-        await syncSubmittedFormationOnboarding({ leagueId, formationService, markDone });
-        console.log(`[PERF][LeagueHome] syncOnboarding: ${Date.now() - tOnb}ms`);
-      } catch (_) {}
+      if (payload.has_submitted_formation) {
+        markDone('submitted_formation');
+      }
     } catch (error) {
       if (warm == null) {
         showToast('Impossibile caricare i dati della lega');
