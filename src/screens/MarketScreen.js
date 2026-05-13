@@ -869,7 +869,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 4,
-    paddingHorizontal: 12,
+    paddingLeft: 8,
+    paddingRight: 12,
     minHeight: 64,
   },
   playerInfo: {
