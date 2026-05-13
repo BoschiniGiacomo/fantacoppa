@@ -334,15 +334,31 @@ export default function FormationScreen({ route }) {
     }
 
     try {
+      // Predict default giornata from warm cache so we can prefetch formation in parallel
+      const predictedGiornata = (() => {
+        const wMd = warmMd || [];
+        if (wMd.length === 0) return null;
+        if (requestedGiornata && wMd.some(m => m.giornata === requestedGiornata)) return requestedGiornata;
+        const now = new Date();
+        const future = wMd.find((m) => { const d = parseDeadlineDate(m?.deadline); return !!d && d > now; });
+        return future ? future.giornata : wMd[wMd.length - 1].giornata;
+      })();
+
       const tApi = Date.now();
-      const [matchdaysRes, leagueRes, squadRes, settingsRes] = await Promise.all([
+      const apiCalls = [
         formationService.getMatchdays(leagueId),
         leagueService.getById(leagueId).catch(() => ({ data: null })),
         squadService.getSquad(leagueId).catch(() => ({ data: { players: [] } })),
         leagueService.getSettings(leagueId).catch(() => ({ data: {} })),
-      ]);
+      ];
+      if (predictedGiornata != null) {
+        apiCalls.push(formationService.getFormation(leagueId, predictedGiornata).catch(() => ({ data: {} })));
+      }
+      const results = await Promise.all(apiCalls);
+      const [matchdaysRes, leagueRes, squadRes, settingsRes] = results;
+      const prefetchedFormation = predictedGiornata != null ? results[4] : null;
+      console.log(`[PERF][Formation] ${apiCalls.length} parallel APIs: ${Date.now() - tApi}ms`);
 
-      console.log(`[PERF][Formation] 4 parallel APIs: ${Date.now() - tApi}ms`);
       const md = matchdaysRes.data || [];
       setMatchdays(md);
       setFormationMatchdays(leagueId, md);
@@ -381,9 +397,11 @@ export default function FormationScreen({ route }) {
           defaultMd = futureMatchday ? futureMatchday.giornata : md[md.length - 1].giornata;
         }
         setSelectedMatchday(defaultMd);
-        const tForm = Date.now();
-        await loadFormationForMatchday(defaultMd, activePlayers);
-        console.log(`[PERF][Formation] loadFormation(g=${defaultMd}): ${Date.now() - tForm}ms`);
+        if (predictedGiornata === defaultMd && prefetchedFormation) {
+          await loadFormationForMatchday(defaultMd, activePlayers, prefetchedFormation.data);
+        } else {
+          await loadFormationForMatchday(defaultMd, activePlayers);
+        }
       }
     } catch (error) {
       console.error('FormationScreen loadInitialData:', error);

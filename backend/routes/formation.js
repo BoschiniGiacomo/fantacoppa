@@ -254,42 +254,45 @@ router.get('/:leagueId/:giornata/deadline', authenticateToken, async (req, res) 
 // GET /api/formation/:leagueId/:giornata
 router.get('/:leagueId/:giornata', authenticateToken, async (req, res) => {
   try {
+    const t0 = Date.now();
     const leagueId = Number(req.params.leagueId);
-    const effectiveLeagueId = await getEffectiveLeagueId(leagueId);
     const giornata = Number(req.params.giornata);
     const userId = Number(req.user.userId);
 
-    const dRows = await query(
-      `SELECT to_char((deadline AT TIME ZONE 'Europe/Rome'), 'YYYY-MM-DD HH24:MI:SS') AS deadline
-       FROM matchdays
-       WHERE league_id = ? AND giornata = ?
-       LIMIT 1`,
-      [effectiveLeagueId, giornata]
-    );
-    const deadline = dRows[0]?.deadline || null;
-    const isExpired = deadline ? new Date(deadline) < new Date() : false;
-    let isCalculated = false;
-    try {
-      const calcRows = await query(
+    // Phase 1: all independent queries in parallel
+    const [effectiveLeagueId, injuryMap, lineupRows] = await Promise.all([
+      getEffectiveLeagueId(leagueId),
+      getInjuryReplacementMap(leagueId),
+      query(
+        `SELECT modulo, titolari, panchina
+         FROM user_lineups
+         WHERE user_id = ? AND league_id = ? AND giornata = ?
+         LIMIT 1`,
+        [userId, leagueId, giornata]
+      ),
+    ]);
+
+    // Phase 2: queries needing effectiveLeagueId
+    const [dRows, calcRows] = await Promise.all([
+      query(
+        `SELECT to_char((deadline AT TIME ZONE 'Europe/Rome'), 'YYYY-MM-DD HH24:MI:SS') AS deadline
+         FROM matchdays
+         WHERE league_id = ? AND giornata = ?
+         LIMIT 1`,
+        [effectiveLeagueId, giornata]
+      ),
+      query(
         `SELECT COUNT(*)::int AS c
          FROM matchday_results
          WHERE league_id = ? AND giornata = ?`,
         [leagueId, giornata]
-      );
-      isCalculated = Number(calcRows[0]?.c || 0) > 0;
-    } catch (_) {
-      isCalculated = false;
-    }
+      ).catch(() => [{ c: 0 }]),
+    ]);
 
-    const injuryMap = await getInjuryReplacementMap(leagueId);
-    const rows = await query(
-      `SELECT modulo, titolari, panchina
-       FROM user_lineups
-       WHERE user_id = ? AND league_id = ? AND giornata = ?
-       LIMIT 1`,
-      [userId, leagueId, giornata]
-    );
-    let row = rows[0];
+    const deadline = dRows[0]?.deadline || null;
+    const isExpired = deadline ? new Date(deadline) < new Date() : false;
+    const isCalculated = Number(calcRows[0]?.c || 0) > 0;
+    let row = lineupRows[0];
     let formationRecovered = false;
 
     if (!row && isExpired && !isCalculated) {
@@ -389,33 +392,31 @@ router.get('/:leagueId/:giornata', authenticateToken, async (req, res) => {
     const formation = row
       ? { modulo: row.modulo, titolari: row.titolari, panchina: row.panchina }
       : null;
-    let formationPlayers = [];
-    if (row) {
-      const ids = [
-        ...parseIdsArray(row.titolari),
-        ...parseIdsArray(row.panchina),
-      ];
+
+    // Phase 3: formationPlayers + editAvailability in parallel
+    const formationPlayersPromise = (async () => {
+      if (!row) return [];
+      const ids = [...parseIdsArray(row.titolari), ...parseIdsArray(row.panchina)];
       const uniqueIds = [...new Set(ids)];
-      if (uniqueIds.length > 0) {
-        const placeholders = uniqueIds.map(() => '?').join(',');
-        try {
-          formationPlayers = await query(
-            `SELECT p.id, p.first_name, p.last_name, p.role, t.name AS team_name
-             FROM players p
-             LEFT JOIN teams t ON t.id = p.team_id
-             WHERE p.id IN (${placeholders})`,
-            uniqueIds
-          );
-        } catch (_) {
-          formationPlayers = [];
-        }
-      }
-    }
-    const editAvailability = await getMatchdayEditAvailability({
-      leagueId,
-      effectiveLeagueId,
-      giornata,
-    });
+      if (uniqueIds.length === 0) return [];
+      const placeholders = uniqueIds.map(() => '?').join(',');
+      try {
+        return await query(
+          `SELECT p.id, p.first_name, p.last_name, p.role, t.name AS team_name
+           FROM players p
+           LEFT JOIN teams t ON t.id = p.team_id
+           WHERE p.id IN (${placeholders})`,
+          uniqueIds
+        );
+      } catch (_) { return []; }
+    })();
+
+    const [formationPlayers, editAvailability] = await Promise.all([
+      formationPlayersPromise,
+      getMatchdayEditAvailability({ leagueId, effectiveLeagueId, giornata }),
+    ]);
+
+    console.log(`[PERF][GET /formation/:id/:g] leagueId=${leagueId} g=${giornata} TOTAL=${Date.now() - t0}ms`);
     res.json({
       formation,
       formation_players: formationPlayers,
