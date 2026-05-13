@@ -1798,6 +1798,7 @@ router.delete('/:id/teams/:teamId/logo', authenticateToken, async (req, res) => 
 const playerPhotoUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 2 * 1024 * 1024 } });
 router.post('/:id/teams/:teamId/players/:playerId/photo', authenticateToken, playerPhotoUpload.single('photo'), async (req, res) => {
   try {
+    console.log('[PlayerPhoto] endpoint hit — params:', req.params, 'hasFile:', !!req.file, 'fileSize:', req.file?.size);
     const leagueId = toValidLeagueId(req.params.id);
     const teamId = Number(req.params.teamId);
     const playerId = Number(req.params.playerId);
@@ -1835,10 +1836,13 @@ router.post('/:id/teams/:teamId/players/:playerId/photo', authenticateToken, pla
         cacheControl: '3600',
       });
     if (storageError) {
+      console.error('[PlayerPhoto] storage upload error:', storageError);
       return res.status(500).json({ message: 'Errore upload foto', error: storageError.message });
     }
     const photoPath = `uploads/${storagePath}`;
-    await query(`UPDATE players SET photo_path = ? WHERE id = ? AND team_id IN (SELECT id FROM teams WHERE league_id = ?)`, [photoPath, playerId, leagueId]);
+    console.log('[PlayerPhoto] storage OK, updating DB:', photoPath, 'playerId:', playerId, 'leagueId:', leagueId);
+    const dbRes = await query(`UPDATE players SET photo_path = ? WHERE id = ? AND team_id IN (SELECT id FROM teams WHERE league_id = ?)`, [photoPath, playerId, leagueId]);
+    console.log('[PlayerPhoto] DB update result:', dbRes);
     res.json({ message: 'Foto giocatore aggiornata', photo_path: photoPath });
   } catch (error) {
     console.error('Upload player photo error:', error);

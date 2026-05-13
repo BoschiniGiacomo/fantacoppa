@@ -596,11 +596,15 @@ export default function TeamManagementScreen({ route, navigation }) {
       
       const response = await leagueService.updatePlayer(leagueId, originalTeamId, savedPlayerId, dataToSave);
 
+      let photoError = null;
       if (playerPhotoNew) {
         try {
-          await leagueService.uploadPlayerPhoto(leagueId, newTeamId, savedPlayerId, playerPhotoNew);
+          console.log('[PlayerPhoto] uploading photo for player', savedPlayerId, 'team', newTeamId, 'uri', playerPhotoNew?.substring?.(0, 60));
+          const photoRes = await leagueService.uploadPlayerPhoto(leagueId, newTeamId, savedPlayerId, playerPhotoNew);
+          console.log('[PlayerPhoto] upload success', photoRes?.data);
         } catch (photoErr) {
-          showToast('Errore upload foto giocatore');
+          console.error('[PlayerPhoto] upload failed', photoErr?.response?.status, photoErr?.response?.data, photoErr?.message);
+          photoError = photoErr?.response?.data?.message || photoErr?.message || 'Errore upload foto';
         }
       } else if (playerPhotoUri === null && editingPlayer.photo_path) {
         try {
@@ -624,7 +628,7 @@ export default function TeamManagementScreen({ route, navigation }) {
         setIsInjured(false);
         setReplacementPlayerId(null);
       } else {
-        showToast(responseMessage || 'Giocatore aggiornato con successo!', 'success');
+        showToast(photoError ? `Giocatore aggiornato ma foto non salvata: ${photoError}` : (responseMessage || 'Giocatore aggiornato con successo!'), photoError ? undefined : 'success');
         setShowEditModal(false);
         setEditingPlayer(null);
         setFirstName('');
