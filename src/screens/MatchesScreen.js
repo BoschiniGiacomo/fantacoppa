@@ -509,7 +509,7 @@ export default function MatchesScreen() {
                     </View>
                     {Number(t.is_heart) === 1 && (
                       <View style={styles.heartBadge}>
-                        <Ionicons name="star" size={12} color="#ffc107" />
+                        <Ionicons name="star" size={17} color="#ffc107" />
                       </View>
                     )}
                   </View>
@@ -947,16 +947,8 @@ const styles = StyleSheet.create({
   },
   heartBadge: {
     position: 'absolute',
-    bottom: -1,
+    bottom: 0,
     right: -1,
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: '#fff',
-    borderWidth: 1.5,
-    borderColor: '#ffc107',
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   heartTeamLogo: {
     width: 36,
