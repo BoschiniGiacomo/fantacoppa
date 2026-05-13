@@ -8,12 +8,13 @@ import {
   Modal,
   ActivityIndicator,
   RefreshControl,
+  Image,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { useOnboarding } from '../context/OnboardingContext';
-import { squadService, formationService } from '../services/api';
+import { squadService, formationService, publicAssetUrl } from '../services/api';
 import { peekSquadBootstrap, setSquadBootstrap, invalidateLeagueWarmCache } from '../services/leagueWarmCache';
 import { Ionicons } from '@expo/vector-icons';
 import { syncSubmittedFormationOnboarding } from '../utils/formationSubmission';
@@ -60,6 +61,11 @@ export default function SquadScreen({ route, navigation }) {
     const players = Array.isArray(data?.players)
       ? data.players
       : (Array.isArray(data?.squad) ? data.squad : []);
+    console.log('[MiaRosa] players ricevuti:', players.length, 'con foto:', players.filter(p => !!p.photo_path).length);
+    if (players.length > 0) {
+      const sample = players.find(p => p.photo_path) || players[0];
+      console.log('[MiaRosa] esempio player:', sample?.id, sample?.last_name, 'photo_path:', JSON.stringify(sample?.photo_path));
+    }
     setSquad(players);
 
     const budgetValue = data?.budget ?? 0;
@@ -77,6 +83,7 @@ export default function SquadScreen({ route, navigation }) {
   const loadData = useCallback(async () => {
     const warm = peekSquadBootstrap(leagueId);
     if (warm != null) {
+      console.log('[MiaRosa] WARM CACHE');
       applyBootstrap(warm);
       setLoading(false);
     } else {
@@ -84,8 +91,12 @@ export default function SquadScreen({ route, navigation }) {
     }
 
     try {
+      console.log('[MiaRosa] chiamo API fresh...');
       const bootstrapRes = await squadService.getBootstrap(leagueId);
       const data = bootstrapRes?.data || {};
+      console.log('[MiaRosa] API FRESH risposta, keys primo player:', data?.players?.[0] ? Object.keys(data.players[0]) : 'nessuno');
+      const salvini = (data?.players || []).find(p => p.id === 283);
+      console.log('[MiaRosa] player 283 Salvini nella rosa?', salvini ? JSON.stringify(salvini) : 'NON PRESENTE');
       applyBootstrap(data);
       setSquadBootstrap(leagueId, data);
 
@@ -239,15 +250,24 @@ export default function SquadScreen({ route, navigation }) {
             >
               <View style={[styles.roleStripe, { backgroundColor: roleColor }]} />
               <View style={styles.playerContent}>
-                <View style={styles.playerInfo}>
-                  <View style={styles.playerNameRow}>
+                {player.photo_path ? (
+                  <View style={styles.playerPhotoCol}>
+                    <Image source={{ uri: publicAssetUrl(player.photo_path) }} style={styles.playerPhotoBadge} />
+                    <View style={[styles.playerPhotoRoleOverlay, { backgroundColor: roleColor }]}>
+                      <Text style={styles.playerPhotoRoleText}>{player.role}</Text>
+                    </View>
+                  </View>
+                ) : (
+                  <View style={styles.roleBadgeCol}>
                     <View style={[styles.roleBadgeMini, { backgroundColor: roleColor }]}>
                       <Text style={styles.roleBadgeMiniText}>{player.role}</Text>
                     </View>
-                    <Text style={styles.playerName} numberOfLines={1}>
-                      {player.first_name} {player.last_name}
-                    </Text>
                   </View>
+                )}
+                <View style={styles.playerInfo}>
+                  <Text style={styles.playerName} numberOfLines={1}>
+                    {player.first_name} {player.last_name}
+                  </Text>
                   <Text style={styles.playerTeam} numberOfLines={1}>{player.team_name}</Text>
                 </View>
                 <View style={styles.playerRight}>
@@ -698,18 +718,48 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
+    paddingVertical: 4,
+    paddingLeft: 8,
+    paddingRight: 12,
+    minHeight: 64,
   },
   playerInfo: {
     flex: 1,
     marginRight: 8,
+    marginLeft: 16,
+    justifyContent: 'center',
+    alignItems: 'flex-start',
   },
-  playerNameRow: {
-    flexDirection: 'row',
+  playerPhotoCol: {
+    width: 56,
+    height: 56,
+    position: 'relative',
+  },
+  playerPhotoBadge: {
+    width: 56,
+    height: 56,
+  },
+  playerPhotoRoleOverlay: {
+    position: 'absolute',
+    bottom: -1,
+    right: -1,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
     alignItems: 'center',
-    gap: 6,
-    marginBottom: 2,
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: '#fff',
+  },
+  playerPhotoRoleText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
+  roleBadgeCol: {
+    width: 56,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   roleBadgeMini: {
     width: 22,
@@ -727,12 +777,10 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
     color: '#333',
-    flex: 1,
   },
   playerTeam: {
     fontSize: 12,
     color: '#888',
-    marginLeft: 28,
   },
   injuredActionBadge: {
     marginTop: 2,

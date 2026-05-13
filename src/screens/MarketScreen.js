@@ -88,6 +88,11 @@ export default function MarketScreen({ route, navigation }) {
 
   const applyBootstrapData = (data) => {
     const playersList = Array.isArray(data.players) ? data.players : [];
+    console.log('[Mercato] players ricevuti:', playersList.length, 'con foto:', playersList.filter(p => !!p.photo_path).length);
+    if (playersList.length > 0) {
+      const sample = playersList.find(p => p.photo_path) || playersList[0];
+      console.log('[Mercato] esempio player:', sample?.id, sample?.last_name, 'photo_path:', JSON.stringify(sample?.photo_path));
+    }
     setPlayers(playersList);
     const budgetValue = data?.budget ?? 0;
     setBudget(typeof budgetValue === 'number' ? budgetValue : parseFloat(budgetValue) || 0);
@@ -256,7 +261,7 @@ export default function MarketScreen({ route, navigation }) {
     return `${firstName.slice(0, 3)}. ${lastName}`;
   };
 
-  const renderPlayer = ({ item }) => {
+  const renderPlayer = useCallback(({ item }) => {
     const cantAfford = budgetValue < item.rating;
     const roleColor = getRoleColor(item.role);
     const roleFull = ownedCounts[item.role] >= roleLimits[item.role];
@@ -335,7 +340,9 @@ export default function MarketScreen({ route, navigation }) {
         </View>
       </TouchableOpacity>
     );
-  };
+  }, [budgetValue, ownedCounts, roleLimits, marketBlocked, buyingPlayer, league?.id, navigation]);
+
+  const getItemLayout = useCallback((_, index) => ({ length: 64, offset: 64 * index, index }), []);
 
   if (loading) {
     return (
@@ -516,6 +523,11 @@ export default function MarketScreen({ route, navigation }) {
         data={sortedPlayers}
         renderItem={renderPlayer}
         keyExtractor={(item) => item.id.toString()}
+        getItemLayout={getItemLayout}
+        removeClippedSubviews={true}
+        maxToRenderPerBatch={15}
+        windowSize={11}
+        initialNumToRender={12}
         contentContainerStyle={[styles.listContent, { paddingBottom: 80 + insets.bottom }]}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#667eea" />
@@ -902,7 +914,6 @@ const styles = StyleSheet.create({
   playerPhotoBadge: {
     width: 56,
     height: 56,
-    borderRadius: 28,
   },
   playerPhotoRoleOverlay: {
     position: 'absolute',
