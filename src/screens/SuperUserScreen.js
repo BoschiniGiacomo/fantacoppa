@@ -283,20 +283,24 @@ export default function SuperUserScreen() {
   
   // Crea cluster da suggerimento
   const handleApproveSuggestion = async (suggestion, groupId) => {
+    console.log('[Cluster] handleApproveSuggestion called', suggestion.name, groupId);
     try {
       const allPlayerIds = [
         ...(suggestion.existing_leagues || []).map((l) => l.player_id),
         ...(suggestion.all_new_player_ids || []),
       ];
-      await superuserService.approveSuggestion({
+      console.log('[Cluster] approve playerIds:', allPlayerIds, 'cluster_id:', suggestion.cluster_id);
+      const resp = await superuserService.approveSuggestion({
         official_group_id: groupId,
         cluster_id: suggestion.cluster_id || null,
         player_ids: allPlayerIds,
       });
+      console.log('[Cluster] approve response:', resp?.status, resp?.data);
       showToast('Cluster approvato', 'success');
       await loadClusterSuggestions(groupId);
       await loadClusters(groupId, clusterFilterStatus);
     } catch (error) {
+      console.error('[Cluster] approve error:', error?.message, error?.response?.status, error?.response?.data);
       showToast(error.response?.data?.message || 'Errore approvazione');
     }
   };
