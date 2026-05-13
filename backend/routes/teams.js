@@ -31,7 +31,6 @@ router.get('/:leagueId', authenticateToken, async (req, res) => {
 // GET /api/teams/:leagueId/:userId
 router.get('/:leagueId/:userId', authenticateToken, async (req, res) => {
   try {
-    const t0 = Date.now();
     const leagueId = Number(req.params.leagueId);
     const userId = Number(req.params.userId);
     if (!Number.isFinite(leagueId) || leagueId <= 0 || !Number.isFinite(userId) || userId <= 0) {
@@ -90,8 +89,6 @@ router.get('/:leagueId/:userId', authenticateToken, async (req, res) => {
         [leagueId, userId]
       ).catch(() => []),
     ]);
-    console.log(`[PERF][GET /teams/:id/:userId] leagueId=${leagueId} userId=${userId} TOTAL=${Date.now() - t0}ms players=${players.length} results=${results.length}`);
-
     if (teamRows.length < 1) return res.status(404).json({ message: 'Squadra non trovata' });
 
     res.json({

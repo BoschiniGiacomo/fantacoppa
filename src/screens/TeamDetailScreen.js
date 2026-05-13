@@ -72,22 +72,16 @@ export default function TeamDetailScreen({ route, navigation }) {
   };
 
   const loadTeamDetail = async () => {
-    const t0 = Date.now();
-    console.log(`[PERF][TeamDetail] loadData START (leagueId=${leagueId}, userId=${userId})`);
     const warm = peekTeamDetail(leagueId, userId);
     if (warm != null) {
-      console.log(`[PERF][TeamDetail] warm cache HIT`);
       applyDetailPayload(warm);
       setLoading(false);
     } else {
-      console.log(`[PERF][TeamDetail] warm cache MISS — showing spinner`);
       setLoading(true);
     }
 
     try {
-      const tApi = Date.now();
       const response = await teamsService.getTeamDetail(leagueId, userId);
-      console.log(`[PERF][TeamDetail] GET /teams/:id/:userId: ${Date.now() - tApi}ms (payload: ${JSON.stringify(response?.data)?.length ?? 0} bytes)`);
       const payload = response?.data || {};
       applyDetailPayload(payload);
       setTeamDetail(leagueId, userId, payload);
@@ -101,7 +95,6 @@ export default function TeamDetailScreen({ route, navigation }) {
       }
     } finally {
       setLoading(false);
-      console.log(`[PERF][TeamDetail] loadData TOTAL: ${Date.now() - t0}ms`);
     }
   };
 
