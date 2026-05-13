@@ -2441,7 +2441,7 @@ router.get('/:id/standings/matchday/:giornata/formation/:userId', authenticateTo
       isCalculated = false;
     }
     const lineRows = await query(
-      `SELECT titolari
+      `SELECT titolari, COALESCE(modulo, '') AS modulo
        FROM user_lineups
        WHERE league_id = ? AND giornata = ? AND user_id = ?
        LIMIT 1`,
@@ -2449,13 +2449,14 @@ router.get('/:id/standings/matchday/:giornata/formation/:userId', authenticateTo
     );
     const hasDirectLineupForMatchday = !!lineRows[0];
     let playerIds = parseIdsArray(lineRows[0]?.titolari);
+    let modulo = lineRows[0]?.modulo || '';
     let formationRecovered = false;
     let formationRecoveryKind = null;
 
     if (playerIds.length < 1 && !isCalculated) {
       if (recoverPrevious) {
         const previousRows = await query(
-          `SELECT titolari
+          `SELECT titolari, COALESCE(modulo, '') AS modulo
            FROM user_lineups
            WHERE league_id = ? AND user_id = ? AND giornata < ?
            ORDER BY giornata DESC
@@ -2463,6 +2464,7 @@ router.get('/:id/standings/matchday/:giornata/formation/:userId', authenticateTo
           [leagueId, targetUserId, giornata]
         );
         playerIds = parseIdsArray(previousRows[0]?.titolari);
+        if (!modulo && previousRows[0]?.modulo) modulo = previousRows[0].modulo;
         formationRecovered = playerIds.length > 0;
         if (formationRecovered) formationRecoveryKind = 'previous_matchday';
       }
@@ -2542,9 +2544,12 @@ router.get('/:id/standings/matchday/:giornata/formation/:userId', authenticateTo
 
     const inParams = playerIds.map(() => '?').join(',');
     const pRows = await query(
-      `SELECT id, first_name, last_name, role
-       FROM players
-       WHERE id IN (${inParams})`,
+      `SELECT p.id, p.first_name, p.last_name, p.role,
+              COALESCE(p.photo_path, '') AS photo_path,
+              COALESCE(t.name, '') AS team_name
+       FROM players p
+       LEFT JOIN teams t ON t.id = p.team_id
+       WHERE p.id IN (${inParams})`,
       playerIds
     );
     const byId = {};
@@ -2614,6 +2619,8 @@ router.get('/:id/standings/matchday/:giornata/formation/:userId', authenticateTo
         first_name: p.first_name,
         last_name: p.last_name,
         role: p.role,
+        photo_path: p.photo_path || '',
+        team_name: p.team_name || '',
         rating,
         final_rating,
         goals,
@@ -2630,6 +2637,7 @@ router.get('/:id/standings/matchday/:giornata/formation/:userId', authenticateTo
 
     res.json({
       formation,
+      modulo: modulo || '',
       formation_recovered: formationRecovered,
       ...formationDebug,
       bonus_enabled: Number(bonusSettings.enable_bonus_malus) === 1,
