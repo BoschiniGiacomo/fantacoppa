@@ -2415,8 +2415,9 @@ router.post('/matches/favorites/team-notifications', authenticateToken, async (r
 });
 
 // GET /matches/strip-teams — squadre delle competizioni abilitate dal super admin per la strip in alto
-router.get('/matches/strip-teams', authenticateToken, async (_req, res) => {
+router.get('/matches/strip-teams', authenticateToken, async (req, res) => {
   try {
+    const userId = Number(req.user?.userId);
     const comps = await query(
       `SELECT id, name FROM official_league_groups
        WHERE COALESCE(show_teams_in_matches_strip, 0) = 1
@@ -2455,17 +2456,38 @@ router.get('/matches/strip-teams', authenticateToken, async (_req, res) => {
       [...compIds, ...compIds]
     );
 
+    const heartSet = new Set();
+    if (userId > 0) {
+      const heartRows = await query(
+        `SELECT official_group_id, team_name_display
+         FROM user_official_team_favorites
+         WHERE user_id = ? AND COALESCE(is_heart, 0) = 1`,
+        [userId]
+      );
+      for (const r of heartRows || []) {
+        heartSet.add(`${r.official_group_id}:${String(r.team_name_display || '').trim().toLowerCase()}`);
+      }
+    }
+
     const compNameMap = new Map(comps.map((c) => [Number(c.id), c.name]));
     const teams = (teamRows || []).map((r) => {
       const logoPath = normalizeTeamLogoPathForApi(r?.logo_path);
+      const name = String(r.name || '').trim();
+      const compId = Number(r.competition_id);
+      const isHeart = heartSet.has(`${compId}:${name.toLowerCase()}`);
       return {
         team_id: Number(r.team_id),
-        name: String(r.name || '').trim(),
-        competition_id: Number(r.competition_id),
-        competition_name: compNameMap.get(Number(r.competition_id)) || null,
+        name,
+        competition_id: compId,
+        competition_name: compNameMap.get(compId) || null,
         logo_path: logoPath,
         logo_url: logoUrlForPath(logoPath),
+        is_heart: isHeart ? 1 : 0,
       };
+    });
+    teams.sort((a, b) => {
+      if (a.is_heart !== b.is_heart) return b.is_heart - a.is_heart;
+      return a.name.localeCompare(b.name, 'it');
     });
     return res.json({ teams });
   } catch (err) {
@@ -2714,13 +2736,10 @@ router.put('/admin/competitions/:competitionId', authenticateToken, requireSuper
     }
     if (sets.length === 0) return res.status(400).json({ message: 'Nessun campo da aggiornare' });
     params.push(id);
-    console.log('[PUT /admin/competitions]', { id, sets, params, body: req.body });
-    const result = await query(`UPDATE official_league_groups SET ${sets.join(', ')} WHERE id = ?`, params);
-    console.log('[PUT /admin/competitions] result', result);
+    await query(`UPDATE official_league_groups SET ${sets.join(', ')} WHERE id = ?`, params);
 
     return res.json({ message: 'Competizione aggiornata', id });
   } catch (err) {
-    console.error('[PUT /admin/competitions] error', err?.message);
     if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
     return res.status(500).json({ message: 'Errore aggiornamento competizione', error: err.message });
   }

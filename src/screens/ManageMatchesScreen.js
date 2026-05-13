@@ -276,8 +276,13 @@ export default function ManageMatchesScreen() {
   const loadCompetitions = async () => {
     const res = await adminCompetitionsService.getAll();
     const list = Array.isArray(res?.data) ? res.data : [];
-    setCompetitions(list.map((g) => ({ id: Number(g.id), name: g.name })));
-    if (!competitionId && list.length > 0) setCompetitionId(Number(list[0].id));
+    const enabled = list.filter((g) => Number(g.is_match_competition_enabled) === 1);
+    setCompetitions(enabled.map((g) => ({ id: Number(g.id), name: g.name })));
+    if (competitionId && !enabled.some((g) => Number(g.id) === competitionId)) {
+      setCompetitionId(enabled.length > 0 ? Number(enabled[0].id) : null);
+    } else if (!competitionId && enabled.length > 0) {
+      setCompetitionId(Number(enabled[0].id));
+    }
   };
 
   const loadOfficialGroups = async () => {
@@ -861,7 +866,6 @@ export default function ManageMatchesScreen() {
       await adminCompetitionsService.update(groupId, { [field]: numVal });
       await loadCompetitions();
     } catch (e) {
-      console.error('[Competitions] updateField error', field, e?.response?.status, e?.response?.data || e?.message);
       showToast(e?.response?.data?.message || e?.message || 'Salvataggio non riuscito');
       await loadOfficialGroups();
     }

@@ -476,45 +476,53 @@ export default function MatchesScreen() {
       </View>
 
       {heartTeams.length > 0 && (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.heartStrip}
-        >
-          {heartTeams.map((t, idx) => {
-            const logoUri = t.logo_url || publicAssetUrl(t.logo_path);
-            return (
-              <TouchableOpacity
-                key={`heart-${t.team_id ?? idx}-${t.name}`}
-                style={styles.heartTeamItem}
-                activeOpacity={0.7}
-                onPress={() => {
-                  if (t.team_id && t.competition_id) {
-                    navigation.navigate('OfficialTeamDetail', {
-                      teamId: t.team_id,
-                      competitionId: t.competition_id,
-                      teamName: t.name,
-                    });
-                  }
-                }}
-              >
-                <View style={styles.heartTeamCircle}>
-                  {logoUri ? (
-                    <Image source={{ uri: logoUri }} style={styles.heartTeamLogo} resizeMode="contain" />
-                  ) : (
-                    <Ionicons name="shield-outline" size={28} color="#667eea" />
-                  )}
-                </View>
-                <Text style={styles.heartTeamName} numberOfLines={1} ellipsizeMode="tail">
-                  {t.name}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
+        <View style={styles.heartStripWrap}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.heartStrip}
+          >
+            {heartTeams.map((t, idx) => {
+              const logoUri = t.logo_url || publicAssetUrl(t.logo_path);
+              return (
+                <TouchableOpacity
+                  key={`heart-${t.team_id ?? idx}-${t.name}`}
+                  style={styles.heartTeamItem}
+                  activeOpacity={0.7}
+                  onPress={() => {
+                    if (t.team_id && t.competition_id) {
+                      navigation.navigate('OfficialTeamDetail', {
+                        teamId: t.team_id,
+                        competitionId: t.competition_id,
+                        teamName: t.name,
+                      });
+                    }
+                  }}
+                >
+                  <View style={styles.heartTeamCircleWrap}>
+                    <View style={styles.heartTeamCircle}>
+                      {logoUri ? (
+                        <Image source={{ uri: logoUri }} style={styles.heartTeamLogo} resizeMode="contain" />
+                      ) : (
+                        <Ionicons name="shield-outline" size={28} color="#667eea" />
+                      )}
+                    </View>
+                    {Number(t.is_heart) === 1 && (
+                      <View style={styles.heartBadge}>
+                        <Ionicons name="star" size={12} color="#ffc107" />
+                      </View>
+                    )}
+                  </View>
+                  <Text style={styles.heartTeamName} numberOfLines={1} ellipsizeMode="tail">
+                    {t.name}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        </View>
       )}
-
-      <View style={[styles.content, { paddingTop: 10 }]}>
+      <View style={styles.content}>
       <View style={styles.daysControlsRow}>
         <ScrollView
           ref={daysScrollRef}
@@ -739,7 +747,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginHorizontal: 2,
   },
-  daysRow: { paddingHorizontal: 12, paddingVertical: 6, gap: 8, alignItems: 'center' },
+  daysRow: { paddingHorizontal: 12, paddingTop: 2, paddingBottom: 6, gap: 8, alignItems: 'center' },
   dayChip: {
     backgroundColor: '#fff',
     borderRadius: 14,
@@ -910,15 +918,21 @@ const styles = StyleSheet.create({
   },
   followIconBtnActive: { backgroundColor: '#f0f4ff' },
   mutedSmall: { fontSize: 12, color: '#999' },
+  heartStripWrap: {
+    backgroundColor: '#f5f5f5',
+  },
   heartStrip: {
     paddingHorizontal: 12,
-    paddingTop: 12,
-    paddingBottom: 6,
+    paddingTop: 10,
+    paddingBottom: 4,
     gap: 16,
   },
   heartTeamItem: {
     alignItems: 'center',
     width: 72,
+  },
+  heartTeamCircleWrap: {
+    position: 'relative',
   },
   heartTeamCircle: {
     width: 60,
@@ -926,10 +940,23 @@ const styles = StyleSheet.create({
     borderRadius: 30,
     borderWidth: 2.5,
     borderColor: '#667eea',
-    backgroundColor: '#111',
+    backgroundColor: '#fff',
     justifyContent: 'center',
     alignItems: 'center',
     overflow: 'hidden',
+  },
+  heartBadge: {
+    position: 'absolute',
+    bottom: -1,
+    right: -1,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#fff',
+    borderWidth: 1.5,
+    borderColor: '#ffc107',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   heartTeamLogo: {
     width: 36,
