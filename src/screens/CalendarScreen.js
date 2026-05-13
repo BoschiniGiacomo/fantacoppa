@@ -13,13 +13,10 @@ import { formationService, leagueService } from '../services/api';
 import {
   peekLeagueDetail,
   peekFormationMatchdays,
-  peekFormationPayload,
   setLeagueDetail,
   setFormationMatchdays,
-  setFormationPayload,
 } from '../services/leagueWarmCache';
 import { useOnboarding } from '../context/OnboardingContext';
-import { hasSubmittedFormationPayload } from '../utils/formationSubmission';
 import { parseAppDate } from '../utils/dateTime';
 
 export default function CalendarScreen({ route, navigation }) {
@@ -42,40 +39,18 @@ export default function CalendarScreen({ route, navigation }) {
 
   const parseDeadlineDate = (value) => parseAppDate(value);
 
-  const enrichMatchdays = async (leagueData, rawMatchdays) => {
+  const buildMatchdays = (leagueData, rawMatchdays) => {
     const list = Array.isArray(rawMatchdays) ? rawMatchdays : [];
-    return Promise.all(
-      list.map(async (matchday) => {
-        let hasFormation = false;
-        if (leagueData?.auto_lineup_mode === 1) {
-          hasFormation = true;
-        } else {
-          const cached = peekFormationPayload(leagueId, matchday.giornata);
-          if (cached != null) {
-            hasFormation = hasSubmittedFormationPayload(cached);
-          } else {
-            try {
-              const formationRes = await formationService.getFormation(leagueId, matchday.giornata);
-              const fd = formationRes?.data;
-              setFormationPayload(leagueId, matchday.giornata, fd);
-              hasFormation = hasSubmittedFormationPayload(fd);
-            } catch (error) {
-              hasFormation = false;
-            }
-          }
-        }
-
-        const now = new Date();
-        const deadline = parseDeadlineDate(matchday.deadline);
-        const isExpired = deadline ? deadline < now : false;
-
-        return {
-          ...matchday,
-          hasFormation,
-          isExpired,
-        };
-      })
-    );
+    const now = new Date();
+    const isAutoLineup = leagueData?.auto_lineup_mode === 1;
+    return list.map((matchday) => {
+      const deadline = parseDeadlineDate(matchday.deadline);
+      return {
+        ...matchday,
+        hasFormation: isAutoLineup || !!matchday.has_formation,
+        isExpired: deadline ? deadline < now : false,
+      };
+    });
   };
 
   const loadData = async () => {
@@ -88,15 +63,9 @@ export default function CalendarScreen({ route, navigation }) {
     if (hasWarmCore) {
       console.log(`[PERF][Calendar] warm cache HIT`);
       setLeague(warmL);
-      try {
-        const tEnrich = Date.now();
-        const initial = await enrichMatchdays(warmL, warmMd);
-        console.log(`[PERF][Calendar] enrichMatchdays (warm, ${warmMd.length} giornate): ${Date.now() - tEnrich}ms`);
-        setMatchdays(initial);
-        if (initial.some((m) => m.hasFormation)) {
-          markDone('submitted_formation');
-        }
-      } catch (_) {}
+      const initial = buildMatchdays(warmL, warmMd);
+      setMatchdays(initial);
+      if (initial.some((m) => m.hasFormation)) markDone('submitted_formation');
       setLoading(false);
     } else {
       console.log(`[PERF][Calendar] warm cache MISS — showing spinner`);
@@ -118,15 +87,10 @@ export default function CalendarScreen({ route, navigation }) {
       const rawMd = Array.isArray(matchdaysRes.data) ? matchdaysRes.data : [];
       setFormationMatchdays(leagueId, rawMd);
 
-      const tEnrich2 = Date.now();
-      const matchdaysWithStatus = await enrichMatchdays(leagueData, rawMd);
-      console.log(`[PERF][Calendar] enrichMatchdays (fresh, ${rawMd.length} giornate): ${Date.now() - tEnrich2}ms`);
-
+      const matchdaysWithStatus = buildMatchdays(leagueData, rawMd);
       setMatchdays(matchdaysWithStatus);
 
-      if (matchdaysWithStatus.some((m) => m.hasFormation)) {
-        markDone('submitted_formation');
-      }
+      if (matchdaysWithStatus.some((m) => m.hasFormation)) markDone('submitted_formation');
     } catch (error) {
       console.error('Error loading calendar:', error);
       if (!hasWarmCore) {

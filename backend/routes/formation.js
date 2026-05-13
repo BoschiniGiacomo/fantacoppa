@@ -203,16 +203,29 @@ function applyInjuryMap(ids, injuryMap) {
 router.get('/:leagueId/matchdays', authenticateToken, async (req, res) => {
   try {
     const leagueId = Number(req.params.leagueId);
+    const userId = Number(req.user.userId);
     const effectiveLeagueId = await getEffectiveLeagueId(leagueId);
-    const rows = await query(
-      `SELECT giornata,
-              to_char((deadline AT TIME ZONE 'Europe/Rome'), 'YYYY-MM-DD HH24:MI:SS') AS deadline
-       FROM matchdays
-       WHERE league_id = ?
-       ORDER BY giornata ASC`,
-      [effectiveLeagueId]
-    );
-    res.json(rows);
+    const [rows, lineupRows] = await Promise.all([
+      query(
+        `SELECT giornata,
+                to_char((deadline AT TIME ZONE 'Europe/Rome'), 'YYYY-MM-DD HH24:MI:SS') AS deadline
+         FROM matchdays
+         WHERE league_id = ?
+         ORDER BY giornata ASC`,
+        [effectiveLeagueId]
+      ),
+      query(
+        `SELECT giornata FROM user_lineups
+         WHERE user_id = ? AND league_id = ?`,
+        [userId, leagueId]
+      ),
+    ]);
+    const lineupSet = new Set(lineupRows.map(r => Number(r.giornata)));
+    const enriched = rows.map(r => ({
+      ...r,
+      has_formation: lineupSet.has(Number(r.giornata)),
+    }));
+    res.json(enriched);
   } catch (_) {
     res.json([]);
   }
