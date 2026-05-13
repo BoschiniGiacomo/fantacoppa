@@ -10,15 +10,13 @@ import {
   Image,
 } from 'react-native';
 import { useAuth } from '../context/AuthContext';
-import { useOnboarding } from '../context/OnboardingContext';
-import { teamsService, formationService } from '../services/api';
+import { teamsService } from '../services/api';
 import { peekTeamDetail, setTeamDetail } from '../services/leagueWarmCache';
 import { Ionicons } from '@expo/vector-icons';
 import { publicAssetUrl } from '../services/api';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { defaultLogosMap } from '../constants/defaultLogos';
-import { syncSubmittedFormationOnboarding } from '../utils/formationSubmission';
 import { parseAppDate } from '../utils/dateTime';
 import InjurySwapIcon from '../components/InjurySwapIcon';
 
@@ -33,7 +31,6 @@ const ROLE_ORDER = ['P', 'D', 'C', 'A'];
 
 export default function TeamDetailScreen({ route, navigation }) {
   const { user } = useAuth();
-  const { markDone } = useOnboarding();
   const { leagueId, userId } = route.params || {};
   const insets = useSafeAreaInsets();
   const [team, setTeam] = useState(null);
@@ -75,19 +72,22 @@ export default function TeamDetailScreen({ route, navigation }) {
   };
 
   const loadTeamDetail = async () => {
+    const t0 = Date.now();
+    console.log(`[PERF][TeamDetail] loadData START (leagueId=${leagueId}, userId=${userId})`);
     const warm = peekTeamDetail(leagueId, userId);
     if (warm != null) {
+      console.log(`[PERF][TeamDetail] warm cache HIT`);
       applyDetailPayload(warm);
       setLoading(false);
     } else {
+      console.log(`[PERF][TeamDetail] warm cache MISS — showing spinner`);
       setLoading(true);
     }
 
     try {
-      try {
-        await syncSubmittedFormationOnboarding({ leagueId, formationService, markDone });
-      } catch (_) {}
+      const tApi = Date.now();
       const response = await teamsService.getTeamDetail(leagueId, userId);
+      console.log(`[PERF][TeamDetail] GET /teams/:id/:userId: ${Date.now() - tApi}ms (payload: ${JSON.stringify(response?.data)?.length ?? 0} bytes)`);
       const payload = response?.data || {};
       applyDetailPayload(payload);
       setTeamDetail(leagueId, userId, payload);
@@ -101,6 +101,7 @@ export default function TeamDetailScreen({ route, navigation }) {
       }
     } finally {
       setLoading(false);
+      console.log(`[PERF][TeamDetail] loadData TOTAL: ${Date.now() - t0}ms`);
     }
   };
 

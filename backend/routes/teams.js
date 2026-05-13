@@ -6,7 +6,6 @@ const { authenticateToken } = require('../middleware/auth');
 // GET /api/teams/:leagueId
 router.get('/:leagueId', authenticateToken, async (req, res) => {
   try {
-    const t0 = Date.now();
     const leagueId = Number(req.params.leagueId);
     if (!Number.isFinite(leagueId) || leagueId <= 0) {
       return res.status(400).json({ message: 'League ID non valido' });
@@ -22,7 +21,6 @@ router.get('/:leagueId', authenticateToken, async (req, res) => {
        ORDER BY u.username ASC`,
       [leagueId]
     );
-    console.log(`[PERF][GET /teams/:leagueId] leagueId=${leagueId} TOTAL=${Date.now() - t0}ms rows=${rows.length}`);
     res.json(rows);
   } catch (error) {
     console.error('Get teams list error:', error);
@@ -33,26 +31,24 @@ router.get('/:leagueId', authenticateToken, async (req, res) => {
 // GET /api/teams/:leagueId/:userId
 router.get('/:leagueId/:userId', authenticateToken, async (req, res) => {
   try {
+    const t0 = Date.now();
     const leagueId = Number(req.params.leagueId);
     const userId = Number(req.params.userId);
     if (!Number.isFinite(leagueId) || leagueId <= 0 || !Number.isFinite(userId) || userId <= 0) {
       return res.status(400).json({ message: 'Parametri non validi' });
     }
 
-    const teamRows = await query(
-      `SELECT u.id, u.username,
-              ub.team_name, ub.coach_name, ub.team_logo, ub.budget
-       FROM users u
-       LEFT JOIN user_budget ub ON ub.user_id = u.id AND ub.league_id = ?
-       WHERE u.id = ?
-       LIMIT 1`,
-      [leagueId, userId]
-    );
-    if (teamRows.length < 1) return res.status(404).json({ message: 'Squadra non trovata' });
-
-    let players = [];
-    try {
-      players = await query(
+    const [teamRows, players, results] = await Promise.all([
+      query(
+        `SELECT u.id, u.username,
+                ub.team_name, ub.coach_name, ub.team_logo, ub.budget
+         FROM users u
+         LEFT JOIN user_budget ub ON ub.user_id = u.id AND ub.league_id = ?
+         WHERE u.id = ?
+         LIMIT 1`,
+        [leagueId, userId]
+      ),
+      query(
         `WITH direct_owned AS (
            SELECT up.player_id
            FROM user_players up
@@ -80,14 +76,8 @@ router.get('/:leagueId/:userId', authenticateToken, async (req, res) => {
          LEFT JOIN teams t ON t.id = p.team_id
          GROUP BY p.id, p.first_name, p.last_name, p.role, p.rating, p.is_injured, p.injury_replacement_player_id, t.name, p.photo_path`,
         [userId, leagueId]
-      );
-    } catch (_) {
-      players = [];
-    }
-
-    let results = [];
-    try {
-      results = await query(
+      ).catch(() => []),
+      query(
         `SELECT mr.giornata,
                 mr.punteggio AS punteggio_giornata,
                 m.deadline
@@ -98,10 +88,11 @@ router.get('/:leagueId/:userId', authenticateToken, async (req, res) => {
          WHERE mr.league_id = ? AND mr.user_id = ?
          ORDER BY mr.giornata DESC`,
         [leagueId, userId]
-      );
-    } catch (_) {
-      results = [];
-    }
+      ).catch(() => []),
+    ]);
+    console.log(`[PERF][GET /teams/:id/:userId] leagueId=${leagueId} userId=${userId} TOTAL=${Date.now() - t0}ms players=${players.length} results=${results.length}`);
+
+    if (teamRows.length < 1) return res.status(404).json({ message: 'Squadra non trovata' });
 
     res.json({
       ...teamRows[0],

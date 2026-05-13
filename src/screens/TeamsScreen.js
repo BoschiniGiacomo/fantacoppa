@@ -52,8 +52,6 @@ export default function TeamsScreen({ route, navigation }) {
   );
 
   const loadData = async () => {
-    const t0 = Date.now();
-    console.log(`[PERF][Teams] loadData START (leagueId=${leagueId})`);
     const warmL = peekLeagueDetail(leagueId);
     const warmRows = peekTeamsRows(leagueId);
     const hasWarm = warmL != null || warmRows != null;
@@ -68,24 +66,19 @@ export default function TeamsScreen({ route, navigation }) {
     }
 
     if (hasWarm) {
-      console.log(`[PERF][Teams] warm cache HIT`);
       setLoading(false);
     } else {
-      console.log(`[PERF][Teams] warm cache MISS — showing spinner`);
       setLoading(true);
     }
 
     try {
-      const tApi = Date.now();
       await Promise.all([
         loadLeague().catch(() => {}),
         loadTeams().catch(() => {}),
       ]);
-      console.log(`[PERF][Teams] loadLeague+loadTeams: ${Date.now() - tApi}ms`);
     } finally {
       setLoading(false);
       setRefreshing(false);
-      console.log(`[PERF][Teams] loadData TOTAL: ${Date.now() - t0}ms`);
     }
   };
 
