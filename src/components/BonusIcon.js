@@ -97,8 +97,12 @@ export default function BonusIcon({ type, size = 18, inactive = false }) {
   // Icona con badge overlay
   const badgeSize = Math.round(size * 0.55);
   const badgeColor = inactive ? INACTIVE_COLOR : config.badge.color;
+  const containerW = Math.round(size * 1.22);
+  const containerH = Math.round(size * 1.11);
+  const badgeBottom = Math.round(size * -0.11);
+  const badgeRight = Math.round(size * -0.17);
   return (
-    <View style={{ width: size + 4, height: size + 2 }}>
+    <View style={{ width: containerW, height: containerH }}>
       {renderIcon(config.icon, config.lib, size, mainColor)}
       <View
         style={[
@@ -107,8 +111,8 @@ export default function BonusIcon({ type, size = 18, inactive = false }) {
             width: badgeSize,
             height: badgeSize,
             borderRadius: badgeSize / 2,
-            bottom: -2,
-            right: -3,
+            bottom: badgeBottom,
+            right: badgeRight,
           },
         ]}
       >
