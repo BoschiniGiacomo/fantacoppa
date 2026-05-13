@@ -66,6 +66,7 @@ export default function FormationScreen({ route }) {
   const { user } = useAuth();
   const { markDone } = useOnboarding();
   const leagueId = route?.params?.leagueId || 1;
+  const requestedGiornata = route?.params?.giornata ? Number(route.params.giornata) : null;
 
   // --- State ---
   const [loading, setLoading] = useState(true);
@@ -291,6 +292,8 @@ export default function FormationScreen({ route }) {
   };
 
   const loadInitialData = async () => {
+    const t0 = Date.now();
+    console.log(`[PERF][Formation] loadInitialData START (leagueId=${leagueId})`);
     const warmMd = peekFormationMatchdays(leagueId);
     const warmL = peekLeagueDetail(leagueId);
     const warmSquad = peekSquadPlayersData(leagueId);
@@ -298,6 +301,7 @@ export default function FormationScreen({ route }) {
     const hasWarmCore = warmMd != null && warmL != null && warmSquad != null && warmSet != null;
 
     if (hasWarmCore) {
+      console.log(`[PERF][Formation] warm cache HIT`);
       setMatchdays(warmMd);
       setLeague(warmL);
       const playersRaw = warmSquad?.players || [];
@@ -308,22 +312,29 @@ export default function FormationScreen({ route }) {
       setNumeroTitolari(nt);
       setAutoLineup(al);
       if (warmMd.length > 0) {
-        const now = new Date();
-        const futureMatchday = warmMd.find((m) => {
-          const d = parseDeadlineDate(m?.deadline);
-          return !!d && d > now;
-        });
-        const defaultMd = futureMatchday ? futureMatchday.giornata : warmMd[warmMd.length - 1].giornata;
+        let defaultMd;
+        if (requestedGiornata && warmMd.some(m => m.giornata === requestedGiornata)) {
+          defaultMd = requestedGiornata;
+        } else {
+          const now = new Date();
+          const futureMatchday = warmMd.find((m) => {
+            const d = parseDeadlineDate(m?.deadline);
+            return !!d && d > now;
+          });
+          defaultMd = futureMatchday ? futureMatchday.giornata : warmMd[warmMd.length - 1].giornata;
+        }
         setSelectedMatchday(defaultMd);
         const wf = peekFormationPayload(leagueId, defaultMd);
         await loadFormationForMatchday(defaultMd, activePlayers, wf);
       }
       setLoading(false);
     } else {
+      console.log(`[PERF][Formation] warm cache MISS — showing spinner`);
       setLoading(true);
     }
 
     try {
+      const tApi = Date.now();
       const [matchdaysRes, leagueRes, squadRes, settingsRes] = await Promise.all([
         formationService.getMatchdays(leagueId),
         leagueService.getById(leagueId).catch(() => ({ data: null })),
@@ -331,6 +342,7 @@ export default function FormationScreen({ route }) {
         leagueService.getSettings(leagueId).catch(() => ({ data: {} })),
       ]);
 
+      console.log(`[PERF][Formation] 4 parallel APIs: ${Date.now() - tApi}ms`);
       const md = matchdaysRes.data || [];
       setMatchdays(md);
       setFormationMatchdays(leagueId, md);
@@ -356,16 +368,22 @@ export default function FormationScreen({ route }) {
       setNumeroTitolari(nt);
       setAutoLineup(al);
 
-      // Seleziona giornata default: la prima con scadenza futura, altrimenti l'ultima
       if (md.length > 0) {
-        const now = new Date();
-        const futureMatchday = md.find((m) => {
-          const d = parseDeadlineDate(m?.deadline);
-          return !!d && d > now;
-        });
-        const defaultMd = futureMatchday ? futureMatchday.giornata : md[md.length - 1].giornata;
+        let defaultMd;
+        if (requestedGiornata && md.some(m => m.giornata === requestedGiornata)) {
+          defaultMd = requestedGiornata;
+        } else {
+          const now = new Date();
+          const futureMatchday = md.find((m) => {
+            const d = parseDeadlineDate(m?.deadline);
+            return !!d && d > now;
+          });
+          defaultMd = futureMatchday ? futureMatchday.giornata : md[md.length - 1].giornata;
+        }
         setSelectedMatchday(defaultMd);
+        const tForm = Date.now();
         await loadFormationForMatchday(defaultMd, activePlayers);
+        console.log(`[PERF][Formation] loadFormation(g=${defaultMd}): ${Date.now() - tForm}ms`);
       }
     } catch (error) {
       console.error('FormationScreen loadInitialData:', error);
@@ -373,6 +391,7 @@ export default function FormationScreen({ route }) {
       else showToast('Impossibile aggiornare i dati');
     } finally {
       setLoading(false);
+      console.log(`[PERF][Formation] loadInitialData TOTAL: ${Date.now() - t0}ms`);
     }
   };
 

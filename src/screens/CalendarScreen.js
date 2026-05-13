@@ -54,31 +54,25 @@ export default function CalendarScreen({ route, navigation }) {
   };
 
   const loadData = async () => {
-    const t0 = Date.now();
-    console.log(`[PERF][Calendar] loadData START (leagueId=${leagueId})`);
     const warmL = peekLeagueDetail(leagueId);
     const warmMd = peekFormationMatchdays(leagueId);
     const hasWarmCore = warmL != null && warmMd != null;
 
     if (hasWarmCore) {
-      console.log(`[PERF][Calendar] warm cache HIT`);
       setLeague(warmL);
       const initial = buildMatchdays(warmL, warmMd);
       setMatchdays(initial);
       if (initial.some((m) => m.hasFormation)) markDone('submitted_formation');
       setLoading(false);
     } else {
-      console.log(`[PERF][Calendar] warm cache MISS — showing spinner`);
       setLoading(true);
     }
 
     try {
-      const tApi = Date.now();
       const [leagueRes, matchdaysRes] = await Promise.all([
         leagueService.getById(leagueId),
         formationService.getMatchdays(leagueId),
       ]);
-      console.log(`[PERF][Calendar] getById+getMatchdays: ${Date.now() - tApi}ms`);
 
       const leagueData = Array.isArray(leagueRes.data) ? leagueRes.data[0] : leagueRes.data;
       setLeague(leagueData);
@@ -100,7 +94,6 @@ export default function CalendarScreen({ route, navigation }) {
       }
     } finally {
       setLoading(false);
-      console.log(`[PERF][Calendar] loadData TOTAL: ${Date.now() - t0}ms`);
     }
   };
 
