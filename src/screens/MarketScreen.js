@@ -243,11 +243,25 @@ export default function MarketScreen({ route, navigation }) {
   const budgetUsed = initialBudget - budgetValue;
   const budgetPercent = initialBudget > 0 ? Math.max(0, Math.min(100, (budgetValue / initialBudget) * 100)) : 0;
 
+  const abbreviateName = (firstName, lastName) => {
+    const full = `${firstName} ${lastName}`;
+    if (full.length <= 22) return full;
+    const parts = firstName.split(/\s+/);
+    if (parts.length > 1) {
+      const abbr = parts.map(p => p.slice(0, 3) + '.').join(' ');
+      if (`${abbr} ${lastName}`.length <= 22) return `${abbr} ${lastName}`;
+      const abbrShort = parts.map(p => p.charAt(0) + '.').join(' ');
+      return `${abbrShort} ${lastName}`;
+    }
+    return `${firstName.slice(0, 3)}. ${lastName}`;
+  };
+
   const renderPlayer = ({ item }) => {
     const cantAfford = budgetValue < item.rating;
     const roleColor = getRoleColor(item.role);
     const roleFull = ownedCounts[item.role] >= roleLimits[item.role];
     const isInjured = Number(item?.is_injured || 0) === 1;
+    const displayName = abbreviateName(item.first_name || '', item.last_name || '');
 
     return (
       <TouchableOpacity
@@ -285,7 +299,7 @@ export default function MarketScreen({ route, navigation }) {
           {/* Info giocatore */}
           <View style={styles.playerInfo}>
             <Text style={styles.playerName} numberOfLines={1}>
-              {item.first_name} {item.last_name}
+              {displayName}
             </Text>
             <Text style={styles.playerTeam} numberOfLines={1}>{item.team_name}</Text>
           </View>
