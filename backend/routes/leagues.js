@@ -2345,7 +2345,6 @@ router.post('/:id/injuries/:playerId/apply-replacement', authenticateToken, asyn
 // GET /api/leagues/:id/standings/full - placeholder minimo
 router.get('/:id/standings/full', authenticateToken, async (req, res) => {
   try {
-    const t0 = Date.now();
     const leagueId = toValidLeagueId(req.params.id);
     if (!leagueId) return res.status(400).json({ message: 'League ID non valido' });
 
@@ -2364,7 +2363,6 @@ router.get('/:id/standings/full', authenticateToken, async (req, res) => {
          ORDER BY punteggio DESC, media_punti DESC`,
         [leagueId]
       );
-      console.log(`[PERF] GET /standings/full: ${Date.now() - t0}ms`);
       return res.json(rows);
     } catch (_) {
       // Fallback senza risultati calcolati.
@@ -2379,7 +2377,6 @@ router.get('/:id/standings/full', authenticateToken, async (req, res) => {
          ORDER BY u.username ASC`,
         [leagueId]
       );
-      console.log(`[PERF] GET /standings/full (fallback): ${Date.now() - t0}ms`);
       return res.json(rows);
     }
   } catch (error) {
@@ -2425,7 +2422,6 @@ router.get('/:id/user-stats', authenticateToken, async (req, res) => {
 // GET /api/leagues/:id/standings/matchday/:giornata/formation/:userId
 router.get('/:id/standings/matchday/:giornata/formation/:userId', authenticateToken, async (req, res) => {
   try {
-    const t0 = Date.now();
     const leagueId = toValidLeagueId(req.params.id);
     const giornata = Number(req.params.giornata);
     const targetUserId = Number(req.params.userId);
@@ -2452,7 +2448,6 @@ router.get('/:id/standings/matchday/:giornata/formation/:userId', authenticateTo
         [leagueId, giornata, targetUserId]
       ),
     ]);
-    console.log(`[PERF] GET /standings/formation phase1 (5 parallel): ${Date.now() - t0}ms`);
     const recoverPrevious = Number(recoverRows[0]?.recover_previous_lineup_if_missing ?? 1) === 1;
     const isCalculated = Number(calcRows[0]?.c || 0) > 0;
     const hasDirectLineupForMatchday = !!lineRows[0];
@@ -2551,7 +2546,6 @@ router.get('/:id/standings/matchday/:giornata/formation/:userId', authenticateTo
     }
 
     const inParams = playerIds.map(() => '?').join(',');
-    const t2 = Date.now();
     const [pRows, scoreRows, vRows] = await Promise.all([
       query(
         `SELECT p.id, p.first_name, p.last_name, p.role,
@@ -2578,7 +2572,6 @@ router.get('/:id/standings/matchday/:giornata/formation/:userId', authenticateTo
         [leagueId, giornata]
       ).catch(() => []),
     ]);
-    console.log(`[PERF] GET /standings/formation phase2 (3 parallel): ${Date.now() - t2}ms`);
     const byId = {};
     pRows.forEach((p) => { byId[Number(p.id)] = p; });
     const scoreMap = Object.fromEntries(scoreRows.map((s) => [Number(s.player_id), s]));
@@ -2633,7 +2626,6 @@ router.get('/:id/standings/matchday/:giornata/formation/:userId', authenticateTo
       };
     }).filter(Boolean);
 
-    console.log(`[PERF] GET /standings/formation TOTAL: ${Date.now() - t0}ms`);
     res.json({
       formation,
       modulo: modulo || '',
@@ -2651,7 +2643,6 @@ router.get('/:id/standings/matchday/:giornata/formation/:userId', authenticateTo
 // GET /api/leagues/:id/standings/matchday/:giornata
 router.get('/:id/standings/matchday/:giornata', authenticateToken, async (req, res) => {
   try {
-    const t0 = Date.now();
     const leagueId = toValidLeagueId(req.params.id);
     const giornata = Number(req.params.giornata);
     if (!leagueId || !Number.isFinite(giornata)) return res.status(400).json({ message: 'Parametri non validi' });
@@ -2667,7 +2658,6 @@ router.get('/:id/standings/matchday/:giornata', authenticateToken, async (req, r
          ORDER BY mr.punteggio DESC`,
         [leagueId, giornata]
       );
-      console.log(`[PERF] GET /standings/matchday/${giornata}: ${Date.now() - t0}ms`);
       return res.json(rows);
     } catch (_) {
       return res.json([]);

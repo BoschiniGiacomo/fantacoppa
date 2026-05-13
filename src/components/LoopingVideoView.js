@@ -18,7 +18,7 @@ export default function LoopingVideoView({ uri, style, nativeControls = false, c
       style={style}
       contentFit={contentFit}
       nativeControls={nativeControls}
-      allowsFullscreen={false}
+      fullscreenOptions={{ enabled: false }}
     />
   );
 }
