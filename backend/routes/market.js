@@ -138,38 +138,58 @@ router.get('/:leagueId/bootstrap', authenticateToken, async (req, res) => {
     const role = String(req.query?.role || '').trim();
     const search = String(req.query?.search || '').trim();
     const userId = Number(req.user.userId);
-    const sourceLeagueId = await getEffectiveSourceLeagueId(leagueId);
-    lap('1_effectiveSource');
 
-    const [flags, userBlockValue] = await Promise.all([
+    // ── Phase 1: all independent queries in parallel ──
+    const [
+      sourceLeagueId,
+      flags,
+      userBlockValue,
+      budgetRows,
+      limitsRows,
+      ownedRows,
+    ] = await Promise.all([
+      getEffectiveSourceLeagueId(leagueId),
       getLeagueMarketFlags(leagueId),
       getUserMarketBlockValue(leagueId, userId),
+      query(
+        `SELECT budget FROM user_budget WHERE user_id = ? AND league_id = ? LIMIT 1`,
+        [userId, leagueId]
+      ),
+      query(
+        `SELECT max_portieri, max_difensori, max_centrocampisti, max_attaccanti,
+                initial_budget, name
+         FROM leagues WHERE id = ? LIMIT 1`,
+        [leagueId]
+      ),
+      query(
+        `WITH effective_owned AS (
+           SELECT up.player_id
+           FROM user_players up
+           JOIN players p ON p.id = up.player_id
+           WHERE up.user_id = ? AND up.league_id = ?
+             AND COALESCE(p.is_injured, 0) = 0
+           UNION
+           SELECT inj.injury_replacement_player_id AS player_id
+           FROM user_players up
+           JOIN players inj ON inj.id = up.player_id
+           WHERE up.user_id = ? AND up.league_id = ?
+             AND COALESCE(inj.is_injured, 0) = 1
+             AND inj.injury_replacement_player_id IS NOT NULL
+         )
+         SELECT p.role, COUNT(*)::int AS c
+         FROM effective_owned eo
+         JOIN players p ON p.id = eo.player_id
+         GROUP BY p.role`,
+        [userId, leagueId, userId, leagueId]
+      ),
     ]);
-    lap('2_marketFlags');
+    lap('1_phase1_allMeta');
+
     const blocked = isUserEffectivelyBlocked(flags.market_locked, userBlockValue);
     const blockReason = blocked
       ? (Number(flags.market_locked) === 1 ? 'global' : 'user')
       : 'none';
-
-    const budgetRows = await query(
-      `SELECT budget
-       FROM user_budget
-       WHERE user_id = ? AND league_id = ?
-       LIMIT 1`,
-      [userId, leagueId]
-    );
-    lap('3_budget');
     const budget = Number(budgetRows[0]?.budget || 0);
-
-    const limitsRows = await query(
-      `SELECT max_portieri, max_difensori, max_centrocampisti, max_attaccanti,
-              initial_budget, name
-       FROM leagues
-       WHERE id = ?
-       LIMIT 1`,
-      [leagueId]
-    );
-    lap('4_limits');
     const l = limitsRows[0] || {};
     const roleLimits = {
       P: Number(l.max_portieri || 0),
@@ -182,35 +202,13 @@ router.get('/:leagueId/bootstrap', authenticateToken, async (req, res) => {
       name: l.name || '',
       initial_budget: Number(l.initial_budget || 0),
     };
-
-    const ownedRows = await query(
-      `WITH effective_owned AS (
-         SELECT up.player_id
-         FROM user_players up
-         JOIN players p ON p.id = up.player_id
-         WHERE up.user_id = ? AND up.league_id = ?
-           AND COALESCE(p.is_injured, 0) = 0
-         UNION
-         SELECT inj.injury_replacement_player_id AS player_id
-         FROM user_players up
-         JOIN players inj ON inj.id = up.player_id
-         WHERE up.user_id = ? AND up.league_id = ?
-           AND COALESCE(inj.is_injured, 0) = 1
-           AND inj.injury_replacement_player_id IS NOT NULL
-       )
-       SELECT p.role, COUNT(*)::int AS c
-       FROM effective_owned eo
-       JOIN players p ON p.id = eo.player_id
-       GROUP BY p.role`,
-      [userId, leagueId, userId, leagueId]
-    );
-    lap('5_ownedCounts');
     const ownedCounts = { P: 0, D: 0, C: 0, A: 0 };
     ownedRows.forEach((r) => {
       const key = String(r.role || '').trim().toUpperCase();
       if (ownedCounts[key] != null) ownedCounts[key] = Number(r.c || 0);
     });
 
+    // ── Phase 2: players query (needs sourceLeagueId) ──
     let sql = `
       SELECT p.id, p.first_name, p.last_name, p.role, p.rating,
              COALESCE(p.is_injured, 0)::int AS is_injured,
@@ -253,7 +251,7 @@ router.get('/:leagueId/bootstrap', authenticateToken, async (req, res) => {
     }
     sql += ' ORDER BY p.rating DESC, p.last_name ASC LIMIT 1000';
     const players = await query(sql, params);
-    lap('6_playersQuery');
+    lap('2_phase2_players');
 
     const total = Date.now() - t0;
     console.log(`[PERF][GET /market/bootstrap] leagueId=${leagueId} TOTAL=${total}ms rows=${players.length} | ${Object.entries(timings).map(([k, v]) => `${k}=${v}ms`).join(' | ')}`);

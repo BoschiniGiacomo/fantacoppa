@@ -75,10 +75,6 @@ export default function MarketScreen({ route, navigation }) {
     }
   }, [route?.params?.role]);
 
-  useEffect(() => {
-    loadData();
-  }, [leagueId]);
-
   useFocusEffect(
     useCallback(() => {
       loadData();
