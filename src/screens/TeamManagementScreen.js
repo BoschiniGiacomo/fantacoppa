@@ -599,11 +599,8 @@ export default function TeamManagementScreen({ route, navigation }) {
       let photoError = null;
       if (playerPhotoNew) {
         try {
-          console.log('[PlayerPhoto] uploading photo for player', savedPlayerId, 'team', newTeamId, 'uri', playerPhotoNew?.substring?.(0, 60));
-          const photoRes = await leagueService.uploadPlayerPhoto(leagueId, newTeamId, savedPlayerId, playerPhotoNew);
-          console.log('[PlayerPhoto] upload success', photoRes?.data);
+          await leagueService.uploadPlayerPhoto(leagueId, newTeamId, savedPlayerId, playerPhotoNew);
         } catch (photoErr) {
-          console.error('[PlayerPhoto] upload failed', photoErr?.response?.status, photoErr?.response?.data, photoErr?.message);
           photoError = photoErr?.response?.data?.message || photoErr?.message || 'Errore upload foto';
         }
       } else if (playerPhotoUri === null && editingPlayer.photo_path) {

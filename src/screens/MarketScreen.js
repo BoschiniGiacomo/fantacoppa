@@ -268,25 +268,23 @@ export default function MarketScreen({ route, navigation }) {
         {/* Striscia laterale ruolo */}
         <View style={[styles.roleStripe, { backgroundColor: roleColor }]} />
         <View style={styles.playerContent}>
+          {item.photo_path ? (
+            <View style={styles.playerPhotoCol}>
+              <Image source={{ uri: publicAssetUrl(item.photo_path) }} style={styles.playerPhotoBadge} />
+              <View style={[styles.playerPhotoRoleOverlay, { backgroundColor: roleColor }]}>
+                <Text style={styles.playerPhotoRoleText}>{item.role}</Text>
+              </View>
+            </View>
+          ) : (
+            <View style={[styles.roleBadgeMini, { backgroundColor: roleColor }]}>
+              <Text style={styles.roleBadgeMiniText}>{item.role}</Text>
+            </View>
+          )}
           {/* Info giocatore */}
           <View style={styles.playerInfo}>
-            <View style={styles.playerNameRow}>
-              {item.photo_path ? (
-                <View style={styles.playerPhotoBadgeWrap}>
-                  <Image source={{ uri: publicAssetUrl(item.photo_path) }} style={styles.playerPhotoBadge} />
-                  <View style={[styles.playerPhotoRoleOverlay, { backgroundColor: roleColor }]}>
-                    <Text style={styles.playerPhotoRoleText}>{item.role}</Text>
-                  </View>
-                </View>
-              ) : (
-                <View style={[styles.roleBadgeMini, { backgroundColor: roleColor }]}>
-                  <Text style={styles.roleBadgeMiniText}>{item.role}</Text>
-                </View>
-              )}
-              <Text style={styles.playerName} numberOfLines={1}>
-                {item.first_name} {item.last_name}
-              </Text>
-            </View>
+            <Text style={styles.playerName} numberOfLines={1}>
+              {item.first_name} {item.last_name}
+            </Text>
             <Text style={styles.playerTeam} numberOfLines={1}>{item.team_name}</Text>
           </View>
           {/* Prezzo + azione */}
@@ -874,38 +872,34 @@ const styles = StyleSheet.create({
   playerInfo: {
     flex: 1,
     marginRight: 8,
+    marginLeft: 10,
+    justifyContent: 'center',
   },
-  playerNameRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginBottom: 2,
-  },
-  playerPhotoBadgeWrap: {
-    width: 30,
-    height: 30,
+  playerPhotoCol: {
+    width: 42,
+    height: 42,
     position: 'relative',
   },
   playerPhotoBadge: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
   },
   playerPhotoRoleOverlay: {
     position: 'absolute',
     bottom: -2,
     right: -2,
-    width: 14,
-    height: 14,
-    borderRadius: 7,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: '#fff',
   },
   playerPhotoRoleText: {
     color: '#fff',
-    fontSize: 8,
+    fontSize: 9,
     fontWeight: 'bold',
   },
   roleBadgeMini: {
