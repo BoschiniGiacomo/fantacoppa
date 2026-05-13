@@ -16,9 +16,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import BonusIcon from '../components/BonusIcon';
-import { useOnboarding } from '../context/OnboardingContext';
-import { leagueService, formationService } from '../services/api';
-import { syncSubmittedFormationOnboarding } from '../utils/formationSubmission';
+import { leagueService } from '../services/api';
 
 // ==========================================
 // Componente PlayerRow memoizzato
@@ -238,7 +236,6 @@ const PlayerRow = memo(({ player, playerVote, bonusSettings, bonusEnabled, onUpd
 // ==========================================
 export default function InsertVotesScreen({ route, navigation }) {
   const { leagueId } = route.params || {};
-  const { markDone } = useOnboarding();
   const insets = useSafeAreaInsets();
 
   const [matchdays, setMatchdays] = useState([]);
@@ -296,12 +293,18 @@ export default function InsertVotesScreen({ route, navigation }) {
 
   const loadInitialData = async () => {
     try {
+      const t0 = Date.now();
+      console.log(`[PERF][InsertVotes] loadInitialData START (leagueId=${leagueId})`);
       setLoading(true);
-      try {
-        await syncSubmittedFormationOnboarding({ leagueId, formationService, markDone });
-      } catch (_) {}
-      const matchdaysRes = await leagueService.getVotesMatchdays(leagueId);
-      const bonusSettingsRes = await leagueService.getBonusSettings(leagueId).catch(() => ({ data: null }));
+
+      // Phase 1: matchdays + bonusSettings + players all in parallel
+      const tApi = Date.now();
+      const [matchdaysRes, bonusSettingsRes, playersRes] = await Promise.all([
+        leagueService.getVotesMatchdays(leagueId),
+        leagueService.getBonusSettings(leagueId).catch(() => ({ data: null })),
+        leagueService.getVotesPlayers(leagueId),
+      ]);
+      console.log(`[PERF][InsertVotes] phase1 (3 parallel: matchdays+bonus+players): ${Date.now() - tApi}ms`);
 
       const matchdaysData = matchdaysRes.data?.matchdays || [];
       setMatchdays(matchdaysData);
@@ -319,17 +322,30 @@ export default function InsertVotesScreen({ route, navigation }) {
         });
       }
 
+      const teamsData = playersRes.data || [];
+      setTeams(teamsData);
+      const expanded = {};
+      teamsData.forEach(t => { expanded[t.id] = false; });
+      setExpandedTeams(expanded);
+
       if (matchdaysData.length > 0) {
         const defaultMatchday = matchdaysRes.data?.last_matchday_with_votes || matchdaysData[0].giornata;
+        // Phase 2: only votes for matchday (players already loaded)
         try {
-          await loadPlayersAndVotesForMatchday(defaultMatchday);
+          const tVotes = Date.now();
+          const votesRes = await leagueService.getVotesForMatchday(leagueId, defaultMatchday).catch(() => ({ data: {} }));
+          console.log(`[PERF][InsertVotes] phase2 (getVotes g=${defaultMatchday}): ${Date.now() - tVotes}ms`);
+          const loadedVotes = votesRes.data || {};
+          setVotes(loadedVotes);
+          savedVotesSnapshot.current = JSON.stringify(loadedVotes);
         } catch (error) {
-          console.error('Error loading players and votes:', error);
+          console.error('Error loading votes:', error);
         }
         setSelectedMatchday(defaultMatchday);
       } else {
         setLoading(false);
       }
+      console.log(`[PERF][InsertVotes] loadInitialData TOTAL: ${Date.now() - t0}ms`);
     } catch (error) {
       console.error('Error loading initial data:', error);
       showToast('Impossibile caricare i dati: ' + (error.response?.data?.error || error.message));

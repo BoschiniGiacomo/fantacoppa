@@ -75,22 +75,16 @@ export default function SquadScreen({ route, navigation }) {
   };
 
   const loadData = useCallback(async () => {
-    const t0 = Date.now();
-    console.log(`[PERF][MiaRosa] loadData START (leagueId=${leagueId})`);
     const warm = peekSquadBootstrap(leagueId);
     if (warm != null) {
-      console.log(`[PERF][MiaRosa] warm cache HIT`);
       applyBootstrap(warm);
       setLoading(false);
     } else {
-      console.log(`[PERF][MiaRosa] warm cache MISS — showing spinner`);
       setLoading(true);
     }
 
     try {
-      const tApi = Date.now();
       const bootstrapRes = await squadService.getBootstrap(leagueId);
-      console.log(`[PERF][MiaRosa] getBootstrap: ${Date.now() - tApi}ms`);
       const data = bootstrapRes?.data || {};
       applyBootstrap(data);
       setSquadBootstrap(leagueId, data);
@@ -108,7 +102,6 @@ export default function SquadScreen({ route, navigation }) {
     } finally {
       setLoading(false);
       setRefreshing(false);
-      console.log(`[PERF][MiaRosa] loadData TOTAL: ${Date.now() - t0}ms`);
     }
   }, [leagueId]);
 
