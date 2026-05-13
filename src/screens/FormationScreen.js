@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, ActivityIndicator,
-  ScrollView, Modal, FlatList, Dimensions, Animated, PanResponder,
+  ScrollView, Modal, FlatList, Dimensions, Animated, PanResponder, Image,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { useOnboarding } from '../context/OnboardingContext';
-import { formationService, leagueService, squadService } from '../services/api';
+import { formationService, leagueService, squadService, publicAssetUrl } from '../services/api';
 import {
   peekFormationMatchdays,
   peekLeagueDetail,
@@ -825,15 +825,32 @@ export default function FormationScreen({ route }) {
                           };
 
                           if (player) {
+                            const hasPhoto = !!player.photo_path;
                             return (
                               <TouchableOpacity
                                 key={globalIdx}
-                                style={[s.playerSlot, { borderColor: roleColor, backgroundColor: roleColor }, dynSlot]}
+                                style={[
+                                  s.playerSlot,
+                                  { borderColor: roleColor, backgroundColor: hasPhoto ? 'transparent' : roleColor },
+                                  dynSlot,
+                                  hasPhoto && { borderWidth: 0, overflow: 'hidden' },
+                                ]}
                                 onPress={() => !isExpired && canEdit && removeStarter(globalIdx)}
                                 disabled={isExpired || !canEdit}
                               >
-                                <Text style={[s.playerSlotName, { fontSize }]} numberOfLines={1}>{midTruncate(player.last_name, truncLen)}</Text>
-                                <Text style={[s.playerSlotTeam, { fontSize: teamFontSize }]} numberOfLines={1}>{midTruncate(player.team_name, truncLen)}</Text>
+                                {hasPhoto ? (
+                                  <>
+                                    <Image source={{ uri: publicAssetUrl(player.photo_path) }} style={{ width: slotSize, height: slotSize, borderRadius: slotSize / 2 }} />
+                                    <View style={[s.fieldPhotoOverlay, { backgroundColor: roleColor }]}>
+                                      <Text style={s.fieldPhotoOverlayText}>{midTruncate(player.last_name, truncLen)}</Text>
+                                    </View>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Text style={[s.playerSlotName, { fontSize }]} numberOfLines={1}>{midTruncate(player.last_name, truncLen)}</Text>
+                                    <Text style={[s.playerSlotTeam, { fontSize: teamFontSize }]} numberOfLines={1}>{midTruncate(player.team_name, truncLen)}</Text>
+                                  </>
+                                )}
                               </TouchableOpacity>
                             );
                           }
@@ -893,9 +910,18 @@ export default function FormationScreen({ route }) {
                           <Ionicons name="close-circle" size={15} color="#ccc" />
                         </TouchableOpacity>
                         <View style={s.benchCardBody}>
-                          <View style={[s.benchRoleBadge, { backgroundColor: ROLE_COLOR[player.role] }]}>
-                            <Text style={s.benchRoleBadgeText}>{player.role}</Text>
-                          </View>
+                          {player.photo_path ? (
+                            <View style={s.benchPhotoWrap}>
+                              <Image source={{ uri: publicAssetUrl(player.photo_path) }} style={s.benchPhoto} />
+                              <View style={[s.benchPhotoRoleOverlay, { backgroundColor: ROLE_COLOR[player.role] }]}>
+                                <Text style={s.benchPhotoRoleText}>{player.role}</Text>
+                              </View>
+                            </View>
+                          ) : (
+                            <View style={[s.benchRoleBadge, { backgroundColor: ROLE_COLOR[player.role] }]}>
+                              <Text style={s.benchRoleBadgeText}>{player.role}</Text>
+                            </View>
+                          )}
                           <View style={s.benchInfo}>
                             <Text style={s.benchName} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>{player.last_name}</Text>
                             <Text style={s.benchTeam} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>{player.team_name}</Text>
@@ -933,9 +959,18 @@ export default function FormationScreen({ route }) {
                   ]}
                 >
                   <View style={s.benchCardBody}>
-                    <View style={[s.benchRoleBadge, { backgroundColor: ROLE_COLOR[bench[dragState.fromIdx].role] }]}>
-                      <Text style={s.benchRoleBadgeText}>{bench[dragState.fromIdx].role}</Text>
-                    </View>
+                    {bench[dragState.fromIdx].photo_path ? (
+                      <View style={s.benchPhotoWrap}>
+                        <Image source={{ uri: publicAssetUrl(bench[dragState.fromIdx].photo_path) }} style={s.benchPhoto} />
+                        <View style={[s.benchPhotoRoleOverlay, { backgroundColor: ROLE_COLOR[bench[dragState.fromIdx].role] }]}>
+                          <Text style={s.benchPhotoRoleText}>{bench[dragState.fromIdx].role}</Text>
+                        </View>
+                      </View>
+                    ) : (
+                      <View style={[s.benchRoleBadge, { backgroundColor: ROLE_COLOR[bench[dragState.fromIdx].role] }]}>
+                        <Text style={s.benchRoleBadgeText}>{bench[dragState.fromIdx].role}</Text>
+                      </View>
+                    )}
                     <View style={s.benchInfo}>
                       <Text style={s.benchName} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>{bench[dragState.fromIdx].last_name}</Text>
                       <Text style={s.benchTeam} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>{bench[dragState.fromIdx].team_name}</Text>
@@ -1016,9 +1051,18 @@ export default function FormationScreen({ route }) {
                 const isOnBench = benchIds.has(item.id);
                 return (
                   <TouchableOpacity style={s.modalRow} onPress={() => selectPlayer(item)}>
-                    <View style={[s.modalRoleBadge, { backgroundColor: ROLE_COLOR[item.role] }]}>
-                      <Text style={s.modalRoleText}>{item.role}</Text>
-                    </View>
+                    {item.photo_path ? (
+                      <View style={s.modalPhotoWrap}>
+                        <Image source={{ uri: publicAssetUrl(item.photo_path) }} style={s.modalPhoto} />
+                        <View style={[s.modalPhotoRoleOverlay, { backgroundColor: ROLE_COLOR[item.role] }]}>
+                          <Text style={s.modalPhotoRoleText}>{item.role}</Text>
+                        </View>
+                      </View>
+                    ) : (
+                      <View style={[s.modalRoleBadge, { backgroundColor: ROLE_COLOR[item.role] }]}>
+                        <Text style={s.modalRoleText}>{item.role}</Text>
+                      </View>
+                    )}
                     <View style={{ flex: 1 }}>
                       <Text style={s.modalPlayerName}>{item.first_name} {item.last_name}</Text>
                       <Text style={s.modalPlayerTeam}>{item.team_name}{isOnBench ? '  ·  in panchina' : ''}</Text>
@@ -1108,6 +1152,8 @@ const s = StyleSheet.create({
   playerSlot: { borderWidth: 2, justifyContent: 'center', alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 3, elevation: 4 },
   playerSlotName: { color: '#fff', fontWeight: '700', textAlign: 'center', paddingHorizontal: 2 },
   playerSlotTeam: { color: 'rgba(255,255,255,0.75)', marginTop: 1, textAlign: 'center' },
+  fieldPhotoOverlay: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingVertical: 2, alignItems: 'center', borderBottomLeftRadius: 999, borderBottomRightRadius: 999 },
+  fieldPhotoOverlayText: { color: '#fff', fontSize: 9, fontWeight: '700', textAlign: 'center' },
   emptySlot: { borderWidth: 2, borderStyle: 'dashed', justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.15)' },
   emptySlotLabel: { fontWeight: '700', marginTop: 1 },
 
@@ -1122,6 +1168,10 @@ const s = StyleSheet.create({
   benchCardBody: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 2 },
   benchRoleBadge: { width: 22, height: 22, borderRadius: 11, justifyContent: 'center', alignItems: 'center' },
   benchRoleBadgeText: { color: '#fff', fontSize: 9, fontWeight: '700' },
+  benchPhotoWrap: { width: 32, height: 32, position: 'relative' },
+  benchPhoto: { width: 32, height: 32 },
+  benchPhotoRoleOverlay: { position: 'absolute', bottom: -1, right: -1, width: 14, height: 14, borderRadius: 7, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#fff' },
+  benchPhotoRoleText: { color: '#fff', fontSize: 7, fontWeight: 'bold' },
   benchInfo: { flex: 1 },
   benchName: { fontSize: 13, fontWeight: '600', color: '#333' },
   benchTeam: { fontSize: 10, color: '#888', marginTop: 1 },
@@ -1163,6 +1213,10 @@ const s = StyleSheet.create({
   modalRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: '#f5f5f5', gap: 10 },
   modalRoleBadge: { width: 28, height: 28, borderRadius: 14, justifyContent: 'center', alignItems: 'center' },
   modalRoleText: { color: '#fff', fontSize: 11, fontWeight: '700' },
+  modalPhotoWrap: { width: 40, height: 40, position: 'relative' },
+  modalPhoto: { width: 40, height: 40 },
+  modalPhotoRoleOverlay: { position: 'absolute', bottom: -1, right: -1, width: 16, height: 16, borderRadius: 8, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: '#fff' },
+  modalPhotoRoleText: { color: '#fff', fontSize: 8, fontWeight: 'bold' },
   modalPlayerName: { fontSize: 15, fontWeight: '600', color: '#333' },
   modalPlayerTeam: { fontSize: 12, color: '#888', marginTop: 1 },
 });
