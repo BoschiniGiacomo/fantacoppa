@@ -970,7 +970,7 @@ export default function TeamManagementScreen({ route, navigation }) {
                     { key: 'role', label: 'Ruolo', icon: 'layers-outline' },
                     { key: 'name', label: 'Nome', icon: 'text-outline' },
                     { key: 'surname', label: 'Cognome', icon: 'person-outline' },
-                    { key: 'shirt', label: 'Numero', icon: 'hash-outline' },
+                    { key: 'shirt', label: 'Numero', icon: 'shirt-outline' },
                   ].map((s) => {
                     const active = (playerSort[team.id] || 'role') === s.key;
                     return (

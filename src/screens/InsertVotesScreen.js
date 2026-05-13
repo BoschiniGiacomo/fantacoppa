@@ -251,6 +251,8 @@ export default function InsertVotesScreen({ route, navigation }) {
   const [lastMatchdayWithVotes, setLastMatchdayWithVotes] = useState(null);
   const [saveFeedback, setSaveFeedback] = useState('');
   const [expandedTeams, setExpandedTeams] = useState({});
+  const [playerSort, setPlayerSort] = useState({});
+  const [playerSortAsc, setPlayerSortAsc] = useState({});
   const [unsavedModal, setUnsavedModal] = useState(false);
   const [savingAndLeaving, setSavingAndLeaving] = useState(false);
   const [toastMsg, setToastMsg] = useState(null);
@@ -694,6 +696,42 @@ export default function InsertVotesScreen({ route, navigation }) {
     setExpandedTeams(prev => ({ ...prev, [teamId]: !prev[teamId] }));
   }, []);
 
+  const roleOrder = { P: 0, D: 1, C: 2, A: 3 };
+
+  const toggleSort = useCallback((teamId, key) => {
+    setPlayerSort(prev => {
+      const current = prev[teamId] || 'role';
+      if (current === key) {
+        setPlayerSortAsc(p => ({ ...p, [teamId]: !p[teamId] }));
+      } else {
+        setPlayerSortAsc(p => ({ ...p, [teamId]: true }));
+      }
+      return { ...prev, [teamId]: key };
+    });
+  }, []);
+
+  const sortPlayers = useCallback((players, teamId) => {
+    const mode = playerSort[teamId] || 'role';
+    const asc = playerSortAsc[teamId] !== false;
+    const dir = asc ? 1 : -1;
+    const sorted = [...players];
+    if (mode === 'name') {
+      sorted.sort((a, b) => dir * (a.first_name || '').localeCompare(b.first_name || ''));
+    } else if (mode === 'surname') {
+      sorted.sort((a, b) => dir * (a.last_name || '').localeCompare(b.last_name || ''));
+    } else if (mode === 'shirt') {
+      sorted.sort((a, b) => {
+        const na = Number(String(a?.shirt_number ?? '').trim()) || 9999;
+        const nb = Number(String(b?.shirt_number ?? '').trim()) || 9999;
+        if (na !== nb) return dir * (na - nb);
+        return (a.last_name || '').localeCompare(b.last_name || '');
+      });
+    } else {
+      sorted.sort((a, b) => dir * ((roleOrder[a.role] ?? 9) - (roleOrder[b.role] ?? 9)));
+    }
+    return sorted;
+  }, [playerSort, playerSortAsc]);
+
   // Controlla se una squadra ha voti già salvati (nel snapshot iniziale)
   const teamHasSavedVotes = useCallback((team) => {
     try {
@@ -743,7 +781,33 @@ export default function InsertVotesScreen({ route, navigation }) {
         </TouchableOpacity>
         {isExpanded && (
         <View style={styles.playersContainer}>
-          {team.players.map(player => {
+          <View style={styles.sortBar}>
+            {[
+              { key: 'role', label: 'Ruolo', icon: 'layers-outline' },
+              { key: 'name', label: 'Nome', icon: 'text-outline' },
+              { key: 'surname', label: 'Cognome', icon: 'person-outline' },
+              { key: 'shirt', label: 'Numero', icon: 'shirt-outline' },
+            ].map((s) => {
+              const currentSort = playerSort[team.id] || 'role';
+              const active = currentSort === s.key;
+              const asc = playerSortAsc[team.id] !== false;
+              return (
+                <TouchableOpacity
+                  key={s.key}
+                  style={[styles.sortChip, active && styles.sortChipActive]}
+                  onPress={() => toggleSort(team.id, s.key)}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name={s.icon} size={12} color={active ? '#fff' : '#999'} />
+                  <Text style={[styles.sortChipText, active && styles.sortChipTextActive]}>{s.label}</Text>
+                  {active && (
+                    <Ionicons name={asc ? 'arrow-up' : 'arrow-down'} size={10} color="#fff" style={{ marginLeft: 2 }} />
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          {sortPlayers(team.players, team.id).map(player => {
             const pv = votes[player.id] || { rating: 0, goals: 0, assists: 0, yellow_cards: 0, red_cards: 0 };
             return (
               <PlayerRow
@@ -1057,6 +1121,34 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   playersContainer: {},
+  sortBar: {
+    flexDirection: 'row',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    gap: 6,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#e5e7eb',
+  },
+  sortChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    backgroundColor: '#f3f4f6',
+    gap: 3,
+  },
+  sortChipActive: {
+    backgroundColor: '#667eea',
+  },
+  sortChipText: {
+    fontSize: 11,
+    color: '#999',
+    fontWeight: '600',
+  },
+  sortChipTextActive: {
+    color: '#fff',
+  },
   playerRow: {
     paddingHorizontal: 12,
     paddingVertical: 8,
