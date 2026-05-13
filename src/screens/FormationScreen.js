@@ -840,7 +840,7 @@ export default function FormationScreen({ route }) {
                               >
                                 {hasPhoto ? (
                                   <>
-                                    <Image source={{ uri: publicAssetUrl(player.photo_path) }} style={{ width: slotSize, height: slotSize, borderRadius: slotSize / 2 }} />
+                                    <Image source={{ uri: publicAssetUrl(player.photo_path) }} style={{ width: slotSize, height: slotSize, position: 'absolute', top: -slotSize * 0.18 }} />
                                     <View style={[s.fieldPhotoOverlay, { backgroundColor: roleColor }]}>
                                       <Text style={s.fieldPhotoOverlayText}>{midTruncate(player.last_name, truncLen)}</Text>
                                     </View>
