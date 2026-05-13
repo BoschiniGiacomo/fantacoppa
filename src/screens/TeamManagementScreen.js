@@ -184,15 +184,11 @@ export default function TeamManagementScreen({ route, navigation }) {
 
   const loadTeams = async () => {
     try {
-      const t0 = Date.now();
-      console.log(`[PERF][MiaRosa] loadTeams START (leagueId=${leagueId})`);
       setLoading(true);
-      const tApi = Date.now();
       const [leagueRes, res] = await Promise.all([
         leagueService.getById(leagueId).catch(() => ({ data: null })),
         leagueService.getTeams(leagueId),
       ]);
-      console.log(`[PERF][MiaRosa] 2 parallel APIs (getById+getTeams): ${Date.now() - tApi}ms`);
       try {
         const leagueData = Array.isArray(leagueRes?.data) ? leagueRes.data[0] : leagueRes?.data;
         setLeagueRole(String(leagueData?.role || ''));
@@ -239,7 +235,6 @@ export default function TeamManagementScreen({ route, navigation }) {
       }
 
       setTeams(teamsData);
-      console.log(`[PERF][MiaRosa] loadTeams TOTAL: ${Date.now() - t0}ms (${teamsData.length} teams)`);
     } catch (error) {
       console.error('Error loading teams:', error);
       const errorMessage = error.response?.data?.error || error.response?.data?.message || 'Impossibile caricare le squadre';
@@ -440,9 +435,7 @@ export default function TeamManagementScreen({ route, navigation }) {
   const loadTeamPlayers = async (teamId) => {
     try {
       setLoadingPlayers(prev => ({ ...prev, [teamId]: true }));
-      const t0 = Date.now();
       const res = await leagueService.getTeamPlayers(leagueId, teamId);
-      console.log(`[PERF][MiaRosa] getTeamPlayers(team=${teamId}): ${Date.now() - t0}ms`);
       let playersData = res.data;
       if (!Array.isArray(playersData)) {
         if (playersData && typeof playersData === 'object') {

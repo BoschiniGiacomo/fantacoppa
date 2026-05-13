@@ -14,10 +14,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { useOnboarding } from '../context/OnboardingContext';
-import { squadService, formationService, publicAssetUrl } from '../services/api';
+import { squadService, publicAssetUrl } from '../services/api';
 import { peekSquadBootstrap, setSquadBootstrap, invalidateLeagueWarmCache } from '../services/leagueWarmCache';
 import { Ionicons } from '@expo/vector-icons';
-import { syncSubmittedFormationOnboarding } from '../utils/formationSubmission';
 import InjurySwapIcon from '../components/InjurySwapIcon';
 
 export default function SquadScreen({ route, navigation }) {
@@ -76,23 +75,25 @@ export default function SquadScreen({ route, navigation }) {
   };
 
   const loadData = useCallback(async () => {
+    const t0 = Date.now();
+    console.log(`[PERF][MiaRosa] loadData START (leagueId=${leagueId})`);
     const warm = peekSquadBootstrap(leagueId);
     if (warm != null) {
+      console.log(`[PERF][MiaRosa] warm cache HIT`);
       applyBootstrap(warm);
       setLoading(false);
     } else {
+      console.log(`[PERF][MiaRosa] warm cache MISS — showing spinner`);
       setLoading(true);
     }
 
     try {
+      const tApi = Date.now();
       const bootstrapRes = await squadService.getBootstrap(leagueId);
+      console.log(`[PERF][MiaRosa] getBootstrap: ${Date.now() - tApi}ms`);
       const data = bootstrapRes?.data || {};
       applyBootstrap(data);
       setSquadBootstrap(leagueId, data);
-
-      try {
-        await syncSubmittedFormationOnboarding({ leagueId, formationService, markDone });
-      } catch (_) {}
     } catch (error) {
       console.error('Error loading squad data:', error);
       if (warm == null) {
@@ -107,6 +108,7 @@ export default function SquadScreen({ route, navigation }) {
     } finally {
       setLoading(false);
       setRefreshing(false);
+      console.log(`[PERF][MiaRosa] loadData TOTAL: ${Date.now() - t0}ms`);
     }
   }, [leagueId]);
 
