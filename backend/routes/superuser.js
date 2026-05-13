@@ -738,7 +738,7 @@ router.get('/player-clusters/:groupId', authenticateToken, requireSuperuser, asy
     );
 
     const clusters = [];
-    for (const row of clustersRows) {
+    for (const row of (clustersRows || [])) {
       const players = await query(
         `SELECT p.id, p.first_name, p.last_name, p.role, t.league_id, l.name AS league_name
          FROM player_cluster_members pcm

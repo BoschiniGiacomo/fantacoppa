@@ -167,7 +167,8 @@ export default function SuperUserScreen() {
     try {
       setLoadingSuggestions(true);
       const response = await superuserService.getPlayerClusterSuggestions(groupId);
-      setSuggestions(response.data.suggestions || []);
+      const list = Array.isArray(response?.data?.suggestions) ? response.data.suggestions : [];
+      setSuggestions(list);
     } catch (error) {
       console.error('Error loading cluster suggestions:', error);
       showToast('Impossibile caricare i suggerimenti');
@@ -182,7 +183,8 @@ export default function SuperUserScreen() {
     try {
       setLoadingClusters(true);
       const response = await superuserService.getPlayerClusters(groupId, status);
-      setClusters(response.data.clusters || []);
+      const list = Array.isArray(response?.data?.clusters) ? response.data.clusters : [];
+      setClusters(list);
     } catch (error) {
       console.error('Error loading clusters:', error);
       showToast('Impossibile caricare i cluster');
@@ -283,8 +285,8 @@ export default function SuperUserScreen() {
   const handleApproveSuggestion = async (suggestion, groupId) => {
     try {
       const allPlayerIds = [
-        ...suggestion.existing_leagues.map((l) => l.player_id),
-        ...suggestion.all_new_player_ids,
+        ...(suggestion.existing_leagues || []).map((l) => l.player_id),
+        ...(suggestion.all_new_player_ids || []),
       ];
       await superuserService.approveSuggestion({
         official_group_id: groupId,
@@ -302,8 +304,8 @@ export default function SuperUserScreen() {
   const handleDismissSuggestion = async (suggestion, groupId) => {
     try {
       const allPlayerIds = [
-        ...suggestion.existing_leagues.map((l) => l.player_id),
-        ...suggestion.all_new_player_ids,
+        ...(suggestion.existing_leagues || []).map((l) => l.player_id),
+        ...(suggestion.all_new_player_ids || []),
       ];
       await superuserService.dismissSuggestion({
         official_group_id: groupId,
@@ -2108,11 +2110,11 @@ export default function SuperUserScreen() {
                             <View style={styles.suggestionInfo}>
                               <Text style={styles.suggestionPlayerName}>{suggestion.name}</Text>
                               <Text style={styles.suggestionLeagueLabel}>
-                                {suggestion.existing_leagues.length > 0
-                                  ? suggestion.existing_leagues.map((l) => l.league_name).join(', ')
+                                {(suggestion.existing_leagues || []).length > 0
+                                  ? (suggestion.existing_leagues || []).map((l) => l.league_name).join(', ')
                                   : 'new'}
                                 {'  →  '}
-                                {suggestion.new_leagues.map((l) => l.league_name).join(', ')}
+                                {(suggestion.new_leagues || []).map((l) => l.league_name).join(', ')}
                               </Text>
                             </View>
                             <View style={styles.suggestionActions}>
