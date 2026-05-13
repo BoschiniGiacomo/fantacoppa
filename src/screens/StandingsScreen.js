@@ -732,7 +732,7 @@ const styles = StyleSheet.create({
   miniSlotTeam: { color: 'rgba(255,255,255,0.75)', fontSize: 7, textAlign: 'center', marginTop: 1 },
   miniSlotOverlay: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingVertical: 2, alignItems: 'center', borderBottomLeftRadius: 999, borderBottomRightRadius: 999 },
   miniSlotOverlayText: { color: '#fff', fontSize: 9, fontWeight: '700', textAlign: 'center' },
-  fieldBonusCol: { position: 'absolute', top: -4, right: -6, flexDirection: 'column', gap: 1, alignItems: 'flex-end' },
+  fieldBonusCol: { position: 'absolute', top: -4, right: -6, flexDirection: 'column', gap: 1, alignItems: 'flex-start' },
   fieldBonusChip: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 6, paddingHorizontal: 2, paddingVertical: 1 },
   fieldBonusCount: { color: '#333', fontSize: 9, fontWeight: '700', marginLeft: 1 },
 
