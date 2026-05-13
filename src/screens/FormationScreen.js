@@ -292,8 +292,6 @@ export default function FormationScreen({ route }) {
   };
 
   const loadInitialData = async () => {
-    const t0 = Date.now();
-    console.log(`[PERF][Formation] loadInitialData START (leagueId=${leagueId})`);
     const warmMd = peekFormationMatchdays(leagueId);
     const warmL = peekLeagueDetail(leagueId);
     const warmSquad = peekSquadPlayersData(leagueId);
@@ -301,7 +299,6 @@ export default function FormationScreen({ route }) {
     const hasWarmCore = warmMd != null && warmL != null && warmSquad != null && warmSet != null;
 
     if (hasWarmCore) {
-      console.log(`[PERF][Formation] warm cache HIT`);
       setMatchdays(warmMd);
       setLeague(warmL);
       const playersRaw = warmSquad?.players || [];
@@ -329,7 +326,6 @@ export default function FormationScreen({ route }) {
       }
       setLoading(false);
     } else {
-      console.log(`[PERF][Formation] warm cache MISS — showing spinner`);
       setLoading(true);
     }
 
@@ -344,7 +340,6 @@ export default function FormationScreen({ route }) {
         return future ? future.giornata : wMd[wMd.length - 1].giornata;
       })();
 
-      const tApi = Date.now();
       const apiCalls = [
         formationService.getMatchdays(leagueId),
         leagueService.getById(leagueId).catch(() => ({ data: null })),
@@ -357,7 +352,6 @@ export default function FormationScreen({ route }) {
       const results = await Promise.all(apiCalls);
       const [matchdaysRes, leagueRes, squadRes, settingsRes] = results;
       const prefetchedFormation = predictedGiornata != null ? results[4] : null;
-      console.log(`[PERF][Formation] ${apiCalls.length} parallel APIs: ${Date.now() - tApi}ms`);
 
       const md = matchdaysRes.data || [];
       setMatchdays(md);
@@ -409,7 +403,6 @@ export default function FormationScreen({ route }) {
       else showToast('Impossibile aggiornare i dati');
     } finally {
       setLoading(false);
-      console.log(`[PERF][Formation] loadInitialData TOTAL: ${Date.now() - t0}ms`);
     }
   };
 

@@ -114,12 +114,15 @@ export default function StandingsScreen({ route, navigation }) {
   }, [activeTab, selectedMatchday]);
 
   const loadData = async () => {
+    const t0 = Date.now();
+    console.log(`[PERF][Standings] loadData START (leagueId=${leagueId})`);
     const warmL = peekLeagueDetail(leagueId);
     const warmStand = peekStandingsFull(leagueId);
     const warmMd = peekFormationMatchdays(leagueId);
     const hasWarm = warmStand != null && warmMd != null;
 
     if (hasWarm) {
+      console.log(`[PERF][Standings] warm cache HIT`);
       if (warmL != null) setLeague(warmL);
       const standingsData = warmStand;
       if (Array.isArray(standingsData)) setStandings(standingsData);
@@ -132,15 +135,18 @@ export default function StandingsScreen({ route, navigation }) {
       }
       setLoading(false);
     } else {
+      console.log(`[PERF][Standings] warm cache MISS — showing spinner`);
       setLoading(true);
     }
 
     try {
+      const tApi = Date.now();
       const [leagueRes, standingsRes, matchdaysRes] = await Promise.all([
         leagueService.getById(leagueId),
         leagueService.getStandingsFull(leagueId),
         formationService.getMatchdays(leagueId),
       ]);
+      console.log(`[PERF][Standings] 3 parallel APIs: ${Date.now() - tApi}ms`);
       const leagueData = Array.isArray(leagueRes.data) ? leagueRes.data[0] : leagueRes.data;
       setLeague(leagueData);
       if (leagueData && typeof leagueData === 'object') setLeagueDetail(leagueId, leagueData);
@@ -165,12 +171,15 @@ export default function StandingsScreen({ route, navigation }) {
       else showToast('Impossibile aggiornare la classifica');
     } finally {
       setLoading(false);
+      console.log(`[PERF][Standings] loadData TOTAL: ${Date.now() - t0}ms`);
     }
   };
 
   const loadMatchdayResults = async () => {
     try {
+      const t0 = Date.now();
       const resultsRes = await leagueService.getMatchdayResults(leagueId, selectedMatchday);
+      console.log(`[PERF][Standings] getMatchdayResults(g=${selectedMatchday}): ${Date.now() - t0}ms`);
       const resultsData = resultsRes.data;
       let rows = [];
       if (Array.isArray(resultsData)) rows = resultsData;
@@ -195,7 +204,9 @@ export default function StandingsScreen({ route, navigation }) {
 
       setLoadingFormations(prev => ({ ...prev, [userId]: true }));
       try {
+        const t0 = Date.now();
         const formationRes = await leagueService.getMatchdayFormation(leagueId, selectedMatchday, userId);
+        console.log(`[PERF][Standings] getFormation(g=${selectedMatchday}, u=${userId}): ${Date.now() - t0}ms`);
         const data = formationRes.data;
         setFormations(prev => ({ ...prev, [userId]: data }));
       } catch (error) {
