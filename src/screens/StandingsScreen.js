@@ -37,7 +37,7 @@ const ALL_MODULES = {
   '4-4-2': [4,4,2], '4-3-3': [4,3,3], '3-5-2': [3,5,2], '4-5-1': [4,5,1], '5-3-2': [5,3,2],
   '5-4-1': [5,4,1], '5-2-3': [5,2,3], '3-4-3': [3,4,3],
 };
-const MINI_FIELD_H = 380;
+const MINI_FIELD_H = 410;
 
 const midTruncate = (str, max = 8) => {
   if (!str || str.length <= max) return str || '';
@@ -740,7 +740,7 @@ const styles = StyleSheet.create({
   fieldBonusCol: { position: 'absolute', top: -4, right: -6, flexDirection: 'column', gap: 1, alignItems: 'flex-start' },
   fieldBonusChip: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 6, paddingHorizontal: 2, paddingVertical: 1 },
   fieldBonusCount: { color: '#333', fontSize: 9, fontWeight: '700', marginLeft: 1 },
-  fieldVotesBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 6, marginTop: 2, paddingHorizontal: 4, paddingVertical: 1 },
+  fieldVotesBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 6, marginTop: -2, paddingHorizontal: 4, paddingVertical: 1 },
   fieldVoteBase: { fontSize: 9, fontWeight: '600', color: '#333' },
   fieldVoteSep: { width: 1, height: 10, backgroundColor: '#ccc', marginHorizontal: 3 },
   fieldVoteFinal: { fontSize: 9, fontWeight: '700', color: '#2e7d32' },
