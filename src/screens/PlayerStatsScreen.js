@@ -6,10 +6,11 @@ import {
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
+  Image,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { playerStatsService } from '../services/api';
+import { playerStatsService, publicAssetUrl } from '../services/api';
 import BonusIcon from '../components/BonusIcon';
 
 const ROLE_COLORS = {
@@ -36,6 +37,7 @@ export default function PlayerStatsScreen({ route, navigation }) {
   const [loadingAggregated, setLoadingAggregated] = useState(false);
   const [hasOfficialGroup, setHasOfficialGroup] = useState(false);
   const [toastMsg, setToastMsg] = useState(null);
+  const [photoPath, setPhotoPath] = useState('');
 
   const showToast = (text, type = 'error') => {
     setToastMsg({ text, type });
@@ -53,6 +55,7 @@ export default function PlayerStatsScreen({ route, navigation }) {
       const response = await playerStatsService.getPlayerAggregatedStats(playerId, leagueId);
       setAggregatedStats(response.data.stats);
       setHasOfficialGroup(true);
+      if (response.data?.player?.photo_path) setPhotoPath(prev => prev || response.data.player.photo_path);
     } catch (error) {
       setHasOfficialGroup(false);
     } finally {
@@ -65,6 +68,7 @@ export default function PlayerStatsScreen({ route, navigation }) {
       setLoadingLeague(true);
       const response = await playerStatsService.getPlayerStats(playerId, leagueId);
       setLeagueStats(response.data);
+      if (response.data?.player?.photo_path) setPhotoPath(response.data.player.photo_path);
     } catch (error) {
       showToast('Impossibile caricare le statistiche del giocatore');
       console.error(error);
@@ -212,9 +216,18 @@ export default function PlayerStatsScreen({ route, navigation }) {
           <Ionicons name="arrow-back" size={22} color="#333" />
         </TouchableOpacity>
 
-        <View style={[styles.roleBadge, { backgroundColor: ROLE_COLORS[playerRole] || '#999' }]}>  
-          <Text style={styles.roleBadgeText}>{playerRole}</Text>
-        </View>
+        {photoPath ? (
+          <View style={styles.headerPhotoWrap}>
+            <Image source={{ uri: publicAssetUrl(photoPath) }} style={styles.headerPhoto} />
+            <View style={[styles.headerPhotoRoleBadge, { backgroundColor: ROLE_COLORS[playerRole] || '#999' }]}>
+              <Text style={styles.headerPhotoRoleText}>{playerRole}</Text>
+            </View>
+          </View>
+        ) : (
+          <View style={[styles.roleBadge, { backgroundColor: ROLE_COLORS[playerRole] || '#999' }]}>
+            <Text style={styles.roleBadgeText}>{playerRole}</Text>
+          </View>
+        )}
 
         <View style={styles.headerInfo}>
           <Text style={styles.headerName} numberOfLines={1}>{playerName || 'Giocatore'}</Text>
@@ -305,6 +318,33 @@ const styles = StyleSheet.create({
   },
   backBtn: {
     padding: 4,
+  },
+  headerPhotoWrap: {
+    width: 48,
+    height: 48,
+    position: 'relative',
+    marginRight: 4,
+  },
+  headerPhoto: {
+    width: 48,
+    height: 48,
+  },
+  headerPhotoRoleBadge: {
+    position: 'absolute',
+    bottom: -2,
+    right: -2,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: '#fff',
+  },
+  headerPhotoRoleText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: 'bold',
   },
   roleBadge: {
     width: 34,

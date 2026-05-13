@@ -139,9 +139,6 @@ router.get('/:leagueId/bootstrap', authenticateToken, async (req, res) => {
 
     const league = leagueRows[0] || { id: leagueId, name: '' };
 
-    const conFoto = (players || []).filter(p => !!p.photo_path);
-    console.log('[SquadBootstrap] players:', (players || []).length, 'con foto:', conFoto.length, conFoto.map(p => ({ id: p.id, cognome: p.last_name, photo_path: p.photo_path })));
-
     return res.json({
       league,
       squad: players || [],

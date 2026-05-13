@@ -61,11 +61,6 @@ export default function SquadScreen({ route, navigation }) {
     const players = Array.isArray(data?.players)
       ? data.players
       : (Array.isArray(data?.squad) ? data.squad : []);
-    console.log('[MiaRosa] players ricevuti:', players.length, 'con foto:', players.filter(p => !!p.photo_path).length);
-    if (players.length > 0) {
-      const sample = players.find(p => p.photo_path) || players[0];
-      console.log('[MiaRosa] esempio player:', sample?.id, sample?.last_name, 'photo_path:', JSON.stringify(sample?.photo_path));
-    }
     setSquad(players);
 
     const budgetValue = data?.budget ?? 0;
@@ -83,7 +78,6 @@ export default function SquadScreen({ route, navigation }) {
   const loadData = useCallback(async () => {
     const warm = peekSquadBootstrap(leagueId);
     if (warm != null) {
-      console.log('[MiaRosa] WARM CACHE');
       applyBootstrap(warm);
       setLoading(false);
     } else {
@@ -91,12 +85,8 @@ export default function SquadScreen({ route, navigation }) {
     }
 
     try {
-      console.log('[MiaRosa] chiamo API fresh...');
       const bootstrapRes = await squadService.getBootstrap(leagueId);
       const data = bootstrapRes?.data || {};
-      console.log('[MiaRosa] API FRESH risposta, keys primo player:', data?.players?.[0] ? Object.keys(data.players[0]) : 'nessuno');
-      const salvini = (data?.players || []).find(p => p.id === 283);
-      console.log('[MiaRosa] player 283 Salvini nella rosa?', salvini ? JSON.stringify(salvini) : 'NON PRESENTE');
       applyBootstrap(data);
       setSquadBootstrap(leagueId, data);
 

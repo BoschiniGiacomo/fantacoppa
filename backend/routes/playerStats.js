@@ -51,7 +51,7 @@ router.get('/:playerId/stats/:leagueId', authenticateToken, async (req, res) => 
     if (!playerId || !leagueId) return res.status(400).json({ message: 'Parametri non validi' });
 
     const playerRows = await query(
-      `SELECT id, first_name, last_name, role, rating
+      `SELECT id, first_name, last_name, role, rating, COALESCE(photo_path, '') AS photo_path
        FROM players
        WHERE id = ?
        LIMIT 1`,
@@ -105,6 +105,7 @@ router.get('/:playerId/stats/:leagueId', authenticateToken, async (req, res) => 
         last_name: playerRows[0].last_name,
         role: playerRows[0].role,
         rating: safeNumber(playerRows[0].rating),
+        photo_path: playerRows[0].photo_path || '',
       },
       stats: mapStatsRow(statsRows[0], bonusRows[0]),
     });
@@ -139,7 +140,7 @@ router.get('/:playerId/stats/aggregated/:leagueId', authenticateToken, async (re
     }
 
     const playerRows = await query(
-      `SELECT id, first_name, last_name, role, rating
+      `SELECT id, first_name, last_name, role, rating, COALESCE(photo_path, '') AS photo_path
        FROM players
        WHERE id = ?
        LIMIT 1`,
@@ -223,6 +224,24 @@ router.get('/:playerId/stats/aggregated/:leagueId', authenticateToken, async (re
       [...aggregatedPlayerIds, ...groupLeagueIds]
     );
 
+    let bestPhoto = basePlayer.photo_path || '';
+    if (!bestPhoto && aggregatedPlayerIds.length > 1) {
+      try {
+        const photoRows = await query(
+          `SELECT p.photo_path
+           FROM players p
+           JOIN teams t ON t.id = p.team_id
+           JOIN leagues l ON l.id = t.league_id
+           WHERE p.id IN (${aggregatedPlayerIds.map(() => '?').join(',')})
+             AND COALESCE(p.photo_path, '') != ''
+           ORDER BY l.name DESC
+           LIMIT 1`,
+          aggregatedPlayerIds
+        );
+        if (photoRows.length > 0) bestPhoto = photoRows[0].photo_path || '';
+      } catch (_) {}
+    }
+
     return res.json({
       player: {
         id: Number(basePlayer.id),
@@ -230,6 +249,7 @@ router.get('/:playerId/stats/aggregated/:leagueId', authenticateToken, async (re
         last_name: basePlayer.last_name,
         role: basePlayer.role,
         rating: safeNumber(basePlayer.rating),
+        photo_path: bestPhoto,
       },
       stats: mapStatsRow(statsRows[0], bonusRows[0]),
       meta: {

@@ -88,11 +88,6 @@ export default function MarketScreen({ route, navigation }) {
 
   const applyBootstrapData = (data) => {
     const playersList = Array.isArray(data.players) ? data.players : [];
-    console.log('[Mercato] players ricevuti:', playersList.length, 'con foto:', playersList.filter(p => !!p.photo_path).length);
-    if (playersList.length > 0) {
-      const sample = playersList.find(p => p.photo_path) || playersList[0];
-      console.log('[Mercato] esempio player:', sample?.id, sample?.last_name, 'photo_path:', JSON.stringify(sample?.photo_path));
-    }
     setPlayers(playersList);
     const budgetValue = data?.budget ?? 0;
     setBudget(typeof budgetValue === 'number' ? budgetValue : parseFloat(budgetValue) || 0);
