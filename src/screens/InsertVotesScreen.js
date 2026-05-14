@@ -521,13 +521,15 @@ export default function InsertVotesScreen({ route, navigation }) {
           penalty_missed: vote?.penalty_missed || 0,
           penalty_saved: vote?.penalty_saved || 0,
           clean_sheet: vote?.clean_sheet ? 1 : 0,
+          pallone_fuori: vote?.pallone_fuori || 0,
+          briso: vote?.briso ? 1 : 0,
+          no_divisa: vote?.no_divisa ? 1 : 0,
         };
       });
 
       // Debug: log dei voti che stiamo salvando
       const allEntries = Object.entries(ratingsToSave).map(([id, v]) => `${id}=${v.rating}`);
-      console.log(`[SAVE_VOTES] teamId=${teamId} total=${Object.keys(ratingsToSave).length} voti=[${allEntries.join(', ')}]`);
-
+     
       await leagueService.saveVotes(leagueId, selectedMatchdayRef.current, ratingsToSave, teamId);
 
       setSaveFeedback(teamId ? 'Voti squadra salvati!' : 'Tutti i voti salvati!');
@@ -537,7 +539,6 @@ export default function InsertVotesScreen({ route, navigation }) {
       const newVotes = votesRes.data || {};
       // Debug: verifica che i voti dal server corrispondano a quelli salvati
       const allAfter = Object.entries(newVotes).map(([id, v]) => `${id}=${v.rating}`);
-      console.log(`[RELOAD_VOTES] total=${Object.keys(newVotes).length} voti=[${allAfter.join(', ')}]`);
       setVotes(newVotes);
       savedVotesSnapshot.current = JSON.stringify(newVotes);
     } catch (error) {
