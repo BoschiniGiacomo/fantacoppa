@@ -150,7 +150,7 @@ const PlayerRow = memo(({ player, playerVote, bonusSettings, bonusEnabled, onUpd
             ];
 
         const extraItems = [
-          { type: 'toggle', key: 'pallone_fuori', enable: 'enable_pallone_fuori', field: 'pallone_fuori', icon: 'pallone_fuori', activeStyle: styles.cardToggleRedActive },
+          { type: 'counter', key: 'pallone_fuori', enable: 'enable_pallone_fuori', field: 'pallone_fuori', icon: 'pallone_fuori' },
           { type: 'toggle', key: 'briso', enable: 'enable_briso', field: 'briso', icon: 'briso', activeStyle: styles.cardToggleGreenActive },
           { type: 'toggle', key: 'no_divisa', enable: 'enable_no_divisa', field: 'no_divisa', icon: 'no_divisa', activeStyle: styles.cardToggleRedActive },
         ];
