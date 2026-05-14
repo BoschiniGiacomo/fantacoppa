@@ -219,9 +219,7 @@ export default function MatchesScreen() {
 
   const loadStripTeams = useCallback(async () => {
     try {
-      const t0 = Date.now();
       const res = await matchesService.getStripTeams();
-      console.log(`[PERF][Matches] getStripTeams: ${Date.now() - t0}ms`);
       setHeartTeams(Array.isArray(res?.data?.teams) ? res.data.teams : []);
     } catch (_) {}
   }, []);
@@ -299,9 +297,7 @@ export default function MatchesScreen() {
     try {
       setError(null);
       if (!isRefresh) setLoading(true);
-      const t0 = Date.now();
       const res = await matchesService.getByDate(requestDate);
-      if (!isRefresh) console.log(`[PERF][Matches] getByDate(${requestDate}): ${Date.now() - t0}ms (${res?.data?.matches?.length || 0} matches)`);
       const matches = Array.isArray(res?.data?.matches) ? res.data.matches : [];
       if (selectedDateRef.current !== requestDate) return;
       setItems(matches);

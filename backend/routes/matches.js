@@ -1020,12 +1020,9 @@ router.get('/competitions', authenticateToken, async (_req, res) => {
 // GET /matches?date=YYYY-MM-DD — lista match (con preferiti/notifiche)
 router.get('/matches', authenticateToken, async (req, res) => {
   try {
-    const t0 = Date.now();
     const userId = Number(req.user?.userId);
     const date = String(req.query?.date || '').trim();
     if (!date) return res.status(400).json({ message: 'date mancante' });
-
-    const tQuery = Date.now();
     const rows = await query(
       `
       WITH su AS (
@@ -1152,8 +1149,6 @@ router.get('/matches', authenticateToken, async (req, res) => {
       `,
       [userId, userId, userId, date]
     );
-    console.log(`[PERF] GET /matches singleQuery (includes su check): ${Date.now() - tQuery}ms (${(rows || []).length} rows)`);
-
     const withLogos = (Array.isArray(rows) ? rows : []).map((r) => {
       const homeLogoPath = normalizeTeamLogoPathForApi(r?.home_team_logo_path);
       const awayLogoPath = normalizeTeamLogoPathForApi(r?.away_team_logo_path);
@@ -1166,7 +1161,6 @@ router.get('/matches', authenticateToken, async (req, res) => {
       };
     });
 
-    console.log(`[PERF] GET /matches?date=${date}: ${Date.now() - t0}ms (${withLogos.length} rows)`);
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
     return res.json({ date, matches: withLogos });
   } catch (err) {
@@ -1470,6 +1464,7 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
 // GET /matches/teams/:teamId/detail?competition_id=xx — dettaglio squadra ufficiale + preferenze utente
 router.get('/matches/teams/:teamId/detail', authenticateToken, async (req, res) => {
   try {
+    const t0 = Date.now();
     const userId = Number(req.user?.userId);
     const teamId = Number(req.params.teamId);
     const competitionId = Number(req.query?.competition_id);
@@ -1539,6 +1534,7 @@ router.get('/matches/teams/:teamId/detail', authenticateToken, async (req, res) 
     );
     const favoriteCount = Number(favoriteCountRows?.[0]?.favorite_count || 0);
 
+    console.log(`[PERF] GET /matches/teams/:teamId/detail: ${Date.now() - t0}ms`);
     return res.json({
       team: {
         id: Number(team.id),
@@ -1564,6 +1560,7 @@ router.get('/matches/teams/:teamId/detail', authenticateToken, async (req, res) 
 // GET /matches/teams/:teamId/matches?competition_id=xx — tutte le partite della squadra nel gruppo ufficiale (tutti gli anni)
 router.get('/matches/teams/:teamId/matches', authenticateToken, async (req, res) => {
   try {
+    const t0 = Date.now();
     const userId = Number(req.user?.userId);
     const su = await getSuperuserLevel(userId);
     const canSeeAdminOnly = su === 1 || su === 2 ? 1 : 0;
@@ -1688,6 +1685,7 @@ router.get('/matches/teams/:teamId/matches', authenticateToken, async (req, res)
       };
     });
 
+    console.log(`[PERF] GET /matches/teams/:teamId/matches: ${Date.now() - t0}ms (${matches.length} matches)`);
     return res.json({ team: { id: Number(team.id), name: teamName }, matches });
   } catch (err) {
     if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
@@ -1699,6 +1697,7 @@ router.get('/matches/teams/:teamId/matches', authenticateToken, async (req, res)
 // Restituisce anni disponibili per la squadra nel gruppo ufficiale e classifica del solo girone per l'anno selezionato.
 router.get('/matches/teams/:teamId/season-standings', authenticateToken, async (req, res) => {
   try {
+    const t0 = Date.now();
     const teamId = Number(req.params.teamId);
     const competitionId = Number(req.query?.competition_id);
     const referenceYearRaw = req.query?.reference_year;
@@ -1773,6 +1772,7 @@ router.get('/matches/teams/:teamId/season-standings', authenticateToken, async (
       });
     }
 
+    console.log(`[PERF] GET /matches/teams/:teamId/season-standings: ${Date.now() - t0}ms`);
     return res.json({
       team: { id: Number(team.id), name: teamName },
       available_years: availableYears,
@@ -1790,6 +1790,7 @@ router.get('/matches/teams/:teamId/season-standings', authenticateToken, async (
 // Restituisce anni disponibili e rosa della squadra (con maglia/ruolo/numero) per l'anno selezionato.
 router.get('/matches/teams/:teamId/season-squad', authenticateToken, async (req, res) => {
   try {
+    const t0 = Date.now();
     const teamId = Number(req.params.teamId);
     const competitionId = Number(req.query?.competition_id);
     const referenceYearRaw = req.query?.reference_year;
@@ -1873,6 +1874,7 @@ router.get('/matches/teams/:teamId/season-squad', authenticateToken, async (req,
     }
 
     const squad = selectedTeamId ? await getTeamPlayersLineup(selectedTeamId) : [];
+    console.log(`[PERF] GET /matches/teams/:teamId/season-squad: ${Date.now() - t0}ms (${(squad || []).length} players)`);
     return res.json({
       team: { id: Number(rootTeam.id), name: teamName },
       available_years: availableYears,
@@ -1891,6 +1893,7 @@ router.get('/matches/teams/:teamId/season-squad', authenticateToken, async (req,
 // Statistiche squadra per anno: generale, W/D/L con %, marcatori e assistman.
 router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req, res) => {
   try {
+    const t0 = Date.now();
     const teamId = Number(req.params.teamId);
     const competitionId = Number(req.query?.competition_id);
     const referenceYearRaw = req.query?.reference_year;
@@ -2187,6 +2190,7 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
         .map(([name, value]) => ({ name, value: Number(value || 0) }))
         .sort((a, b) => (b.value - a.value) || a.name.localeCompare(b.name, 'it'));
 
+    console.log(`[PERF] GET /matches/teams/:teamId/season-stats: ${Date.now() - t0}ms`);
     return res.json({
       team: { id: Number(rootTeam.id), name: teamName },
       available_years: availableYears,
@@ -2423,7 +2427,6 @@ router.post('/matches/favorites/team-notifications', authenticateToken, async (r
 // GET /matches/strip-teams — squadre delle competizioni abilitate dal super admin per la strip in alto
 router.get('/matches/strip-teams', authenticateToken, async (req, res) => {
   try {
-    const t0 = Date.now();
     const userId = Number(req.user?.userId);
 
     const [su, comps, heartRows] = await Promise.all([
@@ -2442,13 +2445,11 @@ router.get('/matches/strip-teams', authenticateToken, async (req, res) => {
           )
         : Promise.resolve([]),
     ]);
-    console.log(`[PERF] GET /matches/strip-teams phase1 (su+comps+heart parallel): ${Date.now() - t0}ms`);
 
     const canSeeAdminOnly = su === 1 || su === 2 ? 1 : 0;
     const compIds = comps.map((c) => Number(c.id)).filter((x) => x > 0);
     if (compIds.length === 0) return res.json({ teams: [] });
 
-    const tTeams = Date.now();
     const ph = compIds.map(() => '?').join(', ');
     const teamRows = await query(
       `WITH comp_teams AS (
@@ -2480,7 +2481,6 @@ router.get('/matches/strip-teams', authenticateToken, async (req, res) => {
        ORDER BY name ASC`,
       [...compIds, canSeeAdminOnly, ...compIds, canSeeAdminOnly]
     );
-    console.log(`[PERF] GET /matches/strip-teams teamsQuery: ${Date.now() - tTeams}ms`);
 
     const heartSet = new Set();
     for (const r of heartRows || []) {
@@ -2507,7 +2507,6 @@ router.get('/matches/strip-teams', authenticateToken, async (req, res) => {
       if (a.is_heart !== b.is_heart) return b.is_heart - a.is_heart;
       return a.name.localeCompare(b.name, 'it');
     });
-    console.log(`[PERF] GET /matches/strip-teams: ${Date.now() - t0}ms (${teams.length} teams)`);
     return res.json({ teams });
   } catch (err) {
     if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
@@ -2519,6 +2518,8 @@ router.get('/matches/strip-teams', authenticateToken, async (req, res) => {
 router.get('/matches/follow-setup', authenticateToken, async (req, res) => {
   try {
     const userId = Number(req.user?.userId);
+    const su = await getSuperuserLevel(userId);
+    const canSeeAdminOnly = su === 1 || su === 2 ? 1 : 0;
 
     const competitions = await listCompetitionsOnlyEnabled();
     const compIds = competitions.map((c) => Number(c.id)).filter((x) => x > 0);
@@ -2548,6 +2549,7 @@ router.get('/matches/follow-setup', authenticateToken, async (req, res) => {
           INNER JOIN teams t ON t.id = m.home_team_id
           LEFT JOIN leagues l ON l.id = t.league_id
           WHERE m.competition_id IN (${compIds.map(() => '?').join(', ')})
+            AND (? = 1 OR COALESCE(m.is_admin_only, 0) = 0)
             AND (l.id IS NULL OR COALESCE(l.is_official_squad_public, 0) = 1)
 
           UNION ALL
@@ -2562,6 +2564,7 @@ router.get('/matches/follow-setup', authenticateToken, async (req, res) => {
           INNER JOIN teams t ON t.id = m.away_team_id
           LEFT JOIN leagues l ON l.id = t.league_id
           WHERE m.competition_id IN (${compIds.map(() => '?').join(', ')})
+            AND (? = 1 OR COALESCE(m.is_admin_only, 0) = 0)
             AND (l.id IS NULL OR COALESCE(l.is_official_squad_public, 0) = 1)
         ),
         ranked AS (
@@ -2588,7 +2591,7 @@ router.get('/matches/follow-setup', authenticateToken, async (req, res) => {
         FROM ranked
         WHERE rn = 1
         `,
-        [...compIds, ...compIds]
+        [...compIds, canSeeAdminOnly, ...compIds, canSeeAdminOnly]
       );
 
       for (const r of Array.isArray(teamRows) ? teamRows : []) {
