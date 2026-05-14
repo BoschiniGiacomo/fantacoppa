@@ -1162,7 +1162,9 @@ export default function MatchDetailScreen({ navigation, route }) {
       if (!matchId) return;
       try {
         if (showLoading) setLoading(true);
+        const t0 = Date.now();
         const res = await matchesService.getDetail(matchId);
+        if (showLoading) console.log(`[PERF][MatchDetail] getDetail: ${Date.now() - t0}ms`);
         setData(res?.data || null);
       } catch {
         /* mantieni dati precedenti */

@@ -274,9 +274,7 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
     if (!teamId || !competitionId) return;
     try {
       if (showLoading) setLoading(true);
-      const t0 = Date.now();
       const res = await matchesService.getOfficialTeamDetail(teamId, competitionId);
-      if (showLoading) console.log(`[PERF][TeamDetail] getOfficialTeamDetail: ${Date.now() - t0}ms`);
       setData(res?.data || null);
     } finally {
       if (showLoading) setLoading(false);
@@ -297,9 +295,7 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
     if (!teamId || !competitionId) return;
     try {
       setMatchesLoading(true);
-      const t0 = Date.now();
       const res = await matchesService.getOfficialTeamMatches(teamId, competitionId);
-      console.log(`[PERF][TeamDetail] getOfficialTeamMatches: ${Date.now() - t0}ms (${res?.data?.matches?.length || 0} matches)`);
       setTeamMatches(Array.isArray(res?.data?.matches) ? res.data.matches : []);
       itemLayoutsRef.current = {};
       initialScrollDoneRef.current = false;
@@ -319,10 +315,8 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
       if (!teamId || !competitionId) return;
       try {
         setSeasonLoading(true);
-        const t0 = Date.now();
         const targetYear = yearOverride != null ? yearOverride : selectedSeasonYear;
         const res = await matchesService.getOfficialTeamSeasonStandings(teamId, competitionId, targetYear);
-        console.log(`[PERF][TeamDetail] getSeasonStandings: ${Date.now() - t0}ms`);
         const years = Array.isArray(res?.data?.available_years) ? res.data.available_years : [];
         const standingsRows = Array.isArray(res?.data?.standings) ? res.data.standings : [];
         const knockoutRows = res?.data?.knockout || { semifinals: [], final: null };
@@ -355,10 +349,8 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
       if (!teamId || !competitionId) return;
       try {
         setTeamSeasonLoading(true);
-        const t0 = Date.now();
         const targetYear = yearOverride != null ? yearOverride : selectedTeamSeasonYear;
         const res = await matchesService.getOfficialTeamSeasonSquad(teamId, competitionId, targetYear);
-        console.log(`[PERF][TeamDetail] getSeasonSquad: ${Date.now() - t0}ms (${res?.data?.squad?.length || 0} players)`);
         const years = Array.isArray(res?.data?.available_years) ? res.data.available_years : [];
         const squad = Array.isArray(res?.data?.squad) ? res.data.squad : [];
         const backendSelected = res?.data?.selected_year != null ? Number(res.data.selected_year) : null;
@@ -388,10 +380,8 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
       if (!teamId || !competitionId) return;
       try {
         setStatsLoading(true);
-        const t0 = Date.now();
         const targetYear = yearOverride != null ? yearOverride : selectedStatsYear;
         const res = await matchesService.getOfficialTeamSeasonStats(teamId, competitionId, targetYear);
-        console.log(`[PERF][TeamDetail] getSeasonStats: ${Date.now() - t0}ms`);
         const years = Array.isArray(res?.data?.available_years) ? res.data.available_years : [];
         const rawBackendSelected = res?.data?.selected_year;
         const backendSelected =

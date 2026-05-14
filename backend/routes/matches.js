@@ -1172,6 +1172,7 @@ router.get('/matches', authenticateToken, async (req, res) => {
 // GET /matches/:matchId/detail — dettaglio match con tabs (overview/formazione/classifica)
 router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
   try {
+    const t0 = Date.now();
     const userId = Number(req.user?.userId);
     const matchId = Number(req.params.matchId);
     if (!matchId || matchId <= 0) return res.status(400).json({ message: 'matchId non valido' });
@@ -1218,7 +1219,9 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
     );
     const matchRow = rows[0];
     if (!matchRow) return res.status(404).json({ message: 'Partita non trovata' });
+    console.log(`[PERF] /detail matchQuery: ${Date.now() - t0}ms`);
 
+    const tMeta = Date.now();
     const homeTeam = await getTeamMeta(Number(matchRow.home_team_id));
     const awayTeam = await getTeamMeta(Number(matchRow.away_team_id));
 
@@ -1240,6 +1243,8 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
       penalties_enabled: matchRow.penalties_enabled != null ? Number(matchRow.penalties_enabled) : 0,
     };
 
+    console.log(`[PERF] /detail teamMeta: ${Date.now() - tMeta}ms`);
+    const tEvents = Date.now();
     const rawEvents = await query(
       `
       SELECT id, match_id, event_type, minute, team_side, team_id, player_id, assist_player_id, title, payload_json, created_at
@@ -1267,6 +1272,8 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
       return ev;
     });
 
+    console.log(`[PERF] /detail events: ${Date.now() - tEvents}ms`);
+    const tLineups = Date.now();
     const homeLineup = await getTeamPlayersLineup(Number(match.home_team_id));
     const awayLineup = await getTeamPlayersLineup(Number(match.away_team_id));
     await ensureUnavailablePlayersTable();
@@ -1282,6 +1289,8 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
     const homeUnavailable = homeLineup.filter((p) => unavailableSet.has(Number(p.id)));
     const awayUnavailable = awayLineup.filter((p) => unavailableSet.has(Number(p.id)));
 
+    console.log(`[PERF] /detail lineups+unavailable: ${Date.now() - tLineups}ms`);
+    const tStandings = Date.now();
     const homeLeagueId = Number(match.home_league_id || 0);
     const awayLeagueId = Number(match.away_league_id || 0);
     const matchLeagueId = Number(match.league_id || 0);
@@ -1440,6 +1449,8 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
       knockout = { semifinals: [], final: null };
     }
 
+    console.log(`[PERF] /detail standings+knockout: ${Date.now() - tStandings}ms`);
+    console.log(`[PERF] GET /matches/:matchId/detail TOTAL: ${Date.now() - t0}ms`);
     return res.json({
       match,
       lineups: { home: homeAvailable, away: awayAvailable },
@@ -1464,26 +1475,22 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
 // GET /matches/teams/:teamId/detail?competition_id=xx — dettaglio squadra ufficiale + preferenze utente
 router.get('/matches/teams/:teamId/detail', authenticateToken, async (req, res) => {
   try {
-    const t0 = Date.now();
     const userId = Number(req.user?.userId);
     const teamId = Number(req.params.teamId);
     const competitionId = Number(req.query?.competition_id);
     if (!teamId || teamId <= 0) return res.status(400).json({ message: 'teamId non valido' });
     if (!competitionId || competitionId <= 0) return res.status(400).json({ message: 'competition_id non valido' });
 
-    const tTeam = Date.now();
     const teamRows = await query(
       `SELECT t.id, t.name FROM teams t WHERE t.id = ? LIMIT 1`,
       [teamId]
     );
-    console.log(`[PERF] /detail teamQuery: ${Date.now() - tTeam}ms`);
     const team = teamRows[0];
     if (!team) return res.status(404).json({ message: 'Squadra non trovata' });
 
     const teamName = String(team.name || '').trim();
     if (!teamName) return res.status(404).json({ message: 'Squadra non valida' });
 
-    const tParallel = Date.now();
     const teamNameNorm = normalizeTeamNameForFavorite(teamName);
     const [logoCandidates, currentPref, favoriteCountRows] = await Promise.all([
       query(
@@ -1514,13 +1521,11 @@ router.get('/matches/teams/:teamId/detail', authenticateToken, async (req, res) 
       ),
     ]);
 
-    console.log(`[PERF] /detail parallel(logo+pref+count): ${Date.now() - tParallel}ms`);
     const bestLogoRaw = (logoCandidates || []).find((r) => String(r?.logo_path || '').trim() !== '')?.logo_path || null;
     const bestLogoPath = normalizeTeamLogoPathForApi(bestLogoRaw);
     const pref = currentPref[0] || null;
     const favoriteCount = Number(favoriteCountRows?.[0]?.favorite_count || 0);
 
-    console.log(`[PERF] GET /matches/teams/:teamId/detail TOTAL: ${Date.now() - t0}ms`);
     return res.json({
       team: {
         id: Number(team.id),
@@ -1546,7 +1551,6 @@ router.get('/matches/teams/:teamId/detail', authenticateToken, async (req, res) 
 // GET /matches/teams/:teamId/matches?competition_id=xx — tutte le partite della squadra nel gruppo ufficiale (tutti gli anni)
 router.get('/matches/teams/:teamId/matches', authenticateToken, async (req, res) => {
   try {
-    const t0 = Date.now();
     const userId = Number(req.user?.userId);
     const teamId = Number(req.params.teamId);
     const competitionId = Number(req.query?.competition_id);
@@ -1673,7 +1677,6 @@ router.get('/matches/teams/:teamId/matches', authenticateToken, async (req, res)
       };
     });
 
-    console.log(`[PERF] GET /matches/teams/:teamId/matches: ${Date.now() - t0}ms (${matches.length} matches)`);
     return res.json({ team: { id: Number(team.id), name: teamName }, matches });
   } catch (err) {
     if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
@@ -1685,7 +1688,6 @@ router.get('/matches/teams/:teamId/matches', authenticateToken, async (req, res)
 // Restituisce anni disponibili per la squadra nel gruppo ufficiale e classifica del solo girone per l'anno selezionato.
 router.get('/matches/teams/:teamId/season-standings', authenticateToken, async (req, res) => {
   try {
-    const t0 = Date.now();
     const teamId = Number(req.params.teamId);
     const competitionId = Number(req.query?.competition_id);
     const referenceYearRaw = req.query?.reference_year;
@@ -1755,7 +1757,6 @@ router.get('/matches/teams/:teamId/season-standings', authenticateToken, async (
       ]);
     }
 
-    console.log(`[PERF] GET /matches/teams/:teamId/season-standings: ${Date.now() - t0}ms`);
     return res.json({
       team: { id: teamId, name: teamName },
       available_years: availableYears,
@@ -1773,7 +1774,6 @@ router.get('/matches/teams/:teamId/season-standings', authenticateToken, async (
 // Restituisce anni disponibili e rosa della squadra (con maglia/ruolo/numero) per l'anno selezionato.
 router.get('/matches/teams/:teamId/season-squad', authenticateToken, async (req, res) => {
   try {
-    const t0 = Date.now();
     const teamId = Number(req.params.teamId);
     const competitionId = Number(req.query?.competition_id);
     const referenceYearRaw = req.query?.reference_year;
@@ -1840,7 +1840,6 @@ router.get('/matches/teams/:teamId/season-squad', authenticateToken, async (req,
     }
 
     const squad = selectedTeamId ? await getTeamPlayersLineup(selectedTeamId) : [];
-    console.log(`[PERF] GET /matches/teams/:teamId/season-squad: ${Date.now() - t0}ms (${(squad || []).length} players)`);
     return res.json({
       team: { id: teamId, name: teamName },
       available_years: availableYears,
@@ -1859,7 +1858,6 @@ router.get('/matches/teams/:teamId/season-squad', authenticateToken, async (req,
 // Statistiche squadra per anno: generale, W/D/L con %, marcatori e assistman.
 router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req, res) => {
   try {
-    const t0 = Date.now();
     const teamId = Number(req.params.teamId);
     const competitionId = Number(req.query?.competition_id);
     const referenceYearRaw = req.query?.reference_year;
@@ -2147,7 +2145,6 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
         .map(([name, value]) => ({ name, value: Number(value || 0) }))
         .sort((a, b) => (b.value - a.value) || a.name.localeCompare(b.name, 'it'));
 
-    console.log(`[PERF] GET /matches/teams/:teamId/season-stats: ${Date.now() - t0}ms`);
     return res.json({
       team: { id: teamId, name: teamName },
       available_years: availableYears,
