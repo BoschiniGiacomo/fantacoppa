@@ -28,14 +28,14 @@
       "permissions": []
     },
     "extra": {
-      "appVersionCode": 10,
+      "appVersionCode": 11,
       "supabaseUrl": "https://zaqvtlsmefrgbduhzmwk.supabase.co",
       "eas": {
         "projectId": "f1e19392-b5b0-4646-8672-5f8e39654f4a"
       }
     },
     "owner": "boscojack02",
-    "runtimeVersion": "1.0.8",
+    "runtimeVersion": "1.0.9",
     "updates": {
       "url": "https://u.expo.dev/f1e19392-b5b0-4646-8672-5f8e39654f4a",
       "enabled": true,
