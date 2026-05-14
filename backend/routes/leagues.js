@@ -2911,7 +2911,8 @@ router.get('/:id/votes/:giornata', authenticateToken, async (req, res) => {
     try {
       const rows = await query(
         `SELECT player_id, rating, goals, assists, yellow_cards, red_cards,
-                goals_conceded, own_goals, penalty_missed, penalty_saved, clean_sheet
+                goals_conceded, own_goals, penalty_missed, penalty_saved, clean_sheet,
+                pallone_fuori, briso, no_divisa
          FROM player_ratings
          WHERE league_id = ? AND giornata = ?`,
         [effectiveLeagueId, giornata]
@@ -2929,6 +2930,9 @@ router.get('/:id/votes/:giornata', authenticateToken, async (req, res) => {
           penalty_missed: Number(r.penalty_missed || 0),
           penalty_saved: Number(r.penalty_saved || 0),
           clean_sheet: Number(r.clean_sheet || 0),
+          pallone_fuori: Number(r.pallone_fuori || 0),
+          briso: Number(r.briso || 0),
+          no_divisa: Number(r.no_divisa || 0),
         };
       });
       return res.json(mapped);
@@ -2952,6 +2956,10 @@ router.post('/:id/votes/:giornata', authenticateToken, async (req, res) => {
     }
 
     const entries = Object.entries(ratings);
+    // [DEBUG] Log primi 3 voti ricevuti per verificare i nuovi campi
+    entries.slice(0, 3).forEach(([pid, v]) => {
+      console.log(`[DEBUG][RECV] player=${pid} pallone_fuori=${v?.pallone_fuori} briso=${v?.briso} no_divisa=${v?.no_divisa} keys=${Object.keys(v || {}).join(',')}`);
+    });
     for (const [playerIdRaw, v] of entries) {
       const playerId = Number(playerIdRaw);
       if (!Number.isFinite(playerId) || playerId <= 0) continue;
@@ -2970,6 +2978,9 @@ router.post('/:id/votes/:giornata', authenticateToken, async (req, res) => {
         briso: Number(v?.briso || 0),
         no_divisa: Number(v?.no_divisa || 0),
       };
+      if (row.pallone_fuori || row.briso || row.no_divisa) {
+        console.log(`[DEBUG][SAVE-DB] player=${playerId} pallone_fuori=${row.pallone_fuori} briso=${row.briso} no_divisa=${row.no_divisa}`);
+      }
       await query(
         `INSERT INTO player_ratings (
            league_id, giornata, player_id, rating, goals, assists, yellow_cards, red_cards,
