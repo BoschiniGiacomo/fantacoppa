@@ -1020,12 +1020,15 @@ router.get('/competitions', authenticateToken, async (_req, res) => {
 // GET /matches?date=YYYY-MM-DD — lista match (con preferiti/notifiche)
 router.get('/matches', authenticateToken, async (req, res) => {
   try {
+    const t0 = Date.now();
     const userId = Number(req.user?.userId);
     const su = await getSuperuserLevel(userId);
+    console.log(`[PERF] GET /matches getSuperuserLevel: ${Date.now() - t0}ms`);
     const canSeeAdminOnly = su === 1 || su === 2 ? 1 : 0;
     const date = String(req.query?.date || '').trim();
     if (!date) return res.status(400).json({ message: 'date mancante' });
 
+    const tQuery = Date.now();
     const rows = await query(
       `
       WITH ev_scores AS (
@@ -1148,6 +1151,7 @@ router.get('/matches', authenticateToken, async (req, res) => {
       `,
       [userId, userId, date, canSeeAdminOnly]
     );
+    console.log(`[PERF] GET /matches mainQuery: ${Date.now() - tQuery}ms (${(rows || []).length} rows)`);
 
     const withLogos = (Array.isArray(rows) ? rows : []).map((r) => {
       const homeLogoPath = normalizeTeamLogoPathForApi(r?.home_team_logo_path);
@@ -1161,6 +1165,7 @@ router.get('/matches', authenticateToken, async (req, res) => {
       };
     });
 
+    console.log(`[PERF] GET /matches?date=${date}: ${Date.now() - t0}ms (${withLogos.length} rows)`);
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
     return res.json({ date, matches: withLogos });
   } catch (err) {
@@ -2417,14 +2422,18 @@ router.post('/matches/favorites/team-notifications', authenticateToken, async (r
 // GET /matches/strip-teams — squadre delle competizioni abilitate dal super admin per la strip in alto
 router.get('/matches/strip-teams', authenticateToken, async (req, res) => {
   try {
+    const t0 = Date.now();
     const userId = Number(req.user?.userId);
     const su = await getSuperuserLevel(userId);
+    console.log(`[PERF] GET /matches/strip-teams getSuperuserLevel: ${Date.now() - t0}ms`);
     const canSeeAdminOnly = su === 1 || su === 2 ? 1 : 0;
+    const tComps = Date.now();
     const comps = await query(
       `SELECT id, name FROM official_league_groups
        WHERE COALESCE(show_teams_in_matches_strip, 0) = 1
        ORDER BY name ASC`
     );
+    console.log(`[PERF] GET /matches/strip-teams compsQuery: ${Date.now() - tComps}ms`);
     const compIds = comps.map((c) => Number(c.id)).filter((x) => x > 0);
     if (compIds.length === 0) return res.json({ teams: [] });
 
@@ -2459,7 +2468,9 @@ router.get('/matches/strip-teams', authenticateToken, async (req, res) => {
        ORDER BY name ASC`,
       [...compIds, canSeeAdminOnly, ...compIds, canSeeAdminOnly]
     );
+    console.log(`[PERF] GET /matches/strip-teams teamsQuery: ${Date.now() - tComps}ms`);
 
+    const tHeart = Date.now();
     const heartSet = new Set();
     if (userId > 0) {
       const heartRows = await query(
@@ -2472,6 +2483,7 @@ router.get('/matches/strip-teams', authenticateToken, async (req, res) => {
         heartSet.add(`${r.official_group_id}:${String(r.team_name_display || '').trim().toLowerCase()}`);
       }
     }
+    console.log(`[PERF] GET /matches/strip-teams heartQuery: ${Date.now() - tHeart}ms`);
 
     const compNameMap = new Map(comps.map((c) => [Number(c.id), c.name]));
     const teams = (teamRows || []).map((r) => {
@@ -2493,6 +2505,7 @@ router.get('/matches/strip-teams', authenticateToken, async (req, res) => {
       if (a.is_heart !== b.is_heart) return b.is_heart - a.is_heart;
       return a.name.localeCompare(b.name, 'it');
     });
+    console.log(`[PERF] GET /matches/strip-teams: ${Date.now() - t0}ms (${teams.length} teams)`);
     return res.json({ teams });
   } catch (err) {
     if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
