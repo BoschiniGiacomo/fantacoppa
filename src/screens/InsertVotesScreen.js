@@ -121,7 +121,7 @@ const PlayerRow = memo(({ player, playerVote, bonusSettings, bonusEnabled, onUpd
         const isGK = player.role === 'P';
 
         // Ordine completo: primi 5 = riga 1, resto = riga 2
-        const allItems = isGK
+        const standardItems = isGK
           ? [
               // Riga 1
               { type: 'toggle', key: 'clean_sheet', enable: 'enable_clean_sheet', field: 'clean_sheet', icon: 'clean_sheet', activeStyle: styles.cardToggleGreenActive },
@@ -134,10 +134,6 @@ const PlayerRow = memo(({ player, playerVote, bonusSettings, bonusEnabled, onUpd
               { type: 'counter', key: 'assist', enable: 'enable_assist', field: 'assists', icon: 'assist' },
               { type: 'counter', key: 'own_goal', enable: 'enable_own_goal', field: 'own_goals', icon: 'own_goal' },
               { type: 'counter', key: 'penalty_missed', enable: 'enable_penalty_missed', field: 'penalty_missed', icon: 'penalty_missed' },
-              // Riga 3
-              { type: 'toggle', key: 'pallone_fuori', enable: 'enable_pallone_fuori', field: 'pallone_fuori', icon: 'pallone_fuori', activeStyle: styles.cardToggleRedActive },
-              { type: 'toggle', key: 'briso', enable: 'enable_briso', field: 'briso', icon: 'briso', activeStyle: styles.cardToggleGreenActive },
-              { type: 'toggle', key: 'no_divisa', enable: 'enable_no_divisa', field: 'no_divisa', icon: 'no_divisa', activeStyle: styles.cardToggleRedActive },
             ]
           : [
               // Riga 1
@@ -151,21 +147,21 @@ const PlayerRow = memo(({ player, playerVote, bonusSettings, bonusEnabled, onUpd
               { type: 'counter', key: 'goals_conceded', enable: 'enable_goals_conceded', field: 'goals_conceded', icon: 'goals_conceded' },
               { type: 'counter', key: 'penalty_saved', enable: 'enable_penalty_saved', field: 'penalty_saved', icon: 'penalty_saved' },
               { type: 'toggle', key: 'clean_sheet', enable: 'enable_clean_sheet', field: 'clean_sheet', icon: 'clean_sheet', activeStyle: styles.cardToggleGreenActive },
-              // Riga 3
-              { type: 'toggle', key: 'pallone_fuori', enable: 'enable_pallone_fuori', field: 'pallone_fuori', icon: 'pallone_fuori', activeStyle: styles.cardToggleRedActive },
-              { type: 'toggle', key: 'briso', enable: 'enable_briso', field: 'briso', icon: 'briso', activeStyle: styles.cardToggleGreenActive },
-              { type: 'toggle', key: 'no_divisa', enable: 'enable_no_divisa', field: 'no_divisa', icon: 'no_divisa', activeStyle: styles.cardToggleRedActive },
             ];
 
-        // Filtra solo quelli abilitati
-        const enabled = allItems.filter(item => bonusSettings[item.enable]);
+        const extraItems = [
+          { type: 'toggle', key: 'pallone_fuori', enable: 'enable_pallone_fuori', field: 'pallone_fuori', icon: 'pallone_fuori', activeStyle: styles.cardToggleRedActive },
+          { type: 'toggle', key: 'briso', enable: 'enable_briso', field: 'briso', icon: 'briso', activeStyle: styles.cardToggleGreenActive },
+          { type: 'toggle', key: 'no_divisa', enable: 'enable_no_divisa', field: 'no_divisa', icon: 'no_divisa', activeStyle: styles.cardToggleRedActive },
+        ];
 
-        // Split dinamico: calcola quanti items entrano in riga 1
-        // Counter ~68px, Toggle ~28px, ExpandBtn ~27px, gap 3px per item
-        const COUNTER_W = 71; // 68 + gap
-        const TOGGLE_W = 31;  // 28 + gap
+        const enabled = standardItems.filter(item => bonusSettings[item.enable]);
+        const row3 = extraItems.filter(item => bonusSettings[item.enable]);
+
+        const COUNTER_W = 71;
+        const TOGGLE_W = 31;
         const EXPAND_W = 27;
-        const MAX_ROW_W = 310; // larghezza utile approssimata
+        const MAX_ROW_W = 310;
 
         const MAX_ROW_ITEMS = 5;
         let row1Count = 0;
@@ -177,7 +173,6 @@ const PlayerRow = memo(({ player, playerVote, bonusSettings, bonusEnabled, onUpd
           usedWidth += itemW;
           row1Count++;
         }
-        // Se tutti entrano, niente riga 2
         if (row1Count >= enabled.length) row1Count = enabled.length;
 
         const row1 = enabled.slice(0, row1Count);
@@ -209,25 +204,29 @@ const PlayerRow = memo(({ player, playerVote, bonusSettings, bonusEnabled, onUpd
           );
         };
 
-        // Controlla se qualche bonus della riga 2 ha un valore > 0
         const row2HasValues = row2.some(item => pv[item.field] > 0);
+        const row3HasValues = row3.some(item => pv[item.field] > 0);
+        const hasExpandable = row2.length > 0 || row3.length > 0;
 
         return (
           <View>
             <View style={styles.bonusInlineRow}>
               {row1.map(renderItem)}
-              {row2.length > 0 && (
+              {hasExpandable && (
                 <TouchableOpacity
                   style={styles.bonusExpandBtn}
                   onPress={() => setShowRow2(!showRow2)}
                 >
                   <Ionicons name={showRow2 ? 'chevron-up' : 'ellipsis-horizontal'} size={14} color="#999" />
-                  {!showRow2 && row2HasValues && <View style={styles.bonusExpandDot} />}
+                  {!showRow2 && (row2HasValues || row3HasValues) && <View style={styles.bonusExpandDot} />}
                 </TouchableOpacity>
               )}
             </View>
             {showRow2 && row2.length > 0 && (
               <View style={styles.bonusInlineRow}>{row2.map(renderItem)}</View>
+            )}
+            {showRow2 && row3.length > 0 && (
+              <View style={styles.bonusInlineRow}>{row3.map(renderItem)}</View>
             )}
           </View>
         );
