@@ -1204,8 +1204,6 @@ const styles = StyleSheet.create({
   logo: {
     width: 92,
     height: 92,
-    borderRadius: 16,
-    backgroundColor: '#f8fafc',
   },
   logoFallback: {
     width: 92,
@@ -1318,7 +1316,7 @@ const styles = StyleSheet.create({
   matchTeamsCol: { flex: 1, gap: 4 },
   matchTeamRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   matchTeamRowSecond: { marginTop: 6, paddingTop: 6 },
-  matchTeamLogo: { width: 24, height: 24, borderRadius: 6, backgroundColor: '#f7f7f7' },
+  matchTeamLogo: { width: 24, height: 24 },
   matchTeamLogoFallback: { width: 24, height: 24, borderRadius: 6, backgroundColor: '#eef2ff', alignItems: 'center', justifyContent: 'center' },
   matchTeamName: { flex: 1, minWidth: 0, fontSize: 14, fontWeight: '600', color: '#1f2937' },
   matchScoreWrap: { minWidth: 28, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 3 },
@@ -1448,7 +1446,7 @@ const styles = StyleSheet.create({
   seasonKnockoutMatchStackMeasure: { width: '100%' },
   seasonKnockoutMatchStack: { gap: 6, width: '100%' },
   seasonKnockoutTeamRow: { flexDirection: 'row', alignItems: 'center', gap: 4, minHeight: 18 },
-  seasonKnockoutLogo: { width: 30, height: 30, borderRadius: 6, backgroundColor: '#f7f7f7' },
+  seasonKnockoutLogo: { width: 30, height: 30 },
   seasonKnockoutLogoFallback: { width: 30, height: 30, borderRadius: 6, backgroundColor: '#eef2ff', alignItems: 'center', justifyContent: 'center' },
   seasonKnockoutLogoPlaceholder: { width: 30, height: 30 },
   seasonKnockoutTeamBox: {

@@ -820,7 +820,7 @@ const styles = StyleSheet.create({
   },
   teamShootoutDivider: { width: 1, height: 14, backgroundColor: '#d1d5db' },
   teamShootoutScoreInRow: { fontSize: 11, fontWeight: '800', color: '#9ca3af', fontVariant: ['tabular-nums'] },
-  teamLogo: { width: 26, height: 26, borderRadius: 6, backgroundColor: '#f7f7f7' },
+  teamLogo: { width: 26, height: 26 },
   teamLogoFallback: { width: 26, height: 26, borderRadius: 6, backgroundColor: '#eef2ff', alignItems: 'center', justifyContent: 'center' },
   matchMetaCol: {
     flexDirection: 'row',

@@ -2418,6 +2418,8 @@ router.post('/matches/favorites/team-notifications', authenticateToken, async (r
 router.get('/matches/strip-teams', authenticateToken, async (req, res) => {
   try {
     const userId = Number(req.user?.userId);
+    const su = await getSuperuserLevel(userId);
+    const canSeeAdminOnly = su === 1 || su === 2 ? 1 : 0;
     const comps = await query(
       `SELECT id, name FROM official_league_groups
        WHERE COALESCE(show_teams_in_matches_strip, 0) = 1
@@ -2433,11 +2435,13 @@ router.get('/matches/strip-teams', authenticateToken, async (req, res) => {
          FROM official_matches m
          INNER JOIN teams t ON t.id = m.home_team_id
          WHERE m.competition_id IN (${ph})
+           AND (? = 1 OR COALESCE(m.is_admin_only, 0) = 0)
          UNION
          SELECT m.competition_id, t.id AS team_id, t.name, t.logo_path
          FROM official_matches m
          INNER JOIN teams t ON t.id = m.away_team_id
          WHERE m.competition_id IN (${ph})
+           AND (? = 1 OR COALESCE(m.is_admin_only, 0) = 0)
        ),
        ranked AS (
          SELECT competition_id, team_id, name, logo_path,
@@ -2453,7 +2457,7 @@ router.get('/matches/strip-teams', authenticateToken, async (req, res) => {
        SELECT competition_id, team_id, name, logo_path
        FROM ranked WHERE rn = 1
        ORDER BY name ASC`,
-      [...compIds, ...compIds]
+      [...compIds, canSeeAdminOnly, ...compIds, canSeeAdminOnly]
     );
 
     const heartSet = new Set();

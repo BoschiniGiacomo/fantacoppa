@@ -525,7 +525,6 @@ function TableTeamLogo({ logoUrl, logoPath, size = 36 }) {
   const boxStyle = {
     width: safeSize,
     height: safeSize,
-    borderRadius: Math.max(4, Math.round(safeSize / 4)),
   };
   const iconSize = Math.max(10, Math.round(safeSize * 0.56));
   useEffect(() => {
@@ -4108,7 +4107,7 @@ const styles = StyleSheet.create({
     minHeight: 156,
   },
   teamSlot: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, minWidth: 0 },
-  heroLogo: { width: 72, height: 72, borderRadius: 36, backgroundColor: '#f7f7f7' },
+  heroLogo: { width: 72, height: 72 },
   heroLogoFallback: { width: 72, height: 72, borderRadius: 36, backgroundColor: '#eef2ff', alignItems: 'center', justifyContent: 'center' },
   team: { fontWeight: '700', color: '#222', textAlign: 'center', fontSize: 13, lineHeight: 17 },
   centerCol: {
@@ -4909,7 +4908,7 @@ const styles = StyleSheet.create({
   knockoutSemisRow: { flexDirection: 'row', gap: 10 },
   knockoutSemiCol: { flex: 1, minWidth: 0, alignItems: 'center' },
   teamCell: { flexDirection: 'row', alignItems: 'center', gap: 12, flexShrink: 1 },
-  tableLogo: { width: 36, height: 36, borderRadius: 8, backgroundColor: '#f7f7f7' },
+  tableLogo: { width: 36, height: 36 },
   tableLogoFallback: { width: 36, height: 36, borderRadius: 8, backgroundColor: '#eef2ff', alignItems: 'center', justifyContent: 'center' },
   th: { fontWeight: '700', color: '#555', fontSize: 13 },
   td: { color: '#222', fontSize: 14 },
