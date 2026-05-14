@@ -1471,16 +1471,19 @@ router.get('/matches/teams/:teamId/detail', authenticateToken, async (req, res) 
     if (!teamId || teamId <= 0) return res.status(400).json({ message: 'teamId non valido' });
     if (!competitionId || competitionId <= 0) return res.status(400).json({ message: 'competition_id non valido' });
 
+    const tTeam = Date.now();
     const teamRows = await query(
       `SELECT t.id, t.name FROM teams t WHERE t.id = ? LIMIT 1`,
       [teamId]
     );
+    console.log(`[PERF] /detail teamQuery: ${Date.now() - tTeam}ms`);
     const team = teamRows[0];
     if (!team) return res.status(404).json({ message: 'Squadra non trovata' });
 
     const teamName = String(team.name || '').trim();
     if (!teamName) return res.status(404).json({ message: 'Squadra non valida' });
 
+    const tParallel = Date.now();
     const teamNameNorm = normalizeTeamNameForFavorite(teamName);
     const [logoCandidates, currentPref, favoriteCountRows] = await Promise.all([
       query(
@@ -1511,12 +1514,13 @@ router.get('/matches/teams/:teamId/detail', authenticateToken, async (req, res) 
       ),
     ]);
 
+    console.log(`[PERF] /detail parallel(logo+pref+count): ${Date.now() - tParallel}ms`);
     const bestLogoRaw = (logoCandidates || []).find((r) => String(r?.logo_path || '').trim() !== '')?.logo_path || null;
     const bestLogoPath = normalizeTeamLogoPathForApi(bestLogoRaw);
     const pref = currentPref[0] || null;
     const favoriteCount = Number(favoriteCountRows?.[0]?.favorite_count || 0);
 
-    console.log(`[PERF] GET /matches/teams/:teamId/detail: ${Date.now() - t0}ms`);
+    console.log(`[PERF] GET /matches/teams/:teamId/detail TOTAL: ${Date.now() - t0}ms`);
     return res.json({
       team: {
         id: Number(team.id),
