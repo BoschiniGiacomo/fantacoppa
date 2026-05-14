@@ -383,7 +383,7 @@ export default function StandingsScreen({ route, navigation }) {
                                       </>
                                     )}
                                     {bonusItems.length > 0 && (
-                                      <View style={styles.fieldBonusCol}>
+                                      <View style={[styles.fieldBonusCol, cnt === 1 && { right: -22 }]}>
                                         {bonusItems.map((b, idx) => (
                                           <View key={idx} style={styles.fieldBonusChip}>
                                             <BonusIcon type={b.type} size={17} />
