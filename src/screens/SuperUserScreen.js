@@ -1741,9 +1741,6 @@ export default function SuperUserScreen() {
 
               {logoSectionOpen && (
                 <>
-                  <Text style={[styles.appSettingsMuted, { marginTop: 8, marginBottom: 12 }]}>
-                    Sostituisce la scritta "FANTACOPPA MONTECAVOLO" nella pagina di login. Usa un'immagine senza sfondo (PNG trasparente).
-                  </Text>
 
                   <TouchableOpacity
                     style={[styles.appSettingsPrimaryBtn, pickingLoginLogo && styles.appSettingsBtnDisabled]}
