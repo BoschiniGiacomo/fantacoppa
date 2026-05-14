@@ -1221,13 +1221,27 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
     if (!matchRow) return res.status(404).json({ message: 'Partita non trovata' });
     console.log(`[PERF] /detail matchQuery: ${Date.now() - t0}ms`);
 
-    const tMeta = Date.now();
-    const homeTeam = await getTeamMeta(Number(matchRow.home_team_id));
-    const awayTeam = await getTeamMeta(Number(matchRow.away_team_id));
+    const tPhase1 = Date.now();
+    const homeTeamId = Number(matchRow.home_team_id);
+    const awayTeamId = Number(matchRow.away_team_id);
+
+    await ensureUnavailablePlayersTable();
+    const [homeTeam, awayTeam, rawEvents, homeLineup, awayLineup, unavailableRows] = await Promise.all([
+      getTeamMeta(homeTeamId),
+      getTeamMeta(awayTeamId),
+      query(
+        `SELECT id, match_id, event_type, minute, team_side, team_id, player_id, assist_player_id, title, payload_json, created_at
+         FROM official_match_events WHERE match_id = ? ORDER BY minute ASC, id ASC`,
+        [matchId]
+      ),
+      getTeamPlayersLineup(homeTeamId),
+      getTeamPlayersLineup(awayTeamId),
+      query(`SELECT player_id FROM official_match_unavailable_players WHERE match_id = ?`, [matchId]),
+    ]);
+    console.log(`[PERF] /detail phase1 (meta+events+lineups+unavail parallel): ${Date.now() - tPhase1}ms`);
 
     const homeLogoPath = normalizeTeamLogoPathForApi(homeTeam?.logo_path);
     const awayLogoPath = normalizeTeamLogoPathForApi(awayTeam?.logo_path);
-
     const match = {
       ...matchRow,
       home_team_logo_path: homeLogoPath,
@@ -1243,23 +1257,7 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
       penalties_enabled: matchRow.penalties_enabled != null ? Number(matchRow.penalties_enabled) : 0,
     };
 
-    console.log(`[PERF] /detail teamMeta: ${Date.now() - tMeta}ms`);
-    const tEvents = Date.now();
-    const rawEvents = await query(
-      `
-      SELECT id, match_id, event_type, minute, team_side, team_id, player_id, assist_player_id, title, payload_json, created_at
-      FROM official_match_events
-      WHERE match_id = ?
-      ORDER BY minute ASC, id ASC
-      `,
-      [matchId]
-    );
-
     const events = (Array.isArray(rawEvents) ? rawEvents : []).map(enrichEventForApi);
-
-    // Compatibilità timezone legacy: se il solo evento match_start arriva con created_at
-    // sfasato di ore (default DB/trigger errato), lo riallineiamo all'orario attuale
-    // per evitare cronometri che partono da ~120'.
     const nowMs = Date.now();
     const correctedEvents = events.map((ev) => {
       if (!ev || ev.event_type !== 'match_start' || !ev.created_at) return ev;
@@ -1272,24 +1270,12 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
       return ev;
     });
 
-    console.log(`[PERF] /detail events: ${Date.now() - tEvents}ms`);
-    const tLineups = Date.now();
-    const homeLineup = await getTeamPlayersLineup(Number(match.home_team_id));
-    const awayLineup = await getTeamPlayersLineup(Number(match.away_team_id));
-    await ensureUnavailablePlayersTable();
-    const unavailableRows = await query(
-      `SELECT player_id
-       FROM official_match_unavailable_players
-       WHERE match_id = ?`,
-      [matchId]
-    );
     const unavailableSet = new Set((unavailableRows || []).map((r) => Number(r.player_id)).filter((n) => Number.isFinite(n) && n > 0));
     const homeAvailable = homeLineup.filter((p) => !unavailableSet.has(Number(p.id)));
     const awayAvailable = awayLineup.filter((p) => !unavailableSet.has(Number(p.id)));
     const homeUnavailable = homeLineup.filter((p) => unavailableSet.has(Number(p.id)));
     const awayUnavailable = awayLineup.filter((p) => unavailableSet.has(Number(p.id)));
 
-    console.log(`[PERF] /detail lineups+unavailable: ${Date.now() - tLineups}ms`);
     const tStandings = Date.now();
     const homeLeagueId = Number(match.home_league_id || 0);
     const awayLeagueId = Number(match.away_league_id || 0);
@@ -1297,7 +1283,6 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
     const currentLeagueId =
       matchLeagueId > 0 ? matchLeagueId : (homeLeagueId > 0 && homeLeagueId === awayLeagueId ? homeLeagueId : 0);
 
-    // Standings: legacy calcola da lega ufficiale (se home/away nella stessa lega)
     let standings = [];
     try {
       if (currentLeagueId > 0) {
@@ -1307,7 +1292,6 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
         });
       }
     } catch (err) {
-      // se la tabella non esiste, standings resta vuota (compatibile legacy)
       standings = [];
     }
 
