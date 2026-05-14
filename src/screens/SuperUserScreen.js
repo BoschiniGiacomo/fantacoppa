@@ -99,6 +99,7 @@ export default function SuperUserScreen() {
   const [appLoadingSimulateOpen, setAppLoadingSimulateOpen] = useState(false);
   const [simulateProgress, setSimulateProgress] = useState(0);
   const [loadingSectionOpen, setLoadingSectionOpen] = useState(false);
+  const [logoSectionOpen, setLogoSectionOpen] = useState(false);
   const [loginLogoPreview, setLoginLogoPreview] = useState(null);
   const [pickingLoginLogo, setPickingLoginLogo] = useState(false);
   
@@ -1725,45 +1726,61 @@ export default function SuperUserScreen() {
             </View>
 
             <View style={[styles.appSettingsCard, { marginTop: 16 }]}>
-              <Text style={styles.appSettingsSectionTitle}>Logo pagina di login</Text>
-              <Text style={[styles.appSettingsMuted, { marginTop: 0, marginBottom: 12 }]}>
-                Sostituisce la scritta "FANTACOPPA MONTECAVOLO" nella pagina di login. Usa un'immagine senza sfondo (PNG trasparente).
-              </Text>
-
               <TouchableOpacity
-                style={[styles.appSettingsPrimaryBtn, pickingLoginLogo && styles.appSettingsBtnDisabled]}
-                onPress={handlePickLoginLogo}
-                disabled={pickingLoginLogo}
+                style={styles.collapsibleHeader}
+                onPress={() => setLogoSectionOpen((v) => !v)}
+                activeOpacity={0.7}
               >
-                {pickingLoginLogo ? (
-                  <ActivityIndicator color="#fff" />
-                ) : (
-                  <Text style={styles.appSettingsPrimaryBtnText}>Scegli immagine</Text>
-                )}
+                <Text style={styles.appSettingsSectionTitle}>Logo pagina di login</Text>
+                <Ionicons
+                  name={logoSectionOpen ? 'chevron-up' : 'chevron-down'}
+                  size={22}
+                  color="#666"
+                />
               </TouchableOpacity>
 
-              {loginLogoPreview?.uri ? (
+              {logoSectionOpen && (
                 <>
-                  <Text style={styles.appSettingsPreviewTitle}>Anteprima</Text>
-                  <View style={styles.loginLogoPreviewBox}>
-                    <Image
-                      source={{ uri: loginLogoPreview.uri }}
-                      style={styles.loginLogoPreviewImg}
-                      resizeMode="contain"
-                    />
-                  </View>
+                  <Text style={[styles.appSettingsMuted, { marginTop: 8, marginBottom: 12 }]}>
+                    Sostituisce la scritta "FANTACOPPA MONTECAVOLO" nella pagina di login. Usa un'immagine senza sfondo (PNG trasparente).
+                  </Text>
+
                   <TouchableOpacity
-                    style={styles.appSettingsSecondaryBtn}
-                    onPress={handleClearLoginLogo}
+                    style={[styles.appSettingsPrimaryBtn, pickingLoginLogo && styles.appSettingsBtnDisabled]}
+                    onPress={handlePickLoginLogo}
                     disabled={pickingLoginLogo}
                   >
-                    <Text style={styles.appSettingsSecondaryBtnText}>Rimuovi logo (torna alla scritta)</Text>
+                    {pickingLoginLogo ? (
+                      <ActivityIndicator color="#fff" />
+                    ) : (
+                      <Text style={styles.appSettingsPrimaryBtnText}>Scegli immagine</Text>
+                    )}
                   </TouchableOpacity>
+
+                  {loginLogoPreview?.uri ? (
+                    <>
+                      <Text style={styles.appSettingsPreviewTitle}>Anteprima</Text>
+                      <View style={styles.loginLogoPreviewBox}>
+                        <Image
+                          source={{ uri: loginLogoPreview.uri }}
+                          style={styles.loginLogoPreviewImg}
+                          resizeMode="contain"
+                        />
+                      </View>
+                      <TouchableOpacity
+                        style={styles.appSettingsSecondaryBtn}
+                        onPress={handleClearLoginLogo}
+                        disabled={pickingLoginLogo}
+                      >
+                        <Text style={styles.appSettingsSecondaryBtnText}>Rimuovi logo (torna alla scritta)</Text>
+                      </TouchableOpacity>
+                    </>
+                  ) : (
+                    <Text style={[styles.appSettingsMuted, { marginTop: 14 }]}>
+                      Nessun logo caricato: verrà visualizzata la scritta predefinita.
+                    </Text>
+                  )}
                 </>
-              ) : (
-                <Text style={[styles.appSettingsMuted, { marginTop: 14 }]}>
-                  Nessun logo caricato: verrà visualizzata la scritta predefinita.
-                </Text>
               )}
             </View>
           </ScrollView>
