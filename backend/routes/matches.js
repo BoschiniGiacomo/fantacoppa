@@ -1022,16 +1022,17 @@ router.get('/matches', authenticateToken, async (req, res) => {
   try {
     const t0 = Date.now();
     const userId = Number(req.user?.userId);
-    const su = await getSuperuserLevel(userId);
-    console.log(`[PERF] GET /matches getSuperuserLevel: ${Date.now() - t0}ms`);
-    const canSeeAdminOnly = su === 1 || su === 2 ? 1 : 0;
     const date = String(req.query?.date || '').trim();
     if (!date) return res.status(400).json({ message: 'date mancante' });
 
     const tQuery = Date.now();
     const rows = await query(
       `
-      WITH ev_scores AS (
+      WITH su AS (
+        SELECT CASE WHEN COALESCE(is_superuser, 0) IN (1, 2) THEN 1 ELSE 0 END AS can_see
+        FROM users WHERE id = ?
+      ),
+      ev_scores AS (
         SELECT
           e.match_id,
           SUM(CASE
@@ -1146,12 +1147,12 @@ router.get('/matches', authenticateToken, async (req, res) => {
       LEFT JOIN user_official_match_favorites fm ON fm.user_id = ? AND fm.match_id = m.id
       LEFT JOIN user_official_match_notifications mn ON mn.user_id = ? AND mn.match_id = m.id
       WHERE (m.kickoff_at AT TIME ZONE 'Europe/Rome')::date = ?::date
-        AND (? = 1 OR COALESCE(m.is_admin_only, 0) = 0)
+        AND ((SELECT can_see FROM su) = 1 OR COALESCE(m.is_admin_only, 0) = 0)
       ORDER BY (fm.match_id IS NOT NULL) DESC, m.kickoff_at ASC, m.id ASC
       `,
-      [userId, userId, date, canSeeAdminOnly]
+      [userId, userId, userId, date]
     );
-    console.log(`[PERF] GET /matches mainQuery: ${Date.now() - tQuery}ms (${(rows || []).length} rows)`);
+    console.log(`[PERF] GET /matches singleQuery (includes su check): ${Date.now() - tQuery}ms (${(rows || []).length} rows)`);
 
     const withLogos = (Array.isArray(rows) ? rows : []).map((r) => {
       const homeLogoPath = normalizeTeamLogoPathForApi(r?.home_team_logo_path);
@@ -2424,19 +2425,30 @@ router.get('/matches/strip-teams', authenticateToken, async (req, res) => {
   try {
     const t0 = Date.now();
     const userId = Number(req.user?.userId);
-    const su = await getSuperuserLevel(userId);
-    console.log(`[PERF] GET /matches/strip-teams getSuperuserLevel: ${Date.now() - t0}ms`);
+
+    const [su, comps, heartRows] = await Promise.all([
+      getSuperuserLevel(userId),
+      query(
+        `SELECT id, name FROM official_league_groups
+         WHERE COALESCE(show_teams_in_matches_strip, 0) = 1
+         ORDER BY name ASC`
+      ),
+      userId > 0
+        ? query(
+            `SELECT official_group_id, team_name_display
+             FROM user_official_team_favorites
+             WHERE user_id = ? AND COALESCE(is_heart, 0) = 1`,
+            [userId]
+          )
+        : Promise.resolve([]),
+    ]);
+    console.log(`[PERF] GET /matches/strip-teams phase1 (su+comps+heart parallel): ${Date.now() - t0}ms`);
+
     const canSeeAdminOnly = su === 1 || su === 2 ? 1 : 0;
-    const tComps = Date.now();
-    const comps = await query(
-      `SELECT id, name FROM official_league_groups
-       WHERE COALESCE(show_teams_in_matches_strip, 0) = 1
-       ORDER BY name ASC`
-    );
-    console.log(`[PERF] GET /matches/strip-teams compsQuery: ${Date.now() - tComps}ms`);
     const compIds = comps.map((c) => Number(c.id)).filter((x) => x > 0);
     if (compIds.length === 0) return res.json({ teams: [] });
 
+    const tTeams = Date.now();
     const ph = compIds.map(() => '?').join(', ');
     const teamRows = await query(
       `WITH comp_teams AS (
@@ -2468,22 +2480,12 @@ router.get('/matches/strip-teams', authenticateToken, async (req, res) => {
        ORDER BY name ASC`,
       [...compIds, canSeeAdminOnly, ...compIds, canSeeAdminOnly]
     );
-    console.log(`[PERF] GET /matches/strip-teams teamsQuery: ${Date.now() - tComps}ms`);
+    console.log(`[PERF] GET /matches/strip-teams teamsQuery: ${Date.now() - tTeams}ms`);
 
-    const tHeart = Date.now();
     const heartSet = new Set();
-    if (userId > 0) {
-      const heartRows = await query(
-        `SELECT official_group_id, team_name_display
-         FROM user_official_team_favorites
-         WHERE user_id = ? AND COALESCE(is_heart, 0) = 1`,
-        [userId]
-      );
-      for (const r of heartRows || []) {
-        heartSet.add(`${r.official_group_id}:${String(r.team_name_display || '').trim().toLowerCase()}`);
-      }
+    for (const r of heartRows || []) {
+      heartSet.add(`${r.official_group_id}:${String(r.team_name_display || '').trim().toLowerCase()}`);
     }
-    console.log(`[PERF] GET /matches/strip-teams heartQuery: ${Date.now() - tHeart}ms`);
 
     const compNameMap = new Map(comps.map((c) => [Number(c.id), c.name]));
     const teams = (teamRows || []).map((r) => {
