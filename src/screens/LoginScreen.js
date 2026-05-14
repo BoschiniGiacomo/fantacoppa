@@ -200,8 +200,8 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   loginLogoImage: {
-    width: 240,
-    height: 160,
+    width: 320,
+    height: 220,
     alignSelf: 'center',
     marginBottom: 14,
     backgroundColor: 'transparent',
