@@ -3646,13 +3646,11 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   loginLogoPreviewBox: {
-    backgroundColor: '#f4f5fa',
+    backgroundColor: 'transparent',
     borderRadius: 12,
     padding: 20,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#e8e8ee',
   },
   loginLogoPreviewImg: {
     width: 180,

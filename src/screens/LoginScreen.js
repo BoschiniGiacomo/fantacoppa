@@ -200,10 +200,11 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   loginLogoImage: {
-    width: 220,
-    height: 150,
+    width: 240,
+    height: 160,
     alignSelf: 'center',
     marginBottom: 14,
+    backgroundColor: 'transparent',
   },
   title: {
     fontSize: 32,
