@@ -172,7 +172,34 @@ const BONUS_DEFAULTS = {
   enable_penalty_missed: 1, malus_penalty_missed: -3.0,
   enable_penalty_saved: 1, bonus_penalty_saved: 3.0,
   enable_clean_sheet: 1, bonus_clean_sheet: 1.0,
+  enable_pallone_fuori: 0, malus_pallone_fuori: -0.5,
+  enable_briso: 0, bonus_briso: 1.5,
+  enable_no_divisa: 0, malus_no_divisa: -1.0,
 };
+
+let _bonusColumnsMigrated = false;
+async function ensureNewBonusColumns() {
+  if (_bonusColumnsMigrated) return;
+  _bonusColumnsMigrated = true;
+  const alters = [
+    'ALTER TABLE league_bonus_settings ADD COLUMN IF NOT EXISTS enable_pallone_fuori INTEGER DEFAULT 0',
+    'ALTER TABLE league_bonus_settings ADD COLUMN IF NOT EXISTS malus_pallone_fuori REAL DEFAULT -0.5',
+    'ALTER TABLE league_bonus_settings ADD COLUMN IF NOT EXISTS enable_briso INTEGER DEFAULT 0',
+    'ALTER TABLE league_bonus_settings ADD COLUMN IF NOT EXISTS bonus_briso REAL DEFAULT 1.5',
+    'ALTER TABLE league_bonus_settings ADD COLUMN IF NOT EXISTS enable_no_divisa INTEGER DEFAULT 0',
+    'ALTER TABLE league_bonus_settings ADD COLUMN IF NOT EXISTS malus_no_divisa REAL DEFAULT -1.0',
+    'ALTER TABLE player_ratings ADD COLUMN IF NOT EXISTS pallone_fuori INTEGER DEFAULT 0',
+    'ALTER TABLE player_ratings ADD COLUMN IF NOT EXISTS briso INTEGER DEFAULT 0',
+    'ALTER TABLE player_ratings ADD COLUMN IF NOT EXISTS no_divisa INTEGER DEFAULT 0',
+    'ALTER TABLE matchday_player_scores ADD COLUMN IF NOT EXISTS pallone_fuori INTEGER DEFAULT 0',
+    'ALTER TABLE matchday_player_scores ADD COLUMN IF NOT EXISTS briso INTEGER DEFAULT 0',
+    'ALTER TABLE matchday_player_scores ADD COLUMN IF NOT EXISTS no_divisa INTEGER DEFAULT 0',
+  ];
+  for (const sql of alters) {
+    try { await query(sql); } catch (_) {}
+  }
+}
+ensureNewBonusColumns();
 
 function normalizeBonusSettings(input = {}) {
   const merged = { ...BONUS_DEFAULTS, ...(input || {}) };
@@ -196,6 +223,12 @@ function normalizeBonusSettings(input = {}) {
     bonus_penalty_saved: Number(merged.bonus_penalty_saved ?? BONUS_DEFAULTS.bonus_penalty_saved),
     enable_clean_sheet: toBoolInt(merged.enable_clean_sheet),
     bonus_clean_sheet: Number(merged.bonus_clean_sheet ?? BONUS_DEFAULTS.bonus_clean_sheet),
+    enable_pallone_fuori: toBoolInt(merged.enable_pallone_fuori),
+    malus_pallone_fuori: Number(merged.malus_pallone_fuori ?? BONUS_DEFAULTS.malus_pallone_fuori),
+    enable_briso: toBoolInt(merged.enable_briso),
+    bonus_briso: Number(merged.bonus_briso ?? BONUS_DEFAULTS.bonus_briso),
+    enable_no_divisa: toBoolInt(merged.enable_no_divisa),
+    malus_no_divisa: Number(merged.malus_no_divisa ?? BONUS_DEFAULTS.malus_no_divisa),
   };
 }
 
@@ -270,6 +303,15 @@ function computeBonusTotal(vote, bonusSettings) {
   }
   if (Number(bonusSettings.enable_clean_sheet || 0) === 1) {
     bonus += Number(vote.clean_sheet || 0) * Number(bonusSettings.bonus_clean_sheet || 0);
+  }
+  if (Number(bonusSettings.enable_pallone_fuori || 0) === 1) {
+    bonus += Number(vote.pallone_fuori || 0) * Number(bonusSettings.malus_pallone_fuori || 0);
+  }
+  if (Number(bonusSettings.enable_briso || 0) === 1) {
+    bonus += Number(vote.briso || 0) * Number(bonusSettings.bonus_briso || 0);
+  }
+  if (Number(bonusSettings.enable_no_divisa || 0) === 1) {
+    bonus += Number(vote.no_divisa || 0) * Number(bonusSettings.malus_no_divisa || 0);
   }
   return bonus;
 }
@@ -495,7 +537,9 @@ async function getLeagueBonusSettings(leagueId) {
               enable_yellow_card, malus_yellow_card, enable_red_card, malus_red_card,
               enable_goals_conceded, malus_goals_conceded, enable_own_goal, malus_own_goal,
               enable_penalty_missed, malus_penalty_missed, enable_penalty_saved, bonus_penalty_saved,
-              enable_clean_sheet, bonus_clean_sheet
+              enable_clean_sheet, bonus_clean_sheet,
+              enable_pallone_fuori, malus_pallone_fuori, enable_briso, bonus_briso,
+              enable_no_divisa, malus_no_divisa
        FROM league_bonus_settings
        WHERE league_id = ?
        LIMIT 1`,
@@ -2767,9 +2811,11 @@ router.put('/:id/bonus-settings', authenticateToken, async (req, res) => {
          enable_yellow_card, malus_yellow_card, enable_red_card, malus_red_card,
          enable_goals_conceded, malus_goals_conceded, enable_own_goal, malus_own_goal,
          enable_penalty_missed, malus_penalty_missed, enable_penalty_saved, bonus_penalty_saved,
-         enable_clean_sheet, bonus_clean_sheet
+         enable_clean_sheet, bonus_clean_sheet,
+         enable_pallone_fuori, malus_pallone_fuori, enable_briso, bonus_briso,
+         enable_no_divisa, malus_no_divisa
        )
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT (league_id)
        DO UPDATE SET
          enable_bonus_malus = EXCLUDED.enable_bonus_malus,
@@ -2790,7 +2836,13 @@ router.put('/:id/bonus-settings', authenticateToken, async (req, res) => {
          enable_penalty_saved = EXCLUDED.enable_penalty_saved,
          bonus_penalty_saved = EXCLUDED.bonus_penalty_saved,
          enable_clean_sheet = EXCLUDED.enable_clean_sheet,
-         bonus_clean_sheet = EXCLUDED.bonus_clean_sheet`,
+         bonus_clean_sheet = EXCLUDED.bonus_clean_sheet,
+         enable_pallone_fuori = EXCLUDED.enable_pallone_fuori,
+         malus_pallone_fuori = EXCLUDED.malus_pallone_fuori,
+         enable_briso = EXCLUDED.enable_briso,
+         bonus_briso = EXCLUDED.bonus_briso,
+         enable_no_divisa = EXCLUDED.enable_no_divisa,
+         malus_no_divisa = EXCLUDED.malus_no_divisa`,
       [
         leagueId,
         bs.enable_bonus_malus, bs.enable_goal, bs.bonus_goal, bs.enable_assist, bs.bonus_assist,
@@ -2798,6 +2850,8 @@ router.put('/:id/bonus-settings', authenticateToken, async (req, res) => {
         bs.enable_goals_conceded, bs.malus_goals_conceded, bs.enable_own_goal, bs.malus_own_goal,
         bs.enable_penalty_missed, bs.malus_penalty_missed, bs.enable_penalty_saved, bs.bonus_penalty_saved,
         bs.enable_clean_sheet, bs.bonus_clean_sheet,
+        bs.enable_pallone_fuori, bs.malus_pallone_fuori, bs.enable_briso, bs.bonus_briso,
+        bs.enable_no_divisa, bs.malus_no_divisa,
       ]
     );
     res.json({ message: 'Bonus settings aggiornati' });
@@ -2936,13 +2990,17 @@ router.post('/:id/votes/:giornata', authenticateToken, async (req, res) => {
         penalty_missed: Number(v?.penalty_missed || 0),
         penalty_saved: Number(v?.penalty_saved || 0),
         clean_sheet: Number(v?.clean_sheet || 0),
+        pallone_fuori: Number(v?.pallone_fuori || 0),
+        briso: Number(v?.briso || 0),
+        no_divisa: Number(v?.no_divisa || 0),
       };
       await query(
         `INSERT INTO player_ratings (
            league_id, giornata, player_id, rating, goals, assists, yellow_cards, red_cards,
-           goals_conceded, own_goals, penalty_missed, penalty_saved, clean_sheet
+           goals_conceded, own_goals, penalty_missed, penalty_saved, clean_sheet,
+           pallone_fuori, briso, no_divisa
          )
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT (league_id, giornata, player_id)
          DO UPDATE SET
            rating = EXCLUDED.rating,
@@ -2954,10 +3012,14 @@ router.post('/:id/votes/:giornata', authenticateToken, async (req, res) => {
            own_goals = EXCLUDED.own_goals,
            penalty_missed = EXCLUDED.penalty_missed,
            penalty_saved = EXCLUDED.penalty_saved,
-           clean_sheet = EXCLUDED.clean_sheet`,
+           clean_sheet = EXCLUDED.clean_sheet,
+           pallone_fuori = EXCLUDED.pallone_fuori,
+           briso = EXCLUDED.briso,
+           no_divisa = EXCLUDED.no_divisa`,
         [
           leagueId, giornata, playerId, row.rating, row.goals, row.assists, row.yellow_cards, row.red_cards,
           row.goals_conceded, row.own_goals, row.penalty_missed, row.penalty_saved, row.clean_sheet,
+          row.pallone_fuori, row.briso, row.no_divisa,
         ]
       );
     }
@@ -3199,6 +3261,9 @@ router.post('/:id/calculate/:giornata', authenticateToken, async (req, res) => {
           penalty_missed: Number(vote.penalty_missed || 0),
           penalty_saved: Number(vote.penalty_saved || 0),
           clean_sheet: Number(vote.clean_sheet || 0),
+          pallone_fuori: Number(vote.pallone_fuori || 0),
+          briso: Number(vote.briso || 0),
+          no_divisa: Number(vote.no_divisa || 0),
           bonus_total: Number(bonusTotal.toFixed(2)),
           total_score: Number(score.toFixed(2)),
         });
@@ -3218,9 +3283,11 @@ router.post('/:id/calculate/:giornata', authenticateToken, async (req, res) => {
               `INSERT INTO matchday_player_scores (
                  league_id, giornata, user_id, player_id, player_name, player_role,
                  rating, goals, assists, yellow_cards, red_cards, goals_conceded,
-                 own_goals, penalty_missed, penalty_saved, clean_sheet, bonus_total, total_score
+                 own_goals, penalty_missed, penalty_saved, clean_sheet,
+                 pallone_fuori, briso, no_divisa,
+                 bonus_total, total_score
                )
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT (league_id, giornata, user_id, player_id)
                DO UPDATE SET
                  player_name = EXCLUDED.player_name,
@@ -3235,12 +3302,17 @@ router.post('/:id/calculate/:giornata', authenticateToken, async (req, res) => {
                  penalty_missed = EXCLUDED.penalty_missed,
                  penalty_saved = EXCLUDED.penalty_saved,
                  clean_sheet = EXCLUDED.clean_sheet,
+                 pallone_fuori = EXCLUDED.pallone_fuori,
+                 briso = EXCLUDED.briso,
+                 no_divisa = EXCLUDED.no_divisa,
                  bonus_total = EXCLUDED.bonus_total,
                  total_score = EXCLUDED.total_score`,
               [
                 leagueId, giornata, userId, ps.player_id, ps.player_name, ps.player_role,
                 ps.rating, ps.goals, ps.assists, ps.yellow_cards, ps.red_cards, ps.goals_conceded,
-                ps.own_goals, ps.penalty_missed, ps.penalty_saved, ps.clean_sheet, ps.bonus_total, ps.total_score,
+                ps.own_goals, ps.penalty_missed, ps.penalty_saved, ps.clean_sheet,
+                ps.pallone_fuori, ps.briso, ps.no_divisa,
+                ps.bonus_total, ps.total_score,
               ]
             );
           }
@@ -4171,9 +4243,11 @@ router.post('/', authenticateToken, async (req, res) => {
              enable_yellow_card, malus_yellow_card, enable_red_card, malus_red_card,
              enable_goals_conceded, malus_goals_conceded, enable_own_goal, malus_own_goal,
              enable_penalty_missed, malus_penalty_missed, enable_penalty_saved, bonus_penalty_saved,
-             enable_clean_sheet, bonus_clean_sheet
+             enable_clean_sheet, bonus_clean_sheet,
+             enable_pallone_fuori, malus_pallone_fuori, enable_briso, bonus_briso,
+             enable_no_divisa, malus_no_divisa
            )
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT (league_id)
            DO UPDATE SET
              enable_bonus_malus = EXCLUDED.enable_bonus_malus,
@@ -4194,7 +4268,13 @@ router.post('/', authenticateToken, async (req, res) => {
              enable_penalty_saved = EXCLUDED.enable_penalty_saved,
              bonus_penalty_saved = EXCLUDED.bonus_penalty_saved,
              enable_clean_sheet = EXCLUDED.enable_clean_sheet,
-             bonus_clean_sheet = EXCLUDED.bonus_clean_sheet`,
+             bonus_clean_sheet = EXCLUDED.bonus_clean_sheet,
+             enable_pallone_fuori = EXCLUDED.enable_pallone_fuori,
+             malus_pallone_fuori = EXCLUDED.malus_pallone_fuori,
+             enable_briso = EXCLUDED.enable_briso,
+             bonus_briso = EXCLUDED.bonus_briso,
+             enable_no_divisa = EXCLUDED.enable_no_divisa,
+             malus_no_divisa = EXCLUDED.malus_no_divisa`,
           [
             leagueId,
             bs.enable_bonus_malus, bs.enable_goal, bs.bonus_goal, bs.enable_assist, bs.bonus_assist,
@@ -4202,6 +4282,8 @@ router.post('/', authenticateToken, async (req, res) => {
             bs.enable_goals_conceded, bs.malus_goals_conceded, bs.enable_own_goal, bs.malus_own_goal,
             bs.enable_penalty_missed, bs.malus_penalty_missed, bs.enable_penalty_saved, bs.bonus_penalty_saved,
             bs.enable_clean_sheet, bs.bonus_clean_sheet,
+            bs.enable_pallone_fuori, bs.malus_pallone_fuori, bs.enable_briso, bs.bonus_briso,
+            bs.enable_no_divisa, bs.malus_no_divisa,
           ]
         );
       } catch (bonusErr) {

@@ -134,6 +134,10 @@ const PlayerRow = memo(({ player, playerVote, bonusSettings, bonusEnabled, onUpd
               { type: 'counter', key: 'assist', enable: 'enable_assist', field: 'assists', icon: 'assist' },
               { type: 'counter', key: 'own_goal', enable: 'enable_own_goal', field: 'own_goals', icon: 'own_goal' },
               { type: 'counter', key: 'penalty_missed', enable: 'enable_penalty_missed', field: 'penalty_missed', icon: 'penalty_missed' },
+              // Riga 3
+              { type: 'toggle', key: 'pallone_fuori', enable: 'enable_pallone_fuori', field: 'pallone_fuori', icon: 'pallone_fuori', activeStyle: styles.cardToggleRedActive },
+              { type: 'toggle', key: 'briso', enable: 'enable_briso', field: 'briso', icon: 'briso', activeStyle: styles.cardToggleGreenActive },
+              { type: 'toggle', key: 'no_divisa', enable: 'enable_no_divisa', field: 'no_divisa', icon: 'no_divisa', activeStyle: styles.cardToggleRedActive },
             ]
           : [
               // Riga 1
@@ -147,6 +151,10 @@ const PlayerRow = memo(({ player, playerVote, bonusSettings, bonusEnabled, onUpd
               { type: 'counter', key: 'goals_conceded', enable: 'enable_goals_conceded', field: 'goals_conceded', icon: 'goals_conceded' },
               { type: 'counter', key: 'penalty_saved', enable: 'enable_penalty_saved', field: 'penalty_saved', icon: 'penalty_saved' },
               { type: 'toggle', key: 'clean_sheet', enable: 'enable_clean_sheet', field: 'clean_sheet', icon: 'clean_sheet', activeStyle: styles.cardToggleGreenActive },
+              // Riga 3
+              { type: 'toggle', key: 'pallone_fuori', enable: 'enable_pallone_fuori', field: 'pallone_fuori', icon: 'pallone_fuori', activeStyle: styles.cardToggleRedActive },
+              { type: 'toggle', key: 'briso', enable: 'enable_briso', field: 'briso', icon: 'briso', activeStyle: styles.cardToggleGreenActive },
+              { type: 'toggle', key: 'no_divisa', enable: 'enable_no_divisa', field: 'no_divisa', icon: 'no_divisa', activeStyle: styles.cardToggleRedActive },
             ];
 
         // Filtra solo quelli abilitati
@@ -438,7 +446,7 @@ export default function InsertVotesScreen({ route, navigation }) {
   }, []);
 
   const toggleSV = useCallback((playerId) => {
-    const EMPTY_VOTE = { rating: 0, goals: 0, assists: 0, yellow_cards: 0, red_cards: 0, goals_conceded: 0, own_goals: 0, penalty_missed: 0, penalty_saved: 0, clean_sheet: 0 };
+    const EMPTY_VOTE = { rating: 0, goals: 0, assists: 0, yellow_cards: 0, red_cards: 0, goals_conceded: 0, own_goals: 0, penalty_missed: 0, penalty_saved: 0, clean_sheet: 0, pallone_fuori: 0, briso: 0, no_divisa: 0 };
     setVotes(prev => {
       const current = prev[playerId] || EMPTY_VOTE;
       const isSV = current.rating === 0;
@@ -448,12 +456,13 @@ export default function InsertVotesScreen({ route, navigation }) {
           ...current, rating: isSV ? 6.0 : 0,
           goals: 0, assists: 0, yellow_cards: 0, red_cards: 0,
           goals_conceded: 0, own_goals: 0, penalty_missed: 0, penalty_saved: 0, clean_sheet: 0,
+          pallone_fuori: 0, briso: 0, no_divisa: 0,
         }
       };
     });
   }, []);
 
-  const EMPTY_VOTE = { rating: 0, goals: 0, assists: 0, yellow_cards: 0, red_cards: 0, goals_conceded: 0, own_goals: 0, penalty_missed: 0, penalty_saved: 0, clean_sheet: 0 };
+  const EMPTY_VOTE = { rating: 0, goals: 0, assists: 0, yellow_cards: 0, red_cards: 0, goals_conceded: 0, own_goals: 0, penalty_missed: 0, penalty_saved: 0, clean_sheet: 0, pallone_fuori: 0, briso: 0, no_divisa: 0 };
 
   const updateBonus = useCallback((playerId, field, value) => {
     setVotes(prev => {

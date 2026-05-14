@@ -55,6 +55,24 @@ const BONUS_ICONS = {
     color: '#222',
     badge: null,
   },
+  pallone_fuori: {
+    icon: 'soccer',
+    lib: 'mci',
+    color: '#e53935',
+    badge: { icon: 'arrow-forward-circle', lib: 'ion', color: '#e53935' },
+  },
+  briso: {
+    icon: 'emoticon-cool-outline',
+    lib: 'mci',
+    color: '#f9a825',
+    badge: null,
+  },
+  no_divisa: {
+    icon: 'tshirt-crew',
+    lib: 'mci',
+    color: '#e53935',
+    badge: { icon: 'close-circle', lib: 'ion', color: '#e53935' },
+  },
 };
 
 function renderIcon(name, lib, size, color) {

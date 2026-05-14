@@ -182,6 +182,9 @@ export default function CreateLeagueScreen({ navigation }) {
       malusGoalsConceded: React.useRef(null),
       malusOwnGoal: React.useRef(null),
       malusPenaltyMissed: React.useRef(null),
+      malusPalloneFuori: React.useRef(null),
+      bonusBriso: React.useRef(null),
+      malusNoDivisa: React.useRef(null),
     },
   };
   const [formData, setFormData] = useState({
@@ -216,6 +219,12 @@ export default function CreateLeagueScreen({ navigation }) {
     bonusPenaltySaved: '3.0',
     enableCleanSheet: true,
     bonusCleanSheet: '1.0',
+    enablePalloneFuori: false,
+    malusPalloneFuori: '-0.5',
+    enableBriso: false,
+    bonusBriso: '1.5',
+    enableNoDivisa: false,
+    malusNoDivisa: '-1.0',
     linkedToLeagueId: null,
     linkedLeagueName: '',
   });
@@ -537,6 +546,12 @@ export default function CreateLeagueScreen({ navigation }) {
           bonus_penalty_saved: toFloat(formData.bonusPenaltySaved, 3.0),
           enable_clean_sheet: formData.enableCleanSheet ? 1 : 0,
           bonus_clean_sheet: toFloat(formData.bonusCleanSheet, 1.0),
+          enable_pallone_fuori: formData.enablePalloneFuori ? 1 : 0,
+          malus_pallone_fuori: toFloat(formData.malusPalloneFuori, -0.5),
+          enable_briso: formData.enableBriso ? 1 : 0,
+          bonus_briso: toFloat(formData.bonusBriso, 1.5),
+          enable_no_divisa: formData.enableNoDivisa ? 1 : 0,
+          malus_no_divisa: toFloat(formData.malusNoDivisa, -1.0),
         } : null,
       };
 
@@ -1196,9 +1211,36 @@ export default function CreateLeagueScreen({ navigation }) {
               placeholderTextColor="#999"
               editable={formData.enableCleanSheet}
               returnKeyType="next"
-              onSubmitEditing={() => inputRefs.step3.malusYellowCard?.current?.focus()}
+              onSubmitEditing={() => inputRefs.step3.bonusBriso?.current?.focus()}
               onLayout={(e) => { inputLayouts.current['step3.bonusCleanSheet'] = { y: e.nativeEvent.layout.y }; }}
               onFocus={() => handleInputFocus('step3.bonusCleanSheet', inputRefs.step3.bonusCleanSheet)}
+            />
+          </View>
+
+          {/* Briso */}
+          <View style={styles.bmRowFull}>
+            <View style={styles.bmRowIcon}><BonusIcon type="briso" size={20} /></View>
+            <Text style={styles.bmRowLabel} numberOfLines={1}>Briso</Text>
+            <Switch
+              value={formData.enableBriso}
+              onValueChange={(value) => setFormData({ ...formData, enableBriso: value })}
+              trackColor={{ false: '#e0e0e0', true: '#4CAF50' }}
+              thumbColor={formData.enableBriso ? '#fff' : '#f4f3f4'}
+              style={styles.bmRowSwitch}
+            />
+            <TextInput
+              ref={inputRefs.step3.bonusBriso}
+              style={[styles.bmRowInput, !formData.enableBriso && styles.bmRowInputDisabled]}
+              keyboardType="decimal-pad"
+              value={formData.bonusBriso}
+              onChangeText={(text) => setFormData({ ...formData, bonusBriso: text })}
+              placeholder="1.5"
+              placeholderTextColor="#999"
+              editable={formData.enableBriso}
+              returnKeyType="next"
+              onSubmitEditing={() => inputRefs.step3.malusYellowCard?.current?.focus()}
+              onLayout={(e) => { inputLayouts.current['step3.bonusBriso'] = { y: e.nativeEvent.layout.y }; }}
+              onFocus={() => handleInputFocus('step3.bonusBriso', inputRefs.step3.bonusBriso)}
             />
           </View>
 
@@ -1338,10 +1380,66 @@ export default function CreateLeagueScreen({ navigation }) {
               placeholder="-3.0"
               placeholderTextColor="#999"
               editable={formData.enablePenaltyMissed}
-              returnKeyType="done"
-              onSubmitEditing={handleNext}
+              returnKeyType="next"
+              onSubmitEditing={() => inputRefs.step3.malusPalloneFuori?.current?.focus()}
               onLayout={(e) => { inputLayouts.current['step3.malusPenaltyMissed'] = { y: e.nativeEvent.layout.y }; }}
               onFocus={() => handleInputFocus('step3.malusPenaltyMissed', inputRefs.step3.malusPenaltyMissed)}
+            />
+          </View>
+
+          {/* Pallone fuori */}
+          <View style={styles.bmRowFull}>
+            <View style={styles.bmRowIcon}><BonusIcon type="pallone_fuori" size={20} /></View>
+            <Text style={styles.bmRowLabel} numberOfLines={1}>Pallone fuori</Text>
+            <Switch
+              value={formData.enablePalloneFuori}
+              onValueChange={(value) => setFormData({ ...formData, enablePalloneFuori: value })}
+              trackColor={{ false: '#e0e0e0', true: '#e53935' }}
+              thumbColor={formData.enablePalloneFuori ? '#fff' : '#f4f3f4'}
+              style={styles.bmRowSwitch}
+            />
+            <TextInput
+              ref={inputRefs.step3.malusPalloneFuori}
+              style={[styles.bmRowInput, !formData.enablePalloneFuori && styles.bmRowInputDisabled]}
+              keyboardType="decimal-pad"
+              value={formData.malusPalloneFuori}
+              onChangeText={(text) => setFormData({ ...formData, malusPalloneFuori: text })}
+              onBlur={() => commitMalusValue('malusPalloneFuori')}
+              placeholder="-0.5"
+              placeholderTextColor="#999"
+              editable={formData.enablePalloneFuori}
+              returnKeyType="next"
+              onSubmitEditing={() => inputRefs.step3.malusNoDivisa?.current?.focus()}
+              onLayout={(e) => { inputLayouts.current['step3.malusPalloneFuori'] = { y: e.nativeEvent.layout.y }; }}
+              onFocus={() => handleInputFocus('step3.malusPalloneFuori', inputRefs.step3.malusPalloneFuori)}
+            />
+          </View>
+
+          {/* No divisa */}
+          <View style={styles.bmRowFull}>
+            <View style={styles.bmRowIcon}><BonusIcon type="no_divisa" size={20} /></View>
+            <Text style={styles.bmRowLabel} numberOfLines={1}>No divisa</Text>
+            <Switch
+              value={formData.enableNoDivisa}
+              onValueChange={(value) => setFormData({ ...formData, enableNoDivisa: value })}
+              trackColor={{ false: '#e0e0e0', true: '#e53935' }}
+              thumbColor={formData.enableNoDivisa ? '#fff' : '#f4f3f4'}
+              style={styles.bmRowSwitch}
+            />
+            <TextInput
+              ref={inputRefs.step3.malusNoDivisa}
+              style={[styles.bmRowInput, !formData.enableNoDivisa && styles.bmRowInputDisabled]}
+              keyboardType="decimal-pad"
+              value={formData.malusNoDivisa}
+              onChangeText={(text) => setFormData({ ...formData, malusNoDivisa: text })}
+              onBlur={() => commitMalusValue('malusNoDivisa')}
+              placeholder="-1.0"
+              placeholderTextColor="#999"
+              editable={formData.enableNoDivisa}
+              returnKeyType="done"
+              onSubmitEditing={handleNext}
+              onLayout={(e) => { inputLayouts.current['step3.malusNoDivisa'] = { y: e.nativeEvent.layout.y }; }}
+              onFocus={() => handleInputFocus('step3.malusNoDivisa', inputRefs.step3.malusNoDivisa)}
             />
           </View>
         </>
@@ -1444,6 +1542,12 @@ export default function CreateLeagueScreen({ navigation }) {
                   <Text style={[styles.summaryBonusVal, { color: '#4CAF50' }]}>+{formData.bonusCleanSheet}</Text>
                 </View></View>
               )}
+              {formData.enableBriso && (
+                <View style={styles.summaryBonusChip}><View style={styles.summaryBonusChipInner}>
+                  <BonusIcon type="briso" size={16} />
+                  <Text style={[styles.summaryBonusVal, { color: '#4CAF50' }]}>+{formData.bonusBriso}</Text>
+                </View></View>
+              )}
               {formData.enableYellowCard && (
                 <View style={styles.summaryBonusChip}><View style={styles.summaryBonusChipInner}>
                   <BonusIcon type="yellow_card" size={16} />
@@ -1472,6 +1576,18 @@ export default function CreateLeagueScreen({ navigation }) {
                 <View style={styles.summaryBonusChip}><View style={styles.summaryBonusChipInner}>
                   <BonusIcon type="penalty_missed" size={16} />
                   <Text style={[styles.summaryBonusVal, { color: '#e53935' }]}>{formData.malusPenaltyMissed}</Text>
+                </View></View>
+              )}
+              {formData.enablePalloneFuori && (
+                <View style={styles.summaryBonusChip}><View style={styles.summaryBonusChipInner}>
+                  <BonusIcon type="pallone_fuori" size={16} />
+                  <Text style={[styles.summaryBonusVal, { color: '#e53935' }]}>{formData.malusPalloneFuori}</Text>
+                </View></View>
+              )}
+              {formData.enableNoDivisa && (
+                <View style={styles.summaryBonusChip}><View style={styles.summaryBonusChipInner}>
+                  <BonusIcon type="no_divisa" size={16} />
+                  <Text style={[styles.summaryBonusVal, { color: '#e53935' }]}>{formData.malusNoDivisa}</Text>
                 </View></View>
               )}
             </View>

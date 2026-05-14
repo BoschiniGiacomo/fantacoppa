@@ -67,11 +67,15 @@ export default function SettingsScreen({ route, navigation }) {
     malus_goals_conceded: React.createRef(),
     malus_own_goal: React.createRef(),
     malus_penalty_missed: React.createRef(),
+    malus_pallone_fuori: React.createRef(),
+    bonus_briso: React.createRef(),
+    malus_no_divisa: React.createRef(),
   }).current;
 
   const bonusFieldsOrder = [
-    'bonus_goal', 'bonus_assist', 'bonus_penalty_saved', 'bonus_clean_sheet',
+    'bonus_goal', 'bonus_assist', 'bonus_penalty_saved', 'bonus_clean_sheet', 'bonus_briso',
     'malus_yellow_card', 'malus_red_card', 'malus_goals_conceded', 'malus_own_goal', 'malus_penalty_missed',
+    'malus_pallone_fuori', 'malus_no_divisa',
   ];
 
   // Listener tastiera per altezza
@@ -172,6 +176,12 @@ export default function SettingsScreen({ route, navigation }) {
     bonus_penalty_saved: 3.0,
     enable_clean_sheet: false,
     bonus_clean_sheet: 1.0,
+    enable_pallone_fuori: false,
+    malus_pallone_fuori: -0.5,
+    enable_briso: false,
+    bonus_briso: 1.5,
+    enable_no_divisa: false,
+    malus_no_divisa: -1.0,
   });
   
   // Stati temporanei per i valori decimali durante la digitazione (null = non in editing)
@@ -185,6 +195,9 @@ export default function SettingsScreen({ route, navigation }) {
     malus_penalty_missed: null,
     bonus_penalty_saved: null,
     bonus_clean_sheet: null,
+    malus_pallone_fuori: null,
+    bonus_briso: null,
+    malus_no_divisa: null,
   });
   
   // Stati temporanei per i valori interi durante la digitazione
@@ -354,12 +367,18 @@ export default function SettingsScreen({ route, navigation }) {
           bonus_penalty_saved: pf(bs.bonus_penalty_saved, 3.0),
           enable_clean_sheet: parseInt(bs.enable_clean_sheet) === 1,
           bonus_clean_sheet: pf(bs.bonus_clean_sheet, 1.0),
+          enable_pallone_fuori: parseInt(bs.enable_pallone_fuori) === 1,
+          malus_pallone_fuori: pf(bs.malus_pallone_fuori, -0.5),
+          enable_briso: parseInt(bs.enable_briso) === 1,
+          bonus_briso: pf(bs.bonus_briso, 1.5),
+          enable_no_divisa: parseInt(bs.enable_no_divisa) === 1,
+          malus_no_divisa: pf(bs.malus_no_divisa, -1.0),
         });
-        // Reset valori temporanei
         setTempBonusValues({
           bonus_goal: null, bonus_assist: null, malus_yellow_card: null,
           malus_red_card: null, malus_goals_conceded: null, malus_own_goal: null,
           malus_penalty_missed: null, bonus_penalty_saved: null, bonus_clean_sheet: null,
+          malus_pallone_fuori: null, bonus_briso: null, malus_no_divisa: null,
         });
       }
     } catch (error) {
@@ -545,6 +564,9 @@ export default function SettingsScreen({ route, navigation }) {
     malus_yellow_card: 'enable_yellow_card', malus_red_card: 'enable_red_card',
     malus_goals_conceded: 'enable_goals_conceded', malus_own_goal: 'enable_own_goal',
     malus_penalty_missed: 'enable_penalty_missed',
+    malus_pallone_fuori: 'enable_pallone_fuori',
+    bonus_briso: 'enable_briso',
+    malus_no_divisa: 'enable_no_divisa',
   };
 
   // Trova il prossimo campo abilitato
@@ -627,6 +649,12 @@ export default function SettingsScreen({ route, navigation }) {
         bonus_penalty_saved: pf(bonusSettings.bonus_penalty_saved, 3.0),
         enable_clean_sheet: bonusSettings.enable_clean_sheet ? 1 : 0,
         bonus_clean_sheet: pf(bonusSettings.bonus_clean_sheet, 1.0),
+        enable_pallone_fuori: bonusSettings.enable_pallone_fuori ? 1 : 0,
+        malus_pallone_fuori: pf(bonusSettings.malus_pallone_fuori, -0.5),
+        enable_briso: bonusSettings.enable_briso ? 1 : 0,
+        bonus_briso: pf(bonusSettings.bonus_briso, 1.5),
+        enable_no_divisa: bonusSettings.enable_no_divisa ? 1 : 0,
+        malus_no_divisa: pf(bonusSettings.malus_no_divisa, -1.0),
       };
       await leagueService.updateBonusSettings(leagueId, bonusSettingsToSend);
       await loadSettings();
@@ -1344,6 +1372,7 @@ export default function SettingsScreen({ route, navigation }) {
                     {renderBonusRow('assist', 'Assist', 'enable_assist', 'bonus_assist', '1.0', '#4CAF50')}
                     {renderBonusRow('penalty_saved', 'Rigore parato', 'enable_penalty_saved', 'bonus_penalty_saved', '3.0', '#4CAF50')}
                     {renderBonusRow('clean_sheet', 'Clean sheet', 'enable_clean_sheet', 'bonus_clean_sheet', '1.0', '#4CAF50')}
+                    {renderBonusRow('briso', 'Briso', 'enable_briso', 'bonus_briso', '1.5', '#4CAF50')}
 
                     <Text style={[styles.bmSectionLabel, { marginTop: 12 }]}>Malus</Text>
                     {renderBonusRow('yellow_card', 'Cartellino giallo', 'enable_yellow_card', 'malus_yellow_card', '-0.5', '#e53935')}
@@ -1351,6 +1380,8 @@ export default function SettingsScreen({ route, navigation }) {
                     {renderBonusRow('goals_conceded', 'Goal subito', 'enable_goals_conceded', 'malus_goals_conceded', '-1.0', '#e53935')}
                     {renderBonusRow('own_goal', 'Autogoal', 'enable_own_goal', 'malus_own_goal', '-2.0', '#e53935')}
                     {renderBonusRow('penalty_missed', 'Rigore sbagliato', 'enable_penalty_missed', 'malus_penalty_missed', '-3.0', '#e53935')}
+                    {renderBonusRow('pallone_fuori', 'Pallone fuori', 'enable_pallone_fuori', 'malus_pallone_fuori', '-0.5', '#e53935')}
+                    {renderBonusRow('no_divisa', 'No divisa', 'enable_no_divisa', 'malus_no_divisa', '-1.0', '#e53935')}
                   </>
                 )}
 

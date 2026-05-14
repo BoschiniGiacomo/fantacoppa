@@ -351,6 +351,9 @@ export default function StandingsScreen({ route, navigation }) {
                                 if (p.penalty_missed > 0 && bs.enable_penalty_missed) bonusItems.push({ type: 'penalty_missed', count: p.penalty_missed });
                                 if (p.penalty_saved > 0 && bs.enable_penalty_saved) bonusItems.push({ type: 'penalty_saved', count: p.penalty_saved });
                                 if (p.clean_sheet > 0 && bs.enable_clean_sheet) bonusItems.push({ type: 'clean_sheet', count: p.clean_sheet });
+                                if (p.pallone_fuori > 0 && bs.enable_pallone_fuori) bonusItems.push({ type: 'pallone_fuori', count: p.pallone_fuori });
+                                if (p.briso > 0 && bs.enable_briso) bonusItems.push({ type: 'briso', count: p.briso });
+                                if (p.no_divisa > 0 && bs.enable_no_divisa) bonusItems.push({ type: 'no_divisa', count: p.no_divisa });
                               }
 
                               return (
@@ -425,6 +428,9 @@ export default function StandingsScreen({ route, navigation }) {
                         if (player.penalty_missed > 0 && bs.enable_penalty_missed) bonusItems.push({ type: 'penalty_missed', count: player.penalty_missed });
                         if (player.penalty_saved > 0 && bs.enable_penalty_saved) bonusItems.push({ type: 'penalty_saved', count: player.penalty_saved });
                         if (player.clean_sheet > 0 && bs.enable_clean_sheet) bonusItems.push({ type: 'clean_sheet', count: player.clean_sheet });
+                        if (player.pallone_fuori > 0 && bs.enable_pallone_fuori) bonusItems.push({ type: 'pallone_fuori', count: player.pallone_fuori });
+                        if (player.briso > 0 && bs.enable_briso) bonusItems.push({ type: 'briso', count: player.briso });
+                        if (player.no_divisa > 0 && bs.enable_no_divisa) bonusItems.push({ type: 'no_divisa', count: player.no_divisa });
                       }
 
                       return (
