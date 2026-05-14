@@ -1472,14 +1472,7 @@ router.get('/matches/teams/:teamId/detail', authenticateToken, async (req, res) 
     if (!competitionId || competitionId <= 0) return res.status(400).json({ message: 'competition_id non valido' });
 
     const teamRows = await query(
-      `
-      SELECT
-        t.id,
-        t.name
-      FROM teams t
-      WHERE t.id = ?
-      LIMIT 1
-      `,
+      `SELECT t.id, t.name FROM teams t WHERE t.id = ? LIMIT 1`,
       [teamId]
     );
     const team = teamRows[0];
@@ -1488,50 +1481,39 @@ router.get('/matches/teams/:teamId/detail', authenticateToken, async (req, res) 
     const teamName = String(team.name || '').trim();
     if (!teamName) return res.status(404).json({ message: 'Squadra non valida' });
 
-    const logoCandidates = await query(
-      `
-      SELECT
-        t.logo_path,
-        NULLIF(to_jsonb(l)->>'reference_year','')::int AS reference_year
-      FROM teams t
-      INNER JOIN leagues l ON l.id = t.league_id
-      WHERE l.official_group_id = ?
-        AND COALESCE(l.is_official_squad_public, 0) = 1
-        AND LOWER(TRIM(t.name)) = LOWER(TRIM(?))
-      ORDER BY
-        CASE WHEN COALESCE(NULLIF(t.logo_path, ''), '') <> '' THEN 0 ELSE 1 END ASC,
-        NULLIF(to_jsonb(l)->>'reference_year','')::int DESC NULLS LAST,
-        t.id DESC
-      `,
-      [competitionId, teamName]
-    );
+    const teamNameNorm = normalizeTeamNameForFavorite(teamName);
+    const [logoCandidates, currentPref, favoriteCountRows] = await Promise.all([
+      query(
+        `SELECT t.logo_path, NULLIF(to_jsonb(l)->>'reference_year','')::int AS reference_year
+         FROM teams t
+         INNER JOIN leagues l ON l.id = t.league_id
+         WHERE l.official_group_id = ?
+           AND COALESCE(l.is_official_squad_public, 0) = 1
+           AND LOWER(TRIM(t.name)) = LOWER(TRIM(?))
+         ORDER BY
+           CASE WHEN COALESCE(NULLIF(t.logo_path, ''), '') <> '' THEN 0 ELSE 1 END ASC,
+           NULLIF(to_jsonb(l)->>'reference_year','')::int DESC NULLS LAST,
+           t.id DESC`,
+        [competitionId, teamName]
+      ),
+      query(
+        `SELECT COALESCE(is_heart, 0) AS is_heart, COALESCE(notifications_enabled, 0) AS notifications_enabled
+         FROM user_official_team_favorites
+         WHERE user_id = ? AND official_group_id = ? AND team_name_norm = ?
+         LIMIT 1`,
+        [userId, competitionId, teamNameNorm]
+      ),
+      query(
+        `SELECT COUNT(*)::int AS favorite_count
+         FROM user_official_team_favorites
+         WHERE official_group_id = ? AND team_name_norm = ? AND COALESCE(is_heart, 0) = 1`,
+        [competitionId, teamNameNorm]
+      ),
+    ]);
 
     const bestLogoRaw = (logoCandidates || []).find((r) => String(r?.logo_path || '').trim() !== '')?.logo_path || null;
     const bestLogoPath = normalizeTeamLogoPathForApi(bestLogoRaw);
-    const currentPref = await query(
-      `
-      SELECT
-        COALESCE(is_heart, 0) AS is_heart,
-        COALESCE(notifications_enabled, 0) AS notifications_enabled
-      FROM user_official_team_favorites
-      WHERE user_id = ?
-        AND official_group_id = ?
-        AND team_name_norm = ?
-      LIMIT 1
-      `,
-      [userId, competitionId, normalizeTeamNameForFavorite(teamName)]
-    );
     const pref = currentPref[0] || null;
-    const favoriteCountRows = await query(
-      `
-      SELECT COUNT(*)::int AS favorite_count
-      FROM user_official_team_favorites
-      WHERE official_group_id = ?
-        AND team_name_norm = ?
-        AND COALESCE(is_heart, 0) = 1
-      `,
-      [competitionId, normalizeTeamNameForFavorite(teamName)]
-    );
     const favoriteCount = Number(favoriteCountRows?.[0]?.favorite_count || 0);
 
     console.log(`[PERF] GET /matches/teams/:teamId/detail: ${Date.now() - t0}ms`);
@@ -1562,8 +1544,6 @@ router.get('/matches/teams/:teamId/matches', authenticateToken, async (req, res)
   try {
     const t0 = Date.now();
     const userId = Number(req.user?.userId);
-    const su = await getSuperuserLevel(userId);
-    const canSeeAdminOnly = su === 1 || su === 2 ? 1 : 0;
     const teamId = Number(req.params.teamId);
     const competitionId = Number(req.query?.competition_id);
     if (!teamId || teamId <= 0) return res.status(400).json({ message: 'teamId non valido' });
@@ -1577,7 +1557,11 @@ router.get('/matches/teams/:teamId/matches', authenticateToken, async (req, res)
 
     const rows = await query(
       `
-      WITH ev_scores AS (
+      WITH su AS (
+        SELECT CASE WHEN COALESCE(is_superuser, 0) IN (1, 2) THEN 1 ELSE 0 END AS can_see
+        FROM users WHERE id = ?
+      ),
+      ev_scores AS (
         SELECT
           e.match_id,
           SUM(CASE
@@ -1651,14 +1635,14 @@ router.get('/matches/teams/:teamId/matches', authenticateToken, async (req, res)
       LEFT JOIN ev_scores evs ON evs.match_id = m.id
       LEFT JOIN last_phase lp ON lp.match_id = m.id
       WHERE m.competition_id = ?
-        AND (? = 1 OR COALESCE(m.is_admin_only, 0) = 0)
+        AND ((SELECT can_see FROM su) = 1 OR COALESCE(m.is_admin_only, 0) = 0)
         AND (
           LOWER(TRIM(ht.name)) = LOWER(TRIM(?))
           OR LOWER(TRIM(at.name)) = LOWER(TRIM(?))
         )
       ORDER BY m.kickoff_at ASC, m.id ASC
       `,
-      [competitionId, canSeeAdminOnly, teamName, teamName]
+      [userId, competitionId, teamName, teamName]
     );
 
     const matches = (Array.isArray(rows) ? rows : []).map((r) => {
@@ -1712,28 +1696,27 @@ router.get('/matches/teams/:teamId/season-standings', authenticateToken, async (
       return res.status(400).json({ message: 'reference_year non valido' });
     }
 
-    const teamRows = await query(`SELECT id, name FROM teams WHERE id = ? LIMIT 1`, [teamId]);
-    const team = teamRows[0];
-    if (!team) return res.status(404).json({ message: 'Squadra non trovata' });
-    const teamName = String(team.name || '').trim();
-    if (!teamName) return res.status(404).json({ message: 'Squadra non valida' });
-
     const seasonLeagues = await query(
-      `
-      SELECT
+      `SELECT
+        root.id AS team_id, root.name AS team_name,
         l.id AS league_id,
         NULLIF(to_jsonb(l)->>'reference_year','')::int AS reference_year
-      FROM leagues l
-      INNER JOIN teams t ON t.league_id = l.id
-      WHERE l.official_group_id = ?
+      FROM teams root
+      INNER JOIN leagues l ON l.official_group_id = ?
         AND COALESCE(l.is_official, 0) = 1
         AND COALESCE(l.is_official_squad_public, 0) = 1
-        AND LOWER(TRIM(t.name)) = LOWER(TRIM(?))
-      GROUP BY l.id, NULLIF(to_jsonb(l)->>'reference_year','')::int
-      ORDER BY NULLIF(to_jsonb(l)->>'reference_year','')::int DESC NULLS LAST, l.id DESC
-      `,
-      [competitionId, teamName]
+      INNER JOIN teams t ON t.league_id = l.id AND LOWER(TRIM(t.name)) = LOWER(TRIM(root.name))
+      WHERE root.id = ?
+      GROUP BY root.id, root.name, l.id, NULLIF(to_jsonb(l)->>'reference_year','')::int
+      ORDER BY NULLIF(to_jsonb(l)->>'reference_year','')::int DESC NULLS LAST, l.id DESC`,
+      [competitionId, teamId]
     );
+    const teamName = String(seasonLeagues[0]?.team_name || '').trim();
+    if (!teamName) {
+      const fallback = await query(`SELECT name FROM teams WHERE id = ? LIMIT 1`, [teamId]);
+      if (!fallback[0]) return res.status(404).json({ message: 'Squadra non trovata' });
+      return res.json({ team: { id: teamId, name: String(fallback[0].name || '').trim() }, available_years: [], selected_year: null, standings: [], knockout: { semifinals: [], final: null } });
+    }
 
     const availableYears = Array.from(
       new Set(
@@ -1762,19 +1745,15 @@ router.get('/matches/teams/:teamId/season-standings', authenticateToken, async (
     let standings = [];
     let knockout = { semifinals: [], final: null };
     if (selectedLeagueId) {
-      standings = await computeStandingsFromMatches({
-        leagueId: selectedLeagueId,
-        groupId: competitionId,
-      });
-      knockout = await buildKnockoutBracketForLeague({
-        leagueId: selectedLeagueId,
-        competitionId,
-      });
+      [standings, knockout] = await Promise.all([
+        computeStandingsFromMatches({ leagueId: selectedLeagueId, groupId: competitionId }),
+        buildKnockoutBracketForLeague({ leagueId: selectedLeagueId, competitionId }),
+      ]);
     }
 
     console.log(`[PERF] GET /matches/teams/:teamId/season-standings: ${Date.now() - t0}ms`);
     return res.json({
-      team: { id: Number(team.id), name: teamName },
+      team: { id: teamId, name: teamName },
       available_years: availableYears,
       selected_year: selectedYear,
       standings: Array.isArray(standings) ? standings : [],
@@ -1805,43 +1784,33 @@ router.get('/matches/teams/:teamId/season-squad', authenticateToken, async (req,
       return res.status(400).json({ message: 'reference_year non valido' });
     }
 
-    const teamRows = await query(`SELECT id, name FROM teams WHERE id = ? LIMIT 1`, [teamId]);
-    const rootTeam = teamRows[0];
-    if (!rootTeam) return res.status(404).json({ message: 'Squadra non trovata' });
-    const teamName = String(rootTeam.name || '').trim();
-    if (!teamName) return res.status(404).json({ message: 'Squadra non valida' });
-
     const seasonLeagues = await query(
-      `
-      SELECT
-        l.id AS league_id,
-        NULLIF(to_jsonb(l)->>'reference_year','')::int AS reference_year
-      FROM leagues l
-      INNER JOIN teams t ON t.league_id = l.id
-      WHERE l.official_group_id = ?
-        AND COALESCE(l.is_official, 0) = 1
-        AND COALESCE(l.is_official_squad_public, 0) = 1
-        AND LOWER(TRIM(t.name)) = LOWER(TRIM(?))
-      GROUP BY l.id, NULLIF(to_jsonb(l)->>'reference_year','')::int
-      ORDER BY NULLIF(to_jsonb(l)->>'reference_year','')::int DESC NULLS LAST, l.id DESC
-      `,
-      [competitionId, teamName]
+      `SELECT root.id AS team_id, root.name AS team_name,
+        l.id AS league_id, NULLIF(to_jsonb(l)->>'reference_year','')::int AS reference_year
+      FROM teams root
+      INNER JOIN leagues l ON l.official_group_id = ?
+        AND COALESCE(l.is_official, 0) = 1 AND COALESCE(l.is_official_squad_public, 0) = 1
+      INNER JOIN teams t ON t.league_id = l.id AND LOWER(TRIM(t.name)) = LOWER(TRIM(root.name))
+      WHERE root.id = ?
+      GROUP BY root.id, root.name, l.id, NULLIF(to_jsonb(l)->>'reference_year','')::int
+      ORDER BY NULLIF(to_jsonb(l)->>'reference_year','')::int DESC NULLS LAST, l.id DESC`,
+      [competitionId, teamId]
     );
+    const teamName = String(seasonLeagues[0]?.team_name || '').trim();
+    if (!teamName) {
+      const fb = await query(`SELECT name FROM teams WHERE id = ? LIMIT 1`, [teamId]);
+      if (!fb[0]) return res.status(404).json({ message: 'Squadra non trovata' });
+      return res.json({ team: { id: teamId, name: String(fb[0].name || '').trim() }, available_years: [], selected_year: null, league_id: null, jersey_color: null, squad: [] });
+    }
 
     const availableYears = Array.from(
-      new Set(
-        (Array.isArray(seasonLeagues) ? seasonLeagues : [])
-          .map((r) => Number(r.reference_year))
-          .filter((y) => Number.isFinite(y))
-      )
+      new Set((seasonLeagues || []).map((r) => Number(r.reference_year)).filter((y) => Number.isFinite(y)))
     ).sort((a, b) => b - a);
 
     const selectedYear =
       requestedYear != null && Number.isFinite(requestedYear)
         ? Math.trunc(requestedYear)
-        : availableYears.length > 0
-          ? availableYears[0]
-          : null;
+        : availableYears.length > 0 ? availableYears[0] : null;
 
     let selectedLeagueId = null;
     if (selectedYear != null) {
@@ -1856,16 +1825,9 @@ router.get('/matches/teams/:teamId/season-squad', authenticateToken, async (req,
     let jerseyColor = null;
     if (selectedLeagueId) {
       const teamForSeasonRows = await query(
-        `
-        SELECT
-          t.id,
-          COALESCE(NULLIF(to_jsonb(t)->>'jersey_color',''), NULLIF(t.jersey_color, '')) AS jersey_color
-        FROM teams t
-        WHERE t.league_id = ?
-          AND LOWER(TRIM(t.name)) = LOWER(TRIM(?))
-        ORDER BY t.id DESC
-        LIMIT 1
-        `,
+        `SELECT t.id, COALESCE(NULLIF(to_jsonb(t)->>'jersey_color',''), NULLIF(t.jersey_color, '')) AS jersey_color
+         FROM teams t WHERE t.league_id = ? AND LOWER(TRIM(t.name)) = LOWER(TRIM(?))
+         ORDER BY t.id DESC LIMIT 1`,
         [selectedLeagueId, teamName]
       );
       const seasonTeam = teamForSeasonRows[0] || null;
@@ -1876,7 +1838,7 @@ router.get('/matches/teams/:teamId/season-squad', authenticateToken, async (req,
     const squad = selectedTeamId ? await getTeamPlayersLineup(selectedTeamId) : [];
     console.log(`[PERF] GET /matches/teams/:teamId/season-squad: ${Date.now() - t0}ms (${(squad || []).length} players)`);
     return res.json({
-      team: { id: Number(rootTeam.id), name: teamName },
+      team: { id: teamId, name: teamName },
       available_years: availableYears,
       selected_year: selectedYear,
       league_id: selectedLeagueId ? Number(selectedLeagueId) : null,
@@ -1910,28 +1872,24 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
       return res.status(400).json({ message: 'reference_year non valido' });
     }
 
-    const teamRows = await query(`SELECT id, name FROM teams WHERE id = ? LIMIT 1`, [teamId]);
-    const rootTeam = teamRows[0];
-    if (!rootTeam) return res.status(404).json({ message: 'Squadra non trovata' });
-    const teamName = String(rootTeam.name || '').trim();
-    if (!teamName) return res.status(404).json({ message: 'Squadra non valida' });
-
     const seasonLeagues = await query(
-      `
-      SELECT
-        l.id AS league_id,
-        NULLIF(to_jsonb(l)->>'reference_year','')::int AS reference_year
-      FROM leagues l
-      INNER JOIN teams t ON t.league_id = l.id
-      WHERE l.official_group_id = ?
-        AND COALESCE(l.is_official, 0) = 1
-        AND COALESCE(l.is_official_squad_public, 0) = 1
-        AND LOWER(TRIM(t.name)) = LOWER(TRIM(?))
-      GROUP BY l.id, NULLIF(to_jsonb(l)->>'reference_year','')::int
-      ORDER BY NULLIF(to_jsonb(l)->>'reference_year','')::int DESC NULLS LAST, l.id DESC
-      `,
-      [competitionId, teamName]
+      `SELECT root.id AS team_id, root.name AS team_name,
+        l.id AS league_id, NULLIF(to_jsonb(l)->>'reference_year','')::int AS reference_year
+      FROM teams root
+      INNER JOIN leagues l ON l.official_group_id = ?
+        AND COALESCE(l.is_official, 0) = 1 AND COALESCE(l.is_official_squad_public, 0) = 1
+      INNER JOIN teams t ON t.league_id = l.id AND LOWER(TRIM(t.name)) = LOWER(TRIM(root.name))
+      WHERE root.id = ?
+      GROUP BY root.id, root.name, l.id, NULLIF(to_jsonb(l)->>'reference_year','')::int
+      ORDER BY NULLIF(to_jsonb(l)->>'reference_year','')::int DESC NULLS LAST, l.id DESC`,
+      [competitionId, teamId]
     );
+    const teamName = String(seasonLeagues[0]?.team_name || '').trim();
+    if (!teamName) {
+      const fb = await query(`SELECT name FROM teams WHERE id = ? LIMIT 1`, [teamId]);
+      if (!fb[0]) return res.status(404).json({ message: 'Squadra non trovata' });
+      return res.json({ team: { id: teamId, name: String(fb[0].name || '').trim() }, available_years: [], selected_year: null, general: { played: 0, goals: 0, goals_conceded: 0, yellow_cards: 0, red_cards: 0 }, outcomes: { wins: 0, draws: 0, losses: 0, wins_pct: 0, draws_pct: 0, losses_pct: 0 }, scorers: [], assistmen: [] });
+    }
 
     const availableYears = Array.from(
       new Set(
@@ -1973,7 +1931,7 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
 
     if (targetLeagueIds.length === 0) {
       return res.json({
-        team: { id: Number(rootTeam.id), name: teamName },
+        team: { id: teamId, name: teamName },
         available_years: availableYears,
         selected_year: selectedYear,
         general: { played: 0, goals: 0, goals_conceded: 0, yellow_cards: 0, red_cards: 0 },
@@ -1984,22 +1942,29 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
     }
 
     const phLeagueIds = targetLeagueIds.map(() => '?').join(', ');
-    const seasonTeamRows = await query(
-      `
-      SELECT id, league_id
-      FROM teams
-      WHERE league_id IN (${phLeagueIds})
-        AND LOWER(TRIM(name)) = LOWER(TRIM(?))
-      ORDER BY id DESC
-      `,
-      [...targetLeagueIds, teamName]
-    );
+    const [seasonTeamRows, seasonMatches] = await Promise.all([
+      query(
+        `SELECT id, league_id FROM teams
+         WHERE league_id IN (${phLeagueIds}) AND LOWER(TRIM(name)) = LOWER(TRIM(?))
+         ORDER BY id DESC`,
+        [...targetLeagueIds, teamName]
+      ),
+      query(
+        `SELECT id, home_team_id, away_team_id, home_score, away_score
+         FROM official_matches
+         WHERE competition_id = ?
+           AND home_team_id IN (SELECT id FROM teams WHERE league_id IN (${phLeagueIds}))
+           AND away_team_id IN (SELECT id FROM teams WHERE league_id IN (${phLeagueIds}))
+         ORDER BY id ASC`,
+        [competitionId, ...targetLeagueIds, ...targetLeagueIds]
+      ),
+    ]);
     const seasonTeamIds = Array.from(
       new Set((seasonTeamRows || []).map((r) => Number(r.id)).filter((id) => Number.isFinite(id) && id > 0))
     );
     if (seasonTeamIds.length === 0) {
       return res.json({
-        team: { id: Number(rootTeam.id), name: teamName },
+        team: { id: teamId, name: teamName },
         available_years: availableYears,
         selected_year: selectedYear,
         general: { played: 0, goals: 0, goals_conceded: 0, yellow_cards: 0, red_cards: 0 },
@@ -2008,18 +1973,6 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
         assistmen: [],
       });
     }
-
-    const seasonMatches = await query(
-      `
-      SELECT id, home_team_id, away_team_id, home_score, away_score
-      FROM official_matches
-      WHERE competition_id = ?
-        AND home_team_id IN (SELECT id FROM teams WHERE league_id IN (${phLeagueIds}))
-        AND away_team_id IN (SELECT id FROM teams WHERE league_id IN (${phLeagueIds}))
-      ORDER BY id ASC
-      `,
-      [competitionId, ...targetLeagueIds, ...targetLeagueIds]
-    );
     const matchIds = (seasonMatches || []).map((m) => Number(m.id)).filter((n) => Number.isFinite(n) && n > 0);
 
     let evRows = [];
@@ -2192,7 +2145,7 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
 
     console.log(`[PERF] GET /matches/teams/:teamId/season-stats: ${Date.now() - t0}ms`);
     return res.json({
-      team: { id: Number(rootTeam.id), name: teamName },
+      team: { id: teamId, name: teamName },
       available_years: availableYears,
       selected_year: selectedYear,
       general: {

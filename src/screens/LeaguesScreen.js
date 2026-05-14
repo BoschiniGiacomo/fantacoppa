@@ -63,16 +63,17 @@ export default function LeaguesScreen({ navigation }) {
 
   // Filtra le leghe in base alla ricerca
   const filteredLeagues = useMemo(() => {
-    const list = (Array.isArray(allLeagues) ? allLeagues : []).filter(
+    let list = (Array.isArray(allLeagues) ? allLeagues : []).filter(
       (league) => Number(league?.is_joined || 0) !== 1
     );
-    if (!searchQuery.trim()) {
-      return list;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      list = list.filter(
+        (league) => league?.name && String(league.name).toLowerCase().includes(q)
+      );
     }
-    const query = searchQuery.toLowerCase().trim();
-    return list.filter(
-      (league) => league?.name && String(league.name).toLowerCase().includes(query)
-    );
+    list.sort((a, b) => Number(b?.is_official || 0) - Number(a?.is_official || 0));
+    return list;
   }, [allLeagues, searchQuery]);
 
   const handleLeaguePress = (league) => {

@@ -813,6 +813,7 @@ router.get('/all', authenticateToken, async (req, res) => {
               l.initial_budget, l.default_deadline_time, l.max_portieri, l.max_difensori,
               l.max_centrocampisti, l.max_attaccanti, l.numero_titolari, l.auto_lineup_mode,
               l.linked_to_league_id,
+              COALESCE(l.is_official, 0) AS is_official,
               ll.name AS linked_league_name,
               my.role,
               COALESCE(ulp.favorite, 0) AS favorite,
@@ -837,7 +838,7 @@ router.get('/all', authenticateToken, async (req, res) => {
        LEFT JOIN user_league_prefs ulp ON ulp.league_id = l.id AND ulp.user_id = ?
        WHERE my.user_id IS NULL
          AND COALESCE(l.is_hidden_from_discovery, 0) = 0
-       ORDER BY l.created_at DESC, l.id DESC`,
+       ORDER BY COALESCE(l.is_official, 0) DESC, l.created_at DESC, l.id DESC`,
       [userId, userId]
     );
     res.json(leagues);
