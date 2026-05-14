@@ -1224,9 +1224,14 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
     const tPhase1 = Date.now();
     const homeTeamId = Number(matchRow.home_team_id);
     const awayTeamId = Number(matchRow.away_team_id);
+    const homeLeagueId = Number(matchRow.home_league_id || 0);
+    const awayLeagueId = Number(matchRow.away_league_id || 0);
+    const matchLeagueId = Number(matchRow.league_id || 0);
+    const currentLeagueId =
+      matchLeagueId > 0 ? matchLeagueId : (homeLeagueId > 0 && homeLeagueId === awayLeagueId ? homeLeagueId : 0);
 
     await ensureUnavailablePlayersTable();
-    const [homeTeam, awayTeam, rawEvents, homeLineup, awayLineup, unavailableRows] = await Promise.all([
+    const [homeTeam, awayTeam, rawEvents, homeLineup, awayLineup, unavailableRows, standingsResult, knockoutRows] = await Promise.all([
       getTeamMeta(homeTeamId),
       getTeamMeta(awayTeamId),
       query(
@@ -1237,8 +1242,27 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
       getTeamPlayersLineup(homeTeamId),
       getTeamPlayersLineup(awayTeamId),
       query(`SELECT player_id FROM official_match_unavailable_players WHERE match_id = ?`, [matchId]),
+      currentLeagueId > 0
+        ? computeStandingsFromMatches({ leagueId: currentLeagueId, groupId: Number(matchRow.competition_id) }).catch(() => [])
+        : Promise.resolve([]),
+      currentLeagueId > 0
+        ? query(
+            `SELECT m.id, NULLIF(to_jsonb(m)->>'match_stage_id','')::int AS match_stage_id, ms.name AS stage_name,
+              m.kickoff_at, m.home_team_id, ht.name AS home_team_name, ht.logo_path AS home_team_logo_path,
+              m.away_team_id, at.name AS away_team_name, at.logo_path AS away_team_logo_path, m.home_score, m.away_score
+            FROM official_matches m
+            LEFT JOIN official_match_stages ms ON ms.id = NULLIF(to_jsonb(m)->>'match_stage_id','')::int
+            LEFT JOIN teams ht ON ht.id = m.home_team_id
+            LEFT JOIN teams at ON at.id = m.away_team_id
+            WHERE m.competition_id = ?
+              AND (m.league_id = ? OR (m.league_id IS NULL AND ht.league_id = ? AND at.league_id = ?))
+              AND NULLIF(to_jsonb(m)->>'match_stage_id','')::int IN (2, 3)
+            ORDER BY NULLIF(to_jsonb(m)->>'match_stage_id','')::int ASC, m.kickoff_at ASC NULLS LAST, m.id ASC`,
+            [Number(matchRow.competition_id), currentLeagueId, currentLeagueId, currentLeagueId]
+          ).catch(() => [])
+        : Promise.resolve([]),
     ]);
-    console.log(`[PERF] /detail phase1 (meta+events+lineups+unavail parallel): ${Date.now() - tPhase1}ms`);
+    console.log(`[PERF] /detail phase1 (all 8 parallel): ${Date.now() - tPhase1}ms`);
 
     const homeLogoPath = normalizeTeamLogoPathForApi(homeTeam?.logo_path);
     const awayLogoPath = normalizeTeamLogoPathForApi(awayTeam?.logo_path);
@@ -1276,64 +1300,10 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
     const homeUnavailable = homeLineup.filter((p) => unavailableSet.has(Number(p.id)));
     const awayUnavailable = awayLineup.filter((p) => unavailableSet.has(Number(p.id)));
 
-    const tStandings = Date.now();
-    const homeLeagueId = Number(match.home_league_id || 0);
-    const awayLeagueId = Number(match.away_league_id || 0);
-    const matchLeagueId = Number(match.league_id || 0);
-    const currentLeagueId =
-      matchLeagueId > 0 ? matchLeagueId : (homeLeagueId > 0 && homeLeagueId === awayLeagueId ? homeLeagueId : 0);
-
-    let standings = [];
-    try {
-      if (currentLeagueId > 0) {
-        standings = await computeStandingsFromMatches({
-          leagueId: currentLeagueId,
-          groupId: Number(match.competition_id),
-        });
-      }
-    } catch (err) {
-      standings = [];
-    }
+    const standings = Array.isArray(standingsResult) ? standingsResult : [];
 
     let knockout = { semifinals: [], final: null };
     try {
-      const knockoutRows = currentLeagueId > 0 ? await query(
-        `
-        SELECT
-          m.id,
-          NULLIF(to_jsonb(m)->>'match_stage_id','')::int AS match_stage_id,
-          ms.name AS stage_name,
-          m.kickoff_at,
-          m.home_team_id,
-          ht.name AS home_team_name,
-          ht.logo_path AS home_team_logo_path,
-          m.away_team_id,
-          at.name AS away_team_name,
-          at.logo_path AS away_team_logo_path,
-          m.home_score,
-          m.away_score
-        FROM official_matches m
-        LEFT JOIN official_match_stages ms ON ms.id = NULLIF(to_jsonb(m)->>'match_stage_id','')::int
-        LEFT JOIN teams ht ON ht.id = m.home_team_id
-        LEFT JOIN teams at ON at.id = m.away_team_id
-        WHERE m.competition_id = ?
-          AND (
-            m.league_id = ?
-            OR (
-              m.league_id IS NULL
-              AND ht.league_id = ?
-              AND at.league_id = ?
-            )
-          )
-          AND NULLIF(to_jsonb(m)->>'match_stage_id','')::int IN (2, 3)
-        ORDER BY
-          NULLIF(to_jsonb(m)->>'match_stage_id','')::int ASC,
-          m.kickoff_at ASC NULLS LAST,
-          m.id ASC
-        `,
-        [Number(match.competition_id), currentLeagueId, currentLeagueId, currentLeagueId]
-      ) : [];
-
       const knockoutIds = (Array.isArray(knockoutRows) ? knockoutRows : [])
         .map((r) => Number(r.id))
         .filter((n) => Number.isFinite(n) && n > 0);
@@ -1433,7 +1403,6 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
       knockout = { semifinals: [], final: null };
     }
 
-    console.log(`[PERF] /detail standings+knockout: ${Date.now() - tStandings}ms`);
     console.log(`[PERF] GET /matches/:matchId/detail TOTAL: ${Date.now() - t0}ms`);
     return res.json({
       match,
