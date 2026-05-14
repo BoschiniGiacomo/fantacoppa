@@ -14,7 +14,6 @@ async function ensureAppSettingsTable() {
     )
   `);
   await query(`INSERT INTO app_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING`);
-  await query(`ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS login_logo_path TEXT`).catch(() => {});
   tableReady = true;
 }
 

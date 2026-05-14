@@ -177,30 +177,6 @@ const BONUS_DEFAULTS = {
   enable_no_divisa: 0, malus_no_divisa: -1.0,
 };
 
-let _bonusColumnsMigrated = false;
-async function ensureNewBonusColumns() {
-  if (_bonusColumnsMigrated) return;
-  _bonusColumnsMigrated = true;
-  const alters = [
-    'ALTER TABLE league_bonus_settings ADD COLUMN IF NOT EXISTS enable_pallone_fuori INTEGER DEFAULT 0',
-    'ALTER TABLE league_bonus_settings ADD COLUMN IF NOT EXISTS malus_pallone_fuori REAL DEFAULT -0.5',
-    'ALTER TABLE league_bonus_settings ADD COLUMN IF NOT EXISTS enable_briso INTEGER DEFAULT 0',
-    'ALTER TABLE league_bonus_settings ADD COLUMN IF NOT EXISTS bonus_briso REAL DEFAULT 1.5',
-    'ALTER TABLE league_bonus_settings ADD COLUMN IF NOT EXISTS enable_no_divisa INTEGER DEFAULT 0',
-    'ALTER TABLE league_bonus_settings ADD COLUMN IF NOT EXISTS malus_no_divisa REAL DEFAULT -1.0',
-    'ALTER TABLE player_ratings ADD COLUMN IF NOT EXISTS pallone_fuori INTEGER DEFAULT 0',
-    'ALTER TABLE player_ratings ADD COLUMN IF NOT EXISTS briso INTEGER DEFAULT 0',
-    'ALTER TABLE player_ratings ADD COLUMN IF NOT EXISTS no_divisa INTEGER DEFAULT 0',
-    'ALTER TABLE matchday_player_scores ADD COLUMN IF NOT EXISTS pallone_fuori INTEGER DEFAULT 0',
-    'ALTER TABLE matchday_player_scores ADD COLUMN IF NOT EXISTS briso INTEGER DEFAULT 0',
-    'ALTER TABLE matchday_player_scores ADD COLUMN IF NOT EXISTS no_divisa INTEGER DEFAULT 0',
-  ];
-  for (const sql of alters) {
-    try { await query(sql); } catch (_) {}
-  }
-}
-ensureNewBonusColumns();
-
 function normalizeBonusSettings(input = {}) {
   const merged = { ...BONUS_DEFAULTS, ...(input || {}) };
   return {
