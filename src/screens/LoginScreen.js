@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -9,9 +9,11 @@ import {
   Platform,
   ScrollView,
   Keyboard,
+  Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
+import { getLoginLogoSettings } from '../utils/loginLogoSettings';
 
 export default function LoginScreen({ navigation }) {
   const [username, setUsername] = useState('');
@@ -19,8 +21,13 @@ export default function LoginScreen({ navigation }) {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [toastMsg, setToastMsg] = useState(null);
+  const [loginLogo, setLoginLogo] = useState(null);
   const passwordInputRef = useRef(null);
   const { login } = useAuth();
+
+  useEffect(() => {
+    getLoginLogoSettings().then(setLoginLogo);
+  }, []);
 
   const showToast = (text, type = 'error') => {
     setToastMsg({ text, type });
@@ -53,17 +60,24 @@ export default function LoginScreen({ navigation }) {
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={styles.content}>
           <View style={styles.header}>
-            {/* Logo */}
-            <View style={styles.logoWrap}>
-              <Ionicons name="football" size={36} color="#2c3e50" />
-              <Text style={styles.logoBig}>FANTA</Text>
-              <View style={styles.coppaRow}>
-                <Text style={styles.logoBig}>CO</Text>
-                <Text style={[styles.logoBig, { transform: [{ scaleX: -1 }] }]}>P</Text>
-                <Text style={styles.logoBig}>PA</Text>
+            {loginLogo?.uri ? (
+              <Image
+                source={{ uri: loginLogo.uri }}
+                style={styles.loginLogoImage}
+                resizeMode="contain"
+              />
+            ) : (
+              <View style={styles.logoWrap}>
+                <Ionicons name="football" size={36} color="#2c3e50" />
+                <Text style={styles.logoBig}>FANTA</Text>
+                <View style={styles.coppaRow}>
+                  <Text style={styles.logoBig}>CO</Text>
+                  <Text style={[styles.logoBig, { transform: [{ scaleX: -1 }] }]}>P</Text>
+                  <Text style={styles.logoBig}>PA</Text>
+                </View>
+                <Text style={styles.logoMonte}>MONTECAVOLO</Text>
               </View>
-              <Text style={styles.logoMonte}>MONTECAVOLO</Text>
-            </View>
+            )}
           </View>
 
           <View style={styles.form}>
@@ -184,6 +198,12 @@ const styles = StyleSheet.create({
     color: '#aaa',
     letterSpacing: 5,
     marginTop: 4,
+  },
+  loginLogoImage: {
+    width: 220,
+    height: 150,
+    alignSelf: 'center',
+    marginBottom: 14,
   },
   title: {
     fontSize: 32,

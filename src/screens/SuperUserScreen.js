@@ -26,6 +26,11 @@ import {
   clearAppLoadingMedia,
   guessPickMediaType,
 } from '../utils/appLoadingMediaSettings';
+import {
+  getLoginLogoSettings,
+  saveLoginLogoFromPicker,
+  clearLoginLogo,
+} from '../utils/loginLogoSettings';
 
 export default function SuperUserScreen() {
   const { user } = useAuth();
@@ -93,6 +98,9 @@ export default function SuperUserScreen() {
   const [pickingAppLoading, setPickingAppLoading] = useState(false);
   const [appLoadingSimulateOpen, setAppLoadingSimulateOpen] = useState(false);
   const [simulateProgress, setSimulateProgress] = useState(0);
+  const [loadingSectionOpen, setLoadingSectionOpen] = useState(false);
+  const [loginLogoPreview, setLoginLogoPreview] = useState(null);
+  const [pickingLoginLogo, setPickingLoginLogo] = useState(false);
   
   const isSuperuser = !!(user?.is_superuser === true || user?.is_superuser === 1 || user?.is_superuser === '1');
   const activeAppLoadingPreview = appLoadingPickStaging || appLoadingPreview;
@@ -600,6 +608,7 @@ export default function SuperUserScreen() {
   useEffect(() => {
     if (!isSuperuser || activeTab !== 'appSettings') return;
     getAppLoadingMediaSettings().then(setAppLoadingPreview);
+    getLoginLogoSettings().then(setLoginLogoPreview);
   }, [activeTab, isSuperuser]);
 
   useEffect(() => {
@@ -666,6 +675,41 @@ export default function SuperUserScreen() {
       showToast(e?.message || 'Impossibile rimuovere il file');
     } finally {
       setPickingAppLoading(false);
+    }
+  };
+
+  const handlePickLoginLogo = async () => {
+    if (!isSuperuser) return;
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['image/png', 'image/jpeg', 'image/gif', 'image/webp'],
+        copyToCacheDirectory: true,
+      });
+      if (result.canceled || !result.assets || result.assets.length === 0) return;
+      const asset = result.assets[0];
+      setPickingLoginLogo(true);
+      const saved = await saveLoginLogoFromPicker(asset);
+      setLoginLogoPreview(saved);
+      showToast('Logo login aggiornato', 'success');
+    } catch (e) {
+      console.error('Login logo pick:', e);
+      showToast(e?.message || 'Impossibile importare il file');
+    } finally {
+      setPickingLoginLogo(false);
+    }
+  };
+
+  const handleClearLoginLogo = async () => {
+    if (!isSuperuser) return;
+    try {
+      setPickingLoginLogo(true);
+      await clearLoginLogo();
+      setLoginLogoPreview(null);
+      showToast('Logo login rimosso, verrà visualizzata la scritta predefinita', 'success');
+    } catch (e) {
+      showToast(e?.message || 'Impossibile rimuovere il logo');
+    } finally {
+      setPickingLoginLogo(false);
     }
   };
   
@@ -1595,74 +1639,132 @@ export default function SuperUserScreen() {
             <Text style={styles.appSettingsTitle}>Impostazioni app</Text>
 
             <View style={styles.appSettingsCard}>
-              <Text style={styles.appSettingsSectionTitle}>Schermata di caricamento (9:16)</Text>
-
               <TouchableOpacity
-                style={[styles.appSettingsPrimaryBtn, pickingAppLoading && styles.appSettingsBtnDisabled]}
-                onPress={handlePickAppLoadingMedia}
-                disabled={pickingAppLoading}
+                style={styles.collapsibleHeader}
+                onPress={() => setLoadingSectionOpen((v) => !v)}
+                activeOpacity={0.7}
               >
-                {pickingAppLoading ? (
-                  <ActivityIndicator color="#fff" />
-                ) : (
-                  <Text style={styles.appSettingsPrimaryBtnText}>Scegli file (GIF / immagine / video)</Text>
-                )}
+                <Text style={styles.appSettingsSectionTitle}>Schermata di caricamento (9:16)</Text>
+                <Ionicons
+                  name={loadingSectionOpen ? 'chevron-up' : 'chevron-down'}
+                  size={22}
+                  color="#666"
+                />
               </TouchableOpacity>
 
-              {!activeAppLoadingPreview?.uri ? (
-                <Text style={[styles.appSettingsMuted, { marginTop: 14 }]}>
-                  {`Nessun file: in caricamento reale vedrai solo lo spinner.`}
-                </Text>
-              ) : (
+              {loadingSectionOpen && (
                 <>
-                  <Text style={styles.appSettingsPreviewTitle}>Anteprima sul telefono</Text>
-                  <View style={styles.appLoadingPreviewStage}>
-                    {activeAppLoadingPreview.type === 'video' ? (
-                      <LoopingVideoView
-                        uri={activeAppLoadingPreview.uri}
-                        style={StyleSheet.absoluteFillObject}
-                        contentFit="cover"
-                      />
+                  <TouchableOpacity
+                    style={[styles.appSettingsPrimaryBtn, pickingAppLoading && styles.appSettingsBtnDisabled]}
+                    onPress={handlePickAppLoadingMedia}
+                    disabled={pickingAppLoading}
+                  >
+                    {pickingAppLoading ? (
+                      <ActivityIndicator color="#fff" />
                     ) : (
-                      <Image
-                        source={{ uri: activeAppLoadingPreview.uri }}
-                        style={StyleSheet.absoluteFillObject}
-                        resizeMode="cover"
-                      />
+                      <Text style={styles.appSettingsPrimaryBtnText}>Scegli file (GIF / immagine / video)</Text>
                     )}
-                    {pickingAppLoading && appLoadingPickStaging ? (
-                      <View style={styles.appLoadingPreviewUploadOverlay}>
-                        <ActivityIndicator color="#fff" size="large" />
-                        <Text style={styles.appLoadingPreviewUploadText}>Invio al server…</Text>
-                      </View>
-                    ) : null}
-                  </View>
-                  {activeAppLoadingPreview.name ? (
-                    <Text style={styles.appSettingsFileName} numberOfLines={2}>
-                      {activeAppLoadingPreview.name}
+                  </TouchableOpacity>
+
+                  {!activeAppLoadingPreview?.uri ? (
+                    <Text style={[styles.appSettingsMuted, { marginTop: 14 }]}>
+                      {`Nessun file: in caricamento reale vedrai solo lo spinner.`}
                     </Text>
+                  ) : (
+                    <>
+                      <Text style={styles.appSettingsPreviewTitle}>Anteprima sul telefono</Text>
+                      <View style={styles.appLoadingPreviewStage}>
+                        {activeAppLoadingPreview.type === 'video' ? (
+                          <LoopingVideoView
+                            uri={activeAppLoadingPreview.uri}
+                            style={StyleSheet.absoluteFillObject}
+                            contentFit="cover"
+                          />
+                        ) : (
+                          <Image
+                            source={{ uri: activeAppLoadingPreview.uri }}
+                            style={StyleSheet.absoluteFillObject}
+                            resizeMode="cover"
+                          />
+                        )}
+                        {pickingAppLoading && appLoadingPickStaging ? (
+                          <View style={styles.appLoadingPreviewUploadOverlay}>
+                            <ActivityIndicator color="#fff" size="large" />
+                            <Text style={styles.appLoadingPreviewUploadText}>Invio al server…</Text>
+                          </View>
+                        ) : null}
+                      </View>
+                      {activeAppLoadingPreview.name ? (
+                        <Text style={styles.appSettingsFileName} numberOfLines={2}>
+                          {activeAppLoadingPreview.name}
+                        </Text>
+                      ) : null}
+                    </>
+                  )}
+
+                  <TouchableOpacity
+                    style={[styles.appSettingsOutlineBtn, { marginTop: 4 }]}
+                    onPress={() => setAppLoadingSimulateOpen(true)}
+                    disabled={pickingAppLoading}
+                  >
+                    <Ionicons name="phone-portrait-outline" size={20} color="#667eea" />
+                    <Text style={styles.appSettingsOutlineBtnText}>Anteprima a tutto schermo (loop)</Text>
+                  </TouchableOpacity>
+
+                  {activeAppLoadingPreview?.uri ? (
+                    <TouchableOpacity
+                      style={styles.appSettingsSecondaryBtn}
+                      onPress={handleClearAppLoadingMedia}
+                      disabled={pickingAppLoading}
+                    >
+                      <Text style={styles.appSettingsSecondaryBtnText}>Rimuovi personalizzazione</Text>
+                    </TouchableOpacity>
                   ) : null}
                 </>
               )}
+            </View>
+
+            <View style={[styles.appSettingsCard, { marginTop: 16 }]}>
+              <Text style={styles.appSettingsSectionTitle}>Logo pagina di login</Text>
+              <Text style={[styles.appSettingsMuted, { marginTop: 0, marginBottom: 12 }]}>
+                Sostituisce la scritta "FANTACOPPA MONTECAVOLO" nella pagina di login. Usa un'immagine senza sfondo (PNG trasparente).
+              </Text>
 
               <TouchableOpacity
-                style={[styles.appSettingsOutlineBtn, { marginTop: 4 }]}
-                onPress={() => setAppLoadingSimulateOpen(true)}
-                disabled={pickingAppLoading}
+                style={[styles.appSettingsPrimaryBtn, pickingLoginLogo && styles.appSettingsBtnDisabled]}
+                onPress={handlePickLoginLogo}
+                disabled={pickingLoginLogo}
               >
-                <Ionicons name="phone-portrait-outline" size={20} color="#667eea" />
-                <Text style={styles.appSettingsOutlineBtnText}>Anteprima a tutto schermo (loop)</Text>
+                {pickingLoginLogo ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.appSettingsPrimaryBtnText}>Scegli immagine</Text>
+                )}
               </TouchableOpacity>
 
-              {activeAppLoadingPreview?.uri ? (
-                <TouchableOpacity
-                  style={styles.appSettingsSecondaryBtn}
-                  onPress={handleClearAppLoadingMedia}
-                  disabled={pickingAppLoading}
-                >
-                  <Text style={styles.appSettingsSecondaryBtnText}>Rimuovi personalizzazione</Text>
-                </TouchableOpacity>
-              ) : null}
+              {loginLogoPreview?.uri ? (
+                <>
+                  <Text style={styles.appSettingsPreviewTitle}>Anteprima</Text>
+                  <View style={styles.loginLogoPreviewBox}>
+                    <Image
+                      source={{ uri: loginLogoPreview.uri }}
+                      style={styles.loginLogoPreviewImg}
+                      resizeMode="contain"
+                    />
+                  </View>
+                  <TouchableOpacity
+                    style={styles.appSettingsSecondaryBtn}
+                    onPress={handleClearLoginLogo}
+                    disabled={pickingLoginLogo}
+                  >
+                    <Text style={styles.appSettingsSecondaryBtnText}>Rimuovi logo (torna alla scritta)</Text>
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <Text style={[styles.appSettingsMuted, { marginTop: 14 }]}>
+                  Nessun logo caricato: verrà visualizzata la scritta predefinita.
+                </Text>
+              )}
             </View>
           </ScrollView>
         )}
@@ -3520,6 +3622,24 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#333',
     marginBottom: 8,
+  },
+  collapsibleHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  loginLogoPreviewBox: {
+    backgroundColor: '#f4f5fa',
+    borderRadius: 12,
+    padding: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#e8e8ee',
+  },
+  loginLogoPreviewImg: {
+    width: 180,
+    height: 120,
   },
   appSettingsBody: {
     fontSize: 14,

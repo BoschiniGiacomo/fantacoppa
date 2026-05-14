@@ -1172,7 +1172,6 @@ router.get('/matches', authenticateToken, async (req, res) => {
 // GET /matches/:matchId/detail — dettaglio match con tabs (overview/formazione/classifica)
 router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
   try {
-    const t0 = Date.now();
     const userId = Number(req.user?.userId);
     const matchId = Number(req.params.matchId);
     if (!matchId || matchId <= 0) return res.status(400).json({ message: 'matchId non valido' });
@@ -1219,9 +1218,6 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
     );
     const matchRow = rows[0];
     if (!matchRow) return res.status(404).json({ message: 'Partita non trovata' });
-    console.log(`[PERF] /detail matchQuery: ${Date.now() - t0}ms`);
-
-    const tPhase1 = Date.now();
     const homeTeamId = Number(matchRow.home_team_id);
     const awayTeamId = Number(matchRow.away_team_id);
     const homeLeagueId = Number(matchRow.home_league_id || 0);
@@ -1262,7 +1258,6 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
           ).catch(() => [])
         : Promise.resolve([]),
     ]);
-    console.log(`[PERF] /detail phase1 (all 8 parallel): ${Date.now() - tPhase1}ms`);
 
     const homeLogoPath = normalizeTeamLogoPathForApi(homeTeam?.logo_path);
     const awayLogoPath = normalizeTeamLogoPathForApi(awayTeam?.logo_path);
@@ -1403,7 +1398,6 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
       knockout = { semifinals: [], final: null };
     }
 
-    console.log(`[PERF] GET /matches/:matchId/detail TOTAL: ${Date.now() - t0}ms`);
     return res.json({
       match,
       lineups: { home: homeAvailable, away: awayAvailable },

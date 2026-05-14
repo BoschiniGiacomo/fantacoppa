@@ -1055,4 +1055,90 @@ router.delete('/app-loading-media', authenticateToken, requireSuperuserLevel1, a
   }
 });
 
+const loginLogoUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+});
+
+function allowedLogoMime(mimetype, originalname) {
+  const m = String(mimetype || '').toLowerCase();
+  const n = String(originalname || '').toLowerCase();
+  const okMime = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(m);
+  if (okMime) return true;
+  return ['.png', '.jpg', '.jpeg', '.gif', '.webp'].some((e) => n.endsWith(e));
+}
+
+router.post(
+  '/login-logo',
+  authenticateToken,
+  requireSuperuserLevel1,
+  loginLogoUpload.single('media'),
+  async (req, res) => {
+    try {
+      if (!req.file) return res.status(400).json({ message: 'File mancante' });
+      if (!allowedLogoMime(req.file.mimetype, req.file.originalname)) {
+        return res.status(400).json({ message: 'Formato non supportato (PNG, JPEG, GIF, WEBP)' });
+      }
+      const supabase = getSupabaseStorageClient();
+      if (!supabase) {
+        return res.status(500).json({ message: 'Supabase Storage non configurato sul server' });
+      }
+      await ensureAppSettingsTable();
+
+      const ext = path.extname(String(req.file.originalname || '')).toLowerCase();
+      const safeExt = ['.png', '.jpg', '.jpeg', '.gif', '.webp'].includes(ext) ? ext : '.png';
+      const filename = `login_logo_${Date.now()}_${Math.random().toString(36).slice(2, 8)}${safeExt}`;
+      const storagePath = `login_logo/${filename}`;
+
+      const prevRows = await query(`SELECT login_logo_path FROM app_settings WHERE id = 1`);
+      const prevPath = prevRows[0]?.login_logo_path;
+
+      const { error: storageError } = await supabase.storage
+        .from('uploads')
+        .upload(storagePath, req.file.buffer, {
+          contentType: req.file.mimetype || 'image/png',
+          upsert: true,
+          cacheControl: '300',
+        });
+      if (storageError) {
+        return res.status(500).json({ message: 'Errore upload su storage', error: storageError.message });
+      }
+
+      const dbPath = `uploads/${storagePath}`;
+      if (prevPath && String(prevPath).startsWith('uploads/')) {
+        const old = String(prevPath).replace(/^uploads\//, '');
+        await supabase.storage.from('uploads').remove([old]).catch(() => {});
+      }
+
+      await query(
+        `UPDATE app_settings SET login_logo_path = ?, updated_at = NOW() WHERE id = 1`,
+        [dbPath]
+      );
+
+      return res.json({ success: true, path: dbPath });
+    } catch (error) {
+      console.error('Upload login logo:', error);
+      return res.status(500).json({ message: 'Errore upload', error: error.message });
+    }
+  }
+);
+
+router.delete('/login-logo', authenticateToken, requireSuperuserLevel1, async (_req, res) => {
+  try {
+    const supabase = getSupabaseStorageClient();
+    await ensureAppSettingsTable();
+    const prevRows = await query(`SELECT login_logo_path FROM app_settings WHERE id = 1`);
+    const prevPath = prevRows[0]?.login_logo_path;
+    if (supabase && prevPath && String(prevPath).startsWith('uploads/')) {
+      const old = String(prevPath).replace(/^uploads\//, '');
+      await supabase.storage.from('uploads').remove([old]).catch(() => {});
+    }
+    await query(`UPDATE app_settings SET login_logo_path = NULL, updated_at = NOW() WHERE id = 1`);
+    return res.json({ success: true });
+  } catch (error) {
+    console.error('Delete login logo:', error);
+    return res.status(500).json({ message: 'Errore rimozione', error: error.message });
+  }
+});
+
 module.exports = router;
