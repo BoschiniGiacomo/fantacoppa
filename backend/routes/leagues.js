@@ -2580,6 +2580,7 @@ router.get('/:id/standings/matchday/:giornata/formation/:userId', authenticateTo
       query(
         `SELECT player_id, rating, goals, assists, yellow_cards, red_cards,
                 goals_conceded, own_goals, penalty_missed, penalty_saved, clean_sheet,
+                pallone_fuori, briso, no_divisa,
                 total_score
          FROM matchday_player_scores
          WHERE league_id = ? AND giornata = ? AND user_id = ?`,
@@ -2587,7 +2588,8 @@ router.get('/:id/standings/matchday/:giornata/formation/:userId', authenticateTo
       ).catch(() => []),
       query(
         `SELECT player_id, rating, goals, assists, yellow_cards, red_cards,
-                goals_conceded, own_goals, penalty_missed, penalty_saved, clean_sheet
+                goals_conceded, own_goals, penalty_missed, penalty_saved, clean_sheet,
+                pallone_fuori, briso, no_divisa
          FROM player_ratings
          WHERE league_id = ? AND giornata = ?`,
         [leagueId, giornata]
@@ -2613,6 +2615,9 @@ router.get('/:id/standings/matchday/:giornata/formation/:userId', authenticateTo
       const penalty_missed = Number((s?.penalty_missed != null ? s.penalty_missed : v.penalty_missed) || 0);
       const penalty_saved = Number((s?.penalty_saved != null ? s.penalty_saved : v.penalty_saved) || 0);
       const clean_sheet = Number((s?.clean_sheet != null ? s.clean_sheet : v.clean_sheet) || 0);
+      const pallone_fuori = Number((s?.pallone_fuori != null ? s.pallone_fuori : v.pallone_fuori) || 0);
+      const briso = Number((s?.briso != null ? s.briso : v.briso) || 0);
+      const no_divisa = Number((s?.no_divisa != null ? s.no_divisa : v.no_divisa) || 0);
       const computedFinal = rating + computeBonusTotal({
         rating,
         goals,
@@ -2624,6 +2629,9 @@ router.get('/:id/standings/matchday/:giornata/formation/:userId', authenticateTo
         penalty_missed,
         penalty_saved,
         clean_sheet,
+        pallone_fuori,
+        briso,
+        no_divisa,
       }, bonusSettings);
       const final_rating = Number((s?.total_score != null ? s.total_score : computedFinal) || 0);
       return {
@@ -2644,6 +2652,9 @@ router.get('/:id/standings/matchday/:giornata/formation/:userId', authenticateTo
         penalty_missed,
         penalty_saved,
         clean_sheet,
+        pallone_fuori,
+        briso,
+        no_divisa,
       };
     }).filter(Boolean);
 
