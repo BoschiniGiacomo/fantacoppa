@@ -11,15 +11,43 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { publicAssetUrl } from '../services/api';
 import { leagueService } from '../services/api';
 import { defaultLogosMap } from '../constants/defaultLogos';
 import { parseAppDate } from '../utils/dateTime';
+import BonusIcon from '../components/BonusIcon';
+
+const ROLE_COLORS = { P: '#0d6efd', D: '#198754', C: '#e6a817', A: '#dc3545' };
 
 const getRoleColor = (role) => {
   const colors = { P: '#0d6efd', D: '#198754', C: '#e6a800', A: '#dc3545' };
   return colors[role] || '#6c757d';
+};
+
+const ALL_MODULES = {
+  '1-1-1': [1,1,1], '1-1-2': [1,1,2], '1-2-1': [1,2,1], '2-1-1': [2,1,1],
+  '1-2-2': [1,2,2], '2-2-1': [2,2,1], '2-1-2': [2,1,2], '3-1-1': [3,1,1],
+  '2-2-2': [2,2,2], '3-2-1': [3,2,1], '2-3-1': [2,3,1], '1-3-2': [1,3,2], '3-1-2': [3,1,2],
+  '3-2-2': [3,2,2], '2-3-2': [2,3,2], '2-2-3': [2,2,3], '4-2-1': [4,2,1], '3-3-1': [3,3,1],
+  '3-3-2': [3,3,2], '3-2-3': [3,2,3], '2-3-3': [2,3,3], '4-2-2': [4,2,2],
+  '3-3-3': [3,3,3], '4-2-3': [4,2,3], '3-4-2': [3,4,2], '2-4-3': [2,4,3], '5-2-2': [5,2,2],
+  '4-3-2': [4,3,2], '2-5-2': [2,5,2], '3-5-1': [3,5,1], '4-4-1': [4,4,1],
+  '4-4-2': [4,4,2], '4-3-3': [4,3,3], '3-5-2': [3,5,2], '4-5-1': [4,5,1], '5-3-2': [5,3,2],
+  '5-4-1': [5,4,1], '5-2-3': [5,2,3], '3-4-3': [3,4,3],
+};
+const MINI_FIELD_H = 410;
+
+const midTruncate = (str, max = 8) => {
+  if (!str || str.length <= max) return str || '';
+  const tail = 3;
+  const head = max - tail - 2;
+  return str.slice(0, head) + '..' + str.slice(-tail);
+};
+
+const formatRating = (v) => {
+  const n = Number(v || 0);
+  return n > 0 ? n.toFixed(1) : '-';
 };
 
 export default function LiveScoresScreen({ route, navigation }) {
@@ -31,6 +59,9 @@ export default function LiveScoresScreen({ route, navigation }) {
   const [expandedTeams, setExpandedTeams] = useState({});
   const [currentGiornata, setCurrentGiornata] = useState(initialGiornata);
   const [availableMatchdays, setAvailableMatchdays] = useState([]);
+  const [formations, setFormations] = useState({});
+  const [formationViewMode, setFormationViewMode] = useState({});
+  const [loadingFormation, setLoadingFormation] = useState({});
   const parseDeadlineDate = (value) => parseAppDate(value);
 
   const loadLiveData = async (isRefresh = false) => {
@@ -74,8 +105,20 @@ export default function LiveScoresScreen({ route, navigation }) {
     }, [leagueId, currentGiornata])
   );
 
-  const toggleTeam = (userId) => {
-    setExpandedTeams(prev => ({ ...prev, [userId]: !prev[userId] }));
+  const toggleTeam = async (userId) => {
+    const willExpand = !expandedTeams[userId];
+    setExpandedTeams(prev => ({ ...prev, [userId]: willExpand }));
+    if (willExpand && !formations[userId]) {
+      setLoadingFormation(prev => ({ ...prev, [userId]: true }));
+      try {
+        const res = await leagueService.getMatchdayFormation(leagueId, currentGiornata, userId);
+        setFormations(prev => ({ ...prev, [userId]: res.data }));
+      } catch (e) {
+        console.error('Error loading formation:', e);
+      } finally {
+        setLoadingFormation(prev => ({ ...prev, [userId]: false }));
+      }
+    }
   };
 
   if (loading) {
@@ -123,6 +166,8 @@ export default function LiveScoresScreen({ route, navigation }) {
                   if (!isActive) {
                     setCurrentGiornata(m.giornata);
                     setExpandedTeams({});
+                    setFormations({});
+                    setFormationViewMode({});
                   }
                 }}
                 activeOpacity={0.7}
@@ -202,32 +247,215 @@ export default function LiveScoresScreen({ route, navigation }) {
                 <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={18} color="#999" />
               </TouchableOpacity>
 
-              {isExpanded && team.players && team.players.length > 0 && (
-                <View style={styles.playersContainer}>
-                  {team.players.map(p => (
-                    <View key={p.player_id} style={styles.playerRow}>
-                      <View style={[styles.roleStripe, { backgroundColor: getRoleColor(p.player_role) }]} />
-                      <View style={[styles.roleBadge, { backgroundColor: getRoleColor(p.player_role) }]}>
-                        <Text style={styles.roleBadgeText}>{p.player_role}</Text>
-                      </View>
-                      <Text style={styles.playerName} numberOfLines={1}>{p.player_name}</Text>
-                      <Text style={styles.playerRating}>{p.rating > 0 ? p.rating.toFixed(2) : 'S.V.'}</Text>
-                      {p.bonus_total !== 0 && (
-                        <Text style={[styles.playerBonus, p.bonus_total > 0 ? styles.bonusPositive : styles.bonusNegative]}>
-                          {p.bonus_total > 0 ? '+' : ''}{p.bonus_total.toFixed(2)}
-                        </Text>
-                      )}
-                      <Text style={styles.playerTotal}>{p.total_score.toFixed(2)}</Text>
-                    </View>
-                  ))}
-                </View>
-              )}
+              {isExpanded && (() => {
+                const fData = formations[team.user_id];
+                const isLoadingF = loadingFormation[team.user_id];
+                const viewMode = formationViewMode[team.user_id] || 'field';
 
-              {isExpanded && (!team.players || team.players.length === 0) && (
-                <View style={styles.noPlayersContainer}>
-                  <Text style={styles.noPlayersText}>Nessun titolare con voto</Text>
-                </View>
-              )}
+                if (isLoadingF) {
+                  return (
+                    <View style={styles.formationLoading}>
+                      <ActivityIndicator size="small" color="#667eea" />
+                      <Text style={styles.formationLoadingText}>Caricamento...</Text>
+                    </View>
+                  );
+                }
+
+                if (fData && fData.formation && fData.formation.length > 0) {
+                  return (
+                    <View style={styles.formationBox}>
+                      {fData.modulo && ALL_MODULES[fData.modulo] && (
+                        <View style={styles.fViewTabs}>
+                          <TouchableOpacity
+                            style={[styles.fViewTab, viewMode === 'field' && styles.fViewTabActive]}
+                            onPress={() => setFormationViewMode(prev => ({ ...prev, [team.user_id]: 'field' }))}
+                          >
+                            <MaterialCommunityIcons name="soccer-field" size={20} color={viewMode === 'field' ? '#667eea' : '#bbb'} />
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={[styles.fViewTab, viewMode === 'list' && styles.fViewTabActive]}
+                            onPress={() => setFormationViewMode(prev => ({ ...prev, [team.user_id]: 'list' }))}
+                          >
+                            <Ionicons name="list" size={18} color={viewMode === 'list' ? '#667eea' : '#bbb'} />
+                          </TouchableOpacity>
+                        </View>
+                      )}
+
+                      {/* FIELD VIEW */}
+                      {viewMode === 'field' && fData.modulo && ALL_MODULES[fData.modulo] ? (() => {
+                        const parts = ALL_MODULES[fData.modulo];
+                        const [d, c, a] = parts;
+                        const players = fData.formation;
+                        const rows = [
+                          { role: 'A', slots: players.slice(1 + d + c, 1 + d + c + a) },
+                          { role: 'C', slots: players.slice(1 + d, 1 + d + c) },
+                          { role: 'D', slots: players.slice(1, 1 + d) },
+                          { role: 'P', slots: [players[0]] },
+                        ];
+                        const slotSize = 68;
+                        return (
+                          <View style={styles.miniField}>
+                            <View style={styles.miniFieldCenter} />
+                            <View style={styles.miniFieldCircle} />
+                            <View style={styles.miniFieldAreaTop} />
+                            <View style={styles.miniFieldAreaBottom} />
+                            {rows.map((row, ri) => {
+                              const cnt = row.slots.length;
+                              const topPct = ri === 0 ? 4
+                                : ri === 1 ? (cnt <= 4 ? 32 : 28)
+                                : ri === 2 ? 56 : 80;
+                              const slotMarginH = cnt >= 7 ? -10 : cnt >= 6 ? -8 : cnt >= 5 ? -3 : 0;
+                              return (
+                                <View key={ri} style={[styles.miniFieldRow, { top: `${topPct}%` }, cnt >= 5 && { justifyContent: 'center', marginHorizontal: 4 }, cnt === 4 && { justifyContent: 'center', gap: 2 }]}>
+                                  {row.slots.map((p, si) => {
+                                    if (!p) return <View key={si} style={{ width: slotSize, height: slotSize }} />;
+                                    const roleColor = ROLE_COLORS[p.role] || '#999';
+                                    const hasPhoto = !!p.photo_path;
+                                    const hasVote = Number(p.rating || 0) > 0;
+
+                                    let yOffset = 0;
+                                    if (cnt >= 5) {
+                                      const center = (cnt - 1) / 2;
+                                      const dist = Math.abs(si - center) / center;
+                                      const up = cnt >= 7 ? -125 : cnt >= 6 ? -115 : -105;
+                                      const down = cnt >= 7 ? 18 : cnt >= 6 ? 16 : 14;
+                                      yOffset = Math.round(up * dist + down * (1 - dist));
+                                    }
+
+                                    const bonusItems = [];
+                                    if (fData.bonus_enabled) {
+                                      const bs = fData.bonus_settings || {};
+                                      if (p.goals > 0 && bs.enable_goal) bonusItems.push({ type: 'goal', count: p.goals });
+                                      if (p.assists > 0 && bs.enable_assist) bonusItems.push({ type: 'assist', count: p.assists });
+                                      if (p.yellow_cards > 0 && bs.enable_yellow_card) bonusItems.push({ type: 'yellow_card', count: p.yellow_cards });
+                                      if (p.red_cards > 0 && bs.enable_red_card) bonusItems.push({ type: 'red_card', count: p.red_cards });
+                                      if (p.goals_conceded > 0 && bs.enable_goals_conceded) bonusItems.push({ type: 'goals_conceded', count: p.goals_conceded });
+                                      if (p.own_goals > 0 && bs.enable_own_goal) bonusItems.push({ type: 'own_goal', count: p.own_goals });
+                                      if (p.penalty_missed > 0 && bs.enable_penalty_missed) bonusItems.push({ type: 'penalty_missed', count: p.penalty_missed });
+                                      if (p.penalty_saved > 0 && bs.enable_penalty_saved) bonusItems.push({ type: 'penalty_saved', count: p.penalty_saved });
+                                      if (p.clean_sheet > 0 && bs.enable_clean_sheet) bonusItems.push({ type: 'clean_sheet', count: p.clean_sheet });
+                                      if (p.pallone_fuori > 0 && bs.enable_pallone_fuori) bonusItems.push({ type: 'pallone_fuori', count: p.pallone_fuori });
+                                      if (p.briso > 0 && bs.enable_briso) bonusItems.push({ type: 'briso', count: p.briso });
+                                      if (p.no_divisa > 0 && bs.enable_no_divisa) bonusItems.push({ type: 'no_divisa', count: p.no_divisa });
+                                    }
+
+                                    return (
+                                      <View key={p.id || si} style={[styles.miniSlotWrap, ...(slotMarginH !== 0 ? [{ marginHorizontal: slotMarginH }] : []), ...(yOffset !== 0 ? [{ marginTop: yOffset }] : [])]}>
+                                        <View
+                                          style={[
+                                            styles.miniSlot,
+                                            {
+                                              width: slotSize, height: slotSize, borderRadius: slotSize / 2,
+                                              borderColor: roleColor,
+                                              backgroundColor: hasPhoto ? 'transparent' : roleColor,
+                                              opacity: hasVote ? 1 : 0.5,
+                                            },
+                                            hasPhoto && { borderWidth: 0, overflow: 'hidden' },
+                                          ]}
+                                        >
+                                          {hasPhoto ? (
+                                            <>
+                                              <Image source={{ uri: publicAssetUrl(p.photo_path) }} style={{ width: slotSize * 0.90, height: slotSize * 0.90, position: 'absolute', top: -slotSize * 0.11 }} />
+                                              <View style={[styles.miniSlotOverlay, { backgroundColor: roleColor }]}>
+                                                <Text style={styles.miniSlotOverlayText}>{midTruncate(p.last_name)}</Text>
+                                              </View>
+                                            </>
+                                          ) : (
+                                            <>
+                                              <Text style={styles.miniSlotName} numberOfLines={1}>{midTruncate(p.last_name, 10)}</Text>
+                                              <Text style={styles.miniSlotTeam} numberOfLines={1}>{midTruncate(p.team_name, 9)}</Text>
+                                            </>
+                                          )}
+                                          {bonusItems.length > 0 && (
+                                            <View style={styles.fieldBonusCol}>
+                                              {bonusItems.map((b, idx) => (
+                                                <View key={idx} style={styles.fieldBonusChip}>
+                                                  <BonusIcon type={b.type} size={17} />
+                                                  {b.count > 1 && <Text style={styles.fieldBonusCount}>x{b.count}</Text>}
+                                                </View>
+                                              ))}
+                                            </View>
+                                          )}
+                                        </View>
+                                        <View style={styles.fieldVotesBox}>
+                                          <Text style={styles.fieldVoteBase}>{formatRating(p.rating)}</Text>
+                                          <View style={styles.fieldVoteSep} />
+                                          <Text style={styles.fieldVoteFinal}>{formatRating(p.final_rating)}</Text>
+                                        </View>
+                                      </View>
+                                    );
+                                  })}
+                                </View>
+                              );
+                            })}
+                          </View>
+                        );
+                      })() : (
+                        /* LIST VIEW */
+                        <View>
+                          {fData.formation.map((player, index) => {
+                            if (!player) return (
+                              <View key={`empty-${index}`} style={styles.fPlayerRow}>
+                                <Text style={{ color: '#bbb', fontStyle: 'italic' }}>-</Text>
+                              </View>
+                            );
+
+                            const hasVote = Number(player.rating || 0) > 0;
+                            const bonusItems = [];
+                            if (fData.bonus_enabled) {
+                              const bs = fData.bonus_settings || {};
+                              if (player.goals > 0 && bs.enable_goal) bonusItems.push({ type: 'goal', count: player.goals });
+                              if (player.assists > 0 && bs.enable_assist) bonusItems.push({ type: 'assist', count: player.assists });
+                              if (player.yellow_cards > 0 && bs.enable_yellow_card) bonusItems.push({ type: 'yellow_card', count: player.yellow_cards });
+                              if (player.red_cards > 0 && bs.enable_red_card) bonusItems.push({ type: 'red_card', count: player.red_cards });
+                              if (player.goals_conceded > 0 && bs.enable_goals_conceded) bonusItems.push({ type: 'goals_conceded', count: player.goals_conceded });
+                              if (player.own_goals > 0 && bs.enable_own_goal) bonusItems.push({ type: 'own_goal', count: player.own_goals });
+                              if (player.penalty_missed > 0 && bs.enable_penalty_missed) bonusItems.push({ type: 'penalty_missed', count: player.penalty_missed });
+                              if (player.penalty_saved > 0 && bs.enable_penalty_saved) bonusItems.push({ type: 'penalty_saved', count: player.penalty_saved });
+                              if (player.clean_sheet > 0 && bs.enable_clean_sheet) bonusItems.push({ type: 'clean_sheet', count: player.clean_sheet });
+                              if (player.pallone_fuori > 0 && bs.enable_pallone_fuori) bonusItems.push({ type: 'pallone_fuori', count: player.pallone_fuori });
+                              if (player.briso > 0 && bs.enable_briso) bonusItems.push({ type: 'briso', count: player.briso });
+                              if (player.no_divisa > 0 && bs.enable_no_divisa) bonusItems.push({ type: 'no_divisa', count: player.no_divisa });
+                            }
+
+                            return (
+                              <View key={player.id || index} style={[styles.fPlayerRow, !hasVote && { opacity: 0.5 }]}>
+                                <View style={[styles.fRoleDot, { backgroundColor: ROLE_COLORS[player.role] || '#999' }]}>
+                                  <Text style={styles.fRoleDotText}>{player.role || '-'}</Text>
+                                </View>
+                                <Text style={styles.fPlayerName} numberOfLines={1}>
+                                  {player.first_name} {player.last_name}
+                                </Text>
+                                {bonusItems.length > 0 && (
+                                  <View style={styles.fBonusRow}>
+                                    {bonusItems.map((b, idx) => (
+                                      <View key={idx} style={styles.fBonusChip}>
+                                        <BonusIcon type={b.type} size={12} />
+                                        {b.count > 1 && <Text style={styles.fBonusCount}>×{b.count}</Text>}
+                                      </View>
+                                    ))}
+                                  </View>
+                                )}
+                                <View style={styles.fVotesBox}>
+                                  <Text style={styles.fVoteBase}>{formatRating(player.rating)}</Text>
+                                  <Text style={styles.fVoteSep}>|</Text>
+                                  <Text style={styles.fVoteFinal}>{formatRating(player.final_rating)}</Text>
+                                </View>
+                              </View>
+                            );
+                          })}
+                        </View>
+                      )}
+                    </View>
+                  );
+                }
+
+                return (
+                  <View style={styles.noPlayersContainer}>
+                    <Text style={styles.noPlayersText}>Nessun titolare con voto</Text>
+                  </View>
+                );
+              })()}
             </View>
           );
         })}
@@ -509,4 +737,76 @@ const styles = StyleSheet.create({
     color: '#999',
     marginTop: 12,
   },
+
+  /* Formation box */
+  formationBox: {
+    backgroundColor: '#fafafa',
+    borderRadius: 8,
+    padding: 10,
+    marginTop: 0,
+    borderTopWidth: 1,
+    borderTopColor: '#f0f0f0',
+  },
+  formationLoading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    gap: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#f0f0f0',
+  },
+  formationLoadingText: { fontSize: 13, color: '#999' },
+
+  /* Formation view tabs */
+  fViewTabs: { flexDirection: 'row', gap: 6, marginBottom: 10 },
+  fViewTab: { flex: 1, paddingVertical: 6, borderRadius: 8, backgroundColor: '#f0f0f0', alignItems: 'center', justifyContent: 'center' },
+  fViewTabActive: { backgroundColor: '#e8ecff' },
+
+  /* Mini field */
+  miniField: { height: MINI_FIELD_H, backgroundColor: '#2e8b57', borderRadius: 8, position: 'relative', overflow: 'hidden', marginHorizontal: -10 },
+  miniFieldCenter: { position: 'absolute', top: '49%', left: 0, right: 0, height: 2, backgroundColor: 'rgba(255,255,255,0.25)' },
+  miniFieldCircle: { position: 'absolute', top: '50%', left: '50%', width: 60, height: 60, borderRadius: 30, borderWidth: 2, borderColor: 'rgba(255,255,255,0.2)', marginLeft: -30, marginTop: -30 },
+  miniFieldAreaTop: { position: 'absolute', top: 0, left: '25%', right: '25%', height: 30, borderWidth: 2, borderTopWidth: 0, borderColor: 'rgba(255,255,255,0.18)', borderBottomLeftRadius: 6, borderBottomRightRadius: 6 },
+  miniFieldAreaBottom: { position: 'absolute', bottom: 0, left: '25%', right: '25%', height: 30, borderWidth: 2, borderBottomWidth: 0, borderColor: 'rgba(255,255,255,0.18)', borderTopLeftRadius: 6, borderTopRightRadius: 6 },
+  miniFieldRow: { position: 'absolute', left: 0, right: 0, flexDirection: 'row', justifyContent: 'space-evenly', alignItems: 'center' },
+  miniSlot: { borderWidth: 2, justifyContent: 'center', alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.2, shadowRadius: 2, elevation: 3 },
+  miniSlotName: { color: '#fff', fontWeight: '700', fontSize: 10, textAlign: 'center' },
+  miniSlotTeam: { color: 'rgba(255,255,255,0.75)', fontSize: 7, textAlign: 'center', marginTop: 1 },
+  miniSlotOverlay: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingVertical: 2, alignItems: 'center', borderBottomLeftRadius: 999, borderBottomRightRadius: 999 },
+  miniSlotOverlayText: { color: '#fff', fontSize: 9, fontWeight: '700', textAlign: 'center' },
+  miniSlotWrap: { alignItems: 'center' },
+  fieldBonusCol: { position: 'absolute', top: -4, right: -6, flexDirection: 'column', gap: 1, alignItems: 'flex-start' },
+  fieldBonusChip: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 6, paddingHorizontal: 2, paddingVertical: 1 },
+  fieldBonusCount: { color: '#333', fontSize: 9, fontWeight: '700', marginLeft: 1 },
+  fieldVotesBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 6, marginTop: -2, paddingHorizontal: 4, paddingVertical: 1 },
+  fieldVoteBase: { fontSize: 9, fontWeight: '600', color: '#333' },
+  fieldVoteSep: { width: 1, height: 10, backgroundColor: '#ccc', marginHorizontal: 3 },
+  fieldVoteFinal: { fontSize: 9, fontWeight: '700', color: '#2e7d32' },
+
+  /* Formation list view */
+  fPlayerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  fRoleDot: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 8,
+  },
+  fRoleDotText: { color: '#fff', fontSize: 10, fontWeight: '700' },
+  fPlayerName: { flex: 1, fontSize: 13, fontWeight: '500', color: '#2c3e50' },
+  fBonusRow: { flexDirection: 'row', alignItems: 'center', gap: 3, marginRight: 6 },
+  fBonusChip: { flexDirection: 'row', alignItems: 'center', gap: 1 },
+  fBonusCount: { fontSize: 10, color: '#666', fontWeight: '600' },
+  fVotesBox: { flexDirection: 'row', alignItems: 'center', minWidth: 56, justifyContent: 'flex-end' },
+  fVoteBase: { fontSize: 13, fontWeight: '600', color: '#333' },
+  fVoteSep: { fontSize: 12, color: '#ccc', marginHorizontal: 2 },
+  fVoteFinal: { fontSize: 13, fontWeight: '700', color: '#2e7d32' },
 });

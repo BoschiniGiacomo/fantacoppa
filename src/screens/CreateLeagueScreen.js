@@ -1217,10 +1217,10 @@ export default function CreateLeagueScreen({ navigation }) {
             />
           </View>
 
-          {/* Briso */}
+          {/* MVB */}
           <View style={styles.bmRowFull}>
             <View style={styles.bmRowIcon}><BonusIcon type="briso" size={20} /></View>
-            <Text style={styles.bmRowLabel} numberOfLines={1}>Briso</Text>
+            <Text style={styles.bmRowLabel} numberOfLines={1}>MVB</Text>
             <Switch
               value={formData.enableBriso}
               onValueChange={(value) => setFormData({ ...formData, enableBriso: value })}

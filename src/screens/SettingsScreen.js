@@ -1372,7 +1372,7 @@ export default function SettingsScreen({ route, navigation }) {
                     {renderBonusRow('assist', 'Assist', 'enable_assist', 'bonus_assist', '1.0', '#4CAF50')}
                     {renderBonusRow('penalty_saved', 'Rigore parato', 'enable_penalty_saved', 'bonus_penalty_saved', '3.0', '#4CAF50')}
                     {renderBonusRow('clean_sheet', 'Clean sheet', 'enable_clean_sheet', 'bonus_clean_sheet', '1.0', '#4CAF50')}
-                    {renderBonusRow('briso', 'Briso', 'enable_briso', 'bonus_briso', '1.5', '#4CAF50')}
+                    {renderBonusRow('briso', 'MVB', 'enable_briso', 'bonus_briso', '1.5', '#4CAF50')}
 
                     <Text style={[styles.bmSectionLabel, { marginTop: 12 }]}>Malus</Text>
                     {renderBonusRow('yellow_card', 'Cartellino giallo', 'enable_yellow_card', 'malus_yellow_card', '-0.5', '#e53935')}

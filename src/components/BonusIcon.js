@@ -62,8 +62,8 @@ const BONUS_ICONS = {
     badge: { icon: 'arrow-forward-circle', lib: 'ion', color: '#e53935' },
   },
   briso: {
-    icon: 'emoticon-cool-outline',
-    lib: 'mci',
+    icon: 'trophy',
+    lib: 'ion',
     color: '#f9a825',
     badge: null,
   },

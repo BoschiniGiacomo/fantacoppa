@@ -527,13 +527,6 @@ export default function InsertVotesScreen({ route, navigation }) {
         };
       });
 
-      // [DEBUG] Log pre-save: mostra i nuovi campi per giocatori che li hanno
-      Object.entries(ratingsToSave).forEach(([pid, v]) => {
-        if (v.pallone_fuori || v.briso || v.no_divisa) {
-          console.log(`[DEBUG][SAVE] player=${pid} pallone_fuori=${v.pallone_fuori} briso=${v.briso} no_divisa=${v.no_divisa}`);
-        }
-      });
-     
       await leagueService.saveVotes(leagueId, selectedMatchdayRef.current, ratingsToSave, teamId);
 
       setSaveFeedback(teamId ? 'Voti squadra salvati!' : 'Tutti i voti salvati!');
@@ -541,12 +534,6 @@ export default function InsertVotesScreen({ route, navigation }) {
 
       const votesRes = await leagueService.getVotesForMatchday(leagueId, selectedMatchdayRef.current).catch(() => ({ data: {} }));
       const newVotes = votesRes.data || {};
-      // [DEBUG] Log post-reload: mostra i nuovi campi dal server
-      Object.entries(newVotes).forEach(([pid, v]) => {
-        if (v.pallone_fuori || v.briso || v.no_divisa) {
-          console.log(`[DEBUG][RELOAD] player=${pid} pallone_fuori=${v.pallone_fuori} briso=${v.briso} no_divisa=${v.no_divisa}`);
-        }
-      });
       setVotes(newVotes);
       savedVotesSnapshot.current = JSON.stringify(newVotes);
     } catch (error) {
