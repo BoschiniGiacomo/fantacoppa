@@ -48,8 +48,8 @@ app.use('/api', (req, res, next) => {
     return next();
   }
 
-  // Lascia sempre accessibili endpoint diagnostici.
-  if (req.path === '/health' || req.path === '/test-db') {
+  // Lascia sempre accessibili endpoint diagnostici e cron.
+  if (req.path === '/health' || req.path === '/test-db' || req.path === '/notifications/run-cron') {
     return next();
   }
 
