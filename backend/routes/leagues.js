@@ -2274,10 +2274,10 @@ router.get('/:id/standings/matchday/:giornata/formation/:userId', authenticateTo
     const enableSvFallbackVote = Number(recoverRows[0]?.enable_sv_fallback_vote ?? 0) === 1;
     const numeroTitolari = Math.max(1, Number(recoverRows[0]?.numero_titolari || 10));
     const isCalculated = Number(calcRows[0]?.c || 0) > 0;
-    const hasDirectLineupForMatchday = !!lineRows[0];
     let playerIds = applyInjuryMap(parseIdsArray(lineRows[0]?.titolari), injuryMap).slice(0, numeroTitolari);
     let panchina = applyInjuryMap(parseIdsArray(lineRows[0]?.panchina), injuryMap);
     let modulo = lineRows[0]?.modulo || '';
+    const hasDirectLineupForMatchday = !!lineRows[0] && playerIds.length > 0;
     let formationRecovered = false;
     let formationRecoveryKind = null;
 
@@ -2321,6 +2321,25 @@ router.get('/:id/standings/matchday/:giornata/formation/:userId', authenticateTo
       if (resolved.formationRecovered) {
         formationRecovered = true;
         formationRecoveryKind = resolved.formationRecoveryKind;
+      }
+    }
+
+    // Giornate calcolate prima del persist automatico: mostra almeno i giocatori che hanno fatto punti.
+    if (!autoLineupMode && playerIds.length < 1 && isCalculated) {
+      const psFallback = await query(
+        `SELECT player_id
+         FROM matchday_player_scores
+         WHERE league_id = ? AND giornata = ? AND user_id = ?
+         ORDER BY total_score DESC, player_id ASC`,
+        [leagueId, giornata, targetUserId]
+      ).catch(() => []);
+      const fromScores = psFallback
+        .map((r) => Number(r.player_id))
+        .filter((id) => Number.isFinite(id) && id > 0);
+      if (fromScores.length > 0) {
+        playerIds = fromScores.slice(0, numeroTitolari);
+        formationRecovered = true;
+        formationRecoveryKind = formationRecoveryKind || 'from_calculated_scores';
       }
     }
 
