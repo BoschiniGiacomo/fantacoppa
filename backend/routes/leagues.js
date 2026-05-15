@@ -1109,9 +1109,13 @@ router.get('/:id/dashboard-data', authenticateToken, async (req, res) => {
         }
       : null;
 
-    const userScores = Array.isArray(scoreRows)
+    const userScoresAll = Array.isArray(scoreRows)
       ? scoreRows.map((r) => ({ giornata: Number(r.giornata || 0), punteggio: Number(r.punteggio || 0) }))
       : [];
+    // LeagueScreen con >=5 elementi fa slice(-5).reverse(): inviamo ultime 5 DESC così in UI escono ASC.
+    const userScores = userScoresAll.length >= 5
+      ? userScoresAll.slice(-5).sort((a, b) => b.giornata - a.giornata)
+      : userScoresAll;
 
     const squadPlayersCount = Number(squadCountRows[0]?.c || 0);
     const marketPlayersCount = Number(marketCountRows[0]?.c || 0);
