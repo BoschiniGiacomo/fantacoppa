@@ -17,6 +17,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import BonusIcon from '../components/BonusIcon';
 import { leagueService } from '../services/api';
+import { formatVoteRating, normalizeVoteRating } from '../utils/voteRating';
 
 // ==========================================
 // Componente PlayerRow memoizzato
@@ -25,7 +26,7 @@ import { leagueService } from '../services/api';
 const PlayerRow = memo(({ player, playerVote, bonusSettings, bonusEnabled, onUpdateRating, onSetRating, onToggleSV, onUpdateBonus, onIncrementBonus, onDecrementBonus, inputRef, onSubmitNext, rowRef, onInputFocus }) => {
   const pv = playerVote;
   const isSV = pv.rating === 0;
-  const ratingDisplay = isSV ? '' : pv.rating.toFixed(2);
+  const ratingDisplay = isSV ? '' : formatVoteRating(pv.rating, { empty: '' });
 
   // Stato locale per il testo durante l'editing - permette input intermedi come "6." o "6.5"
   const [editingText, setEditingText] = useState(null);
@@ -400,7 +401,7 @@ export default function InsertVotesScreen({ route, navigation }) {
       let newRating = currentRating + change;
       if (newRating < 1) newRating = 0;
       else if (newRating > 10) newRating = 10;
-      else newRating = Math.round(newRating * 4) / 4;
+      else newRating = normalizeVoteRating(newRating);
 
       return {
         ...prev,
@@ -427,7 +428,7 @@ export default function InsertVotesScreen({ route, navigation }) {
     if (isNaN(rating)) return;
     if (rating < 1) rating = 0;
     if (rating > 10) rating = 10;
-    rating = Math.round(rating * 4) / 4;
+    rating = normalizeVoteRating(rating);
 
     setVotes(prev => {
       const current = prev[playerId] || { rating: 0, goals: 0, assists: 0, yellow_cards: 0, red_cards: 0 };

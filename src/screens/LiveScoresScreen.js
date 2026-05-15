@@ -17,6 +17,7 @@ import { leagueService } from '../services/api';
 import { defaultLogosMap } from '../constants/defaultLogos';
 import { parseAppDate } from '../utils/dateTime';
 import BonusIcon from '../components/BonusIcon';
+import { formatVoteRating, normalizeVoteRating } from '../utils/voteRating';
 
 const ROLE_COLORS = { P: '#0d6efd', D: '#198754', C: '#e6a817', A: '#dc3545' };
 
@@ -45,10 +46,7 @@ const midTruncate = (str, max = 8) => {
   return str.slice(0, head) + '..' + str.slice(-tail);
 };
 
-const formatRating = (v) => {
-  const n = Number(v || 0);
-  return n > 0 ? n.toFixed(1) : '-';
-};
+const formatRating = (v) => formatVoteRating(v);
 
 export default function LiveScoresScreen({ route, navigation }) {
   const { leagueId, leagueName, giornata: initialGiornata } = route.params || {};
@@ -311,7 +309,7 @@ export default function LiveScoresScreen({ route, navigation }) {
                                     if (!p) return <View key={si} style={{ width: slotSize, height: slotSize }} />;
                                     const roleColor = ROLE_COLORS[p.role] || '#999';
                                     const hasPhoto = !!p.photo_path;
-                                    const hasVote = Number(p.rating || 0) > 0;
+                                    const hasVote = normalizeVoteRating(p.rating || 0) > 0;
 
                                     let yOffset = 0;
                                     if (cnt >= 5) {
@@ -400,7 +398,7 @@ export default function LiveScoresScreen({ route, navigation }) {
                               </View>
                             );
 
-                            const hasVote = Number(player.rating || 0) > 0;
+                            const hasVote = normalizeVoteRating(player.rating || 0) > 0;
                             const bonusItems = [];
                             if (fData.bonus_enabled) {
                               const bs = fData.bonus_settings || {};

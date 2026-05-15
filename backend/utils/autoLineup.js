@@ -1,4 +1,5 @@
 const { query } = require('../config/database');
+const { normalizeVoteRating } = require('./voteRating');
 
 const AUTO_MODULES = {
   '1-1-1': [1, 1, 1],
@@ -58,7 +59,7 @@ async function buildAutoLineupFromVotes({
 
   const enriched = rows.map((p) => {
     const vote = votesByPlayer[Number(p.id)] || {};
-    let rating = Number(vote.rating || 0);
+    let rating = normalizeVoteRating(vote.rating || 0);
     if (rating <= 0 && use6Politico) rating = 6;
     const bonus = rating > 0 ? computeBonusTotal({ ...vote, rating }, bonusSettings) : 0;
     return {

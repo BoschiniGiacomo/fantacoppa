@@ -23,6 +23,7 @@ import {
 } from '../services/leagueWarmCache';
 import { useFocusEffect } from '@react-navigation/native';
 import BonusIcon from '../components/BonusIcon';
+import { formatVoteRating } from '../utils/voteRating';
 
 const ROLE_COLORS = { P: '#0d6efd', D: '#198754', C: '#e6a817', A: '#dc3545' };
 
@@ -214,10 +215,7 @@ export default function StandingsScreen({ route, navigation }) {
     return { bg: '#f0f0f0', text: '#666' };
   };
 
-  const formatRating = (rating) => {
-    if (rating === null || rating === undefined) return '-';
-    return rating.toFixed(2);
-  };
+  const formatRating = (rating) => formatVoteRating(rating);
 
   const renderStandingsItem = (item, position) => {
     const isMe = item?.id === user?.id;

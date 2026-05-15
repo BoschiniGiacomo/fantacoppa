@@ -1,8 +1,10 @@
+const { normalizeVoteRating } = require('./voteRating');
+
 function buildTeamHasVoteSet(votesByPlayer, playersById) {
   const teams = new Set();
   Object.keys(votesByPlayer || {}).forEach((rawPid) => {
     const pid = Number(rawPid);
-    const rating = Number(votesByPlayer[pid]?.rating || 0);
+    const rating = normalizeVoteRating(votesByPlayer[pid]?.rating || 0);
     if (rating <= 0) return;
     const teamId = Number(playersById[pid]?.team_id || 0);
     if (teamId > 0) teams.add(teamId);
@@ -17,7 +19,7 @@ function findFirstBenchSubstitute(panchina, role, votesByPlayer, playersById) {
     const bid = Number(benchId);
     if (!Number.isFinite(bid) || bid <= 0) continue;
     if (String(playersById[bid]?.role || '').trim() !== wantedRole) continue;
-    if (Number(votesByPlayer[bid]?.rating || 0) > 0) return bid;
+    if (normalizeVoteRating(votesByPlayer[bid]?.rating || 0) > 0) return bid;
   }
   return null;
 }
@@ -47,7 +49,7 @@ function scoreResolvedLineup({
     if (!Number.isFinite(tid) || tid <= 0) continue;
 
     const vote = votesByPlayer[tid] || {};
-    let rating = Number(vote.rating || 0);
+    let rating = normalizeVoteRating(vote.rating || 0);
     let scoringPlayerId = tid;
     let scoringVote = vote;
     let substituteId = null;
@@ -73,7 +75,7 @@ function scoreResolvedLineup({
           substituteId = subId;
           scoringPlayerId = subId;
           scoringVote = votesByPlayer[subId] || {};
-          rating = Number(scoringVote.rating || 0);
+          rating = normalizeVoteRating(scoringVote.rating || 0);
           if (rating > 0) hasRealVotes = true;
         } else if (enableSvFallbackVote) {
           rating = 4.5;
@@ -106,7 +108,7 @@ function scoreResolvedLineup({
       titolare_id: tid,
       player_name: p ? `${p.first_name || ''} ${p.last_name || ''}`.trim() : `Giocatore ${scoringPlayerId}`,
       player_role: p?.role || null,
-      rating: Number(rating.toFixed(2)),
+      rating: normalizeVoteRating(rating),
       goals: Number(scoringVote.goals || 0),
       assists: Number(scoringVote.assists || 0),
       yellow_cards: Number(scoringVote.yellow_cards || 0),
@@ -128,7 +130,7 @@ function scoreResolvedLineup({
       scoring_player_id: scoringPlayerId,
       substitute_id: substituteId,
       pending_team_vote: pendingTeamVote,
-      rating: Number(rating.toFixed(2)),
+      rating: normalizeVoteRating(rating),
       bonus_total: Number(bonusTotal.toFixed(2)),
       total_score: Number(score.toFixed(2)),
     });

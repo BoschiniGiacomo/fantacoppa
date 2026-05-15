@@ -11,6 +11,7 @@ const { buildAutoLineupFromVotes } = require('../utils/autoLineup');
 const { computeBonusTotal: computeBonusTotalUtil } = require('../utils/bonus');
 const { resolveUserLineup, persistUserLineup } = require('../utils/lineupResolver');
 const { scoreResolvedLineup } = require('../utils/lineupScoring');
+const { normalizeVoteRating } = require('../utils/voteRating');
 
 const uploadsRoot = path.resolve(__dirname, '..', 'uploads');
 const userTeamLogosDir = path.join(uploadsRoot, 'team_logos');
@@ -2480,10 +2481,32 @@ router.get('/:id/standings/matchday/:giornata/formation/:userId', authenticateTo
       const scoringId = Number(slot.scoring_player_id || pid);
       const s = scoreMap[scoringId] || null;
       const v = votesByPlayer[scoringId] || votesByPlayer[Number(pid)] || {};
-      const rating = Number(slot.rating ?? 0);
-      const final_rating = Number(
-        isCalculated && s?.total_score != null ? s.total_score : (slot.total_score ?? 0)
-      );
+      const rating = normalizeVoteRating(v.rating ?? slot.rating ?? 0);
+      let final_rating = 0;
+      if (rating > 0) {
+        const scoringVote = {
+          ...v,
+          rating,
+          goals: Number(s?.goals ?? v.goals ?? 0),
+          assists: Number(s?.assists ?? v.assists ?? 0),
+          yellow_cards: Number(s?.yellow_cards ?? v.yellow_cards ?? 0),
+          red_cards: Number(s?.red_cards ?? v.red_cards ?? 0),
+          goals_conceded: Number(s?.goals_conceded ?? v.goals_conceded ?? 0),
+          own_goals: Number(s?.own_goals ?? v.own_goals ?? 0),
+          penalty_missed: Number(s?.penalty_missed ?? v.penalty_missed ?? 0),
+          penalty_saved: Number(s?.penalty_saved ?? v.penalty_saved ?? 0),
+          clean_sheet: Number(s?.clean_sheet ?? v.clean_sheet ?? 0),
+          pallone_fuori: Number(s?.pallone_fuori ?? v.pallone_fuori ?? 0),
+          briso: Number(s?.briso ?? v.briso ?? 0),
+          no_divisa: Number(s?.no_divisa ?? v.no_divisa ?? 0),
+        };
+        const bonusTotal = computeBonusTotal(scoringVote, bonusSettings);
+        final_rating = Number((rating + bonusTotal).toFixed(2));
+      } else if (isCalculated && s?.total_score != null) {
+        final_rating = Number(s.total_score);
+      } else {
+        final_rating = Number(slot.total_score ?? 0);
+      }
       return {
         id: Number(p.id),
         first_name: p.first_name,
@@ -2784,7 +2807,7 @@ router.get('/:id/votes/:giornata', authenticateToken, async (req, res) => {
       const mapped = {};
       rows.forEach((r) => {
         mapped[String(r.player_id)] = {
-          rating: Number(r.rating || 0),
+          rating: normalizeVoteRating(r.rating || 0),
           goals: Number(r.goals || 0),
           assists: Number(r.assists || 0),
           yellow_cards: Number(r.yellow_cards || 0),
@@ -2824,7 +2847,7 @@ router.post('/:id/votes/:giornata', authenticateToken, async (req, res) => {
       const playerId = Number(playerIdRaw);
       if (!Number.isFinite(playerId) || playerId <= 0) continue;
       const row = {
-        rating: Number(v?.rating || 0),
+        rating: normalizeVoteRating(v?.rating || 0),
         goals: Number(v?.goals || 0),
         assists: Number(v?.assists || 0),
         yellow_cards: Number(v?.yellow_cards || 0),
@@ -3292,7 +3315,7 @@ router.get('/:id/live/:giornata', authenticateToken, async (req, res) => {
             player_id: Number(r.player_id),
             player_name: r.player_name,
             player_role: r.player_role,
-            rating: Number(r.rating || 0),
+            rating: normalizeVoteRating(r.rating || 0),
             bonus_total: Number(r.bonus_total || 0),
             total_score: Number(r.total_score || 0),
           });
