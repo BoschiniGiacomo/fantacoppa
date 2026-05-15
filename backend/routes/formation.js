@@ -2,6 +2,8 @@ const express = require('express');
 const router = express.Router();
 const { query } = require('../config/database');
 const { authenticateToken } = require('../middleware/auth');
+const { buildAutoLineupFromVotes } = require('../utils/autoLineup');
+const { computeBonusTotal } = require('../utils/bonus');
 
 const AUTO_MODULES = {
   '1-1-1': [1, 1, 1],
@@ -295,17 +297,66 @@ router.get('/:leagueId/:giornata', authenticateToken, async (req, res) => {
     let row = lineupRows[0];
     let formationRecovered = false;
 
-    if (!row && isExpired && !isCalculated) {
-      const leagueRows = await query(
-        `SELECT COALESCE(recover_previous_lineup_if_missing, 1) AS recover_previous_lineup_if_missing,
-                COALESCE(numero_titolari, 10) AS numero_titolari
-         FROM leagues
-         WHERE id = ?
-         LIMIT 1`,
-        [leagueId]
-      );
-      const recoverPrevious = Number(leagueRows[0]?.recover_previous_lineup_if_missing ?? 1) === 1;
-      const numeroTitolari = Number(leagueRows[0]?.numero_titolari || 10);
+    const leagueRows = await query(
+      `SELECT COALESCE(recover_previous_lineup_if_missing, 1) AS recover_previous_lineup_if_missing,
+              COALESCE(auto_lineup_mode, 0) AS auto_lineup_mode,
+              COALESCE(numero_titolari, 10) AS numero_titolari
+       FROM leagues
+       WHERE id = ?
+       LIMIT 1`,
+      [leagueId]
+    );
+    const recoverPrevious = Number(leagueRows[0]?.recover_previous_lineup_if_missing ?? 1) === 1;
+    const autoLineupMode = Number(leagueRows[0]?.auto_lineup_mode || 0) === 1;
+    const numeroTitolari = Number(leagueRows[0]?.numero_titolari || 10);
+
+    if (autoLineupMode) {
+      const [bonusRows, voteRows] = await Promise.all([
+        query(
+          `SELECT enable_bonus_malus, enable_goal, bonus_goal, enable_assist, bonus_assist,
+                  enable_yellow_card, malus_yellow_card, enable_red_card, malus_red_card,
+                  enable_goals_conceded, malus_goals_conceded, enable_own_goal, malus_own_goal,
+                  enable_penalty_missed, malus_penalty_missed, enable_penalty_saved, bonus_penalty_saved,
+                  enable_clean_sheet, bonus_clean_sheet,
+                  enable_pallone_fuori, malus_pallone_fuori, enable_briso, bonus_briso,
+                  enable_no_divisa, malus_no_divisa
+           FROM league_bonus_settings
+           WHERE league_id = ?
+           LIMIT 1`,
+          [leagueId]
+        ).catch(() => []),
+        query(
+          `SELECT player_id, rating, goals, assists, yellow_cards, red_cards,
+                  goals_conceded, own_goals, penalty_missed, penalty_saved, clean_sheet,
+                  pallone_fuori, briso, no_divisa
+           FROM player_ratings
+           WHERE league_id = ? AND giornata = ?`,
+          [effectiveLeagueId, giornata]
+        ).catch(() => []),
+      ]);
+      const bonusSettings = bonusRows[0] || { enable_bonus_malus: 1 };
+      const votesByPlayer = {};
+      voteRows.forEach((r) => { votesByPlayer[Number(r.player_id)] = r; });
+      const generated = await buildAutoLineupFromVotes({
+        leagueId,
+        userId,
+        numeroTitolari,
+        votesByPlayer,
+        bonusSettings,
+        use6Politico: false,
+        computeBonusTotal,
+      });
+      if (generated && generated.titolari.length > 0) {
+        const tit = applyInjuryMap(generated.titolari, injuryMap).slice(0, numeroTitolari);
+        const ben = applyInjuryMap(generated.panchina, injuryMap);
+        row = {
+          modulo: generated.modulo || '',
+          titolari: JSON.stringify(tit),
+          panchina: JSON.stringify(ben),
+        };
+        formationRecovered = true;
+      }
+    } else if (!row && isExpired && !isCalculated) {
       if (recoverPrevious) {
         const previousRows = await query(
           `SELECT modulo, titolari, panchina
@@ -359,7 +410,7 @@ router.get('/:leagueId/:giornata', authenticateToken, async (req, res) => {
       }
     }
 
-    if (row && !isCalculated) {
+    if (row && !isCalculated && !autoLineupMode) {
       const patchedTitolari = applyInjuryMap(parseIdsArray(row.titolari), injuryMap);
       const patchedPanchina = applyInjuryMap(parseIdsArray(row.panchina), injuryMap);
       const rowTitRaw = parseIdsArray(row.titolari);

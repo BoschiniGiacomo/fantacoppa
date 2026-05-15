@@ -7,6 +7,8 @@ const path = require('path');
 const multer = require('multer');
 const { createClient } = require('@supabase/supabase-js');
 const { triggerCalculatedNotificationForLeagueMatchday } = require('./notifications');
+const { buildAutoLineupFromVotes, buildAutoLineupIds, AUTO_MODULES } = require('../utils/autoLineup');
+const { computeBonusTotal: computeBonusTotalUtil } = require('../utils/bonus');
 
 const uploadsRoot = path.resolve(__dirname, '..', 'uploads');
 const userTeamLogosDir = path.join(uploadsRoot, 'team_logos');
@@ -250,136 +252,7 @@ async function deleteUserFantasyLeagueParticipationData(leagueId, userId) {
   }
 }
 
-function computeBonusTotal(vote, bonusSettings) {
-  if (Number(bonusSettings.enable_bonus_malus || 0) !== 1) return 0;
-  let bonus = 0;
-  if (Number(bonusSettings.enable_goal || 0) === 1) {
-    bonus += Number(vote.goals || 0) * Number(bonusSettings.bonus_goal || 0);
-  }
-  if (Number(bonusSettings.enable_assist || 0) === 1) {
-    bonus += Number(vote.assists || 0) * Number(bonusSettings.bonus_assist || 0);
-  }
-  if (Number(bonusSettings.enable_yellow_card || 0) === 1) {
-    bonus += Number(vote.yellow_cards || 0) * Number(bonusSettings.malus_yellow_card || 0);
-  }
-  if (Number(bonusSettings.enable_red_card || 0) === 1) {
-    bonus += Number(vote.red_cards || 0) * Number(bonusSettings.malus_red_card || 0);
-  }
-  if (Number(bonusSettings.enable_goals_conceded || 0) === 1) {
-    bonus += Number(vote.goals_conceded || 0) * Number(bonusSettings.malus_goals_conceded || 0);
-  }
-  if (Number(bonusSettings.enable_own_goal || 0) === 1) {
-    bonus += Number(vote.own_goals || 0) * Number(bonusSettings.malus_own_goal || 0);
-  }
-  if (Number(bonusSettings.enable_penalty_missed || 0) === 1) {
-    bonus += Number(vote.penalty_missed || 0) * Number(bonusSettings.malus_penalty_missed || 0);
-  }
-  if (Number(bonusSettings.enable_penalty_saved || 0) === 1) {
-    bonus += Number(vote.penalty_saved || 0) * Number(bonusSettings.bonus_penalty_saved || 0);
-  }
-  if (Number(bonusSettings.enable_clean_sheet || 0) === 1) {
-    bonus += Number(vote.clean_sheet || 0) * Number(bonusSettings.bonus_clean_sheet || 0);
-  }
-  if (Number(bonusSettings.enable_pallone_fuori || 0) === 1) {
-    bonus += Number(vote.pallone_fuori || 0) * Number(bonusSettings.malus_pallone_fuori || 0);
-  }
-  if (Number(bonusSettings.enable_briso || 0) === 1) {
-    bonus += Number(vote.briso || 0) * Number(bonusSettings.bonus_briso || 0);
-  }
-  if (Number(bonusSettings.enable_no_divisa || 0) === 1) {
-    bonus += Number(vote.no_divisa || 0) * Number(bonusSettings.malus_no_divisa || 0);
-  }
-  return bonus;
-}
-
-const AUTO_MODULES = {
-  '1-1-1': [1, 1, 1],
-  '1-1-2': [1, 1, 2], '1-2-1': [1, 2, 1], '2-1-1': [2, 1, 1],
-  '1-2-2': [1, 2, 2], '2-2-1': [2, 2, 1], '2-1-2': [2, 1, 2], '3-1-1': [3, 1, 1],
-  '2-2-2': [2, 2, 2], '3-2-1': [3, 2, 1], '2-3-1': [2, 3, 1], '1-3-2': [1, 3, 2], '3-1-2': [3, 1, 2],
-  '3-2-2': [3, 2, 2], '2-3-2': [2, 3, 2], '2-2-3': [2, 2, 3], '4-2-1': [4, 2, 1], '3-3-1': [3, 3, 1], '4-3-1': [4, 3, 1],
-  '3-3-2': [3, 3, 2], '3-2-3': [3, 2, 3], '2-3-3': [2, 3, 3], '4-2-2': [4, 2, 2],
-  '3-3-3': [3, 3, 3], '4-2-3': [4, 2, 3], '3-4-2': [3, 4, 2], '2-4-3': [2, 4, 3], '5-2-2': [5, 2, 2],
-  '4-3-2': [4, 3, 2], '2-5-2': [2, 5, 2], '3-5-1': [3, 5, 1], '4-4-1': [4, 4, 1],
-  '4-4-2': [4, 4, 2], '4-3-3': [4, 3, 3], '3-5-2': [3, 5, 2], '4-5-1': [4, 5, 1], '5-3-2': [5, 3, 2],
-  '5-4-1': [5, 4, 1], '5-2-3': [5, 2, 3], '3-4-3': [3, 4, 3], '2-5-3': [2, 5, 3],
-};
-
-function pickTopPlayers(players, count) {
-  if (!Array.isArray(players) || count <= 0) return [];
-  return players
-    .slice()
-    .sort((a, b) => (b.total - a.total) || (a.id - b.id))
-    .slice(0, count);
-}
-
-async function buildAutoLineupSimple(leagueId, userId, numeroTitolari, votesByPlayer, bonusSettings, use6Politico) {
-  const rows = await query(
-    `SELECT p.id, p.role
-     FROM user_players up
-     JOIN players p ON p.id = up.player_id
-     WHERE up.league_id = ? AND up.user_id = ?
-       AND COALESCE(p.is_injured, 0) = 0`,
-    [leagueId, userId]
-  );
-  if (!rows.length) return [];
-
-  const enriched = rows.map((p) => {
-    const vote = votesByPlayer[Number(p.id)] || {};
-    let rating = Number(vote.rating || 0);
-    if (rating <= 0 && use6Politico) rating = 6;
-    const bonus = rating > 0 ? computeBonusTotal({ ...vote, rating }, bonusSettings) : 0;
-    return {
-      id: Number(p.id),
-      role: p.role || '',
-      total: rating > 0 ? (rating + bonus) : 0,
-      hasVote: rating > 0,
-    };
-  });
-
-  const valid = enriched.filter((p) => p.hasVote);
-  const n = Math.max(0, Number(numeroTitolari || 11));
-  if (!valid.length || n <= 0) return [];
-
-  const portieri = valid.filter((p) => p.role === 'P');
-  const difensori = valid.filter((p) => p.role === 'D');
-  const centrocampisti = valid.filter((p) => p.role === 'C');
-  const attaccanti = valid.filter((p) => p.role === 'A');
-
-  // Portiere sempre obbligatorio quando possibile.
-  const bestGk = pickTopPlayers(portieri, 1);
-  const movSlots = Math.max(0, n - bestGk.length);
-  if (movSlots <= 0) return bestGk.map((p) => p.id);
-
-  const candidateModules = Object.values(AUTO_MODULES)
-    .filter(([d, c, a]) => (d + c + a) === movSlots)
-    .map(([d, c, a]) => ({ d, c, a }));
-
-  let best = null;
-  for (const mod of candidateModules) {
-    if (difensori.length < mod.d || centrocampisti.length < mod.c || attaccanti.length < mod.a) continue;
-    const chosen = [
-      ...bestGk,
-      ...pickTopPlayers(difensori, mod.d),
-      ...pickTopPlayers(centrocampisti, mod.c),
-      ...pickTopPlayers(attaccanti, mod.a),
-    ];
-    if (chosen.length !== n) continue;
-    const total = chosen.reduce((acc, p) => acc + Number(p.total || 0), 0);
-    if (!best || total > best.total) {
-      best = { total, chosen };
-    }
-  }
-
-  if (best) return best.chosen.map((p) => p.id);
-
-  // Fallback: migliore n per punteggio (se la rosa non copre un modulo valido).
-  return valid
-    .slice()
-    .sort((a, b) => (b.total - a.total) || (a.id - b.id))
-    .slice(0, n)
-    .map((p) => p.id);
-}
+const computeBonusTotal = computeBonusTotalUtil;
 
 async function getClosestPreviousLineup(leagueId, userId, giornata, numeroTitolari) {
   const rows = await query(
@@ -2458,7 +2331,9 @@ router.get('/:id/standings/matchday/:giornata/formation/:userId', authenticateTo
       getLeagueBonusSettings(leagueId),
       getInjuryReplacementMap(leagueId),
       query(
-        `SELECT COALESCE(recover_previous_lineup_if_missing, 1) AS recover_previous_lineup_if_missing
+        `SELECT COALESCE(recover_previous_lineup_if_missing, 1) AS recover_previous_lineup_if_missing,
+                COALESCE(auto_lineup_mode, 0) AS auto_lineup_mode,
+                COALESCE(numero_titolari, 10) AS numero_titolari
          FROM leagues WHERE id = ? LIMIT 1`,
         [leagueId]
       ).catch(() => []),
@@ -2474,6 +2349,8 @@ router.get('/:id/standings/matchday/:giornata/formation/:userId', authenticateTo
       ),
     ]);
     const recoverPrevious = Number(recoverRows[0]?.recover_previous_lineup_if_missing ?? 1) === 1;
+    const autoLineupMode = Number(recoverRows[0]?.auto_lineup_mode || 0) === 1;
+    const numeroTitolari = Math.max(1, Number(recoverRows[0]?.numero_titolari || 10));
     const isCalculated = Number(calcRows[0]?.c || 0) > 0;
     const hasDirectLineupForMatchday = !!lineRows[0];
     let playerIds = parseIdsArray(lineRows[0]?.titolari);
@@ -2481,7 +2358,34 @@ router.get('/:id/standings/matchday/:giornata/formation/:userId', authenticateTo
     let formationRecovered = false;
     let formationRecoveryKind = null;
 
-    if (playerIds.length < 1 && !isCalculated) {
+    if (autoLineupMode) {
+      const effectiveLeagueId = await getEffectiveLeagueId(leagueId);
+      const vRowsAuto = await query(
+        `SELECT player_id, rating, goals, assists, yellow_cards, red_cards,
+                goals_conceded, own_goals, penalty_missed, penalty_saved, clean_sheet,
+                pallone_fuori, briso, no_divisa
+         FROM player_ratings
+         WHERE league_id = ? AND giornata = ?`,
+        [effectiveLeagueId, giornata]
+      ).catch(() => []);
+      const votesByPlayer = {};
+      vRowsAuto.forEach((r) => { votesByPlayer[Number(r.player_id)] = r; });
+      const generated = await buildAutoLineupFromVotes({
+        leagueId,
+        userId: targetUserId,
+        numeroTitolari,
+        votesByPlayer,
+        bonusSettings,
+        use6Politico: false,
+        computeBonusTotal,
+      });
+      if (generated && generated.titolari.length > 0) {
+        playerIds = applyInjuryMap(generated.titolari, injuryMap).slice(0, numeroTitolari);
+        modulo = generated.modulo || modulo;
+        formationRecovered = true;
+        formationRecoveryKind = 'auto_matchday_votes';
+      }
+    } else if (playerIds.length < 1 && !isCalculated) {
       if (recoverPrevious) {
         const previousRows = await query(
           `SELECT titolari, COALESCE(modulo, '') AS modulo
@@ -3155,7 +3059,43 @@ router.post('/:id/calculate/:giornata', authenticateToken, async (req, res) => {
       let titolari = [];
       let panchina = [];
       const currentLineup = lineupByUser[userId];
-      if (currentLineup && currentLineup.titolari.length > 0) {
+
+      if (autoLineupMode) {
+        const generated = await buildAutoLineupFromVotes({
+          leagueId,
+          userId,
+          numeroTitolari,
+          votesByPlayer,
+          bonusSettings,
+          use6Politico,
+          computeBonusTotal,
+        });
+        if (generated && generated.titolari.length > 0) {
+          titolari = applyInjuryMap(generated.titolari, injuryMap).slice(0, numeroTitolari);
+          panchina = applyInjuryMap(generated.panchina, injuryMap);
+          try {
+            await query(
+              `INSERT INTO user_lineups (user_id, league_id, giornata, modulo, titolari, panchina)
+               VALUES (?, ?, ?, ?, ?, ?)
+               ON CONFLICT (user_id, league_id, giornata)
+               DO UPDATE SET
+                 modulo = EXCLUDED.modulo,
+                 titolari = EXCLUDED.titolari,
+                 panchina = EXCLUDED.panchina`,
+              [
+                userId,
+                leagueId,
+                giornata,
+                String(generated.modulo || ''),
+                JSON.stringify(titolari),
+                JSON.stringify(panchina),
+              ]
+            );
+          } catch (_) {
+            // Se il salvataggio fallisce, prosegue comunque con il calcolo.
+          }
+        }
+      } else if (currentLineup && currentLineup.titolari.length > 0) {
         titolari = currentLineup.titolari.filter((id) => Number.isFinite(id) && id > 0).slice(0, numeroTitolari);
         panchina = currentLineup.panchina.filter((id) => Number.isFinite(id) && id > 0);
       } else if (recoverPreviousLineupIfMissing) {
@@ -3191,13 +3131,6 @@ router.post('/:id/calculate/:giornata', authenticateToken, async (req, res) => {
             }
           }
         }
-      }
-
-      if (!titolari.length && autoLineupMode) {
-        titolari = applyInjuryMap(
-          await buildAutoLineupSimple(leagueId, userId, numeroTitolari, votesByPlayer, bonusSettings, use6Politico),
-          injuryMap
-        );
       }
 
       titolari = applyInjuryMap(titolari, injuryMap).slice(0, numeroTitolari);
@@ -3537,13 +3470,14 @@ router.get('/:id/live/:giornata', authenticateToken, async (req, res) => {
 
     const bonus = await getLeagueBonusSettings(leagueId);
     const leagueRows = await query(
-      `SELECT numero_titolari
+      `SELECT numero_titolari, COALESCE(auto_lineup_mode, 0) AS auto_lineup_mode
        FROM leagues
        WHERE id = ?
        LIMIT 1`,
       [leagueId]
     );
     const numeroTitolari = Number(leagueRows[0]?.numero_titolari || 10);
+    const autoLineupMode = Number(leagueRows[0]?.auto_lineup_mode || 0) === 1;
 
     const votesByPlayer = {};
     const ratingsByUser = {};
@@ -3571,8 +3505,27 @@ router.get('/:id/live/:giornata', authenticateToken, async (req, res) => {
     for (const m of members) {
       const uid = Number(m.user_id);
       let titolari = lineupByUser[uid] || [];
-      if (!titolari.length) {
-        titolari = await buildAutoLineupSimple(leagueId, uid, numeroTitolari, votesByPlayer, bonus, false);
+      if (autoLineupMode) {
+        const generated = await buildAutoLineupFromVotes({
+          leagueId,
+          userId: uid,
+          numeroTitolari,
+          votesByPlayer,
+          bonusSettings: bonus,
+          use6Politico: false,
+          computeBonusTotal,
+        });
+        titolari = generated?.titolari || [];
+      } else if (!titolari.length) {
+        titolari = await buildAutoLineupIds({
+          leagueId,
+          userId: uid,
+          numeroTitolari,
+          votesByPlayer,
+          bonusSettings: bonus,
+          use6Politico: false,
+          computeBonusTotal,
+        });
       }
       let total = 0;
       const detail = [];
