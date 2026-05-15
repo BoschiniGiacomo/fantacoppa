@@ -4,6 +4,7 @@ const { query } = require('../config/database');
 const { authenticateToken } = require('../middleware/auth');
 const { buildAutoLineupFromVotes } = require('../utils/autoLineup');
 const { computeBonusTotal } = require('../utils/bonus');
+const { resolveUserLineup, persistUserLineup } = require('../utils/lineupResolver');
 
 const AUTO_MODULES = {
   '1-1-1': [1, 1, 1],
@@ -356,56 +357,21 @@ router.get('/:leagueId/:giornata', authenticateToken, async (req, res) => {
         };
         formationRecovered = true;
       }
-    } else if (!row && isExpired && !isCalculated) {
-      if (recoverPrevious) {
-        const previousRows = await query(
-          `SELECT modulo, titolari, panchina
-           FROM user_lineups
-           WHERE user_id = ? AND league_id = ? AND giornata < ?
-           ORDER BY giornata DESC
-           LIMIT 1`,
-          [userId, leagueId, giornata]
-        );
-        if (previousRows[0]) {
-          const prevTit = applyInjuryMap(parseIdsArray(previousRows[0].titolari), injuryMap).slice(0, numeroTitolari);
-          const prevBen = applyInjuryMap(parseIdsArray(previousRows[0].panchina), injuryMap);
-          row = {
-            modulo: previousRows[0].modulo,
-            titolari: JSON.stringify(prevTit),
-            panchina: JSON.stringify(prevBen),
-          };
-          formationRecovered = true;
-        } else {
-          const generated = await buildFallbackLineupFromRoster(leagueId, userId, numeroTitolari);
-          if (generated && generated.titolari.length > 0) {
-            row = {
-              modulo: generated.modulo,
-              titolari: JSON.stringify(generated.titolari),
-              panchina: JSON.stringify(generated.panchina),
-            };
-            formationRecovered = true;
-            try {
-              await query(
-                `INSERT INTO user_lineups (user_id, league_id, giornata, modulo, titolari, panchina)
-                 VALUES (?, ?, ?, ?, ?, ?)
-                 ON CONFLICT (user_id, league_id, giornata)
-                 DO UPDATE SET
-                   modulo = EXCLUDED.modulo,
-                   titolari = EXCLUDED.titolari,
-                   panchina = EXCLUDED.panchina`,
-                [
-                  userId,
-                  leagueId,
-                  giornata,
-                  String(generated.modulo || ''),
-                  JSON.stringify(generated.titolari),
-                  JSON.stringify(generated.panchina),
-                ]
-              );
-            } catch (_) {
-              // Se il salvataggio fallisce, restituisce comunque la formazione generata.
-            }
-          }
+    } else if (!row && isExpired && !isCalculated && recoverPrevious) {
+      const resolved = await resolveUserLineup(leagueId, userId, giornata, numeroTitolari, {
+        recoverPrevious: true,
+        injuryMap,
+        applyInjury: (ids, map) => applyInjuryMap(ids, map),
+      });
+      if (resolved.titolari.length > 0) {
+        row = {
+          modulo: resolved.modulo || '',
+          titolari: JSON.stringify(resolved.titolari),
+          panchina: JSON.stringify(resolved.panchina),
+        };
+        formationRecovered = !!resolved.formationRecovered;
+        if (resolved.formationRecoveryKind === 'roster_fallback') {
+          await persistUserLineup(leagueId, userId, giornata, resolved);
         }
       }
     }
