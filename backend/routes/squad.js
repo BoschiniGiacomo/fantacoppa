@@ -58,7 +58,7 @@ router.get('/:leagueId/bootstrap', authenticateToken, async (req, res) => {
       return res.status(400).json({ message: 'League ID non valido' });
     }
 
-    const [players, limitsRows, budgetRows, blockedRows, leagueRows] = await Promise.all([
+    const [players, limitsRows, budgetRows, blockedRows, leagueRows, lineupRows] = await Promise.all([
       query(
         `WITH direct_owned AS (
            SELECT up.player_id
@@ -118,6 +118,12 @@ router.get('/:leagueId/bootstrap', authenticateToken, async (req, res) => {
          LIMIT 1`,
         [leagueId]
       ),
+      query(
+        `SELECT 1 FROM user_lineups
+         WHERE league_id = ? AND user_id = ?
+         LIMIT 1`,
+        [leagueId, userId]
+      ).catch(() => []),
     ]);
 
     const limits = limitsRows[0] || {};
@@ -147,6 +153,7 @@ router.get('/:leagueId/bootstrap', authenticateToken, async (req, res) => {
       total_value: Number(total_value.toFixed(2)),
       role_limits,
       market_blocked,
+      has_submitted_formation: Array.isArray(lineupRows) && lineupRows.length > 0,
     });
   } catch (error) {
     console.error('Squad bootstrap error:', error);

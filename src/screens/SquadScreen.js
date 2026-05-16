@@ -72,6 +72,9 @@ export default function SquadScreen({ route, navigation }) {
     if (data?.league && typeof data.league === 'object') {
       setLeague(data.league);
     }
+    if (data?.has_submitted_formation) {
+      markDone('submitted_formation');
+    }
   };
 
   const loadData = useCallback(async () => {

@@ -15,6 +15,7 @@ export function OnboardingProvider({ leagueId, children }) {
   // Stato locale (AsyncStorage-backed)
   const [localState, setLocalState] = useState({
     visited_rosa: false,
+    visited_formation: false,
     submitted_formation: false,
   });
   // Dati auto-detect (persistiti in AsyncStorage)
@@ -72,8 +73,12 @@ export function OnboardingProvider({ leagueId, children }) {
     customize_team: autoDetect.hasDefaultNames,
     buy_players: autoDetect.squadEmpty && autoDetect.marketAvailable,
     fill_squad: !autoDetect.squadFull,
-    // In modalità formazione automatica non serve inviare la formazione
-    submit_formation: !autoDetect.autoLineupMode && !localState.submitted_formation,
+    // In modalità formazione automatica non serve inviare la formazione.
+    // Il badge sparisce dopo il primo invio o dopo aver aperto la schermata Formazione.
+    submit_formation:
+      !autoDetect.autoLineupMode &&
+      !localState.submitted_formation &&
+      !localState.visited_formation,
   };
 
   // Conta badge per posizione (nessun badge finché i dati non sono caricati)

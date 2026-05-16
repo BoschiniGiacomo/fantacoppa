@@ -21,6 +21,7 @@ import {
 } from '../services/leagueWarmCache';
 import { Ionicons } from '@expo/vector-icons';
 import { parseAppDate } from '../utils/dateTime';
+import { syncSubmittedFormationOnboarding } from '../utils/formationSubmission';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 
@@ -407,7 +408,11 @@ export default function FormationScreen({ route }) {
   };
 
   useFocusEffect(
-    useCallback(() => { loadInitialData(); }, [leagueId])
+    useCallback(() => {
+      markDone('visited_formation');
+      loadInitialData();
+      syncSubmittedFormationOnboarding({ leagueId, formationService, markDone });
+    }, [leagueId, markDone])
   );
 
   // Countdown live

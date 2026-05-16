@@ -177,6 +177,10 @@ export default function LeagueScreen({ route, navigation }) {
         updateAutoDetect({
           squadFull: !!payloadObj.squad_full,
         });
+
+        if (payloadObj.has_submitted_formation) {
+          markDone('submitted_formation');
+        }
       });
     };
 
