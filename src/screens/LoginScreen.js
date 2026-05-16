@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
-import { getLoginLogoSettings } from '../utils/loginLogoSettings';
+import { useAuthBranding } from '../context/AuthBrandingContext';
 import AuthScreenBackground from '../components/AuthScreenBackground';
 
 export default function LoginScreen({ navigation }) {
@@ -22,13 +22,9 @@ export default function LoginScreen({ navigation }) {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [toastMsg, setToastMsg] = useState(null);
-  const [loginLogo, setLoginLogo] = useState(null);
   const passwordInputRef = useRef(null);
   const { login } = useAuth();
-
-  useEffect(() => {
-    getLoginLogoSettings().then(setLoginLogo);
-  }, []);
+  const { logo: loginLogo } = useAuthBranding();
 
   const showToast = (text, type = 'error') => {
     setToastMsg({ text, type });

@@ -1,18 +1,14 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { View, ImageBackground, StyleSheet } from 'react-native';
-import { getLoginBackgroundSettings } from '../utils/loginBackgroundSettings';
+import { useAuthBranding } from '../context/AuthBrandingContext';
 
 export default function AuthScreenBackground({ children, style }) {
-  const [loginBackground, setLoginBackground] = useState(null);
+  const { background } = useAuthBranding();
 
-  useEffect(() => {
-    getLoginBackgroundSettings().then(setLoginBackground);
-  }, []);
-
-  if (loginBackground?.uri) {
+  if (background?.uri) {
     return (
       <ImageBackground
-        source={{ uri: loginBackground.uri }}
+        source={{ uri: background.uri }}
         style={[styles.container, style]}
         resizeMode="cover"
       >

@@ -12,6 +12,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 // Context
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import { AppLoadingMediaProvider, useAppLoadingMedia } from './src/context/AppLoadingMediaContext';
+import { AuthBrandingProvider, useAuthBranding } from './src/context/AuthBrandingContext';
 
 // Screens
 import LoginScreen from './src/screens/LoginScreen';
@@ -161,6 +162,7 @@ function MainTabs() {
 function AppNavigator() {
   const { user, loading, updateRequiredInfo, bootstrapProgress } = useAuth();
   const { uri: loadingMediaUri, type: loadingMediaType } = useAppLoadingMedia();
+  const { ready: authBrandingReady } = useAuthBranding();
   const [bootstrapTimedOut, setBootstrapTimedOut] = useState(false);
 
   useEffect(() => {
@@ -172,13 +174,16 @@ function AppNavigator() {
     return <UpdateRequiredScreen updateInfo={updateRequiredInfo} />;
   }
 
-  if (loading && !bootstrapTimedOut) {
+  const waitingForAuthBranding = !user && !authBrandingReady;
+  const showBootstrapLoader = (loading && !bootstrapTimedOut) || waitingForAuthBranding;
+
+  if (showBootstrapLoader) {
     return (
       <AppLoadingFullScreenModal
         visible
         uri={loadingMediaUri}
         mediaType={loadingMediaType}
-        progress={bootstrapProgress}
+        progress={waitingForAuthBranding && !loading ? 1 : bootstrapProgress}
       />
     );
   }
@@ -326,10 +331,12 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <AppLoadingMediaProvider>
-        <AuthProvider>
-          <StatusBar style="auto" />
-          <AppNavigator />
-        </AuthProvider>
+        <AuthBrandingProvider>
+          <AuthProvider>
+            <StatusBar style="auto" />
+            <AppNavigator />
+          </AuthProvider>
+        </AuthBrandingProvider>
       </AppLoadingMediaProvider>
     </SafeAreaProvider>
   );

@@ -36,9 +36,11 @@ import {
   saveLoginBackgroundFromPicker,
   clearLoginBackground,
 } from '../utils/loginBackgroundSettings';
+import { useAuthBranding } from '../context/AuthBrandingContext';
 
 export default function SuperUserScreen() {
   const { user } = useAuth();
+  const { refresh: refreshAuthBranding } = useAuthBranding();
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const [activeTab, setActiveTab] = useState('users'); // 'users', 'leagues', 'officials', 'clusters', 'appSettings'
@@ -700,6 +702,7 @@ export default function SuperUserScreen() {
       setPickingLoginLogo(true);
       const saved = await saveLoginLogoFromPicker(asset);
       setLoginLogoPreview(saved);
+      await refreshAuthBranding();
       showToast('Logo login aggiornato', 'success');
     } catch (e) {
       console.error('Login logo pick:', e);
@@ -715,6 +718,7 @@ export default function SuperUserScreen() {
       setPickingLoginLogo(true);
       await clearLoginLogo();
       setLoginLogoPreview(null);
+      await refreshAuthBranding();
       showToast('Logo login rimosso, verrà visualizzata la scritta predefinita', 'success');
     } catch (e) {
       showToast(e?.message || 'Impossibile rimuovere il logo');
@@ -735,6 +739,7 @@ export default function SuperUserScreen() {
       setPickingLoginBackground(true);
       const saved = await saveLoginBackgroundFromPicker(asset);
       setLoginBackgroundPreview(saved);
+      await refreshAuthBranding();
       showToast('Sfondo login aggiornato', 'success');
     } catch (e) {
       console.error('Login background pick:', e);
@@ -750,6 +755,7 @@ export default function SuperUserScreen() {
       setPickingLoginBackground(true);
       await clearLoginBackground();
       setLoginBackgroundPreview(null);
+      await refreshAuthBranding();
       showToast('Sfondo login rimosso, verrà usato lo sfondo predefinito', 'success');
     } catch (e) {
       showToast(e?.message || 'Impossibile rimuovere lo sfondo');
