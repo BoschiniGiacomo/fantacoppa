@@ -18,6 +18,7 @@ import { defaultLogosMap } from '../constants/defaultLogos';
 import { parseAppDate } from '../utils/dateTime';
 import BonusIcon from '../components/BonusIcon';
 import { formatVoteRating, normalizeVoteRating } from '../utils/voteRating';
+import { getFormationSlotVisual } from '../utils/formationDisplay';
 
 const ROLE_COLORS = { P: '#0d6efd', D: '#198754', C: '#e6a817', A: '#dc3545' };
 
@@ -307,9 +308,10 @@ export default function LiveScoresScreen({ route, navigation }) {
                                 <View key={ri} style={[styles.miniFieldRow, { top: `${topPct}%` }, cnt >= 5 && { justifyContent: 'center', marginHorizontal: 4 }, cnt === 4 && { justifyContent: 'center', gap: 2 }]}>
                                   {row.slots.map((p, si) => {
                                     if (!p) return <View key={si} style={{ width: slotSize, height: slotSize }} />;
-                                    const roleColor = ROLE_COLORS[p.role] || '#999';
-                                    const hasPhoto = !!p.photo_path;
-                                    const hasVote = normalizeVoteRating(p.rating || 0) > 0;
+                                    const vis = getFormationSlotVisual(p);
+                                    const roleColor = ROLE_COLORS[vis.role] || '#999';
+                                    const hasPhoto = !!vis.photo_path;
+                                    const hasVote = normalizeVoteRating(p.rating || 0) > 0 || Number(p.final_rating || 0) > 0;
 
                                     let yOffset = 0;
                                     if (cnt >= 5) {
@@ -353,15 +355,15 @@ export default function LiveScoresScreen({ route, navigation }) {
                                         >
                                           {hasPhoto ? (
                                             <>
-                                              <Image source={{ uri: publicAssetUrl(p.photo_path) }} style={{ width: slotSize * 0.90, height: slotSize * 0.90, position: 'absolute', top: -slotSize * 0.11 }} />
+                                              <Image source={{ uri: publicAssetUrl(vis.photo_path) }} style={{ width: slotSize * 0.90, height: slotSize * 0.90, position: 'absolute', top: -slotSize * 0.11 }} />
                                               <View style={[styles.miniSlotOverlay, { backgroundColor: roleColor }]}>
-                                                <Text style={styles.miniSlotOverlayText}>{midTruncate(p.last_name)}</Text>
+                                                <Text style={styles.miniSlotOverlayText}>{midTruncate(vis.last_name)}</Text>
                                               </View>
                                             </>
                                           ) : (
                                             <>
-                                              <Text style={styles.miniSlotName} numberOfLines={1}>{midTruncate(p.last_name, 10)}</Text>
-                                              <Text style={styles.miniSlotTeam} numberOfLines={1}>{midTruncate(p.team_name, 9)}</Text>
+                                              <Text style={styles.miniSlotName} numberOfLines={1}>{midTruncate(vis.last_name, 10)}</Text>
+                                              <Text style={styles.miniSlotTeam} numberOfLines={1}>{midTruncate(vis.team_name, 9)}</Text>
                                             </>
                                           )}
                                           {bonusItems.length > 0 && (
@@ -398,7 +400,8 @@ export default function LiveScoresScreen({ route, navigation }) {
                               </View>
                             );
 
-                            const hasVote = normalizeVoteRating(player.rating || 0) > 0;
+                            const vis = getFormationSlotVisual(player);
+                            const hasVote = normalizeVoteRating(player.rating || 0) > 0 || Number(player.final_rating || 0) > 0;
                             const bonusItems = [];
                             if (fData.bonus_enabled) {
                               const bs = fData.bonus_settings || {};
@@ -418,14 +421,11 @@ export default function LiveScoresScreen({ route, navigation }) {
 
                             return (
                               <View key={player.id || index} style={[styles.fPlayerRow, !hasVote && { opacity: 0.5 }]}>
-                                <View style={[styles.fRoleDot, { backgroundColor: ROLE_COLORS[player.role] || '#999' }]}>
-                                  <Text style={styles.fRoleDotText}>{player.role || '-'}</Text>
+                                <View style={[styles.fRoleDot, { backgroundColor: ROLE_COLORS[vis.role] || '#999' }]}>
+                                  <Text style={styles.fRoleDotText}>{vis.role || '-'}</Text>
                                 </View>
                                 <Text style={styles.fPlayerName} numberOfLines={1}>
-                                  {player.first_name} {player.last_name}
-                                  {player.substitute_id && player.substitute_last_name
-                                    ? ` ↑ ${player.substitute_last_name}`
-                                    : ''}
+                                  {vis.first_name} {vis.last_name}
                                 </Text>
                                 {bonusItems.length > 0 && (
                                   <View style={styles.fBonusRow}>

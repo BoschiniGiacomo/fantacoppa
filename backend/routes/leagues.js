@@ -2474,21 +2474,46 @@ router.get('/:id/standings/matchday/:giornata/formation/:userId', authenticateTo
       scored.formationSlots.map((s) => [Number(s.titolare_id), s])
     );
 
+    const subIdsToLoad = [
+      ...new Set(
+        scored.formationSlots
+          .map((s) => Number(s.substitute_id))
+          .filter((id) => Number.isFinite(id) && id > 0 && !playerIds.includes(id))
+      ),
+    ];
+    if (subIdsToLoad.length > 0) {
+      const subInParams = subIdsToLoad.map(() => '?').join(',');
+      const subRows = await query(
+        `SELECT p.id, p.first_name, p.last_name, p.role,
+                COALESCE(p.photo_path, '') AS photo_path,
+                COALESCE(t.name, '') AS team_name
+         FROM players p
+         LEFT JOIN teams t ON t.id = p.team_id
+         WHERE p.id IN (${subInParams})`,
+        subIdsToLoad
+      );
+      subRows.forEach((row) => { byId[Number(row.id)] = row; });
+    }
+
     const formation = playerIds.map((pid) => {
       const p = byId[Number(pid)];
       if (!p) return null;
       const slot = slotByTit[Number(pid)] || {};
       const subId = slot.substitute_id ? Number(slot.substitute_id) : null;
       const subP = subId ? byId[subId] : null;
+      const visual = subP || p;
       const rating = normalizeVoteRating(slot.display_rating ?? 0);
       const final_rating = Number(slot.total_score ?? 0);
       return {
         id: Number(p.id),
-        first_name: p.first_name,
-        last_name: p.last_name,
+        titolare_id: Number(p.id),
+        titolare_first_name: p.first_name,
+        titolare_last_name: p.last_name,
+        first_name: visual.first_name,
+        last_name: visual.last_name,
         role: p.role,
-        photo_path: p.photo_path || '',
-        team_name: p.team_name || '',
+        photo_path: visual.photo_path || '',
+        team_name: visual.team_name || '',
         rating,
         final_rating,
         goals: Number(slot.goals ?? 0),

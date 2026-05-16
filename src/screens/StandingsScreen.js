@@ -24,6 +24,7 @@ import {
 import { useFocusEffect } from '@react-navigation/native';
 import BonusIcon from '../components/BonusIcon';
 import { formatVoteRating } from '../utils/voteRating';
+import { getFormationSlotVisual } from '../utils/formationDisplay';
 
 const ROLE_COLORS = { P: '#0d6efd', D: '#198754', C: '#e6a817', A: '#dc3545' };
 
@@ -325,8 +326,9 @@ export default function StandingsScreen({ route, navigation }) {
                           <View key={ri} style={[styles.miniFieldRow, { top: `${topPct}%` }, cnt >= 5 && { justifyContent: 'center', marginHorizontal: 4 }, cnt === 4 && { justifyContent: 'center', gap: 2 }]}>
                             {row.slots.map((p, si) => {
                               if (!p) return <View key={si} style={{ width: slotSize, height: slotSize }} />;
-                              const roleColor = ROLE_COLORS[p.role] || '#999';
-                              const hasPhoto = !!p.photo_path;
+                              const vis = getFormationSlotVisual(p);
+                              const roleColor = ROLE_COLORS[vis.role] || '#999';
+                              const hasPhoto = !!vis.photo_path;
 
                               let yOffset = 0;
                               if (cnt >= 5) {
@@ -369,21 +371,15 @@ export default function StandingsScreen({ route, navigation }) {
                                   >
                                     {hasPhoto ? (
                                       <>
-                                        <Image source={{ uri: publicAssetUrl(p.photo_path) }} style={{ width: slotSize * 0.90, height: slotSize * 0.90, position: 'absolute', top: -slotSize * 0.11 }} />
+                                        <Image source={{ uri: publicAssetUrl(vis.photo_path) }} style={{ width: slotSize * 0.90, height: slotSize * 0.90, position: 'absolute', top: -slotSize * 0.11 }} />
                                         <View style={[styles.miniSlotOverlay, { backgroundColor: roleColor }]}>
-                                          <Text style={styles.miniSlotOverlayText}>{midTruncate(p.last_name)}</Text>
-                                          {p.substitute_id && p.substitute_last_name ? (
-                                            <Text style={styles.subInLabel}>↑ {midTruncate(p.substitute_last_name, 9)}</Text>
-                                          ) : null}
+                                          <Text style={styles.miniSlotOverlayText}>{midTruncate(vis.last_name)}</Text>
                                         </View>
                                       </>
                                     ) : (
                                       <>
-                                        <Text style={styles.miniSlotName} numberOfLines={1}>{midTruncate(p.last_name, 10)}</Text>
-                                        {p.substitute_id && p.substitute_last_name ? (
-                                          <Text style={styles.subInLabelPlain} numberOfLines={1}>↑ {midTruncate(p.substitute_last_name, 8)}</Text>
-                                        ) : null}
-                                        <Text style={styles.miniSlotTeam} numberOfLines={1}>{midTruncate(p.team_name, 9)}</Text>
+                                        <Text style={styles.miniSlotName} numberOfLines={1}>{midTruncate(vis.last_name, 10)}</Text>
+                                        <Text style={styles.miniSlotTeam} numberOfLines={1}>{midTruncate(vis.team_name, 9)}</Text>
                                       </>
                                     )}
                                     {bonusItems.length > 0 && (
@@ -420,6 +416,7 @@ export default function StandingsScreen({ route, navigation }) {
                         </View>
                       );
 
+                      const vis = getFormationSlotVisual(player);
                       const bonusItems = [];
                       if (formationData.bonus_enabled) {
                         const bs = formationData.bonus_settings || {};
@@ -439,14 +436,11 @@ export default function StandingsScreen({ route, navigation }) {
 
                       return (
                         <View key={player.id || index} style={styles.playerRow}>
-                          <View style={[styles.roleDot, { backgroundColor: ROLE_COLORS[player.role] || '#999' }]}>
-                            <Text style={styles.roleDotText}>{player.role || '-'}</Text>
+                          <View style={[styles.roleDot, { backgroundColor: ROLE_COLORS[vis.role] || '#999' }]}>
+                            <Text style={styles.roleDotText}>{vis.role || '-'}</Text>
                           </View>
                           <Text style={styles.playerName} numberOfLines={1}>
-                            {player.first_name} {player.last_name}
-                            {player.substitute_id && player.substitute_last_name
-                              ? ` ↑ ${player.substitute_last_name}`
-                              : ''}
+                            {vis.first_name} {vis.last_name}
                           </Text>
                           {bonusItems.length > 0 && (
                             <View style={styles.bonusRow}>
@@ -748,8 +742,6 @@ const styles = StyleSheet.create({
   miniSlotTeam: { color: 'rgba(255,255,255,0.75)', fontSize: 7, textAlign: 'center', marginTop: 1 },
   miniSlotOverlay: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingVertical: 2, alignItems: 'center', borderBottomLeftRadius: 999, borderBottomRightRadius: 999 },
   miniSlotOverlayText: { color: '#fff', fontSize: 9, fontWeight: '700', textAlign: 'center' },
-  subInLabel: { color: '#fff', fontSize: 7, fontWeight: '700', marginTop: 1 },
-  subInLabelPlain: { color: 'rgba(255,255,255,0.9)', fontSize: 7, fontWeight: '700', textAlign: 'center' },
   miniSlotWrap: { alignItems: 'center' },
   fieldBonusCol: { position: 'absolute', top: -4, right: -6, flexDirection: 'column', gap: 1, alignItems: 'flex-start' },
   fieldBonusChip: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 6, paddingHorizontal: 2, paddingVertical: 1 },
