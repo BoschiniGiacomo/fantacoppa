@@ -437,7 +437,9 @@ export const leagueService = {
   },
   // Matchday calculation
   calculateMatchday: async (leagueId, giornata, use6Politico = false, force = false) => {
-    return api.post(`/leagues/${leagueId}/calculate/${giornata}`, { use_6_politico: use6Politico, force });
+    return api.post(`/leagues/${leagueId}/calculate/${giornata}`, { use_6_politico: use6Politico, force }, {
+      timeout: 120000,
+    });
   },
   undoCalculateMatchday: async (leagueId, giornata) => {
     return api.delete(`/leagues/${leagueId}/calculate/${giornata}`);

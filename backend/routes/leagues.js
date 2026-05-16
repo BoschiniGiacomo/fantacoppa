@@ -2479,34 +2479,15 @@ router.get('/:id/standings/matchday/:giornata/formation/:userId', authenticateTo
       if (!p) return null;
       const slot = slotByTit[Number(pid)] || {};
       const scoringId = Number(slot.scoring_player_id || pid);
-      const s = scoreMap[scoringId] || null;
-      const v = votesByPlayer[scoringId] || votesByPlayer[Number(pid)] || {};
-      const rating = normalizeVoteRating(v.rating ?? slot.rating ?? 0);
-      let final_rating = 0;
-      if (rating > 0) {
-        const scoringVote = {
-          ...v,
-          rating,
-          goals: Number(s?.goals ?? v.goals ?? 0),
-          assists: Number(s?.assists ?? v.assists ?? 0),
-          yellow_cards: Number(s?.yellow_cards ?? v.yellow_cards ?? 0),
-          red_cards: Number(s?.red_cards ?? v.red_cards ?? 0),
-          goals_conceded: Number(s?.goals_conceded ?? v.goals_conceded ?? 0),
-          own_goals: Number(s?.own_goals ?? v.own_goals ?? 0),
-          penalty_missed: Number(s?.penalty_missed ?? v.penalty_missed ?? 0),
-          penalty_saved: Number(s?.penalty_saved ?? v.penalty_saved ?? 0),
-          clean_sheet: Number(s?.clean_sheet ?? v.clean_sheet ?? 0),
-          pallone_fuori: Number(s?.pallone_fuori ?? v.pallone_fuori ?? 0),
-          briso: Number(s?.briso ?? v.briso ?? 0),
-          no_divisa: Number(s?.no_divisa ?? v.no_divisa ?? 0),
-        };
-        const bonusTotal = computeBonusTotal(scoringVote, bonusSettings);
-        final_rating = Number((rating + bonusTotal).toFixed(2));
-      } else if (isCalculated && s?.total_score != null) {
-        final_rating = Number(s.total_score);
-      } else {
-        final_rating = Number(slot.total_score ?? 0);
-      }
+      const s = scoreMap[scoringId] || scoreMap[Number(pid)] || null;
+      const vTit = votesByPlayer[Number(pid)] || {};
+      const vScore = votesByPlayer[scoringId] || vTit;
+      const rating = normalizeVoteRating(
+        slot.display_rating ?? vTit.rating ?? 0
+      );
+      const final_rating = Number(
+        slot.total_score ?? (isCalculated && s?.total_score != null ? s.total_score : 0)
+      );
       return {
         id: Number(p.id),
         first_name: p.first_name,
@@ -2516,20 +2497,21 @@ router.get('/:id/standings/matchday/:giornata/formation/:userId', authenticateTo
         team_name: p.team_name || '',
         rating,
         final_rating,
-        goals: Number(s?.goals ?? v.goals ?? 0),
-        assists: Number(s?.assists ?? v.assists ?? 0),
-        yellow_cards: Number(s?.yellow_cards ?? v.yellow_cards ?? 0),
-        red_cards: Number(s?.red_cards ?? v.red_cards ?? 0),
-        goals_conceded: Number(s?.goals_conceded ?? v.goals_conceded ?? 0),
-        own_goals: Number(s?.own_goals ?? v.own_goals ?? 0),
-        penalty_missed: Number(s?.penalty_missed ?? v.penalty_missed ?? 0),
-        penalty_saved: Number(s?.penalty_saved ?? v.penalty_saved ?? 0),
-        clean_sheet: Number(s?.clean_sheet ?? v.clean_sheet ?? 0),
-        pallone_fuori: Number(s?.pallone_fuori ?? v.pallone_fuori ?? 0),
-        briso: Number(s?.briso ?? v.briso ?? 0),
-        no_divisa: Number(s?.no_divisa ?? v.no_divisa ?? 0),
+        goals: Number(s?.goals ?? vScore.goals ?? vTit.goals ?? 0),
+        assists: Number(s?.assists ?? vScore.assists ?? vTit.assists ?? 0),
+        yellow_cards: Number(s?.yellow_cards ?? vScore.yellow_cards ?? vTit.yellow_cards ?? 0),
+        red_cards: Number(s?.red_cards ?? vScore.red_cards ?? vTit.red_cards ?? 0),
+        goals_conceded: Number(s?.goals_conceded ?? vScore.goals_conceded ?? vTit.goals_conceded ?? 0),
+        own_goals: Number(s?.own_goals ?? vScore.own_goals ?? vTit.own_goals ?? 0),
+        penalty_missed: Number(s?.penalty_missed ?? vScore.penalty_missed ?? vTit.penalty_missed ?? 0),
+        penalty_saved: Number(s?.penalty_saved ?? vScore.penalty_saved ?? vTit.penalty_saved ?? 0),
+        clean_sheet: Number(s?.clean_sheet ?? vScore.clean_sheet ?? vTit.clean_sheet ?? 0),
+        pallone_fuori: Number(s?.pallone_fuori ?? vScore.pallone_fuori ?? vTit.pallone_fuori ?? 0),
+        briso: Number(s?.briso ?? vScore.briso ?? vTit.briso ?? 0),
+        no_divisa: Number(s?.no_divisa ?? vScore.no_divisa ?? vTit.no_divisa ?? 0),
         substitute_id: slot.substitute_id || null,
         pending_team_vote: !!slot.pending_team_vote,
+        sv_fallback_score: Number(slot.sv_fallback_score || 0),
       };
     }).filter(Boolean);
 
@@ -3021,122 +3003,144 @@ router.post('/:id/calculate/:giornata', authenticateToken, async (req, res) => {
     }
 
     const details = [];
+    const calcWarnings = [];
     const usersWith6Politico = [];
     let canWritePlayerScores = true;
     for (const m of members) {
       const userId = Number(m.user_id);
-      let titolari = [];
-      let panchina = [];
-      const currentLineup = lineupByUser[userId];
+      try {
+        let titolari = [];
+        let panchina = [];
+        const currentLineup = lineupByUser[userId];
 
-      let resolvedModulo = '';
-      if (autoLineupMode) {
-        const generated = await buildAutoLineupFromVotes({
-          leagueId,
-          userId,
-          numeroTitolari,
-          votesByPlayer,
-          bonusSettings,
-          use6Politico,
-          computeBonusTotal,
-        });
-        if (generated && generated.titolari.length > 0) {
-          titolari = applyInjuryMap(generated.titolari, injuryMap).slice(0, numeroTitolari);
-          panchina = applyInjuryMap(generated.panchina, injuryMap);
-          resolvedModulo = String(generated.modulo || '');
+        let resolvedModulo = '';
+        if (autoLineupMode) {
+          const generated = await buildAutoLineupFromVotes({
+            leagueId,
+            userId,
+            numeroTitolari,
+            votesByPlayer,
+            bonusSettings,
+            use6Politico,
+            computeBonusTotal,
+          });
+          if (generated && generated.titolari.length > 0) {
+            titolari = applyInjuryMap(generated.titolari, injuryMap).slice(0, numeroTitolari);
+            panchina = applyInjuryMap(generated.panchina, injuryMap);
+            resolvedModulo = String(generated.modulo || '');
+          }
+        } else if (currentLineup && currentLineup.titolari.length > 0) {
+          titolari = currentLineup.titolari.filter((id) => Number.isFinite(id) && id > 0).slice(0, numeroTitolari);
+          panchina = (currentLineup.panchina || []).filter((id) => Number.isFinite(id) && id > 0);
+          resolvedModulo = String(currentLineup.modulo || '');
+        } else {
+          const resolved = await resolveUserLineup(leagueId, userId, giornata, numeroTitolari, {
+            recoverPrevious: recoverPreviousLineupIfMissing,
+            injuryMap,
+            applyInjury: applyInjuryToLineup,
+          });
+          titolari = resolved.titolari;
+          panchina = resolved.panchina;
+          resolvedModulo = String(resolved.modulo || '');
         }
-      } else if (currentLineup && currentLineup.titolari.length > 0) {
-        titolari = currentLineup.titolari.filter((id) => Number.isFinite(id) && id > 0).slice(0, numeroTitolari);
-        panchina = currentLineup.panchina.filter((id) => Number.isFinite(id) && id > 0);
-        resolvedModulo = String(currentLineup.modulo || '');
-      } else {
-        const resolved = await resolveUserLineup(leagueId, userId, giornata, numeroTitolari, {
-          recoverPrevious: recoverPreviousLineupIfMissing,
-          injuryMap,
-          applyInjury: applyInjuryToLineup,
-        });
-        titolari = resolved.titolari;
-        panchina = resolved.panchina;
-        resolvedModulo = String(resolved.modulo || '');
-      }
 
-      titolari = applyInjuryMap(titolari, injuryMap).slice(0, numeroTitolari);
-      panchina = applyInjuryMap(panchina, injuryMap);
-      if (!Array.isArray(panchina)) panchina = [];
+        titolari = applyInjuryMap(titolari, injuryMap).slice(0, numeroTitolari);
+        panchina = applyInjuryMap(panchina, injuryMap);
+        if (!Array.isArray(panchina)) panchina = [];
 
-      if (titolari.length > 0) {
-        await persistUserLineup(leagueId, userId, giornata, {
-          modulo: resolvedModulo,
+        if (titolari.length > 0) {
+          await persistUserLineup(leagueId, userId, giornata, {
+            modulo: resolvedModulo,
+            titolari,
+            panchina,
+          });
+        }
+
+        const scored = scoreResolvedLineup({
           titolari,
           panchina,
+          votesByPlayer,
+          playersById,
+          enableSvFallbackVote,
+          use6Politico,
+          bonusSettings,
+          computeBonusTotal,
+        });
+        const punteggio = scored.punteggio;
+        const hasRealVotes = scored.hasRealVotes;
+        const playerScores = scored.playerScores;
+        if (!hasRealVotes && use6Politico && titolari.length > 0) usersWith6Politico.push(userId);
+        await query(
+          `INSERT INTO matchday_results (league_id, giornata, user_id, punteggio)
+           VALUES (?, ?, ?, ?)`,
+          [leagueId, giornata, userId, punteggio]
+        );
+        if (canWritePlayerScores) {
+          try {
+            for (const ps of playerScores) {
+              await query(
+                `INSERT INTO matchday_player_scores (
+                   league_id, giornata, user_id, player_id, player_name, player_role,
+                   rating, goals, assists, yellow_cards, red_cards, goals_conceded,
+                   own_goals, penalty_missed, penalty_saved, clean_sheet,
+                   pallone_fuori, briso, no_divisa,
+                   bonus_total, total_score
+                 )
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 ON CONFLICT (league_id, giornata, user_id, player_id)
+                 DO UPDATE SET
+                   player_name = EXCLUDED.player_name,
+                   player_role = EXCLUDED.player_role,
+                   rating = EXCLUDED.rating,
+                   goals = EXCLUDED.goals,
+                   assists = EXCLUDED.assists,
+                   yellow_cards = EXCLUDED.yellow_cards,
+                   red_cards = EXCLUDED.red_cards,
+                   goals_conceded = EXCLUDED.goals_conceded,
+                   own_goals = EXCLUDED.own_goals,
+                   penalty_missed = EXCLUDED.penalty_missed,
+                   penalty_saved = EXCLUDED.penalty_saved,
+                   clean_sheet = EXCLUDED.clean_sheet,
+                   pallone_fuori = EXCLUDED.pallone_fuori,
+                   briso = EXCLUDED.briso,
+                   no_divisa = EXCLUDED.no_divisa,
+                   bonus_total = EXCLUDED.bonus_total,
+                   total_score = EXCLUDED.total_score`,
+                [
+                  leagueId, giornata, userId, ps.player_id, ps.player_name, ps.player_role,
+                  ps.rating, ps.goals, ps.assists, ps.yellow_cards, ps.red_cards, ps.goals_conceded,
+                  ps.own_goals, ps.penalty_missed, ps.penalty_saved, ps.clean_sheet,
+                  ps.pallone_fuori, ps.briso, ps.no_divisa,
+                  ps.bonus_total, ps.total_score,
+                ]
+              );
+            }
+          } catch (scoreErr) {
+            canWritePlayerScores = false;
+            calcWarnings.push({
+              user_id: userId,
+              code: 'player_scores_write',
+              message: 'Punteggio salvato; dettaglio giocatori non aggiornato.',
+            });
+            console.error('matchday_player_scores write error:', scoreErr?.message || scoreErr);
+          }
+        }
+        details.push({ user_id: userId, punteggio, players: playerScores });
+      } catch (userErr) {
+        console.error(`Calculate matchday user ${userId} error:`, userErr);
+        calcWarnings.push({
+          user_id: userId,
+          code: 'user_calc_failed',
+          message: userErr?.message || 'Errore calcolo utente',
         });
       }
+    }
 
-      const scored = scoreResolvedLineup({
-        titolari,
-        panchina,
-        votesByPlayer,
-        playersById,
-        enableSvFallbackVote,
-        use6Politico,
-        bonusSettings,
-        computeBonusTotal,
+    if (details.length < 1) {
+      return res.status(500).json({
+        message: 'Nessun punteggio calcolato. Verifica voti e formazioni.',
+        warnings: calcWarnings,
       });
-      const punteggio = scored.punteggio;
-      const hasRealVotes = scored.hasRealVotes;
-      const playerScores = scored.playerScores;
-      if (!hasRealVotes && use6Politico && titolari.length > 0) usersWith6Politico.push(userId);
-      await query(
-        `INSERT INTO matchday_results (league_id, giornata, user_id, punteggio)
-         VALUES (?, ?, ?, ?)`,
-        [leagueId, giornata, userId, punteggio]
-      );
-      if (canWritePlayerScores) {
-        try {
-          for (const ps of playerScores) {
-            await query(
-              `INSERT INTO matchday_player_scores (
-                 league_id, giornata, user_id, player_id, player_name, player_role,
-                 rating, goals, assists, yellow_cards, red_cards, goals_conceded,
-                 own_goals, penalty_missed, penalty_saved, clean_sheet,
-                 pallone_fuori, briso, no_divisa,
-                 bonus_total, total_score
-               )
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-               ON CONFLICT (league_id, giornata, user_id, player_id)
-               DO UPDATE SET
-                 player_name = EXCLUDED.player_name,
-                 player_role = EXCLUDED.player_role,
-                 rating = EXCLUDED.rating,
-                 goals = EXCLUDED.goals,
-                 assists = EXCLUDED.assists,
-                 yellow_cards = EXCLUDED.yellow_cards,
-                 red_cards = EXCLUDED.red_cards,
-                 goals_conceded = EXCLUDED.goals_conceded,
-                 own_goals = EXCLUDED.own_goals,
-                 penalty_missed = EXCLUDED.penalty_missed,
-                 penalty_saved = EXCLUDED.penalty_saved,
-                 clean_sheet = EXCLUDED.clean_sheet,
-                 pallone_fuori = EXCLUDED.pallone_fuori,
-                 briso = EXCLUDED.briso,
-                 no_divisa = EXCLUDED.no_divisa,
-                 bonus_total = EXCLUDED.bonus_total,
-                 total_score = EXCLUDED.total_score`,
-              [
-                leagueId, giornata, userId, ps.player_id, ps.player_name, ps.player_role,
-                ps.rating, ps.goals, ps.assists, ps.yellow_cards, ps.red_cards, ps.goals_conceded,
-                ps.own_goals, ps.penalty_missed, ps.penalty_saved, ps.clean_sheet,
-                ps.pallone_fuori, ps.briso, ps.no_divisa,
-                ps.bonus_total, ps.total_score,
-              ]
-            );
-          }
-        } catch (_) {
-          // Tabella non disponibile: disabilita nuovi tentativi in questa request.
-          canWritePlayerScores = false;
-        }
-      }
-      details.push({ user_id: userId, punteggio, players: playerScores });
     }
 
     let notificationStats = null;
@@ -3153,6 +3157,7 @@ router.post('/:id/calculate/:giornata', authenticateToken, async (req, res) => {
       use_6_politico: use6Politico,
       users_with_6_politico: usersWith6Politico,
       processed_users: details.length,
+      warnings: calcWarnings,
       results: details.sort((a, b) => b.punteggio - a.punteggio),
       notifications: notificationStats,
     });

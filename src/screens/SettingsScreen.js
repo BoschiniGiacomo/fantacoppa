@@ -719,13 +719,30 @@ export default function SettingsScreen({ route, navigation }) {
         return;
       }
       setCalcResult(res.data);
-      setCalcFeedback(res.data?.recalculated ? 'Giornata ricalcolata!' : 'Giornata calcolata!');
-      setTimeout(() => setCalcFeedback(''), 3000);
-      // Ricarica lo stato
-      await loadMatchdayStatus();
+      const warnings = Array.isArray(res.data?.warnings) ? res.data.warnings : [];
+      let feedback = res.data?.recalculated ? 'Giornata ricalcolata!' : 'Giornata calcolata!';
+      if (warnings.length > 0) {
+        feedback += ` (${warnings.length} avviso/i)`;
+      }
+      setCalcFeedback(feedback);
+      setTimeout(() => setCalcFeedback(''), 4000);
+      if (warnings.length > 0) {
+        showToast('Calcolo completato con alcuni avvisi. Controlla i punteggi in classifica.', 'success');
+      }
+      try {
+        await loadMatchdayStatus();
+      } catch (reloadErr) {
+        console.error('Error reloading matchday status after calc:', reloadErr);
+        showToast('Giornata calcolata. Aggiorna la pagina per vedere lo stato.', 'success');
+      }
     } catch (error) {
       console.error('Error calculating matchday:', error);
-      showToast(error.response?.data?.message || 'Impossibile calcolare la giornata');
+      const isTimeout = error?.code === 'ECONNABORTED' || String(error?.message || '').includes('timeout');
+      if (isTimeout) {
+        showToast('Il calcolo potrebbe essere ancora in corso. Controlla la classifica tra qualche secondo.');
+      } else {
+        showToast(error.response?.data?.message || 'Impossibile calcolare la giornata');
+      }
     } finally {
       setCalculating(false);
     }

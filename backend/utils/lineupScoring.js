@@ -15,7 +15,8 @@ function buildTeamHasVoteSet(votesByPlayer, playersById) {
 function findFirstBenchSubstitute(panchina, role, votesByPlayer, playersById) {
   const wantedRole = String(role || '').trim();
   if (!wantedRole) return null;
-  for (const benchId of panchina || []) {
+  const bench = Array.isArray(panchina) ? panchina : [];
+  for (const benchId of bench) {
     const bid = Number(benchId);
     if (!Number.isFinite(bid) || bid <= 0) continue;
     if (String(playersById[bid]?.role || '').trim() !== wantedRole) continue;
@@ -26,6 +27,7 @@ function findFirstBenchSubstitute(panchina, role, votesByPlayer, playersById) {
 
 /**
  * Punteggio titolari con sostituzione panchina (ordine panchina) e 4.5 se abilitato.
+ * Panchina vuota: nessun errore; con "voto aiuto" attivo → 4.5 nel bonus (voto base titolare resta 0).
  * La squadra reale deve avere almeno un voto in giornata per attivare sostituzione / 4.5.
  */
 function scoreResolvedLineup({
@@ -39,6 +41,7 @@ function scoreResolvedLineup({
   computeBonusTotal,
 }) {
   const teamHasVote = buildTeamHasVoteSet(votesByPlayer, playersById);
+  const safePanchina = Array.isArray(panchina) ? panchina : [];
   let punteggio = 0;
   let hasRealVotes = false;
   const playerScores = [];
@@ -49,57 +52,66 @@ function scoreResolvedLineup({
     if (!Number.isFinite(tid) || tid <= 0) continue;
 
     const vote = votesByPlayer[tid] || {};
-    let rating = normalizeVoteRating(vote.rating || 0);
+    const displayRating = normalizeVoteRating(vote.rating || 0);
+    let scoringRating = displayRating;
     let scoringPlayerId = tid;
     let scoringVote = vote;
     let substituteId = null;
     let pendingTeamVote = false;
+    let svHelpScore = 0;
 
-    if (rating > 0) hasRealVotes = true;
+    if (scoringRating > 0) hasRealVotes = true;
 
-    if (rating <= 0 && use6Politico) {
-      rating = 6;
+    if (scoringRating <= 0 && use6Politico) {
+      scoringRating = 6;
       scoringPlayerId = tid;
       scoringVote = { ...vote, rating: 6 };
-    } else if (rating <= 0) {
+    } else if (scoringRating <= 0) {
       const role = String(playersById[tid]?.role || '').trim();
       const teamId = Number(playersById[tid]?.team_id || 0);
       const squadPlayed = teamId > 0 && teamHasVote.has(teamId);
 
       if (!squadPlayed) {
         pendingTeamVote = true;
-        rating = 0;
+        scoringRating = 0;
       } else {
-        const subId = findFirstBenchSubstitute(panchina, role, votesByPlayer, playersById);
+        const subId = findFirstBenchSubstitute(safePanchina, role, votesByPlayer, playersById);
         if (subId) {
           substituteId = subId;
           scoringPlayerId = subId;
           scoringVote = votesByPlayer[subId] || {};
-          rating = normalizeVoteRating(scoringVote.rating || 0);
-          if (rating > 0) hasRealVotes = true;
+          scoringRating = normalizeVoteRating(scoringVote.rating || 0);
+          if (scoringRating > 0) hasRealVotes = true;
         } else if (enableSvFallbackVote) {
-          rating = 4.5;
+          svHelpScore = 4.5;
+          scoringRating = 0;
           scoringPlayerId = tid;
-          scoringVote = { ...vote, rating: 4.5 };
+          scoringVote = { ...vote, rating: 0 };
         }
       }
     }
 
-    if (rating <= 0) {
+    if (scoringRating <= 0 && svHelpScore <= 0) {
       formationSlots.push({
         titolare_id: tid,
         scoring_player_id: tid,
         substitute_id: substituteId,
         pending_team_vote: pendingTeamVote,
+        display_rating: displayRating,
         rating: 0,
+        sv_fallback_score: 0,
         bonus_total: 0,
         total_score: 0,
       });
       continue;
     }
 
-    const bonusTotal = computeBonusTotal({ ...scoringVote, rating }, bonusSettings);
-    const score = rating + bonusTotal;
+    const bonusTotal = computeBonusTotal(
+      { ...scoringVote, rating: scoringRating > 0 ? scoringRating : 0 },
+      bonusSettings
+    );
+    const bonusWithHelp = Number((bonusTotal + svHelpScore).toFixed(2));
+    const score = Number((scoringRating + bonusWithHelp).toFixed(2));
     punteggio += score;
 
     const p = playersById[scoringPlayerId] || playersById[tid];
@@ -108,7 +120,9 @@ function scoreResolvedLineup({
       titolare_id: tid,
       player_name: p ? `${p.first_name || ''} ${p.last_name || ''}`.trim() : `Giocatore ${scoringPlayerId}`,
       player_role: p?.role || null,
-      rating: normalizeVoteRating(rating),
+      display_rating: displayRating,
+      rating: normalizeVoteRating(scoringRating),
+      sv_fallback_score: svHelpScore,
       goals: Number(scoringVote.goals || 0),
       assists: Number(scoringVote.assists || 0),
       yellow_cards: Number(scoringVote.yellow_cards || 0),
@@ -121,8 +135,8 @@ function scoreResolvedLineup({
       pallone_fuori: Number(scoringVote.pallone_fuori || 0),
       briso: Number(scoringVote.briso || 0),
       no_divisa: Number(scoringVote.no_divisa || 0),
-      bonus_total: Number(bonusTotal.toFixed(2)),
-      total_score: Number(score.toFixed(2)),
+      bonus_total: bonusWithHelp,
+      total_score: score,
     });
 
     formationSlots.push({
@@ -130,9 +144,11 @@ function scoreResolvedLineup({
       scoring_player_id: scoringPlayerId,
       substitute_id: substituteId,
       pending_team_vote: pendingTeamVote,
-      rating: normalizeVoteRating(rating),
-      bonus_total: Number(bonusTotal.toFixed(2)),
-      total_score: Number(score.toFixed(2)),
+      display_rating: displayRating,
+      rating: normalizeVoteRating(scoringRating),
+      sv_fallback_score: svHelpScore,
+      bonus_total: bonusWithHelp,
+      total_score: score,
     });
   }
 
