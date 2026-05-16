@@ -372,11 +372,17 @@ export default function StandingsScreen({ route, navigation }) {
                                         <Image source={{ uri: publicAssetUrl(p.photo_path) }} style={{ width: slotSize * 0.90, height: slotSize * 0.90, position: 'absolute', top: -slotSize * 0.11 }} />
                                         <View style={[styles.miniSlotOverlay, { backgroundColor: roleColor }]}>
                                           <Text style={styles.miniSlotOverlayText}>{midTruncate(p.last_name)}</Text>
+                                          {p.substitute_id && p.substitute_last_name ? (
+                                            <Text style={styles.subInLabel}>↑ {midTruncate(p.substitute_last_name, 9)}</Text>
+                                          ) : null}
                                         </View>
                                       </>
                                     ) : (
                                       <>
                                         <Text style={styles.miniSlotName} numberOfLines={1}>{midTruncate(p.last_name, 10)}</Text>
+                                        {p.substitute_id && p.substitute_last_name ? (
+                                          <Text style={styles.subInLabelPlain} numberOfLines={1}>↑ {midTruncate(p.substitute_last_name, 8)}</Text>
+                                        ) : null}
                                         <Text style={styles.miniSlotTeam} numberOfLines={1}>{midTruncate(p.team_name, 9)}</Text>
                                       </>
                                     )}
@@ -438,6 +444,9 @@ export default function StandingsScreen({ route, navigation }) {
                           </View>
                           <Text style={styles.playerName} numberOfLines={1}>
                             {player.first_name} {player.last_name}
+                            {player.substitute_id && player.substitute_last_name
+                              ? ` ↑ ${player.substitute_last_name}`
+                              : ''}
                           </Text>
                           {bonusItems.length > 0 && (
                             <View style={styles.bonusRow}>
@@ -739,6 +748,8 @@ const styles = StyleSheet.create({
   miniSlotTeam: { color: 'rgba(255,255,255,0.75)', fontSize: 7, textAlign: 'center', marginTop: 1 },
   miniSlotOverlay: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingVertical: 2, alignItems: 'center', borderBottomLeftRadius: 999, borderBottomRightRadius: 999 },
   miniSlotOverlayText: { color: '#fff', fontSize: 9, fontWeight: '700', textAlign: 'center' },
+  subInLabel: { color: '#fff', fontSize: 7, fontWeight: '700', marginTop: 1 },
+  subInLabelPlain: { color: 'rgba(255,255,255,0.9)', fontSize: 7, fontWeight: '700', textAlign: 'center' },
   miniSlotWrap: { alignItems: 'center' },
   fieldBonusCol: { position: 'absolute', top: -4, right: -6, flexDirection: 'column', gap: 1, alignItems: 'flex-start' },
   fieldBonusChip: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 6, paddingHorizontal: 2, paddingVertical: 1 },

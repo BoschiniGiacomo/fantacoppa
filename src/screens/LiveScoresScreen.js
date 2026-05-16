@@ -423,6 +423,9 @@ export default function LiveScoresScreen({ route, navigation }) {
                                 </View>
                                 <Text style={styles.fPlayerName} numberOfLines={1}>
                                   {player.first_name} {player.last_name}
+                                  {player.substitute_id && player.substitute_last_name
+                                    ? ` ↑ ${player.substitute_last_name}`
+                                    : ''}
                                 </Text>
                                 {bonusItems.length > 0 && (
                                   <View style={styles.fBonusRow}>

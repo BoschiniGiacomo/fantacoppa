@@ -2478,16 +2478,10 @@ router.get('/:id/standings/matchday/:giornata/formation/:userId', authenticateTo
       const p = byId[Number(pid)];
       if (!p) return null;
       const slot = slotByTit[Number(pid)] || {};
-      const scoringId = Number(slot.scoring_player_id || pid);
-      const s = scoreMap[scoringId] || scoreMap[Number(pid)] || null;
-      const vTit = votesByPlayer[Number(pid)] || {};
-      const vScore = votesByPlayer[scoringId] || vTit;
-      const rating = normalizeVoteRating(
-        slot.display_rating ?? vTit.rating ?? 0
-      );
-      const final_rating = Number(
-        slot.total_score ?? (isCalculated && s?.total_score != null ? s.total_score : 0)
-      );
+      const subId = slot.substitute_id ? Number(slot.substitute_id) : null;
+      const subP = subId ? byId[subId] : null;
+      const rating = normalizeVoteRating(slot.display_rating ?? 0);
+      const final_rating = Number(slot.total_score ?? 0);
       return {
         id: Number(p.id),
         first_name: p.first_name,
@@ -2497,19 +2491,21 @@ router.get('/:id/standings/matchday/:giornata/formation/:userId', authenticateTo
         team_name: p.team_name || '',
         rating,
         final_rating,
-        goals: Number(s?.goals ?? vScore.goals ?? vTit.goals ?? 0),
-        assists: Number(s?.assists ?? vScore.assists ?? vTit.assists ?? 0),
-        yellow_cards: Number(s?.yellow_cards ?? vScore.yellow_cards ?? vTit.yellow_cards ?? 0),
-        red_cards: Number(s?.red_cards ?? vScore.red_cards ?? vTit.red_cards ?? 0),
-        goals_conceded: Number(s?.goals_conceded ?? vScore.goals_conceded ?? vTit.goals_conceded ?? 0),
-        own_goals: Number(s?.own_goals ?? vScore.own_goals ?? vTit.own_goals ?? 0),
-        penalty_missed: Number(s?.penalty_missed ?? vScore.penalty_missed ?? vTit.penalty_missed ?? 0),
-        penalty_saved: Number(s?.penalty_saved ?? vScore.penalty_saved ?? vTit.penalty_saved ?? 0),
-        clean_sheet: Number(s?.clean_sheet ?? vScore.clean_sheet ?? vTit.clean_sheet ?? 0),
-        pallone_fuori: Number(s?.pallone_fuori ?? vScore.pallone_fuori ?? vTit.pallone_fuori ?? 0),
-        briso: Number(s?.briso ?? vScore.briso ?? vTit.briso ?? 0),
-        no_divisa: Number(s?.no_divisa ?? vScore.no_divisa ?? vTit.no_divisa ?? 0),
-        substitute_id: slot.substitute_id || null,
+        goals: Number(slot.goals ?? 0),
+        assists: Number(slot.assists ?? 0),
+        yellow_cards: Number(slot.yellow_cards ?? 0),
+        red_cards: Number(slot.red_cards ?? 0),
+        goals_conceded: Number(slot.goals_conceded ?? 0),
+        own_goals: Number(slot.own_goals ?? 0),
+        penalty_missed: Number(slot.penalty_missed ?? 0),
+        penalty_saved: Number(slot.penalty_saved ?? 0),
+        clean_sheet: Number(slot.clean_sheet ?? 0),
+        pallone_fuori: Number(slot.pallone_fuori ?? 0),
+        briso: Number(slot.briso ?? 0),
+        no_divisa: Number(slot.no_divisa ?? 0),
+        substitute_id: subId || null,
+        substitute_first_name: subP?.first_name || null,
+        substitute_last_name: subP?.last_name || null,
         pending_team_vote: !!slot.pending_team_vote,
         sv_fallback_score: Number(slot.sv_fallback_score || 0),
       };
@@ -3004,6 +3000,9 @@ router.post('/:id/calculate/:giornata', authenticateToken, async (req, res) => {
 
     const details = [];
     const calcWarnings = [];
+    const scoringLogs = [];
+    const debugScoring =
+      process.env.MATCHDAY_CALC_DEBUG === '1' || Number(req.body?.debug_log) === 1;
     const usersWith6Politico = [];
     let canWritePlayerScores = true;
     for (const m of members) {
@@ -3056,6 +3055,13 @@ router.post('/:id/calculate/:giornata', authenticateToken, async (req, res) => {
           });
         }
 
+        const userDebugLog = debugScoring ? [] : null;
+        if (debugScoring) {
+          console.log(
+            `[CALC] league=${leagueId} g=${giornata} user=${userId} titolari=${JSON.stringify(titolari)} panchina=${JSON.stringify(panchina)} sv_help=${enableSvFallbackVote}`
+          );
+        }
+
         const scored = scoreResolvedLineup({
           titolari,
           panchina,
@@ -3065,7 +3071,14 @@ router.post('/:id/calculate/:giornata', authenticateToken, async (req, res) => {
           use6Politico,
           bonusSettings,
           computeBonusTotal,
+          debugLog: userDebugLog,
+          debugContext: { league_id: leagueId, giornata, user_id: userId },
         });
+
+        if (debugScoring && userDebugLog?.length) {
+          console.log(`[CALC] league=${leagueId} g=${giornata} user=${userId} slots:`, JSON.stringify(userDebugLog));
+          scoringLogs.push({ user_id: userId, slots: userDebugLog, used_bench: scored.used_bench_ids });
+        }
         const punteggio = scored.punteggio;
         const hasRealVotes = scored.hasRealVotes;
         const playerScores = scored.playerScores;
@@ -3158,6 +3171,7 @@ router.post('/:id/calculate/:giornata', authenticateToken, async (req, res) => {
       users_with_6_politico: usersWith6Politico,
       processed_users: details.length,
       warnings: calcWarnings,
+      scoring_logs: debugScoring ? scoringLogs : undefined,
       results: details.sort((a, b) => b.punteggio - a.punteggio),
       notifications: notificationStats,
     });
