@@ -4,11 +4,12 @@
     "slug": "fantacoppa",
     "version": "1.0.9",
     "orientation": "portrait",
-    "icon": "./logoCoppacantoni.png",
+    "icon": "./assets/app-icon.png",
     "userInterfaceStyle": "light",
     "splash": {
+      "image": "./assets/app-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#667eea"
+      "backgroundColor": "#ffffff"
     },
     "assetBundlePatterns": [
       "assets/**/*"
@@ -27,7 +28,7 @@
       "googleServicesFile": "./android/app/google-services.json",
       "permissions": [],
       "adaptiveIcon": {
-        "foregroundImage": "./logoCoppacantoni.png",
+        "foregroundImage": "./assets/app-icon.png",
         "backgroundColor": "#ffffff"
       }
     },

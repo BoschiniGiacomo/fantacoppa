@@ -1841,9 +1841,6 @@ export default function SuperUserScreen() {
 
               {loginBackgroundSectionOpen && (
                 <>
-                  <Text style={[styles.appSettingsMuted, { marginBottom: 12 }]}>
-                    Immagine a tutto schermo dietro logo e form. Senza file resta lo sfondo grigio predefinito.
-                  </Text>
 
                   <TouchableOpacity
                     style={[styles.appSettingsPrimaryBtn, pickingLoginBackground && styles.appSettingsBtnDisabled]}
@@ -1879,7 +1876,7 @@ export default function SuperUserScreen() {
                     </>
                   ) : (
                     <Text style={[styles.appSettingsMuted, { marginTop: 14 }]}>
-                      Nessuno sfondo caricato: verrà usato lo sfondo grigio predefinito.
+                      Di default viene usato lo sfondo grigio.
                     </Text>
                   )}
                 </>
