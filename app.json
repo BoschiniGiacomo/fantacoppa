@@ -25,7 +25,11 @@
       "package": "com.fantacoppa.app",
       "versionCode": 11,
       "googleServicesFile": "./android/app/google-services.json",
-      "permissions": []
+      "permissions": [],
+      "adaptiveIcon": {
+        "foregroundImage": "./logoCoppacantoni.png",
+        "backgroundColor": "#ffffff"
+      }
     },
     "extra": {
       "appVersionCode": 11,
