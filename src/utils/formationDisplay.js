@@ -1,6 +1,6 @@
 /**
  * Dati visivi per uno slot formazione in classifica/live.
- * Con sostituzione: nome, foto e squadra del panchinaro entrato; voto base del titolare (S.V.).
+ * Con sostituzione: nome, foto, squadra e voto reale del panchinaro entrato (API allinea rating).
  */
 export function getFormationSlotVisual(player) {
   if (!player) {

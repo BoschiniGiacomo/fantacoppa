@@ -2502,7 +2502,10 @@ router.get('/:id/standings/matchday/:giornata/formation/:userId', authenticateTo
       const subId = slot.substitute_id ? Number(slot.substitute_id) : null;
       const subP = subId ? byId[subId] : null;
       const visual = subP || p;
-      const rating = normalizeVoteRating(slot.display_rating ?? 0);
+      // Voto reale mostrato: del sub entrato se sostituito, altrimenti del titolare (S.V. = 0, aiuto 4.5 solo nel fantavoto).
+      const rating = subId
+        ? normalizeVoteRating(slot.rating ?? 0)
+        : normalizeVoteRating(slot.display_rating ?? 0);
       const final_rating = Number(slot.total_score ?? 0);
       return {
         id: Number(p.id),
