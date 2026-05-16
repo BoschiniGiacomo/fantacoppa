@@ -17,6 +17,8 @@ import { leagueService } from '../services/api';
 import { defaultLogosMap } from '../constants/defaultLogos';
 import { parseAppDate } from '../utils/dateTime';
 import BonusIcon from '../components/BonusIcon';
+import AppLoadingFullScreenModal from '../components/AppLoadingFullScreenModal';
+import { useAppLoadingMedia } from '../context/AppLoadingMediaContext';
 import { formatVoteRating, normalizeVoteRating } from '../utils/voteRating';
 import { getFormationSlotVisual } from '../utils/formationDisplay';
 
@@ -52,6 +54,7 @@ const formatRating = (v) => formatVoteRating(v);
 export default function LiveScoresScreen({ route, navigation }) {
   const { leagueId, leagueName, giornata: initialGiornata } = route.params || {};
   const insets = useSafeAreaInsets();
+  const { uri: loadingMediaUri, type: loadingMediaType } = useAppLoadingMedia();
   const [liveData, setLiveData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -122,11 +125,12 @@ export default function LiveScoresScreen({ route, navigation }) {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container} edges={['top']}>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#667eea" />
-        </View>
-      </SafeAreaView>
+      <AppLoadingFullScreenModal
+        visible
+        uri={loadingMediaUri}
+        mediaType={loadingMediaType}
+        progress={1}
+      />
     );
   }
 
@@ -476,11 +480,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f5f5f5',
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   header: {
     flexDirection: 'row',
