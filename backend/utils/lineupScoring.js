@@ -63,11 +63,6 @@ function pickBonusFields(vote) {
   };
 }
 
-function pushDebugLog(debugLog, entry) {
-  if (!debugLog) return;
-  debugLog.push(entry);
-}
-
 /**
  * Punteggio titolari: sostituzione panchina (ordine, 1 sub = 1 titolare), 4.5 aiuto senza bonus/malus del titolare S.V.
  */
@@ -80,8 +75,6 @@ function scoreResolvedLineup({
   use6Politico = false,
   bonusSettings,
   computeBonusTotal,
-  debugLog = null,
-  debugContext = null,
 }) {
   const teamHasVote = buildTeamHasVoteSet(votesByPlayer, playersById);
   const safePanchina = Array.isArray(panchina) ? panchina : [];
@@ -103,12 +96,10 @@ function scoreResolvedLineup({
     let substituteId = null;
     let pendingTeamVote = false;
     let svHelpScore = 0;
-    let resolution = 'titolare_vote';
 
     if (scoringRating > 0) hasRealVotes = true;
 
     if (scoringRating <= 0 && use6Politico) {
-      resolution = 'six_politico';
       scoringRating = 6;
       scoringPlayerId = tid;
       scoringVote = { ...EMPTY_BONUS_VOTE, ...vote, rating: 6 };
@@ -118,7 +109,6 @@ function scoreResolvedLineup({
       const squadPlayed = teamId > 0 && teamHasVote.has(teamId);
 
       if (!squadPlayed) {
-        resolution = 'pending_team_vote';
         pendingTeamVote = true;
         scoringRating = 0;
         scoringVote = { ...EMPTY_BONUS_VOTE, rating: 0 };
@@ -131,7 +121,6 @@ function scoreResolvedLineup({
           usedBenchIds
         );
         if (subId) {
-          resolution = 'bench_substitute';
           substituteId = subId;
           scoringPlayerId = subId;
           usedBenchIds.add(subId);
@@ -139,33 +128,16 @@ function scoreResolvedLineup({
           scoringRating = normalizeVoteRating(scoringVote.rating || 0);
           if (scoringRating > 0) hasRealVotes = true;
         } else if (enableSvFallbackVote) {
-          resolution = 'sv_help_45';
           svHelpScore = 4.5;
           scoringRating = 0;
           scoringPlayerId = tid;
           scoringVote = { ...EMPTY_BONUS_VOTE, rating: 0 };
         } else {
-          resolution = 'sv_zero';
           scoringRating = 0;
           scoringVote = { ...EMPTY_BONUS_VOTE, rating: 0 };
         }
       }
     }
-
-    pushDebugLog(debugLog, {
-      ...debugContext,
-      titolare_id: tid,
-      titolare_name: playersById[tid]
-        ? `${playersById[tid].first_name || ''} ${playersById[tid].last_name || ''}`.trim()
-        : null,
-      role: playersById[tid]?.role || null,
-      display_rating: displayRating,
-      resolution,
-      substitute_id: substituteId,
-      scoring_player_id: scoringPlayerId,
-      sv_help: svHelpScore,
-      used_bench_ids: [...usedBenchIds],
-    });
 
     if (scoringRating <= 0 && svHelpScore <= 0) {
       formationSlots.push({
@@ -218,18 +190,6 @@ function scoreResolvedLineup({
     });
 
     formationSlots.push(slotPayload);
-
-    pushDebugLog(debugLog, {
-      ...debugContext,
-      titolare_id: tid,
-      phase: 'scored',
-      scoring_player_id: scoringPlayerId,
-      rating: slotPayload.rating,
-      sv_help: svHelpScore,
-      bonus_total: bonusWithHelp,
-      total_score: score,
-      goals_conceded: bonusFields.goals_conceded,
-    });
   }
 
   return {

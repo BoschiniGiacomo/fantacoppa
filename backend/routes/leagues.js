@@ -3028,9 +3028,6 @@ router.post('/:id/calculate/:giornata', authenticateToken, async (req, res) => {
 
     const details = [];
     const calcWarnings = [];
-    const scoringLogs = [];
-    const debugScoring =
-      process.env.MATCHDAY_CALC_DEBUG === '1' || Number(req.body?.debug_log) === 1;
     const usersWith6Politico = [];
     let canWritePlayerScores = true;
     for (const m of members) {
@@ -3083,13 +3080,6 @@ router.post('/:id/calculate/:giornata', authenticateToken, async (req, res) => {
           });
         }
 
-        const userDebugLog = debugScoring ? [] : null;
-        if (debugScoring) {
-          console.log(
-            `[CALC] league=${leagueId} g=${giornata} user=${userId} titolari=${JSON.stringify(titolari)} panchina=${JSON.stringify(panchina)} sv_help=${enableSvFallbackVote}`
-          );
-        }
-
         const scored = scoreResolvedLineup({
           titolari,
           panchina,
@@ -3099,14 +3089,7 @@ router.post('/:id/calculate/:giornata', authenticateToken, async (req, res) => {
           use6Politico,
           bonusSettings,
           computeBonusTotal,
-          debugLog: userDebugLog,
-          debugContext: { league_id: leagueId, giornata, user_id: userId },
         });
-
-        if (debugScoring && userDebugLog?.length) {
-          console.log(`[CALC] league=${leagueId} g=${giornata} user=${userId} slots:`, JSON.stringify(userDebugLog));
-          scoringLogs.push({ user_id: userId, slots: userDebugLog, used_bench: scored.used_bench_ids });
-        }
         const punteggio = scored.punteggio;
         const hasRealVotes = scored.hasRealVotes;
         const playerScores = scored.playerScores;
@@ -3199,7 +3182,6 @@ router.post('/:id/calculate/:giornata', authenticateToken, async (req, res) => {
       users_with_6_politico: usersWith6Politico,
       processed_users: details.length,
       warnings: calcWarnings,
-      scoring_logs: debugScoring ? scoringLogs : undefined,
       results: details.sort((a, b) => b.punteggio - a.punteggio),
       notifications: notificationStats,
     });

@@ -713,10 +713,7 @@ export default function SettingsScreen({ route, navigation }) {
     try {
       setCalculating(true);
       setShowRecalcModal(false);
-      const res = await leagueService.calculateMatchday(leagueId, selectedCalcMatchday, use6Politico, force, __DEV__);
-      if (__DEV__ && Array.isArray(res.data?.scoring_logs) && res.data.scoring_logs.length > 0) {
-        console.log('[CALC scoring_logs]', JSON.stringify(res.data.scoring_logs, null, 2));
-      }
+      const res = await leagueService.calculateMatchday(leagueId, selectedCalcMatchday, use6Politico, force);
       if (res.data?.already_calculated && !force) {
         setShowRecalcModal(true);
         return;

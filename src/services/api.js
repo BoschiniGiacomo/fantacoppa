@@ -436,10 +436,10 @@ export const leagueService = {
     return api.get(`/leagues/${leagueId}/bonus-settings`);
   },
   // Matchday calculation
-  calculateMatchday: async (leagueId, giornata, use6Politico = false, force = false, debugLog = false) => {
+  calculateMatchday: async (leagueId, giornata, use6Politico = false, force = false) => {
     return api.post(
       `/leagues/${leagueId}/calculate/${giornata}`,
-      { use_6_politico: use6Politico, force, debug_log: debugLog ? 1 : 0 },
+      { use_6_politico: use6Politico, force },
       { timeout: 120000 }
     );
   },
