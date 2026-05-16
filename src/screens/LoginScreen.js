@@ -14,6 +14,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
 import { getLoginLogoSettings } from '../utils/loginLogoSettings';
+import AuthScreenBackground from '../components/AuthScreenBackground';
 
 export default function LoginScreen({ navigation }) {
   const [username, setUsername] = useState('');
@@ -53,9 +54,10 @@ export default function LoginScreen({ navigation }) {
   };
 
   return (
+    <AuthScreenBackground>
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      style={styles.container}
+      style={styles.flex}
     >
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={styles.content}>
@@ -156,13 +158,13 @@ export default function LoginScreen({ navigation }) {
         </View>
       )}
     </KeyboardAvoidingView>
+    </AuthScreenBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  flex: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
   },
   scrollContent: {
     flexGrow: 1,

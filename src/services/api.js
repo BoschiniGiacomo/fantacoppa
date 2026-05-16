@@ -698,6 +698,17 @@ export const superuserService = {
     });
   },
   deleteLoginLogo: () => api.delete('/superuser/login-logo'),
+  uploadLoginBackground: async (formData) => {
+    const headers = await buildAuthVersionHeaders();
+    return axios.post(`${API_BASE_URL}/superuser/login-background`, formData, {
+      headers: {
+        ...headers,
+        'Content-Type': 'multipart/form-data',
+      },
+      timeout: 60000,
+    });
+  },
+  deleteLoginBackground: () => api.delete('/superuser/login-background'),
 };
 
 // Player statistics service

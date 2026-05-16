@@ -31,6 +31,11 @@ import {
   saveLoginLogoFromPicker,
   clearLoginLogo,
 } from '../utils/loginLogoSettings';
+import {
+  getLoginBackgroundSettings,
+  saveLoginBackgroundFromPicker,
+  clearLoginBackground,
+} from '../utils/loginBackgroundSettings';
 
 export default function SuperUserScreen() {
   const { user } = useAuth();
@@ -102,6 +107,9 @@ export default function SuperUserScreen() {
   const [logoSectionOpen, setLogoSectionOpen] = useState(false);
   const [loginLogoPreview, setLoginLogoPreview] = useState(null);
   const [pickingLoginLogo, setPickingLoginLogo] = useState(false);
+  const [loginBackgroundSectionOpen, setLoginBackgroundSectionOpen] = useState(false);
+  const [loginBackgroundPreview, setLoginBackgroundPreview] = useState(null);
+  const [pickingLoginBackground, setPickingLoginBackground] = useState(false);
   
   const isSuperuser = !!(user?.is_superuser === true || user?.is_superuser === 1 || user?.is_superuser === '1');
   const activeAppLoadingPreview = appLoadingPickStaging || appLoadingPreview;
@@ -610,6 +618,7 @@ export default function SuperUserScreen() {
     if (!isSuperuser || activeTab !== 'appSettings') return;
     getAppLoadingMediaSettings().then(setAppLoadingPreview);
     getLoginLogoSettings().then(setLoginLogoPreview);
+    getLoginBackgroundSettings().then(setLoginBackgroundPreview);
   }, [activeTab, isSuperuser]);
 
   useEffect(() => {
@@ -711,6 +720,41 @@ export default function SuperUserScreen() {
       showToast(e?.message || 'Impossibile rimuovere il logo');
     } finally {
       setPickingLoginLogo(false);
+    }
+  };
+
+  const handlePickLoginBackground = async () => {
+    if (!isSuperuser) return;
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['image/png', 'image/jpeg', 'image/gif', 'image/webp'],
+        copyToCacheDirectory: true,
+      });
+      if (result.canceled || !result.assets || result.assets.length === 0) return;
+      const asset = result.assets[0];
+      setPickingLoginBackground(true);
+      const saved = await saveLoginBackgroundFromPicker(asset);
+      setLoginBackgroundPreview(saved);
+      showToast('Sfondo login aggiornato', 'success');
+    } catch (e) {
+      console.error('Login background pick:', e);
+      showToast(e?.message || 'Impossibile importare il file');
+    } finally {
+      setPickingLoginBackground(false);
+    }
+  };
+
+  const handleClearLoginBackground = async () => {
+    if (!isSuperuser) return;
+    try {
+      setPickingLoginBackground(true);
+      await clearLoginBackground();
+      setLoginBackgroundPreview(null);
+      showToast('Sfondo login rimosso, verrà usato lo sfondo predefinito', 'success');
+    } catch (e) {
+      showToast(e?.message || 'Impossibile rimuovere lo sfondo');
+    } finally {
+      setPickingLoginBackground(false);
     }
   };
   
@@ -1775,6 +1819,67 @@ export default function SuperUserScreen() {
                   ) : (
                     <Text style={[styles.appSettingsMuted, { marginTop: 14 }]}>
                       Nessun logo caricato: verrà visualizzata la scritta predefinita.
+                    </Text>
+                  )}
+                </>
+              )}
+            </View>
+
+            <View style={[styles.appSettingsCard, { marginTop: 16 }]}>
+              <TouchableOpacity
+                style={styles.collapsibleHeader}
+                onPress={() => setLoginBackgroundSectionOpen((v) => !v)}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.appSettingsSectionTitle}>Sfondo pagina di login</Text>
+                <Ionicons
+                  name={loginBackgroundSectionOpen ? 'chevron-up' : 'chevron-down'}
+                  size={22}
+                  color="#666"
+                />
+              </TouchableOpacity>
+
+              {loginBackgroundSectionOpen && (
+                <>
+                  <Text style={[styles.appSettingsMuted, { marginBottom: 12 }]}>
+                    Immagine a tutto schermo dietro logo e form. Senza file resta lo sfondo grigio predefinito.
+                  </Text>
+
+                  <TouchableOpacity
+                    style={[styles.appSettingsPrimaryBtn, pickingLoginBackground && styles.appSettingsBtnDisabled]}
+                    onPress={handlePickLoginBackground}
+                    disabled={pickingLoginBackground}
+                  >
+                    {pickingLoginBackground ? (
+                      <ActivityIndicator color="#fff" />
+                    ) : (
+                      <Text style={styles.appSettingsPrimaryBtnText}>Scegli immagine</Text>
+                    )}
+                  </TouchableOpacity>
+
+                  {loginBackgroundPreview?.uri ? (
+                    <>
+                      <Text style={styles.appSettingsPreviewTitle}>Anteprima</Text>
+                      <View style={styles.appLoadingPreviewStage}>
+                        <Image
+                          source={{ uri: loginBackgroundPreview.uri }}
+                          style={StyleSheet.absoluteFillObject}
+                          resizeMode="cover"
+                        />
+                      </View>
+                      <TouchableOpacity
+                        style={styles.appSettingsSecondaryBtn}
+                        onPress={handleClearLoginBackground}
+                        disabled={pickingLoginBackground}
+                      >
+                        <Text style={styles.appSettingsSecondaryBtnText}>
+                          Rimuovi sfondo (torna al grigio predefinito)
+                        </Text>
+                      </TouchableOpacity>
+                    </>
+                  ) : (
+                    <Text style={[styles.appSettingsMuted, { marginTop: 14 }]}>
+                      Nessuno sfondo caricato: verrà usato lo sfondo grigio predefinito.
                     </Text>
                   )}
                 </>

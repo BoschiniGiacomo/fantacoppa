@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { authService } from '../services/api';
+import AuthScreenBackground from '../components/AuthScreenBackground';
 
 export default function ForgotPasswordScreen({ navigation }) {
   const [email, setEmail] = useState('');
@@ -95,9 +96,10 @@ export default function ForgotPasswordScreen({ navigation }) {
   };
 
   return (
+    <AuthScreenBackground>
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      style={styles.container}
+      style={styles.flex}
     >
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={styles.content}>
@@ -162,13 +164,13 @@ export default function ForgotPasswordScreen({ navigation }) {
         </View>
       )}
     </KeyboardAvoidingView>
+    </AuthScreenBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  flex: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
   },
   scrollContent: {
     flexGrow: 1,

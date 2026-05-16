@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { useAuth } from '../context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
+import AuthScreenBackground from '../components/AuthScreenBackground';
 
 export default function RegisterScreen({ navigation }) {
   const [username, setUsername] = useState('');
@@ -46,9 +47,10 @@ export default function RegisterScreen({ navigation }) {
   };
 
   return (
+    <AuthScreenBackground>
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      style={styles.container}
+      style={styles.flex}
     >
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={styles.content}>
@@ -124,13 +126,13 @@ export default function RegisterScreen({ navigation }) {
         </View>
       )}
     </KeyboardAvoidingView>
+    </AuthScreenBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  flex: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
   },
   scrollContent: {
     flexGrow: 1,

@@ -10,10 +10,14 @@ async function ensureAppSettingsTable() {
       loading_media_path TEXT,
       loading_media_type TEXT,
       login_logo_path TEXT,
+      login_background_path TEXT,
       updated_at TIMESTAMPTZ DEFAULT NOW()
     )
   `);
   await query(`INSERT INTO app_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING`);
+  await query(
+    `ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS login_background_path TEXT`
+  );
   tableReady = true;
 }
 

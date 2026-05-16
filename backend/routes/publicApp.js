@@ -44,4 +44,22 @@ router.get('/login-logo', async (_req, res) => {
   }
 });
 
+/**
+ * GET /api/public/login-background
+ * Pubblico (nessun token): sfondo pagina di login.
+ */
+router.get('/login-background', async (_req, res) => {
+  try {
+    await ensureAppSettingsTable();
+    const rows = await query(
+      `SELECT login_background_path AS path FROM app_settings WHERE id = 1 LIMIT 1`
+    );
+    const row = rows[0] || {};
+    const pathVal = row.path ? String(row.path).trim() : null;
+    return res.json({ path: pathVal || null });
+  } catch (error) {
+    return res.status(500).json({ message: 'Errore lettura impostazioni', error: error.message });
+  }
+});
+
 module.exports = router;
