@@ -2,8 +2,8 @@ const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const nodemailer = require('nodemailer');
 const { query } = require('../config/database');
+const { sendTransactionalEmail, buildForgotPasswordHtml } = require('../utils/emailDelivery');
 require('dotenv').config();
 const { authenticateToken } = require('../middleware/auth');
 
@@ -13,111 +13,13 @@ async function syncUsersIdSequence() {
   );
 }
 
-function createMailerTransport() {
-  const host = String(process.env.SMTP_HOST || 'smtp.gmail.com').trim();
-  const port = Number(process.env.SMTP_PORT || 587);
-  const user = String(process.env.SMTP_USERNAME || '').trim();
-  const pass = String(process.env.SMTP_PASSWORD || '').trim();
-  const maskedUser = user ? `${user.slice(0, 3)}***${user.slice(-8)}` : '(vuoto)';
-  const passLen = pass ? pass.length : 0;
-  console.log(`[DEBUG_FORGOT_SMTP] create transport host=${host} port=${port} user=${maskedUser} pass_len=${passLen}`);
-
-  if (!host || !user || !pass || !Number.isFinite(port) || port <= 0) {
-    console.error('[DEBUG_FORGOT_SMTP] config SMTP non valida o incompleta');
-    return null;
-  }
-
-  return nodemailer.createTransport({
-    host,
-    port,
-    secure: port === 465,
-    auth: { user, pass },
-    connectionTimeout: 15000,
-    greetingTimeout: 15000,
-    socketTimeout: 15000,
-    tls: {
-      rejectUnauthorized: false,
-    },
-  });
-}
-
 async function sendForgotPasswordEmail(toEmail, newPassword) {
-  console.log(`[DEBUG_FORGOT_SMTP] avvio invio email verso=${toEmail}`);
-  const transport = createMailerTransport();
-  if (!transport) {
-    console.error('[DEBUG_FORGOT_SMTP] transport null: invio annullato');
-    return false;
-  }
-
-  const fromName = String(process.env.SMTP_FROM_NAME || 'FantaCoppa').trim() || 'FantaCoppa';
-  const fromAddress = String(process.env.SMTP_FROM_ADDRESS || process.env.SMTP_USERNAME || '').trim();
-  if (!fromAddress) {
-    console.error('[DEBUG_FORGOT_SMTP] fromAddress vuoto: invio annullato');
-    return false;
-  }
-  console.log(`[DEBUG_FORGOT_SMTP] from="${fromName}" <${fromAddress}>`);
-
-  const htmlBody = `
-    <h2>Recupero Password - FantaCoppa</h2>
-    <p>Ciao,</p>
-    <p>Abbiamo ricevuto una richiesta di recupero password per il tuo account.</p>
-    <p>La tua nuova password temporanea e: <strong>${newPassword}</strong></p>
-    <p>Per sicurezza, ti consigliamo di cambiarla subito dopo l'accesso.</p>
-    <br>
-    <p>Saluti,<br>Team FantaCoppa</p>
-  `;
-
-  try {
-    await transport.sendMail({
-      from: `"${fromName}" <${fromAddress}>`,
-      to: toEmail,
-      subject: 'Recupero Password - FantaCoppa',
-      html: htmlBody,
-    });
-    console.log('[DEBUG_FORGOT_SMTP] invio principale completato');
-    return true;
-  } catch (firstError) {
-    console.error('[DEBUG_FORGOT_SMTP] invio principale FALLITO:', {
-      message: firstError?.message,
-      code: firstError?.code,
-      response: firstError?.response,
-      command: firstError?.command,
-    });
-    // Fallback SMTPS (porta 465), come nel flusso legacy
-    try {
-      const host = String(process.env.SMTP_HOST || 'smtp.gmail.com').trim();
-      const user = String(process.env.SMTP_USERNAME || '').trim();
-      const pass = String(process.env.SMTP_PASSWORD || '').trim();
-      if (!host || !user || !pass) return false;
-      console.log('[DEBUG_FORGOT_SMTP] tentativo fallback SMTPS:465...');
-      const fallbackTransport = nodemailer.createTransport({
-        host,
-        port: 465,
-        secure: true,
-        auth: { user, pass },
-        connectionTimeout: 15000,
-        greetingTimeout: 15000,
-        socketTimeout: 15000,
-        tls: { rejectUnauthorized: false },
-      });
-      await fallbackTransport.sendMail({
-        from: `"${fromName}" <${fromAddress}>`,
-        to: toEmail,
-        subject: 'Recupero Password - FantaCoppa',
-        html: htmlBody,
-      });
-      console.log('[DEBUG_FORGOT_SMTP] invio fallback completato');
-      return true;
-    } catch (fallbackError) {
-      console.error('[DEBUG_FORGOT_SMTP] fallback FALLITO:', {
-        message: fallbackError?.message,
-        code: fallbackError?.code,
-        response: fallbackError?.response,
-        command: fallbackError?.command,
-      });
-      return false;
-    }
-  }
+  console.log(`[DEBUG_FORGOT] invio email verso=${toEmail}`);
+  return sendTransactionalEmail({
+    to: toEmail,
+    subject: 'Recupero Password - FantaCoppa',
+    html: buildForgotPasswordHtml(newPassword),
+  });
 }
 
 // Registrazione
