@@ -16,7 +16,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
 import { useAuthBranding } from '../context/AuthBrandingContext';
 import AuthScreenBackground from '../components/AuthScreenBackground';
-import { APP_ICON } from '../constants/appBrandAssets';
 
 export default function LoginScreen({ navigation }) {
   const insets = useSafeAreaInsets();
@@ -78,7 +77,16 @@ export default function LoginScreen({ navigation }) {
                 resizeMode="contain"
               />
             ) : (
-              <Image source={APP_ICON} style={styles.loginLogoImage} resizeMode="contain" />
+              <View style={styles.logoWrap}>
+                <Ionicons name="football" size={36} color="#2c3e50" />
+                <Text style={styles.logoBig}>FANTA</Text>
+                <View style={styles.coppaRow}>
+                  <Text style={styles.logoBig}>CO</Text>
+                  <Text style={[styles.logoBig, { transform: [{ scaleX: -1 }] }]}>P</Text>
+                  <Text style={styles.logoBig}>PA</Text>
+                </View>
+                <Text style={styles.logoMonte}>MONTECAVOLO</Text>
+              </View>
             )}
           </View>
 
@@ -176,9 +184,33 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 28,
   },
+  logoWrap: {
+    alignItems: 'center',
+    marginBottom: 14,
+  },
+  logoBig: {
+    fontSize: 36,
+    fontWeight: '900',
+    color: '#2c3e50',
+    letterSpacing: 3,
+    lineHeight: 42,
+    includeFontPadding: false,
+  },
+  coppaRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    marginTop: -6,
+  },
+  logoMonte: {
+    fontSize: 10,
+    fontWeight: '400',
+    color: '#aaa',
+    letterSpacing: 5,
+    marginTop: 4,
+  },
   loginLogoImage: {
-    width: 300,
-    height: 300,
+    width: 320,
+    height: 220,
     alignSelf: 'center',
     marginBottom: 14,
     backgroundColor: 'transparent',
