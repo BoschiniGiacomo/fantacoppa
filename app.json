@@ -2,7 +2,7 @@
   "expo": {
     "name": "FantaCoppa",
     "slug": "fantacoppa",
-    "version": "1.0.9",
+    "version": "1.0.10",
     "orientation": "portrait",
     "icon": "./assets/app-icon.png",
     "userInterfaceStyle": "light",
@@ -17,14 +17,14 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.fantacoppa.app",
-      "buildNumber": "11",
+      "buildNumber": "12",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
       "package": "com.fantacoppa.app",
-      "versionCode": 11,
+      "versionCode": 12,
       "googleServicesFile": "./android/app/google-services.json",
       "permissions": [],
       "adaptiveIcon": {
@@ -33,14 +33,14 @@
       }
     },
     "extra": {
-      "appVersionCode": 11,
+      "appVersionCode": 12,
       "supabaseUrl": "https://zaqvtlsmefrgbduhzmwk.supabase.co",
       "eas": {
         "projectId": "f1e19392-b5b0-4646-8672-5f8e39654f4a"
       }
     },
     "owner": "boscojack02",
-    "runtimeVersion": "1.0.9",
+    "runtimeVersion": "1.0.10",
     "updates": {
       "url": "https://u.expo.dev/f1e19392-b5b0-4646-8672-5f8e39654f4a",
       "enabled": true,
