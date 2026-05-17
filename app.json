@@ -48,6 +48,14 @@
       "fallbackToCacheTimeout": 0
     },
     "plugins": [
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/app-icon.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#ffffff"
+        }
+      ],
       "@react-native-community/datetimepicker",
       "expo-font",
       [

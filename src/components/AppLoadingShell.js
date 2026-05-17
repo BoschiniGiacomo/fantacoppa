@@ -8,6 +8,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import LoopingVideoView from './LoopingVideoView';
 import { mapRawProgressToBarFill01 } from '../utils/loadingBarProgress';
+import { APP_ICON } from '../constants/appBrandAssets';
 
 /**
  * @param {number} [progress] — progresso reale caricamento 0…1 (non mappato).
@@ -39,8 +40,14 @@ export default function AppLoadingShell({ uri, mediaType, progress = 0 }) {
         <LoopingVideoView uri={uri} style={styles.mediaFull} contentFit="cover" />
       ) : null}
       {!hasMedia ? (
-        <View style={styles.spinnerWrap}>
-          <ActivityIndicator size="large" color="#a8b4ff" />
+        <View style={styles.fallbackWrap}>
+          <Image
+            source={APP_ICON}
+            style={styles.fallbackLogo}
+            resizeMode="contain"
+            accessibilityIgnoresInvertColors
+          />
+          <ActivityIndicator size="large" color="#a8b4ff" style={styles.fallbackSpinner} />
         </View>
       ) : null}
 
@@ -65,10 +72,21 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
-  spinnerWrap: {
+  fallbackWrap: {
     ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: '#fff',
+    paddingHorizontal: 32,
+  },
+  fallbackLogo: {
+    width: '72%',
+    maxWidth: 320,
+    aspectRatio: 1,
+    marginBottom: 28,
+  },
+  fallbackSpinner: {
+    marginTop: 4,
   },
   barArea: {
     position: 'absolute',

@@ -3,7 +3,8 @@ import api, { publicAssetUrl, superuserService } from '../services/api';
 
 const LEGACY_STORAGE_URI_KEY = 'app_loading_media_uri';
 const LEGACY_STORAGE_TYPE_KEY = 'app_loading_media_render';
-const CACHE_KEY = 'app_loading_media_cache';
+/** Bump quando cambia il logo bundled (invalida cache AsyncStorage su Expo Go). */
+const CACHE_KEY = 'app_loading_media_cache_v2';
 
 let subscribers = [];
 

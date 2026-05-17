@@ -3,7 +3,7 @@ import { Image } from 'react-native';
 import { getLoginLogoSettings } from './loginLogoSettings';
 import { getLoginBackgroundSettings } from './loginBackgroundSettings';
 
-const CACHE_KEY = 'auth_branding_cache_v1';
+const CACHE_KEY = 'auth_branding_cache_v2';
 
 export async function prefetchAuthImage(uri) {
   if (!uri) return;

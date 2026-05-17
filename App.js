@@ -1,5 +1,8 @@
 import 'react-native-gesture-handler';
 import React, { useState, useEffect } from 'react';
+import * as SplashScreen from 'expo-splash-screen';
+
+SplashScreen.preventAutoHideAsync().catch(() => {});
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -176,6 +179,12 @@ function AppNavigator() {
 
   const waitingForAuthBranding = !user && !authBrandingReady;
   const showBootstrapLoader = (loading && !bootstrapTimedOut) || waitingForAuthBranding;
+
+  useEffect(() => {
+    if (!showBootstrapLoader) {
+      SplashScreen.hideAsync().catch(() => {});
+    }
+  }, [showBootstrapLoader]);
 
   if (showBootstrapLoader) {
     return (
