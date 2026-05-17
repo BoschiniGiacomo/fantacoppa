@@ -1,14 +1,15 @@
 /**
- * In sviluppo (expo start / Expo Go) non scaricare OTA production:
- * altrimenti splash e asset restano quelli del vecchio update.
- * Su EAS Build / EAS Update (EAS_BUILD=true) gli OTA restano attivi.
+ * OTA: ON_LOAD in produzione (manifest Android = ALWAYS).
+ * Solo con EXPO_NO_OTA=1 nel .env locale (expo start / Expo Go) → NEVER.
  */
 const appJson = require('./app.json');
 
 module.exports = () => {
   const expo = appJson.expo;
-  const isEasPipeline = process.env.EAS_BUILD === 'true';
-  const otaCheck = isEasPipeline ? (expo.updates?.checkAutomatically || 'ON_LOAD') : 'NEVER';
+  const disableOtaInDev = process.env.EXPO_NO_OTA === '1';
+  const otaCheck = disableOtaInDev
+    ? 'NEVER'
+    : (expo.updates?.checkAutomatically || 'ON_LOAD');
 
   return {
     expo: {
