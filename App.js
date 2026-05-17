@@ -69,6 +69,7 @@ function readLeagueBootstrapFromCache(leagueId) {
   return row && typeof row === 'object' ? row : null;
 }
 import AppLoadingFullScreenModal from './src/components/AppLoadingFullScreenModal';
+import { logAppIconDiagnostics } from './src/utils/appIconDiagnostics';
 
 const Stack = createStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -337,6 +338,10 @@ function AppNavigator() {
 }
 
 export default function App() {
+  useEffect(() => {
+    logAppIconDiagnostics();
+  }, []);
+
   return (
     <SafeAreaProvider>
       <AppLoadingMediaProvider>

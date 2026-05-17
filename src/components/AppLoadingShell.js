@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import {
   View,
   StyleSheet,
@@ -8,13 +8,21 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import LoopingVideoView from './LoopingVideoView';
 import { mapRawProgressToBarFill01 } from '../utils/loadingBarProgress';
-import { APP_ICON } from '../constants/appBrandAssets';
+import { APP_ICON, APP_ICON_REVISION } from '../constants/appBrandAssets';
 
 /**
  * @param {number} [progress] — progresso reale caricamento 0…1 (non mappato).
  */
 export default function AppLoadingShell({ uri, mediaType, progress = 0 }) {
   const insets = useSafeAreaInsets();
+
+  useEffect(() => {
+    if (uri) {
+      console.log(`[APP_ICON] schermata caricamento in-app: media dal SERVER (non app-icon.png): ${uri.slice(0, 80)}…`);
+    } else {
+      console.log(`[APP_ICON] schermata caricamento in-app: logo bundled revision=${APP_ICON_REVISION}`);
+    }
+  }, [uri]);
   const isVideo = mediaType === 'video' && !!uri;
   const hasMedia = !!uri;
 
