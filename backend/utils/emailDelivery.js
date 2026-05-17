@@ -1,12 +1,52 @@
 const nodemailer = require('nodemailer');
 
-function buildFromHeader() {
-  const fromName = String(process.env.SMTP_FROM_NAME || 'FantaCoppa').trim() || 'FantaCoppa';
-  const fromAddress = String(
+const EMAIL_RE = /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/i;
+
+function isValidEmail(value) {
+  return EMAIL_RE.test(String(value || '').trim());
+}
+
+/** Legge RESEND_FROM / SMTP_FROM_ADDRESS (solo email o "Nome <email>"). */
+function parseFromEnv() {
+  const raw = String(
     process.env.RESEND_FROM || process.env.SMTP_FROM_ADDRESS || process.env.SMTP_USERNAME || ''
   ).trim();
-  if (!fromAddress) return null;
-  return `"${fromName}" <${fromAddress}>`;
+  if (!raw) return null;
+
+  const angleMatch = raw.match(/^(.+?)\s*<([^>]+)>\s*$/);
+  if (angleMatch) {
+    const name = angleMatch[1].replace(/^["']|["']$/g, '').trim();
+    const email = angleMatch[2].trim();
+    if (isValidEmail(email)) {
+      return { name: name || 'FantaCoppa', email };
+    }
+    return null;
+  }
+
+  if (isValidEmail(raw)) {
+    const name = String(process.env.SMTP_FROM_NAME || 'FantaCoppa').trim() || 'FantaCoppa';
+    return { name, email: raw };
+  }
+
+  return null;
+}
+
+/** Resend: `Nome <email@dominio.it>` senza virgolette extra sul nome. */
+function buildResendFrom() {
+  const parsed = parseFromEnv();
+  if (!parsed) return null;
+  const { name, email } = parsed;
+  if (name && name.toLowerCase() !== email.toLowerCase()) {
+    return `${name} <${email}>`;
+  }
+  return email;
+}
+
+/** Nodemailer: formato RFC con nome tra virgolette. */
+function buildSmtpFrom() {
+  const parsed = parseFromEnv();
+  if (!parsed) return null;
+  return `"${parsed.name}" <${parsed.email}>`;
 }
 
 function createSmtpTransport(portOverride) {
@@ -33,9 +73,11 @@ async function sendViaResend({ to, subject, html }) {
   const apiKey = String(process.env.RESEND_API_KEY || '').trim();
   if (!apiKey) return { ok: false, skipped: true };
 
-  const from = buildFromHeader();
+  const from = buildResendFrom();
   if (!from) {
-    console.error('[EMAIL] RESEND: mittente non configurato (RESEND_FROM o SMTP_FROM_ADDRESS)');
+    console.error(
+      '[EMAIL] RESEND: mittente non valido. Usa RESEND_FROM=email@dominio-verificato.it oppure RESEND_FROM=FantaCoppa <email@dominio.it>'
+    );
     return { ok: false, error: 'missing_from' };
   }
 
@@ -69,7 +111,7 @@ async function sendViaResend({ to, subject, html }) {
 }
 
 async function sendViaSmtp({ to, subject, html }) {
-  const from = buildFromHeader();
+  const from = buildSmtpFrom();
   if (!from) {
     console.error('[EMAIL] SMTP: mittente non configurato');
     return { ok: false, error: 'missing_from' };
