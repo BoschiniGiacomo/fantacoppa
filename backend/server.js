@@ -124,6 +124,8 @@ app.use((err, req, res, next) => {
   });
 });
 
+const { runSmtpDiagnostics } = require('./utils/emailDelivery');
+
 // Avvia server
 app.listen(PORT, () => {
   console.log('========================================');
@@ -134,5 +136,9 @@ app.listen(PORT, () => {
   console.log(`✅ Health check: http://localhost:${PORT}/api/health`);
   console.log(`🔍 Test DB: http://localhost:${PORT}/api/test-db`);
   console.log('========================================');
+
+  runSmtpDiagnostics('server_startup').catch((err) => {
+    console.error('[DEBUG_FORGOT_SMTP] diagnostica avvio fallita:', err?.message || err);
+  });
 });
 
