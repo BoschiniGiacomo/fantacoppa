@@ -32,9 +32,9 @@ function createMailerTransport() {
     port,
     secure: port === 465,
     auth: { user, pass },
-    connectionTimeout: 30000,
-    greetingTimeout: 30000,
-    socketTimeout: 30000,
+    connectionTimeout: 15000,
+    greetingTimeout: 15000,
+    socketTimeout: 15000,
     tls: {
       rejectUnauthorized: false,
     },
@@ -68,9 +68,6 @@ async function sendForgotPasswordEmail(toEmail, newPassword) {
   `;
 
   try {
-    console.log('[DEBUG_FORGOT_SMTP] verify transport principale...');
-    await transport.verify();
-    console.log('[DEBUG_FORGOT_SMTP] verify OK, invio mail principale...');
     await transport.sendMail({
       from: `"${fromName}" <${fromAddress}>`,
       to: toEmail,
@@ -98,14 +95,11 @@ async function sendForgotPasswordEmail(toEmail, newPassword) {
         port: 465,
         secure: true,
         auth: { user, pass },
-        connectionTimeout: 30000,
-        greetingTimeout: 30000,
-        socketTimeout: 30000,
+        connectionTimeout: 15000,
+        greetingTimeout: 15000,
+        socketTimeout: 15000,
         tls: { rejectUnauthorized: false },
       });
-      console.log('[DEBUG_FORGOT_SMTP] verify fallback...');
-      await fallbackTransport.verify();
-      console.log('[DEBUG_FORGOT_SMTP] verify fallback OK, invio fallback...');
       await fallbackTransport.sendMail({
         from: `"${fromName}" <${fromAddress}>`,
         to: toEmail,
@@ -284,7 +278,29 @@ router.post('/presence/ping', authenticateToken, async (_req, res) => {
   return res.json({ ok: true, server_time: new Date().toISOString() });
 });
 
-// Password dimenticata (risposta sempre generica)
+const FORGOT_PASSWORD_GENERIC_MESSAGE =
+  'Se l\'email è registrata nel nostro sistema, riceverai una nuova password via email.';
+
+async function processForgotPasswordAsync(email) {
+  const users = await query('SELECT id FROM users WHERE LOWER(email) = LOWER(?) LIMIT 1', [email]);
+  console.log(`[DEBUG_FORGOT] utenti trovati=${users.length}`);
+  if (!users.length) return;
+
+  const userId = Number(users[0].id);
+  const newPassword = `fc${Math.random().toString(36).slice(2, 10)}${Date.now().toString().slice(-2)}`;
+  console.log(`[DEBUG_FORGOT] password temporanea generata len=${newPassword.length}, user_id=${userId}`);
+
+  const mailSent = await sendForgotPasswordEmail(email, newPassword);
+  if (mailSent) {
+    const hashed = await bcrypt.hash(newPassword, 10);
+    await query('UPDATE users SET password = ? WHERE id = ?', [hashed, userId]);
+    console.log('[DEBUG_FORGOT] email inviata e password aggiornata su DB');
+  } else {
+    console.error('[DEBUG_FORGOT] email non inviata: password NON aggiornata (operazione annullata)');
+  }
+}
+
+// Password dimenticata (risposta immediata; email in background — evita timeout app su Render/SMTP)
 router.post('/forgot-password', async (req, res) => {
   try {
     const email = String(req.body?.email || '').trim().toLowerCase();
@@ -292,26 +308,14 @@ router.post('/forgot-password', async (req, res) => {
     if (!email) {
       return res.status(400).json({ message: 'Inserisci la tua email' });
     }
-    const genericMessage = 'Se l\'email è registrata nel nostro sistema, riceverai una nuova password via email.';
 
-    const users = await query('SELECT id FROM users WHERE LOWER(email) = LOWER(?) LIMIT 1', [email]);
-    console.log(`[DEBUG_FORGOT] utenti trovati=${users.length}`);
-    if (users.length) {
-      const userId = Number(users[0].id);
-      const newPassword = `fc${Math.random().toString(36).slice(2, 10)}${Date.now().toString().slice(-2)}`;
-      console.log(`[DEBUG_FORGOT] password temporanea generata len=${newPassword.length}, user_id=${userId}`);
+    res.json({ message: FORGOT_PASSWORD_GENERIC_MESSAGE });
 
-      const mailSent = await sendForgotPasswordEmail(email, newPassword);
-      if (mailSent) {
-        const hashed = await bcrypt.hash(newPassword, 10);
-        await query('UPDATE users SET password = ? WHERE id = ?', [hashed, userId]);
-        console.log('[DEBUG_FORGOT] email inviata e password aggiornata su DB');
-      } else {
-        console.error('[DEBUG_FORGOT] email non inviata: password NON aggiornata (operazione annullata)');
-      }
-    }
-
-    return res.json({ message: genericMessage });
+    setImmediate(() => {
+      processForgotPasswordAsync(email).catch((error) => {
+        console.error('[DEBUG_FORGOT] errore elaborazione async:', error);
+      });
+    });
   } catch (error) {
     console.error('Forgot password error:', error);
     return res.status(500).json({ message: 'Errore durante il recupero password' });

@@ -127,9 +127,12 @@ api.interceptors.response.use(
     const status = error?.response?.status;
 
     if (error.code === 'ECONNABORTED') {
-      error.message = 'Timeout API: verifica che backend e rete locale siano raggiungibili.';
+      const path = String(originalConfig?.url || '');
+      error.message = path.includes('forgot-password')
+        ? 'Il server impiega troppo tempo: riprova tra qualche secondo.'
+        : 'Timeout API: verifica che backend e rete siano raggiungibili.';
     } else if (error.message === 'Network Error') {
-      error.message = 'Backend non raggiungibile: controlla IP locale, backend acceso e firewall.';
+      error.message = 'Impossibile contattare il server. Controlla la connessione e riprova.';
     }
 
     const isUpdateRequired = error.response?.status === 426
@@ -187,8 +190,8 @@ export const authService = {
       delete api.defaults.headers.common['Authorization'];
     }
   },
-   forgotPassword: (email) =>
-    api.post(apiFileUrl('auth/forgot-password'), { email }, { baseURL: '' }),
+  forgotPassword: (email) =>
+    api.post('/auth/forgot-password', { email }, { timeout: 30000 }),
   
   changePassword: (currentPassword, newPassword, confirmPassword) => {
     return api.post('/auth/change-password', {
