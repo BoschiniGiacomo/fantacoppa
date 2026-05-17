@@ -2,7 +2,8 @@ const dns = require('dns').promises;
 const net = require('net');
 const nodemailer = require('nodemailer');
 
-const LOG = '[DEBUG_FORGOT_SMTP]';
+const LOG_SMTP = '[DEBUG_FORGOT_SMTP]';
+const LOG_BREVO = '[DEBUG_FORGOT_BREVO]';
 
 const EMAIL_RE = /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/i;
 
@@ -26,7 +27,7 @@ function maskUser(user) {
 }
 
 function logSmtpError(phase, error) {
-  console.error(`${LOG} ${phase} FALLITO:`, {
+  console.error(`${LOG_SMTP} ${phase} FALLITO:`, {
     message: error?.message,
     code: error?.code,
     errno: error?.errno,
@@ -48,20 +49,20 @@ function explainSmtpFailure(error) {
 
   if (code === 'ENETUNREACH' || (code === 'ESOCKET' && isIpv6)) {
     console.error(
-      `${LOG} DIAG: connessione IPv6 verso Gmail non raggiungibile da Render. ` +
+      `${LOG_SMTP} DIAG: connessione IPv6 verso Gmail non raggiungibile da Render. ` +
         'Il transport forza IPv4; se persiste, controlla SMTP_HOST e riavvia dopo deploy.'
     );
   }
   if (code === 'ETIMEDOUT' || code === 'ECONNREFUSED' || code === 'EHOSTUNREACH') {
     console.error(
-      `${LOG} DIAG: Render piano FREE blocca le porte SMTP 25/465/587 dal 26/09/2025. ` +
+      `${LOG_SMTP} DIAG: Render piano FREE blocca le porte SMTP 25/465/587 dal 26/09/2025. ` +
         'Se il servizio è free, passa a un piano a pagamento su Render oppure usa invio via API HTTPS (non SMTP). ' +
         'Vedi https://render.com/changelog/free-web-services-will-no-longer-allow-outbound-traffic-to-smtp-ports'
     );
   }
   if (code === 'EAUTH' || (error?.responseCode === 535)) {
     console.error(
-      `${LOG} DIAG: credenziali Gmail rifiutate. Usa una App Password (2FA attiva), non la password normale. ` +
+      `${LOG_SMTP} DIAG: credenziali Gmail rifiutate. Usa una App Password (2FA attiva), non la password normale. ` +
         'SMTP_USERNAME = indirizzo Gmail completo, SMTP_PASSWORD = password app 16 caratteri.'
     );
   }
@@ -75,15 +76,104 @@ function getSmtpConfig(portOverride) {
   return { host, port, user, pass };
 }
 
-function parseSmtpFrom() {
-  const fromName = String(process.env.SMTP_FROM_NAME || 'FantaCoppa').trim() || 'FantaCoppa';
+function parseSenderFromEnv() {
+  const fromName =
+    String(process.env.BREVO_SENDER_NAME || process.env.SMTP_FROM_NAME || 'FantaCoppa').trim() ||
+    'FantaCoppa';
   const fromAddress = String(
-    process.env.SMTP_FROM_ADDRESS || process.env.SMTP_USERNAME || ''
+    process.env.BREVO_SENDER_EMAIL ||
+      process.env.SMTP_FROM_ADDRESS ||
+      process.env.SMTP_USERNAME ||
+      ''
   ).trim();
   if (!isValidEmail(fromAddress)) {
     return null;
   }
-  return { fromName, fromAddress, from: `"${fromName}" <${fromAddress}>` };
+  return {
+    fromName,
+    fromAddress,
+    from: `"${fromName}" <${fromAddress}>`,
+  };
+}
+
+function parseSmtpFrom() {
+  return parseSenderFromEnv();
+}
+
+function getBrevoApiKey() {
+  return String(process.env.BREVO_API_KEY || '').trim();
+}
+
+async function sendViaBrevo({ to, subject, html }) {
+  const apiKey = getBrevoApiKey();
+  if (!apiKey) {
+    console.log(`${LOG_BREVO} BREVO_API_KEY assente, skip`);
+    return { ok: false, skipped: true };
+  }
+
+  const sender = parseSenderFromEnv();
+  if (!sender) {
+    console.error(
+      `${LOG_BREVO} mittente non valido: imposta BREVO_SENDER_EMAIL=fantacoppadeicantoni@gmail.com (deve essere verificato su Brevo)`
+    );
+    return { ok: false, error: 'missing_sender' };
+  }
+
+  console.log(
+    `${LOG_BREVO} invio via API HTTPS to=${maskEmail(to)} sender=${maskEmail(sender.fromAddress)}`
+  );
+
+  try {
+    const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: {
+        'api-key': apiKey,
+        'Content-Type': 'application/json',
+        accept: 'application/json',
+      },
+      body: JSON.stringify({
+        sender: { name: sender.fromName, email: sender.fromAddress },
+        to: [{ email: to }],
+        subject,
+        htmlContent: html,
+      }),
+    });
+
+    const bodyText = await res.text();
+    if (!res.ok) {
+      console.error(`${LOG_BREVO} HTTP ${res.status}`, bodyText);
+      explainBrevoFailure(res.status, bodyText);
+      return { ok: false, error: bodyText };
+    }
+
+    let messageId = '';
+    try {
+      const parsed = JSON.parse(bodyText);
+      messageId = parsed?.messageId || '';
+    } catch {
+      messageId = bodyText.slice(0, 80);
+    }
+
+    console.log(`${LOG_BREVO} inviata OK messageId=${messageId || '(n/a)'}`);
+    return { ok: true, provider: 'brevo' };
+  } catch (error) {
+    console.error(`${LOG_BREVO} errore rete:`, error?.message || error);
+    return { ok: false, error: error?.message || 'brevo_failed' };
+  }
+}
+
+function explainBrevoFailure(status, bodyText) {
+  const body = String(bodyText || '').toLowerCase();
+  if (status === 401 || status === 403) {
+    console.error(
+      `${LOG_BREVO} DIAG: API key non valida o senza permessi. Crea una chiave v3 su Brevo → SMTP & API → API keys.`
+    );
+  }
+  if (body.includes('sender') && (body.includes('not verified') || body.includes('invalid'))) {
+    console.error(
+      `${LOG_BREVO} DIAG: il mittente non è verificato su Brevo. Vai su Senders → aggiungi l'email → clicca il link di conferma nella inbox.`
+    );
+  }
 }
 
 /** Forza risoluzione DNS e socket su IPv4 (evita ENETUNREACH su IPv6 in cloud). */
@@ -98,11 +188,11 @@ function createMailerTransport(portOverride) {
   const passLen = pass ? pass.length : 0;
 
   console.log(
-    `${LOG} create transport host=${host} port=${port} user=${maskedUser} pass_len=${passLen} ipv4_forced=true`
+    `${LOG_SMTP} create transport host=${host} port=${port} user=${maskedUser} pass_len=${passLen} ipv4_forced=true`
   );
 
   if (!host || !user || !pass || !Number.isFinite(port) || port <= 0) {
-    console.error(`${LOG} config SMTP non valida o incompleta (host/user/pass/port)`);
+    console.error(`${LOG_SMTP} config SMTP non valida o incompleta (host/user/pass/port)`);
     return null;
   }
 
@@ -152,33 +242,66 @@ async function logDnsDiagnostics(host) {
   try {
     const v4 = await dns.resolve4(host).catch((e) => ({ error: e.code || e.message }));
     const v6 = await dns.resolve6(host).catch((e) => ({ error: e.code || e.message }));
-    console.log(`${LOG} DNS ${host} A=`, Array.isArray(v4) ? v4.join(', ') : v4);
-    console.log(`${LOG} DNS ${host} AAAA=`, Array.isArray(v6) ? v6.join(', ') : v6);
+    console.log(`${LOG_SMTP} DNS ${host} A=`, Array.isArray(v4) ? v4.join(', ') : v4);
+    console.log(`${LOG_SMTP} DNS ${host} AAAA=`, Array.isArray(v6) ? v6.join(', ') : v6);
   } catch (e) {
-    console.error(`${LOG} DNS lookup errore:`, e?.message || e);
+    console.error(`${LOG_SMTP} DNS lookup errore:`, e?.message || e);
   }
 }
 
+async function runBrevoDiagnostics(reason = 'startup') {
+  const apiKey = getBrevoApiKey();
+  const sender = parseSenderFromEnv();
+
+  console.log(`${LOG_BREVO} === diagnostica Brevo (${reason}) ===`);
+  console.log(`${LOG_BREVO} BREVO_API_KEY=${apiKey ? `presente (len=${apiKey.length})` : 'ASSENTE'}`);
+  console.log(
+    `${LOG_BREVO} mittente=${sender ? `${sender.fromName} <${maskEmail(sender.fromAddress)}>` : 'NON CONFIGURATO'}`
+  );
+
+  if (!apiKey) {
+    console.warn(
+      `${LOG_BREVO} Imposta BREVO_API_KEY su Render. Senza chiave si usa solo SMTP (bloccato su Render free).`
+    );
+    return;
+  }
+
+  if (!sender) {
+    console.error(
+      `${LOG_BREVO} Imposta BREVO_SENDER_EMAIL con l'indirizzo verificato su Brevo (es. fantacoppadeicantoni@gmail.com)`
+    );
+    return;
+  }
+
+  console.log(`${LOG_BREVO} provider=HTTPS api.brevo.com (ok su Render free)`);
+  console.log(`${LOG_BREVO} === fine diagnostica Brevo ===`);
+}
+
 /**
- * Diagnostica rete/SMTP (chiamata all'avvio server e prima del primo invio).
+ * Diagnostica rete/SMTP (solo se Brevo non configurato, o in locale).
  * Non logga mai password o segreti.
  */
 async function runSmtpDiagnostics(reason = 'startup') {
+  if (getBrevoApiKey()) {
+    console.log(`${LOG_SMTP} Brevo configurato → skip diagnostica SMTP pesante (${reason})`);
+    return;
+  }
+
   const { host, port, user } = getSmtpConfig();
   const from = parseSmtpFrom();
 
-  console.log(`${LOG} === diagnostica SMTP (${reason}) ===`);
-  console.log(`${LOG} node=${process.version} platform=${process.platform} arch=${process.arch}`);
+  console.log(`${LOG_SMTP} === diagnostica SMTP (${reason}) ===`);
+  console.log(`${LOG_SMTP} node=${process.version} platform=${process.platform} arch=${process.arch}`);
   console.log(
-    `${LOG} env: RENDER=${process.env.RENDER || '(no)'} ` +
+    `${LOG_SMTP} env: RENDER=${process.env.RENDER || '(no)'} ` +
       `RENDER_SERVICE_NAME=${process.env.RENDER_SERVICE_NAME || '(no)'} ` +
       `RENDER_INSTANCE_TYPE=${process.env.RENDER_INSTANCE_TYPE || '(no)'}`
   );
-  console.log(`${LOG} SMTP_HOST=${host} SMTP_PORT=${port} SMTP_USERNAME=${maskUser(user)}`);
-  console.log(`${LOG} mittente=${from ? from.from : '(non configurato)'}`);
+  console.log(`${LOG_SMTP} SMTP_HOST=${host} SMTP_PORT=${port} SMTP_USERNAME=${maskUser(user)}`);
+  console.log(`${LOG_SMTP} mittente=${from ? from.from : '(non configurato)'}`);
 
   if (!user || !String(process.env.SMTP_PASSWORD || '').trim()) {
-    console.error(`${LOG} SMTP_PASSWORD o SMTP_USERNAME mancanti su Render → invio impossibile`);
+    console.error(`${LOG_SMTP} SMTP_PASSWORD o SMTP_USERNAME mancanti su Render → invio impossibile`);
     return;
   }
 
@@ -187,12 +310,12 @@ async function runSmtpDiagnostics(reason = 'startup') {
   for (const testPort of [port, 465, 587].filter((p, i, a) => a.indexOf(p) === i)) {
     const tcp = await testTcpPort(host, testPort);
     if (tcp.ok) {
-      console.log(`${LOG} TCP ${host}:${testPort} raggiungibile (${tcp.ms}ms, IPv4)`);
+      console.log(`${LOG_SMTP} TCP ${host}:${testPort} raggiungibile (${tcp.ms}ms, IPv4)`);
     } else {
-      console.error(`${LOG} TCP ${host}:${testPort} NON raggiungibile:`, tcp);
+      console.error(`${LOG_SMTP} TCP ${host}:${testPort} NON raggiungibile:`, tcp);
       if (tcp.code === 'ETIMEDOUT' || tcp.code === 'ECONNREFUSED') {
         console.error(
-          `${LOG} DIAG: porta ${testPort} bloccata o filtrata (tipico piano Render FREE). ` +
+          `${LOG_SMTP} DIAG: porta ${testPort} bloccata o filtrata (tipico piano Render FREE). ` +
             'Upgrade a istanza a pagamento per ripristinare SMTP Gmail.'
         );
       }
@@ -203,39 +326,50 @@ async function runSmtpDiagnostics(reason = 'startup') {
   if (!transport) return;
 
   try {
-    console.log(`${LOG} verify transport principale (porta ${port})...`);
+    console.log(`${LOG_SMTP} verify transport principale (porta ${port})...`);
     await transport.verify();
-    console.log(`${LOG} verify transport principale OK`);
+    console.log(`${LOG_SMTP} verify transport principale OK`);
   } catch (error) {
     logSmtpError('verify transport principale', error);
   }
 
-  console.log(`${LOG} === fine diagnostica SMTP ===`);
+  console.log(`${LOG_SMTP} === fine diagnostica SMTP ===`);
 }
 
-let diagnosticsPromise = null;
+let brevoDiagnosticsPromise = null;
+let smtpDiagnosticsPromise = null;
 
-function ensureSmtpDiagnostics(reason) {
-  if (!diagnosticsPromise) {
-    diagnosticsPromise = runSmtpDiagnostics(reason).catch((e) => {
-      console.error(`${LOG} diagnostica crash:`, e?.message || e);
+function ensureEmailDiagnostics(reason) {
+  if (!brevoDiagnosticsPromise) {
+    brevoDiagnosticsPromise = runBrevoDiagnostics(reason).catch((e) => {
+      console.error(`${LOG_BREVO} diagnostica crash:`, e?.message || e);
     });
   }
-  return diagnosticsPromise;
+  if (!getBrevoApiKey() && !smtpDiagnosticsPromise) {
+    smtpDiagnosticsPromise = runSmtpDiagnostics(reason).catch((e) => {
+      console.error(`${LOG_SMTP} diagnostica crash:`, e?.message || e);
+    });
+  }
+  return Promise.all([
+    brevoDiagnosticsPromise,
+    smtpDiagnosticsPromise || Promise.resolve(),
+  ]);
 }
 
 async function sendViaSmtp({ to, subject, html }) {
-  await ensureSmtpDiagnostics('before_send');
+  if (!getBrevoApiKey()) {
+    await ensureEmailDiagnostics('before_send');
+  }
 
   const fromParsed = parseSmtpFrom();
   if (!fromParsed) {
     console.error(
-      `${LOG} mittente non valido: imposta SMTP_FROM_ADDRESS o SMTP_USERNAME con email Gmail valida`
+      `${LOG_SMTP} mittente non valido: imposta SMTP_FROM_ADDRESS o SMTP_USERNAME con email Gmail valida`
     );
     return { ok: false, error: 'missing_from' };
   }
 
-  console.log(`${LOG} avvio invio verso=${maskEmail(to)} from=${fromParsed.from}`);
+  console.log(`${LOG_SMTP} avvio invio verso=${maskEmail(to)} from=${fromParsed.from}`);
 
   const transport = createMailerTransport();
   if (!transport) {
@@ -250,26 +384,26 @@ async function sendViaSmtp({ to, subject, html }) {
   };
 
   try {
-    console.log(`${LOG} verify transport principale...`);
+    console.log(`${LOG_SMTP} verify transport principale...`);
     await transport.verify();
-    console.log(`${LOG} verify OK, invio mail principale...`);
+    console.log(`${LOG_SMTP} verify OK, invio mail principale...`);
     const info = await transport.sendMail(mail);
-    console.log(`${LOG} invio principale completato messageId=${info?.messageId || '(n/a)'}`);
+    console.log(`${LOG_SMTP} invio principale completato messageId=${info?.messageId || '(n/a)'}`);
     return { ok: true, provider: 'smtp' };
   } catch (firstError) {
     logSmtpError('invio principale', firstError);
   }
 
   try {
-    console.log(`${LOG} tentativo fallback SMTPS:465...`);
+    console.log(`${LOG_SMTP} tentativo fallback SMTPS:465...`);
     const fallback = createMailerTransport(465);
     if (!fallback) return { ok: false, error: 'smtp_failed' };
 
-    console.log(`${LOG} verify fallback...`);
+    console.log(`${LOG_SMTP} verify fallback...`);
     await fallback.verify();
-    console.log(`${LOG} verify fallback OK, invio fallback...`);
+    console.log(`${LOG_SMTP} verify fallback OK, invio fallback...`);
     const info = await fallback.sendMail(mail);
-    console.log(`${LOG} invio fallback completato messageId=${info?.messageId || '(n/a)'}`);
+    console.log(`${LOG_SMTP} invio fallback completato messageId=${info?.messageId || '(n/a)'}`);
     return { ok: true, provider: 'smtp465' };
   } catch (fallbackError) {
     logSmtpError('invio fallback', fallbackError);
@@ -278,16 +412,30 @@ async function sendViaSmtp({ to, subject, html }) {
 }
 
 /**
- * Invio email transazionale solo via SMTP (Gmail / provider configurato in env).
+ * Invio email: Brevo API (HTTPS, Render free) → fallback SMTP (locale / Render a pagamento).
  */
 async function sendTransactionalEmail({ to, subject, html }) {
-  console.log(`${LOG} sendTransactionalEmail to=${maskEmail(to)} subject="${subject}"`);
-  const smtp = await sendViaSmtp({ to, subject, html });
-  if (smtp.ok) {
-    console.log(`${LOG} esito OK provider=${smtp.provider}`);
+  await ensureEmailDiagnostics('before_send');
+
+  console.log(`${LOG_BREVO} sendTransactionalEmail to=${maskEmail(to)} subject="${subject}"`);
+
+  const brevo = await sendViaBrevo({ to, subject, html });
+  if (brevo.ok) {
+    console.log(`${LOG_BREVO} esito OK provider=${brevo.provider}`);
     return true;
   }
-  console.error(`${LOG} esito FALLITO`);
+
+  if (!brevo.skipped) {
+    console.warn(`${LOG_BREVO} Brevo fallito, provo SMTP...`);
+  }
+
+  const smtp = await sendViaSmtp({ to, subject, html });
+  if (smtp.ok) {
+    console.log(`${LOG_SMTP} esito OK provider=${smtp.provider}`);
+    return true;
+  }
+
+  console.error(`${LOG_BREVO} esito FALLITO (Brevo e SMTP)`);
   return false;
 }
 
@@ -303,9 +451,15 @@ function buildForgotPasswordHtml(newPassword) {
   `;
 }
 
+async function runEmailDiagnostics(reason = 'startup') {
+  await runBrevoDiagnostics(reason);
+  await runSmtpDiagnostics(reason);
+}
+
 module.exports = {
   sendTransactionalEmail,
   buildForgotPasswordHtml,
+  runEmailDiagnostics,
+  runBrevoDiagnostics,
   runSmtpDiagnostics,
-  ensureSmtpDiagnostics,
 };

@@ -124,7 +124,7 @@ app.use((err, req, res, next) => {
   });
 });
 
-const { runSmtpDiagnostics } = require('./utils/emailDelivery');
+const { runEmailDiagnostics } = require('./utils/emailDelivery');
 
 // Avvia server
 app.listen(PORT, () => {
@@ -137,8 +137,8 @@ app.listen(PORT, () => {
   console.log(`🔍 Test DB: http://localhost:${PORT}/api/test-db`);
   console.log('========================================');
 
-  runSmtpDiagnostics('server_startup').catch((err) => {
-    console.error('[DEBUG_FORGOT_SMTP] diagnostica avvio fallita:', err?.message || err);
+  runEmailDiagnostics('server_startup').catch((err) => {
+    console.error('[DEBUG_FORGOT_BREVO] diagnostica avvio fallita:', err?.message || err);
   });
 });
 
