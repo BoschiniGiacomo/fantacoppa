@@ -174,11 +174,22 @@ function decodeCsvBuffer(buffer) {
 const CSV_PLAYERS_HEADER = ['Nome', 'Cognome', 'Squadra', 'Ruolo', 'Valutazione', 'Numero'];
 const CSV_TEAMS_HEADER = 'Squadra';
 
+function normalizeCsvDecimalString(value) {
+  return String(value ?? '').trim().replace(',', '.');
+}
+
 function isStrictNumericCsvValue(value, { allowEmpty = false, integerOnly = false } = {}) {
   const s = String(value ?? '').trim();
   if (!s) return allowEmpty;
   if (integerOnly) return /^\d+$/.test(s);
-  return /^\d+(\.\d+)?$/.test(s);
+  const normalized = normalizeCsvDecimalString(s);
+  return /^\d+(\.\d+)?$/.test(normalized);
+}
+
+function parseCsvDecimal(value) {
+  const normalized = normalizeCsvDecimalString(value);
+  if (!/^\d+(\.\d+)?$/.test(normalized)) return null;
+  return parseFloat(normalized);
 }
 
 function isPlayersCsvShape(rows) {
@@ -3975,7 +3986,7 @@ router.post('/:id/csv/import', authenticateToken, csvUpload.single('csv_file'), 
         continue;
       }
 
-      const rating = parseFloat(ratingRaw);
+      const rating = parseCsvDecimal(ratingRaw);
       const shirtNumber = shirtRaw === '' ? null : Number(shirtRaw);
 
       let team = await query(
