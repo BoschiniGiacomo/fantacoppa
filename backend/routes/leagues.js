@@ -51,13 +51,49 @@ function getSupabaseStorageClient() {
   return supabaseStorageClient;
 }
 
+/** Separatore CSV per Excel in italiano (lista separata = punto e virgola). */
+const CSV_SEP = ';';
+
 function csvEscape(value) {
   const s = String(value ?? '');
-  if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  if (/["\n\r]/.test(s) || s.includes(CSV_SEP) || s.includes(',')) {
+    return `"${s.replace(/"/g, '""')}"`;
+  }
   return s;
 }
 
-function parseCsvLine(line) {
+function buildCsvLine(fields) {
+  return fields.map((f) => csvEscape(f)).join(CSV_SEP);
+}
+
+function sendCsvResponse(res, filename, lines) {
+  const body = `\uFEFF${lines.join('\n')}`;
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  return res.status(200).send(body);
+}
+
+function detectCsvDelimiter(line) {
+  let commas = 0;
+  let semicolons = 0;
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i += 1) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        i += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+    if (!inQuotes && ch === ',') commas += 1;
+    if (!inQuotes && ch === ';') semicolons += 1;
+  }
+  return semicolons >= commas ? ';' : ',';
+}
+
+function parseCsvLine(line, delimiter = CSV_SEP) {
   const out = [];
   let cur = '';
   let inQuotes = false;
@@ -72,7 +108,7 @@ function parseCsvLine(line) {
       }
       continue;
     }
-    if (ch === ',' && !inQuotes) {
+    if (ch === delimiter && !inQuotes) {
       out.push(cur.trim());
       cur = '';
       continue;
@@ -85,15 +121,17 @@ function parseCsvLine(line) {
 
 function parseCsvContent(content) {
   const lines = String(content || '')
+    .replace(/^\uFEFF/, '')
     .replace(/\r\n/g, '\n')
     .replace(/\r/g, '\n')
     .split('\n')
     .filter((l) => l.trim() !== '');
   if (!lines.length) return [];
-  const headers = parseCsvLine(lines[0]).map((h) => String(h || '').replace(/^\uFEFF/, '').trim().toLowerCase());
+  const delimiter = detectCsvDelimiter(lines[0]);
+  const headers = parseCsvLine(lines[0], delimiter).map((h) => String(h || '').trim().toLowerCase());
   const rows = [];
   for (let i = 1; i < lines.length; i += 1) {
-    const values = parseCsvLine(lines[i]);
+    const values = parseCsvLine(lines[i], delimiter);
     const row = {};
     headers.forEach((h, idx) => {
       row[h] = values[idx] != null ? normalizePotentialMojibake(String(values[idx]).trim()) : '';
@@ -133,7 +171,7 @@ function decodeCsvBuffer(buffer) {
   return textDecodeBadness(latin1Text) < textDecodeBadness(utf8Text) ? latin1Text : utf8Text;
 }
 
-const CSV_PLAYERS_HEADER = 'Nome,Cognome,Squadra,Ruolo,Valutazione,Numero';
+const CSV_PLAYERS_HEADER = ['Nome', 'Cognome', 'Squadra', 'Ruolo', 'Valutazione', 'Numero'];
 const CSV_TEAMS_HEADER = 'Squadra';
 
 function isStrictNumericCsvValue(value, { allowEmpty = false, integerOnly = false } = {}) {
@@ -3768,20 +3806,21 @@ router.delete('/:id/matchdays/:matchdayId', authenticateToken, async (req, res) 
 router.get('/:id/csv/template/teams', authenticateToken, async (req, res) => {
   const leagueId = toValidLeagueId(req.params.id);
   if (!leagueId) return res.status(400).json({ message: 'League ID non valido' });
-  const csv = [CSV_TEAMS_HEADER, 'Squadra 1', 'Squadra 2'].join('\n');
-  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-  res.setHeader('Content-Disposition', `attachment; filename="teams_template_league_${leagueId}.csv"`);
-  return res.status(200).send(csv);
+  return sendCsvResponse(res, `teams_template_league_${leagueId}.csv`, [
+    CSV_TEAMS_HEADER,
+    'Squadra 1',
+    'Squadra 2',
+  ]);
 });
 
 // GET /api/leagues/:id/csv/template/players
 router.get('/:id/csv/template/players', authenticateToken, async (req, res) => {
   const leagueId = toValidLeagueId(req.params.id);
   if (!leagueId) return res.status(400).json({ message: 'League ID non valido' });
-  const csv = [CSV_PLAYERS_HEADER, 'Mario,Rossi,Squadra 1,C,10,7'].join('\n');
-  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-  res.setHeader('Content-Disposition', `attachment; filename="players_template_league_${leagueId}.csv"`);
-  return res.status(200).send(csv);
+  return sendCsvResponse(res, `players_template_league_${leagueId}.csv`, [
+    buildCsvLine(CSV_PLAYERS_HEADER),
+    buildCsvLine(['Mario', 'Rossi', 'Squadra 1', 'C', '10', '7']),
+  ]);
 });
 
 // GET /api/leagues/:id/csv/export/teams
@@ -3800,9 +3839,7 @@ router.get('/:id/csv/export/teams', authenticateToken, async (req, res) => {
     for (const t of teams) {
       lines.push(csvEscape(t.name));
     }
-    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="teams_league_${leagueId}.csv"`);
-    return res.status(200).send(lines.join('\n'));
+    return sendCsvResponse(res, `teams_league_${leagueId}.csv`, lines);
   } catch (error) {
     console.error('CSV export teams error:', error);
     return res.status(500).json({ message: 'Errore export squadre CSV' });
@@ -3836,23 +3873,21 @@ router.get('/:id/csv/export/players', authenticateToken, async (req, res) => {
         [leagueId]
       );
     }
-    const lines = [CSV_PLAYERS_HEADER];
+    const lines = [buildCsvLine(CSV_PLAYERS_HEADER)];
     for (const p of players) {
       const shirt = p.shirt_number != null && String(p.shirt_number).trim() !== ''
         ? String(Number(p.shirt_number))
         : '';
-      lines.push([
-        csvEscape(p.first_name),
-        csvEscape(p.last_name),
-        csvEscape(p.team_name),
-        csvEscape(p.role),
+      lines.push(buildCsvLine([
+        p.first_name,
+        p.last_name,
+        p.team_name,
+        p.role,
         Number(p.rating || 0),
         shirt,
-      ].join(','));
+      ]));
     }
-    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="players_league_${leagueId}.csv"`);
-    return res.status(200).send(lines.join('\n'));
+    return sendCsvResponse(res, `players_league_${leagueId}.csv`, lines);
   } catch (error) {
     console.error('CSV export players error:', error);
     return res.status(500).json({ message: 'Errore export giocatori CSV' });
