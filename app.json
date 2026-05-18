@@ -24,7 +24,7 @@
     },
     "android": {
       "package": "com.fantacoppa.app",
-      "versionCode": 12,
+      "versionCode": 13,
       "googleServicesFile": "./android/app/google-services.json",
       "permissions": [],
       "adaptiveIcon": {
@@ -33,7 +33,7 @@
       }
     },
     "extra": {
-      "appVersionCode": 12,
+      "appVersionCode": 13,
       "supabaseUrl": "https://zaqvtlsmefrgbduhzmwk.supabase.co",
       "eas": {
         "projectId": "f1e19392-b5b0-4646-8672-5f8e39654f4a"
