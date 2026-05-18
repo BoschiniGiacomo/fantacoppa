@@ -337,9 +337,9 @@ export default function TeamManagementScreen({ route, navigation }) {
       const res = await leagueService.importCSV(leagueId, picked.uri, picked.name);
       
       const message = res.message || 'Import completato';
-      const imported = res.imported || 0;
+      const imported = res.imported ?? ((res.players_created || 0) + (res.teams_created || 0));
       const skipped = res.skipped || 0;
-      const errors = res.errors || [];
+      const errors = Array.isArray(res.errors) ? res.errors : [];
       
       let alertMessage = `${message}\n\nImportati: ${imported}\nSaltati: ${skipped}`;
       if (errors.length > 0) {

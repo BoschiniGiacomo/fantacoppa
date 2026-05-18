@@ -133,6 +133,79 @@ function decodeCsvBuffer(buffer) {
   return textDecodeBadness(latin1Text) < textDecodeBadness(utf8Text) ? latin1Text : utf8Text;
 }
 
+const CSV_PLAYERS_HEADER = 'Nome,Cognome,Squadra,Ruolo,Valutazione,Numero';
+const CSV_TEAMS_HEADER = 'Squadra';
+
+function isStrictNumericCsvValue(value, { allowEmpty = false, integerOnly = false } = {}) {
+  const s = String(value ?? '').trim();
+  if (!s) return allowEmpty;
+  if (integerOnly) return /^\d+$/.test(s);
+  return /^\d+(\.\d+)?$/.test(s);
+}
+
+function isPlayersCsvShape(rows) {
+  if (!rows.length) return false;
+  const row = rows[0];
+  const hasNome = Object.prototype.hasOwnProperty.call(row, 'nome')
+    || Object.prototype.hasOwnProperty.call(row, 'first_name');
+  const hasCognome = Object.prototype.hasOwnProperty.call(row, 'cognome')
+    || Object.prototype.hasOwnProperty.call(row, 'last_name');
+  return hasNome && hasCognome;
+}
+
+function mapPlayerCsvRow(row) {
+  return {
+    firstName: String(row.nome || row.first_name || '').trim(),
+    lastName: String(row.cognome || row.last_name || '').trim(),
+    teamName: String(row.squadra || row.team_name || '').trim(),
+    role: String(row.ruolo || row.role || '').trim().toUpperCase(),
+    ratingRaw: String(row.valutazione ?? row.rating ?? '').trim(),
+    shirtRaw: String(row.numero ?? row.shirt_number ?? row.numero_maglia ?? '').trim(),
+  };
+}
+
+function getTeamNameFromCsvRow(row) {
+  return String(row.squadra || row.name || row.team_name || '').trim();
+}
+
+async function insertCsvPlayer(teamId, firstName, lastName, role, rating, shirtNumber) {
+  const runInsert = async (sql, params) => query(sql, params);
+  const attempts = [
+    [
+      `INSERT INTO players (team_id, first_name, last_name, role, rating, shirt_number) VALUES (?, ?, ?, ?, ?, ?)`,
+      [teamId, firstName, lastName, role, rating, shirtNumber],
+    ],
+    [
+      `INSERT INTO players (team_id, first_name, last_name, role, rating, numero_maglia) VALUES (?, ?, ?, ?, ?, ?)`,
+      [teamId, firstName, lastName, role, rating, shirtNumber],
+    ],
+    [
+      `INSERT INTO players (team_id, first_name, last_name, role, rating) VALUES (?, ?, ?, ?, ?)`,
+      [teamId, firstName, lastName, role, rating],
+    ],
+  ];
+
+  let lastErr = null;
+  for (const [sql, params] of attempts) {
+    try {
+      await runInsert(sql, params);
+      return;
+    } catch (err) {
+      lastErr = err;
+      if (err && err.code === '23505') {
+        await syncPlayersIdSequence();
+        try {
+          await runInsert(sql, params);
+          return;
+        } catch (retryErr) {
+          lastErr = retryErr;
+        }
+      }
+    }
+  }
+  throw lastErr;
+}
+
 async function syncLeaguesIdSequence() {
   await query(
     "SELECT setval(pg_get_serial_sequence('leagues','id'), COALESCE((SELECT MAX(id) FROM leagues), 0) + 1, false)"
@@ -3695,7 +3768,7 @@ router.delete('/:id/matchdays/:matchdayId', authenticateToken, async (req, res) 
 router.get('/:id/csv/template/teams', authenticateToken, async (req, res) => {
   const leagueId = toValidLeagueId(req.params.id);
   if (!leagueId) return res.status(400).json({ message: 'League ID non valido' });
-  const csv = ['name', 'Team 1', 'Team 2'].join('\n');
+  const csv = [CSV_TEAMS_HEADER, 'Squadra 1', 'Squadra 2'].join('\n');
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="teams_template_league_${leagueId}.csv"`);
   return res.status(200).send(csv);
@@ -3705,7 +3778,7 @@ router.get('/:id/csv/template/teams', authenticateToken, async (req, res) => {
 router.get('/:id/csv/template/players', authenticateToken, async (req, res) => {
   const leagueId = toValidLeagueId(req.params.id);
   if (!leagueId) return res.status(400).json({ message: 'League ID non valido' });
-  const csv = ['team_name,first_name,last_name,role,rating', 'Team 1,Mario,Rossi,C,10'].join('\n');
+  const csv = [CSV_PLAYERS_HEADER, 'Mario,Rossi,Squadra 1,C,10,7'].join('\n');
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="players_template_league_${leagueId}.csv"`);
   return res.status(200).send(csv);
@@ -3717,21 +3790,15 @@ router.get('/:id/csv/export/teams', authenticateToken, async (req, res) => {
     const leagueId = toValidLeagueId(req.params.id);
     if (!leagueId) return res.status(400).json({ message: 'League ID non valido' });
     const teams = await query(
-      `SELECT id, name, COALESCE(logo_path, '') AS logo_path, COALESCE(jersey_color, '') AS jersey_color
+      `SELECT name
        FROM teams
        WHERE league_id = ?
        ORDER BY name ASC, id ASC`,
       [leagueId]
-    ).catch(async () => query(
-      `SELECT id, name, '' AS logo_path, '' AS jersey_color
-       FROM teams
-       WHERE league_id = ?
-       ORDER BY name ASC, id ASC`,
-      [leagueId]
-    ));
-    const lines = ['id,name,logo_path,jersey_color'];
+    );
+    const lines = [CSV_TEAMS_HEADER];
     for (const t of teams) {
-      lines.push([t.id, csvEscape(t.name), csvEscape(t.logo_path), csvEscape(t.jersey_color)].join(','));
+      lines.push(csvEscape(t.name));
     }
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="teams_league_${leagueId}.csv"`);
@@ -3747,17 +3814,41 @@ router.get('/:id/csv/export/players', authenticateToken, async (req, res) => {
   try {
     const leagueId = toValidLeagueId(req.params.id);
     if (!leagueId) return res.status(400).json({ message: 'League ID non valido' });
-    const players = await query(
-      `SELECT p.id, t.name AS team_name, p.first_name, p.last_name, p.role, COALESCE(p.rating, 0) AS rating
-       FROM players p
-       JOIN teams t ON t.id = p.team_id
-       WHERE t.league_id = ?
-       ORDER BY t.name ASC, p.role ASC, p.last_name ASC, p.first_name ASC`,
-      [leagueId]
-    );
-    const lines = ['id,team_name,first_name,last_name,role,rating'];
+    let players;
+    try {
+      players = await query(
+        `SELECT p.first_name, p.last_name, t.name AS team_name, p.role,
+                COALESCE(p.rating, 0) AS rating, p.shirt_number
+         FROM players p
+         JOIN teams t ON t.id = p.team_id
+         WHERE t.league_id = ?
+         ORDER BY t.name ASC, p.role ASC, p.last_name ASC, p.first_name ASC`,
+        [leagueId]
+      );
+    } catch (_) {
+      players = await query(
+        `SELECT p.first_name, p.last_name, t.name AS team_name, p.role,
+                COALESCE(p.rating, 0) AS rating, NULL AS shirt_number
+         FROM players p
+         JOIN teams t ON t.id = p.team_id
+         WHERE t.league_id = ?
+         ORDER BY t.name ASC, p.role ASC, p.last_name ASC, p.first_name ASC`,
+        [leagueId]
+      );
+    }
+    const lines = [CSV_PLAYERS_HEADER];
     for (const p of players) {
-      lines.push([p.id, csvEscape(p.team_name), csvEscape(p.first_name), csvEscape(p.last_name), csvEscape(p.role), Number(p.rating || 0)].join(','));
+      const shirt = p.shirt_number != null && String(p.shirt_number).trim() !== ''
+        ? String(Number(p.shirt_number))
+        : '';
+      lines.push([
+        csvEscape(p.first_name),
+        csvEscape(p.last_name),
+        csvEscape(p.team_name),
+        csvEscape(p.role),
+        Number(p.rating || 0),
+        shirt,
+      ].join(','));
     }
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="players_league_${leagueId}.csv"`);
@@ -3778,21 +3869,26 @@ router.post('/:id/csv/import', authenticateToken, csvUpload.single('csv_file'), 
     const rows = parseCsvContent(decodeCsvBuffer(req.file.buffer));
     if (!rows.length) return res.status(400).json({ message: 'CSV vuoto o non valido' });
 
-    const hasPlayersShape = Object.prototype.hasOwnProperty.call(rows[0], 'team_name')
-      && Object.prototype.hasOwnProperty.call(rows[0], 'first_name')
-      && Object.prototype.hasOwnProperty.call(rows[0], 'last_name')
-      && Object.prototype.hasOwnProperty.call(rows[0], 'role');
-
     let teamsCreated = 0;
     let playersCreated = 0;
+    let skipped = 0;
+    const errors = [];
 
-    if (!hasPlayersShape) {
-      // Teams CSV: expected headers containing "name"
+    if (!isPlayersCsvShape(rows)) {
       for (const row of rows) {
-        const name = String(row.name || '').trim();
-        if (!name) continue;
-        const exists = await query(`SELECT id FROM teams WHERE league_id = ? AND LOWER(name) = LOWER(?) LIMIT 1`, [leagueId, name]);
-        if (exists.length) continue;
+        const name = getTeamNameFromCsvRow(row);
+        if (!name) {
+          skipped += 1;
+          continue;
+        }
+        const exists = await query(
+          `SELECT id FROM teams WHERE league_id = ? AND LOWER(name) = LOWER(?) LIMIT 1`,
+          [leagueId, name]
+        );
+        if (exists.length) {
+          skipped += 1;
+          continue;
+        }
         try {
           await query(`INSERT INTO teams (league_id, name) VALUES (?, ?)`, [leagueId, name]);
           teamsCreated += 1;
@@ -3801,31 +3897,71 @@ router.post('/:id/csv/import', authenticateToken, csvUpload.single('csv_file'), 
             await syncTeamsIdSequence();
             await query(`INSERT INTO teams (league_id, name) VALUES (?, ?)`, [leagueId, name]);
             teamsCreated += 1;
+          } else {
+            throw insertErr;
           }
         }
       }
-      return res.json({ message: 'Import squadre completato', type: 'teams', teams_created: teamsCreated });
+      const imported = teamsCreated;
+      return res.json({
+        message: 'Import squadre completato',
+        type: 'teams',
+        teams_created: teamsCreated,
+        imported,
+        skipped,
+        errors,
+      });
     }
 
-    // Players CSV: team_name,first_name,last_name,role,rating
-    for (const row of rows) {
-      const teamName = String(row.team_name || '').trim();
-      const firstName = String(row.first_name || '').trim();
-      const lastName = String(row.last_name || '').trim();
-      const role = String(row.role || '').trim().toUpperCase();
-      const rating = Number(row.rating || 0);
-      if (!teamName || !firstName || !lastName || !['P', 'D', 'C', 'A'].includes(role)) continue;
+    for (let i = 0; i < rows.length; i += 1) {
+      const rowNum = i + 2;
+      const mapped = mapPlayerCsvRow(rows[i]);
+      const { teamName, firstName, lastName, role, ratingRaw, shirtRaw } = mapped;
 
-      let team = await query(`SELECT id FROM teams WHERE league_id = ? AND LOWER(name) = LOWER(?) LIMIT 1`, [leagueId, teamName]);
+      if (!teamName || !firstName || !lastName || !['P', 'D', 'C', 'A'].includes(role)) {
+        skipped += 1;
+        if (errors.length < 50) {
+          errors.push(`Riga ${rowNum}: dati obbligatori mancanti o ruolo non valido`);
+        }
+        continue;
+      }
+      if (!isStrictNumericCsvValue(ratingRaw)) {
+        skipped += 1;
+        if (errors.length < 50) {
+          errors.push(`Riga ${rowNum}: valutazione non numerica (${ratingRaw || '(vuota)'})`);
+        }
+        continue;
+      }
+      if (!isStrictNumericCsvValue(shirtRaw, { allowEmpty: true, integerOnly: true })) {
+        skipped += 1;
+        if (errors.length < 50) {
+          errors.push(`Riga ${rowNum}: numero maglia non numerico (${shirtRaw})`);
+        }
+        continue;
+      }
+
+      const rating = parseFloat(ratingRaw);
+      const shirtNumber = shirtRaw === '' ? null : Number(shirtRaw);
+
+      let team = await query(
+        `SELECT id FROM teams WHERE league_id = ? AND LOWER(name) = LOWER(?) LIMIT 1`,
+        [leagueId, teamName]
+      );
       if (!team.length) {
         try {
-          const insTeam = await query(`INSERT INTO teams (league_id, name) VALUES (?, ?) RETURNING id`, [leagueId, teamName]);
+          const insTeam = await query(
+            `INSERT INTO teams (league_id, name) VALUES (?, ?) RETURNING id`,
+            [leagueId, teamName]
+          );
           team = [{ id: insTeam.insertId }];
           teamsCreated += 1;
         } catch (insertErr) {
           if (insertErr && insertErr.code === '23505') {
             await syncTeamsIdSequence();
-            const insTeam = await query(`INSERT INTO teams (league_id, name) VALUES (?, ?) RETURNING id`, [leagueId, teamName]);
+            const insTeam = await query(
+              `INSERT INTO teams (league_id, name) VALUES (?, ?) RETURNING id`,
+              [leagueId, teamName]
+            );
             team = [{ id: insTeam.insertId }];
             teamsCreated += 1;
           } else {
@@ -3833,6 +3969,7 @@ router.post('/:id/csv/import', authenticateToken, csvUpload.single('csv_file'), 
           }
         }
       }
+
       const teamId = Number(team[0].id);
       const existingPlayer = await query(
         `SELECT p.id
@@ -3843,31 +3980,39 @@ router.post('/:id/csv/import', authenticateToken, csvUpload.single('csv_file'), 
         [leagueId, teamId, firstName, lastName, role]
       );
       if (existingPlayer.length) {
-        await query(`UPDATE players SET rating = ? WHERE id = ?`, [rating, Number(existingPlayer[0].id)]).catch(() => {});
+        const playerId = Number(existingPlayer[0].id);
+        try {
+          await query(
+            `UPDATE players SET rating = ?, shirt_number = ? WHERE id = ?`,
+            [rating, shirtNumber, playerId]
+          );
+        } catch (_) {
+          try {
+            await query(
+              `UPDATE players SET rating = ?, numero_maglia = ? WHERE id = ?`,
+              [rating, shirtNumber, playerId]
+            );
+          } catch (__) {
+            await query(`UPDATE players SET rating = ? WHERE id = ?`, [rating, playerId]).catch(() => {});
+          }
+        }
+        skipped += 1;
         continue;
       }
-      try {
-        await query(`INSERT INTO players (team_id, first_name, last_name, role, rating) VALUES (?, ?, ?, ?, ?)`, [teamId, firstName, lastName, role, rating]);
-        playersCreated += 1;
-      } catch (insertErr) {
-        if (insertErr && insertErr.code === '23505') {
-          await syncPlayersIdSequence();
-          await query(`INSERT INTO players (team_id, first_name, last_name, role, rating) VALUES (?, ?, ?, ?, ?)`, [teamId, firstName, lastName, role, rating]);
-          playersCreated += 1;
-        } else if (String(insertErr.message || '').toLowerCase().includes('column') && String(insertErr.message || '').toLowerCase().includes('rating')) {
-          await query(`INSERT INTO players (team_id, first_name, last_name, role) VALUES (?, ?, ?, ?)`, [teamId, firstName, lastName, role]);
-          playersCreated += 1;
-        } else {
-          throw insertErr;
-        }
-      }
+
+      await insertCsvPlayer(teamId, firstName, lastName, role, rating, shirtNumber);
+      playersCreated += 1;
     }
 
+    const imported = playersCreated + teamsCreated;
     return res.json({
       message: 'Import giocatori completato',
       type: 'players',
       teams_created: teamsCreated,
       players_created: playersCreated,
+      imported,
+      skipped,
+      errors,
     });
   } catch (error) {
     console.error('CSV import error:', error);
