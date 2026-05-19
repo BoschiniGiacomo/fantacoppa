@@ -91,37 +91,27 @@ function KnockoutTwoLegUnifiedCard({ tie, styles, LogoComponent }) {
   const teamB = tie.teamB;
 
   return (
-    <View style={styles.knockoutLegWrap}>
-      <View style={[styles.knockoutTeamRow, styles.knockoutTwoLegHeaderRow]}>
-        <View style={styles.knockoutLogoPlaceholder} />
-        <View style={styles.knockoutTwoLegHeaderSpacer} />
-        <View style={styles.knockoutTwoLegScoreCols}>
-          <Text style={styles.knockoutLegColLabel}>1°</Text>
-          <Text style={styles.knockoutLegColLabel}>2°</Text>
-        </View>
-      </View>
-      <View style={styles.knockoutMatchStack}>
-        <KnockoutTwoLegTeamRow
-          team={teamA}
-          leg1={teamLegScore(leg1, teamA?.id)}
-          leg2={teamLegScore(leg2, teamA?.id)}
-          styles={styles}
-          LogoComponent={LogoComponent}
-        />
-        <KnockoutTwoLegTeamRow
-          team={teamB}
-          leg1={teamLegScore(leg1, teamB?.id)}
-          leg2={teamLegScore(leg2, teamB?.id)}
-          styles={styles}
-          LogoComponent={LogoComponent}
-        />
-      </View>
+    <View style={styles.knockoutMatchStack}>
+      <KnockoutTwoLegTeamRow
+        team={teamA}
+        leg1={teamLegScore(leg1, teamA?.id)}
+        leg2={teamLegScore(leg2, teamA?.id)}
+        styles={styles}
+        LogoComponent={LogoComponent}
+      />
+      <KnockoutTwoLegTeamRow
+        team={teamB}
+        leg1={teamLegScore(leg1, teamB?.id)}
+        leg2={teamLegScore(leg2, teamB?.id)}
+        styles={styles}
+        LogoComponent={LogoComponent}
+      />
     </View>
   );
 }
 
 /**
- * Blocco semifinale: una partita o andata+ritorno in un unico riquadro (colonne 1° / 2°).
+ * Blocco semifinale: una partita o andata+ritorno (colonne 1° / 2° sulla riga SF).
  * Tap apre l'ultima partita del tie (ritorno se presente).
  */
 export default function KnockoutSemiTieBlock({
@@ -138,6 +128,12 @@ export default function KnockoutSemiTieBlock({
     <View style={styles.knockoutSemiBlock}>
       <View style={styles.knockoutSemiLabelRow}>
         <Text style={styles.knockoutSemiSmallLabel}>SF {sfIndex + 1}</Text>
+        {tie?.twoLegged ? (
+          <View style={styles.knockoutTwoLegScoreCols}>
+            <Text style={styles.knockoutLegColLabel}>1°</Text>
+            <Text style={styles.knockoutLegColLabel}>2°</Text>
+          </View>
+        ) : null}
       </View>
       <TouchableOpacity
         style={styles.knockoutMatchStackMeasure}

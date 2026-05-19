@@ -438,9 +438,6 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
       knockoutSemiSmallLabel: styles.seasonKnockoutSemiSmallLabel,
       knockoutMatchStackMeasure: styles.seasonKnockoutMatchStackMeasure,
       knockoutTieStack: styles.seasonKnockoutTieStack,
-      knockoutLegWrap: styles.seasonKnockoutLegWrap,
-      knockoutTwoLegHeaderRow: styles.seasonKnockoutTwoLegHeaderRow,
-      knockoutTwoLegHeaderSpacer: styles.seasonKnockoutTwoLegHeaderSpacer,
       knockoutTwoLegScoreCols: styles.seasonKnockoutTwoLegScoreCols,
       knockoutLegColLabel: styles.seasonKnockoutLegColLabel,
       knockoutMatchStack: styles.seasonKnockoutMatchStack,
@@ -461,12 +458,16 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
     () => (
       <>
         <View style={styles.seasonKnockoutHeaderRow}>
-          <Text style={styles.seasonKnockoutColumnTitle}>Semifinale</Text>
-          <Text style={styles.seasonKnockoutColumnTitleSpacer} />
+          <Text style={[styles.seasonKnockoutColumnTitle, seasonKnockoutFlowTall && styles.seasonKnockoutColumnTitleWide]}>
+            Semifinale
+          </Text>
+          <Text
+            style={[styles.seasonKnockoutColumnTitleSpacer, seasonKnockoutFlowTall && styles.seasonKnockoutColumnTitleSpacerCompact]}
+          />
           <Text style={styles.seasonKnockoutColumnTitle}>Finale</Text>
         </View>
         <View style={styles.seasonKnockoutBracketRow}>
-          <View style={styles.seasonKnockoutSemisCol}>
+          <View style={[styles.seasonKnockoutSemisCol, seasonKnockoutFlowTall && styles.seasonKnockoutSemisColWide]}>
             {seasonSemifinalTies.map((tie, idx) => (
               <KnockoutSemiTieBlock
                 key={`season-semi-tie-${idx}-${tie.legs.map((l) => l.id).join('-')}`}
@@ -481,11 +482,23 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
             ))}
           </View>
 
-          <View style={[styles.seasonKnockoutFlowCol, seasonKnockoutFlowTall && styles.seasonKnockoutFlowColTall]}>
-            <View style={styles.seasonKnockoutBracketTopArm} />
-            <View style={styles.seasonKnockoutBracketBottomArm} />
-            <View style={styles.seasonKnockoutBracketVertical} />
-            <View style={styles.seasonKnockoutBracketMiddleArm} />
+          <View
+            style={[
+              styles.seasonKnockoutFlowCol,
+              seasonKnockoutFlowTall && styles.seasonKnockoutFlowColTall,
+              seasonKnockoutFlowTall && styles.seasonKnockoutFlowColCompact,
+            ]}
+          >
+            <View style={[styles.seasonKnockoutBracketTopArm, seasonKnockoutFlowTall && styles.seasonKnockoutBracketTopArmCompact]} />
+            <View style={[styles.seasonKnockoutBracketBottomArm, seasonKnockoutFlowTall && styles.seasonKnockoutBracketBottomArmCompact]} />
+            <View
+              style={[
+                styles.seasonKnockoutBracketVertical,
+                seasonKnockoutFlowTall && styles.seasonKnockoutBracketVerticalCompact,
+                seasonKnockoutFlowTall && styles.seasonKnockoutBracketVerticalCompactTall,
+              ]}
+            />
+            <View style={[styles.seasonKnockoutBracketMiddleArm, seasonKnockoutFlowTall && styles.seasonKnockoutBracketMiddleArmCompact]} />
           </View>
 
           <View style={styles.seasonKnockoutFinalCol}>
@@ -1397,12 +1410,21 @@ const styles = StyleSheet.create({
   seasonKnockoutTitle: { fontSize: 16, fontWeight: '800', color: '#111827', textAlign: 'center', marginBottom: 6 },
   seasonKnockoutHeaderRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
   seasonKnockoutColumnTitle: { flex: 1.2, fontSize: 12, fontWeight: '800', color: '#6b7280', textTransform: 'uppercase' },
+  seasonKnockoutColumnTitleWide: { flex: 1.35 },
   seasonKnockoutColumnTitleSpacer: { width: 56 },
+  seasonKnockoutColumnTitleSpacerCompact: { width: 28 },
   seasonKnockoutBracketRow: { flexDirection: 'row', alignItems: 'stretch', gap: 0 },
   seasonKnockoutSemisCol: { flex: 1.2, gap: 10, alignSelf: 'flex-start', marginRight: -2 },
+  seasonKnockoutSemisColWide: { flex: 1.35, marginRight: 0 },
   seasonKnockoutSemiBlock: { flexGrow: 0, flexShrink: 0 },
   seasonKnockoutFinalCol: { flex: 1.08, alignSelf: 'stretch', justifyContent: 'center', paddingTop: 20, marginLeft: -2 },
-  seasonKnockoutSemiLabelRow: { marginBottom: 2 },
+  seasonKnockoutSemiLabelRow: {
+    marginBottom: 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingRight: 6,
+  },
   seasonKnockoutSemiSmallLabel: { fontSize: 11, fontWeight: '800', color: '#6b7280', textTransform: 'uppercase' },
   seasonKnockoutFlowCol: {
     width: 56,
@@ -1411,25 +1433,11 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   seasonKnockoutFlowColTall: {
-    height: 168,
-    marginTop: 58,
+    height: 152,
+    marginTop: 52,
   },
+  seasonKnockoutFlowColCompact: { width: 28 },
   seasonKnockoutTieStack: { gap: 6, width: '100%' },
-  seasonKnockoutLegWrap: {
-    borderWidth: 1,
-    borderColor: '#d1d5db',
-    borderRadius: 8,
-    backgroundColor: '#fff',
-    overflow: 'hidden',
-    paddingTop: 4,
-    paddingBottom: 4,
-  },
-  seasonKnockoutTwoLegHeaderRow: {
-    marginBottom: 0,
-    paddingRight: 6,
-    minHeight: 16,
-  },
-  seasonKnockoutTwoLegHeaderSpacer: { flex: 1, minWidth: 0 },
   seasonKnockoutTwoLegScoreCols: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1453,6 +1461,11 @@ const styles = StyleSheet.create({
   seasonKnockoutBracketBottomArm: { position: 'absolute', left: 6, bottom: 10, width: 32, height: 1, backgroundColor: '#d1d5db' },
   seasonKnockoutBracketVertical: { position: 'absolute', left: 38, top: 10, width: 1, height: 92, backgroundColor: '#d1d5db' },
   seasonKnockoutBracketMiddleArm: { position: 'absolute', left: 38, top: 56, width: 14, height: 1, backgroundColor: '#d1d5db' },
+  seasonKnockoutBracketTopArmCompact: { left: 3, width: 14 },
+  seasonKnockoutBracketBottomArmCompact: { left: 3, width: 14 },
+  seasonKnockoutBracketVerticalCompact: { left: 17 },
+  seasonKnockoutBracketVerticalCompactTall: { height: 132 },
+  seasonKnockoutBracketMiddleArmCompact: { left: 17, width: 11 },
   seasonKnockoutFinalLabelRow: { height: 0, marginBottom: 0 },
   seasonKnockoutMatchStackMeasure: { width: '100%' },
   seasonKnockoutMatchStack: { gap: 6, width: '100%' },

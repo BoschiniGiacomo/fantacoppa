@@ -2139,12 +2139,12 @@ export default function MatchDetailScreen({ navigation, route }) {
     () => (
       <>
         <View style={styles.knockoutHeaderRow}>
-          <Text style={styles.knockoutColumnTitle}>Semifinale</Text>
-          <Text style={styles.knockoutColumnTitleSpacer} />
+          <Text style={[styles.knockoutColumnTitle, knockoutFlowTall && styles.knockoutColumnTitleWide]}>Semifinale</Text>
+          <Text style={[styles.knockoutColumnTitleSpacer, knockoutFlowTall && styles.knockoutColumnTitleSpacerCompact]} />
           <Text style={styles.knockoutColumnTitle}>Finale</Text>
         </View>
         <View style={styles.knockoutBracketRow}>
-          <View style={styles.knockoutSemisCol}>
+          <View style={[styles.knockoutSemisCol, knockoutFlowTall && styles.knockoutSemisColWide]}>
             {semifinalTies.map((tie, idx) => (
               <KnockoutSemiTieBlock
                 key={`semi-tie-${idx}-${tie.legs.map((l) => l.id).join('-')}`}
@@ -2157,11 +2157,17 @@ export default function MatchDetailScreen({ navigation, route }) {
             ))}
           </View>
 
-          <View style={[styles.knockoutFlowCol, knockoutFlowTall && styles.knockoutFlowColTall]}>
-            <View style={styles.knockoutBracketTopArm} />
-            <View style={styles.knockoutBracketBottomArm} />
-            <View style={styles.knockoutBracketVertical} />
-            <View style={styles.knockoutBracketMiddleArm} />
+          <View style={[styles.knockoutFlowCol, knockoutFlowTall && styles.knockoutFlowColTall, knockoutFlowTall && styles.knockoutFlowColCompact]}>
+            <View style={[styles.knockoutBracketTopArm, knockoutFlowTall && styles.knockoutBracketTopArmCompact]} />
+            <View style={[styles.knockoutBracketBottomArm, knockoutFlowTall && styles.knockoutBracketBottomArmCompact]} />
+            <View
+              style={[
+                styles.knockoutBracketVertical,
+                knockoutFlowTall && styles.knockoutBracketVerticalCompact,
+                knockoutFlowTall && styles.knockoutBracketVerticalCompactTall,
+              ]}
+            />
+            <View style={[styles.knockoutBracketMiddleArm, knockoutFlowTall && styles.knockoutBracketMiddleArmCompact]} />
           </View>
 
           <View style={styles.knockoutFinalCol}>
@@ -4758,13 +4764,22 @@ const styles = StyleSheet.create({
   knockoutTitle: { fontSize: 16, fontWeight: '800', color: '#111827', textAlign: 'center', marginBottom: 6 },
   knockoutHeaderRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
   knockoutColumnTitle: { flex: 1.2, fontSize: 12, fontWeight: '800', color: '#6b7280', textTransform: 'uppercase' },
+  knockoutColumnTitleWide: { flex: 1.35 },
   knockoutColumnTitleSpacer: { width: 56 },
+  knockoutColumnTitleSpacerCompact: { width: 28 },
   knockoutBracketRow: { flexDirection: 'row', alignItems: 'stretch', gap: 0 },
   knockoutSemisCol: { flex: 1.2, gap: 10, alignSelf: 'flex-start', marginRight: -2 },
+  knockoutSemisColWide: { flex: 1.35, marginRight: 0 },
   knockoutSemiBlock: { flexGrow: 0, flexShrink: 0 },
   knockoutFinalCol: { flex: 1.08, alignSelf: 'stretch', justifyContent: 'center', paddingTop: 20, marginLeft: -2 },
   knockoutFinalWrap: { alignItems: 'center' },
-  knockoutSemiLabelRow: { marginBottom: 2 },
+  knockoutSemiLabelRow: {
+    marginBottom: 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingRight: 6,
+  },
   knockoutSemiSmallLabel: { fontSize: 11, fontWeight: '800', color: '#6b7280', textTransform: 'uppercase' },
   knockoutFlowCol: {
     width: 56,
@@ -4773,25 +4788,11 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   knockoutFlowColTall: {
-    height: 168,
-    marginTop: 58,
+    height: 152,
+    marginTop: 52,
   },
+  knockoutFlowColCompact: { width: 28 },
   knockoutTieStack: { gap: 6, width: '100%' },
-  knockoutLegWrap: {
-    borderWidth: 1,
-    borderColor: '#d1d5db',
-    borderRadius: 8,
-    backgroundColor: '#fff',
-    overflow: 'hidden',
-    paddingTop: 4,
-    paddingBottom: 4,
-  },
-  knockoutTwoLegHeaderRow: {
-    marginBottom: 0,
-    paddingRight: 6,
-    minHeight: 16,
-  },
-  knockoutTwoLegHeaderSpacer: { flex: 1, minWidth: 0 },
   knockoutTwoLegScoreCols: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -4843,6 +4844,11 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: '#d1d5db',
   },
+  knockoutBracketTopArmCompact: { left: 3, width: 14 },
+  knockoutBracketBottomArmCompact: { left: 3, width: 14 },
+  knockoutBracketVerticalCompact: { left: 17 },
+  knockoutBracketVerticalCompactTall: { height: 132 },
+  knockoutBracketMiddleArmCompact: { left: 17, width: 11 },
   knockoutFinalLabelRow: { height: 0, marginBottom: 0 },
   knockoutStageLabel: { fontSize: 12, fontWeight: '700', color: '#6b7280', textTransform: 'uppercase', marginBottom: 4 },
   knockoutMatchRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, width: '100%' },
