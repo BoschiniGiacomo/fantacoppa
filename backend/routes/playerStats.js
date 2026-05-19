@@ -18,30 +18,157 @@ async function getLeagueOfficialMeta(leagueId) {
   };
 }
 
+/** Leghe dove possono essere salvati i voti (parent collegato + figli che puntano al parent). */
+async function resolveLeagueIdsForRatings(leagueId) {
+  const lid = Number(leagueId);
+  if (!Number.isFinite(lid) || lid <= 0) return [];
+
+  let effectiveId = lid;
+  try {
+    const rows = await query(
+      `SELECT linked_to_league_id FROM leagues WHERE id = ? LIMIT 1`,
+      [lid]
+    );
+    const linked = Number(rows[0]?.linked_to_league_id || 0);
+    if (linked > 0) effectiveId = linked;
+  } catch (_) {}
+
+  const ids = new Set([lid, effectiveId]);
+  try {
+    const children = await query(
+      `SELECT id FROM leagues WHERE linked_to_league_id = ?`,
+      [effectiveId]
+    );
+    (children || []).forEach((r) => {
+      const n = Number(r.id);
+      if (Number.isFinite(n) && n > 0) ids.add(n);
+    });
+  } catch (_) {}
+
+  return [...ids];
+}
+
+const BONUS_SCORE_SQL = `
+  pr.rating
+  + CASE WHEN COALESCE(bs.enable_goal, 0) = 1 THEN COALESCE(bs.bonus_goal, 0) * COALESCE(pr.goals, 0) ELSE 0 END
+  + CASE WHEN COALESCE(bs.enable_assist, 0) = 1 THEN COALESCE(bs.bonus_assist, 0) * COALESCE(pr.assists, 0) ELSE 0 END
+  + CASE WHEN COALESCE(bs.enable_yellow_card, 0) = 1 THEN COALESCE(bs.malus_yellow_card, 0) * COALESCE(pr.yellow_cards, 0) ELSE 0 END
+  + CASE WHEN COALESCE(bs.enable_red_card, 0) = 1 THEN COALESCE(bs.malus_red_card, 0) * COALESCE(pr.red_cards, 0) ELSE 0 END
+  + CASE WHEN COALESCE(bs.enable_goals_conceded, 0) = 1 THEN COALESCE(bs.malus_goals_conceded, 0) * COALESCE(pr.goals_conceded, 0) ELSE 0 END
+  + CASE WHEN COALESCE(bs.enable_own_goal, 0) = 1 THEN COALESCE(bs.malus_own_goal, 0) * COALESCE(pr.own_goals, 0) ELSE 0 END
+  + CASE WHEN COALESCE(bs.enable_penalty_missed, 0) = 1 THEN COALESCE(bs.malus_penalty_missed, 0) * COALESCE(pr.penalty_missed, 0) ELSE 0 END
+  + CASE WHEN COALESCE(bs.enable_penalty_saved, 0) = 1 THEN COALESCE(bs.bonus_penalty_saved, 0) * COALESCE(pr.penalty_saved, 0) ELSE 0 END
+  + CASE WHEN COALESCE(bs.enable_clean_sheet, 0) = 1 THEN COALESCE(bs.bonus_clean_sheet, 0) * COALESCE(pr.clean_sheet, 0) ELSE 0 END
+`;
+
+/**
+ * Presenze = una per (lega, giornata), non solo numero giornata (evita sotto-conteggio tra stagioni/leghe).
+ * Media voto = media sulle presenze deduplicate (allineata al conteggio presenze).
+ */
+async function fetchPlayerStatsAggregates(playerIds, leagueIds) {
+  if (!playerIds.length || !leagueIds.length) {
+    return {
+      games_played: 0,
+      games_with_rating: 0,
+      avg_rating: 0,
+      avg_rating_with_bonus: 0,
+      total_goals: 0,
+      total_assists: 0,
+      total_yellow_cards: 0,
+      total_red_cards: 0,
+      total_goals_conceded: 0,
+      total_own_goals: 0,
+      total_penalty_missed: 0,
+      total_penalty_saved: 0,
+      total_clean_sheets: 0,
+    };
+  }
+
+  const playerPh = playerIds.map(() => '?').join(',');
+  const leaguesPh = leagueIds.map(() => '?').join(',');
+  const params = [...playerIds, ...leagueIds];
+
+  const rows = await query(
+    `WITH rated_rows AS (
+       SELECT
+         pr.league_id,
+         pr.giornata,
+         pr.player_id,
+         pr.rating::float AS rating,
+         (${BONUS_SCORE_SQL})::float AS rating_with_bonus,
+         COALESCE(pr.goals, 0) AS goals,
+         COALESCE(pr.assists, 0) AS assists,
+         COALESCE(pr.yellow_cards, 0) AS yellow_cards,
+         COALESCE(pr.red_cards, 0) AS red_cards,
+         COALESCE(pr.goals_conceded, 0) AS goals_conceded,
+         COALESCE(pr.own_goals, 0) AS own_goals,
+         COALESCE(pr.penalty_missed, 0) AS penalty_missed,
+         COALESCE(pr.penalty_saved, 0) AS penalty_saved,
+         COALESCE(pr.clean_sheet, 0) AS clean_sheet
+       FROM player_ratings pr
+       LEFT JOIN league_bonus_settings bs ON bs.league_id = pr.league_id
+       WHERE pr.player_id IN (${playerPh})
+         AND pr.league_id IN (${leaguesPh})
+         AND pr.rating > 0
+     ),
+     appearances AS (
+       SELECT DISTINCT ON (league_id, giornata)
+         league_id,
+         giornata,
+         rating,
+         rating_with_bonus,
+         goals,
+         assists,
+         yellow_cards,
+         red_cards,
+         goals_conceded,
+         own_goals,
+         penalty_missed,
+         penalty_saved,
+         clean_sheet
+       FROM rated_rows
+       ORDER BY league_id, giornata, player_id DESC
+     )
+     SELECT
+       COUNT(*)::int AS games_played,
+       COUNT(*)::int AS games_with_rating,
+       AVG(rating) AS avg_rating,
+       AVG(rating_with_bonus) AS avg_rating_with_bonus,
+       COALESCE(SUM(goals), 0) AS total_goals,
+       COALESCE(SUM(assists), 0) AS total_assists,
+       COALESCE(SUM(yellow_cards), 0) AS total_yellow_cards,
+       COALESCE(SUM(red_cards), 0) AS total_red_cards,
+       COALESCE(SUM(goals_conceded), 0) AS total_goals_conceded,
+       COALESCE(SUM(own_goals), 0) AS total_own_goals,
+       COALESCE(SUM(penalty_missed), 0) AS total_penalty_missed,
+       COALESCE(SUM(penalty_saved), 0) AS total_penalty_saved,
+       COALESCE(SUM(clean_sheet), 0) AS total_clean_sheets
+     FROM appearances`,
+    params
+  );
+
+  const r = rows[0] || {};
+  return {
+    games_played: Number(r.games_played || 0),
+    games_with_rating: Number(r.games_with_rating || 0),
+    avg_rating: safeNumber(r.avg_rating, 2),
+    avg_rating_with_bonus: safeNumber(r.avg_rating_with_bonus, 2),
+    total_goals: Number(r.total_goals || 0),
+    total_assists: Number(r.total_assists || 0),
+    total_yellow_cards: Number(r.total_yellow_cards || 0),
+    total_red_cards: Number(r.total_red_cards || 0),
+    total_goals_conceded: Number(r.total_goals_conceded || 0),
+    total_own_goals: Number(r.total_own_goals || 0),
+    total_penalty_missed: Number(r.total_penalty_missed || 0),
+    total_penalty_saved: Number(r.total_penalty_saved || 0),
+    total_clean_sheets: Number(r.total_clean_sheets || 0),
+  };
+}
+
 function safeNumber(value, decimals = null) {
   const n = Number(value || 0);
   if (!Number.isFinite(n)) return 0;
   return decimals == null ? n : Number(n.toFixed(decimals));
-}
-
-function mapStatsRow(statsRow, bonusRow) {
-  const s = statsRow || {};
-  const b = bonusRow || {};
-  return {
-    games_played: Number(s.games_played || 0),
-    games_with_rating: Number(s.games_with_rating || 0),
-    avg_rating: safeNumber(s.avg_rating, 2),
-    avg_rating_with_bonus: safeNumber(b.avg_rating_with_bonus, 2),
-    total_goals: Number(s.total_goals || 0),
-    total_assists: Number(s.total_assists || 0),
-    total_yellow_cards: Number(s.total_yellow_cards || 0),
-    total_red_cards: Number(s.total_red_cards || 0),
-    total_goals_conceded: Number(s.total_goals_conceded || 0),
-    total_own_goals: Number(s.total_own_goals || 0),
-    total_penalty_missed: Number(s.total_penalty_missed || 0),
-    total_penalty_saved: Number(s.total_penalty_saved || 0),
-    total_clean_sheets: Number(s.total_clean_sheets || 0),
-  };
 }
 
 router.get('/:playerId/stats/:leagueId', authenticateToken, async (req, res) => {
@@ -59,44 +186,8 @@ router.get('/:playerId/stats/:leagueId', authenticateToken, async (req, res) => 
     );
     if (!playerRows.length) return res.status(404).json({ message: 'Giocatore non trovato' });
 
-    const statsRows = await query(
-      `SELECT
-         COUNT(DISTINCT giornata) AS games_played,
-         AVG(rating) AS avg_rating,
-         COALESCE(SUM(goals), 0) AS total_goals,
-         COALESCE(SUM(assists), 0) AS total_assists,
-         COALESCE(SUM(yellow_cards), 0) AS total_yellow_cards,
-         COALESCE(SUM(red_cards), 0) AS total_red_cards,
-         COALESCE(SUM(goals_conceded), 0) AS total_goals_conceded,
-         COALESCE(SUM(own_goals), 0) AS total_own_goals,
-         COALESCE(SUM(penalty_missed), 0) AS total_penalty_missed,
-         COALESCE(SUM(penalty_saved), 0) AS total_penalty_saved,
-         COALESCE(SUM(clean_sheet), 0) AS total_clean_sheets,
-         COUNT(CASE WHEN rating > 0 THEN 1 END) AS games_with_rating
-       FROM player_ratings
-       WHERE player_id = ? AND league_id = ? AND rating > 0`,
-      [playerId, leagueId]
-    );
-
-    const bonusRows = await query(
-      `SELECT
-         AVG(
-           pr.rating
-           + CASE WHEN COALESCE(bs.enable_goal, 0) = 1 THEN COALESCE(bs.bonus_goal, 0) * COALESCE(pr.goals, 0) ELSE 0 END
-           + CASE WHEN COALESCE(bs.enable_assist, 0) = 1 THEN COALESCE(bs.bonus_assist, 0) * COALESCE(pr.assists, 0) ELSE 0 END
-           + CASE WHEN COALESCE(bs.enable_yellow_card, 0) = 1 THEN COALESCE(bs.malus_yellow_card, 0) * COALESCE(pr.yellow_cards, 0) ELSE 0 END
-           + CASE WHEN COALESCE(bs.enable_red_card, 0) = 1 THEN COALESCE(bs.malus_red_card, 0) * COALESCE(pr.red_cards, 0) ELSE 0 END
-           + CASE WHEN COALESCE(bs.enable_goals_conceded, 0) = 1 THEN COALESCE(bs.malus_goals_conceded, 0) * COALESCE(pr.goals_conceded, 0) ELSE 0 END
-           + CASE WHEN COALESCE(bs.enable_own_goal, 0) = 1 THEN COALESCE(bs.malus_own_goal, 0) * COALESCE(pr.own_goals, 0) ELSE 0 END
-           + CASE WHEN COALESCE(bs.enable_penalty_missed, 0) = 1 THEN COALESCE(bs.malus_penalty_missed, 0) * COALESCE(pr.penalty_missed, 0) ELSE 0 END
-           + CASE WHEN COALESCE(bs.enable_penalty_saved, 0) = 1 THEN COALESCE(bs.bonus_penalty_saved, 0) * COALESCE(pr.penalty_saved, 0) ELSE 0 END
-           + CASE WHEN COALESCE(bs.enable_clean_sheet, 0) = 1 THEN COALESCE(bs.bonus_clean_sheet, 0) * COALESCE(pr.clean_sheet, 0) ELSE 0 END
-         ) AS avg_rating_with_bonus
-       FROM player_ratings pr
-       LEFT JOIN league_bonus_settings bs ON bs.league_id = pr.league_id
-       WHERE pr.player_id = ? AND pr.league_id = ? AND pr.rating > 0`,
-      [playerId, leagueId]
-    );
+    const leagueIds = await resolveLeagueIdsForRatings(leagueId);
+    const stats = await fetchPlayerStatsAggregates([playerId], leagueIds);
 
     return res.json({
       player: {
@@ -107,7 +198,7 @@ router.get('/:playerId/stats/:leagueId', authenticateToken, async (req, res) => 
         rating: safeNumber(playerRows[0].rating),
         photo_path: playerRows[0].photo_path || '',
       },
-      stats: mapStatsRow(statsRows[0], bonusRows[0]),
+      stats,
     });
   } catch (error) {
     return res.status(500).json({ message: 'Errore caricamento statistiche giocatore', error: error.message });
@@ -178,51 +269,7 @@ router.get('/:playerId/stats/aggregated/:leagueId', authenticateToken, async (re
       return res.status(404).json({ message: 'Giocatore non associato a un cluster' });
     }
 
-    const playerPh = aggregatedPlayerIds.map(() => '?').join(',');
-    const leaguesPh = groupLeagueIds.map(() => '?').join(',');
-
-    const statsRows = await query(
-      `SELECT
-         COUNT(DISTINCT pr.giornata) AS games_played,
-         AVG(pr.rating) AS avg_rating,
-         COALESCE(SUM(pr.goals), 0) AS total_goals,
-         COALESCE(SUM(pr.assists), 0) AS total_assists,
-         COALESCE(SUM(pr.yellow_cards), 0) AS total_yellow_cards,
-         COALESCE(SUM(pr.red_cards), 0) AS total_red_cards,
-         COALESCE(SUM(pr.goals_conceded), 0) AS total_goals_conceded,
-         COALESCE(SUM(pr.own_goals), 0) AS total_own_goals,
-         COALESCE(SUM(pr.penalty_missed), 0) AS total_penalty_missed,
-         COALESCE(SUM(pr.penalty_saved), 0) AS total_penalty_saved,
-         COALESCE(SUM(pr.clean_sheet), 0) AS total_clean_sheets,
-         COUNT(CASE WHEN pr.rating > 0 THEN 1 END) AS games_with_rating
-       FROM player_ratings pr
-       WHERE pr.player_id IN (${playerPh})
-         AND pr.league_id IN (${leaguesPh})
-         AND pr.rating > 0`,
-      [...aggregatedPlayerIds, ...groupLeagueIds]
-    );
-
-    const bonusRows = await query(
-      `SELECT
-         AVG(
-           pr.rating
-           + CASE WHEN COALESCE(bs.enable_goal, 0) = 1 THEN COALESCE(bs.bonus_goal, 0) * COALESCE(pr.goals, 0) ELSE 0 END
-           + CASE WHEN COALESCE(bs.enable_assist, 0) = 1 THEN COALESCE(bs.bonus_assist, 0) * COALESCE(pr.assists, 0) ELSE 0 END
-           + CASE WHEN COALESCE(bs.enable_yellow_card, 0) = 1 THEN COALESCE(bs.malus_yellow_card, 0) * COALESCE(pr.yellow_cards, 0) ELSE 0 END
-           + CASE WHEN COALESCE(bs.enable_red_card, 0) = 1 THEN COALESCE(bs.malus_red_card, 0) * COALESCE(pr.red_cards, 0) ELSE 0 END
-           + CASE WHEN COALESCE(bs.enable_goals_conceded, 0) = 1 THEN COALESCE(bs.malus_goals_conceded, 0) * COALESCE(pr.goals_conceded, 0) ELSE 0 END
-           + CASE WHEN COALESCE(bs.enable_own_goal, 0) = 1 THEN COALESCE(bs.malus_own_goal, 0) * COALESCE(pr.own_goals, 0) ELSE 0 END
-           + CASE WHEN COALESCE(bs.enable_penalty_missed, 0) = 1 THEN COALESCE(bs.malus_penalty_missed, 0) * COALESCE(pr.penalty_missed, 0) ELSE 0 END
-           + CASE WHEN COALESCE(bs.enable_penalty_saved, 0) = 1 THEN COALESCE(bs.bonus_penalty_saved, 0) * COALESCE(pr.penalty_saved, 0) ELSE 0 END
-           + CASE WHEN COALESCE(bs.enable_clean_sheet, 0) = 1 THEN COALESCE(bs.bonus_clean_sheet, 0) * COALESCE(pr.clean_sheet, 0) ELSE 0 END
-         ) AS avg_rating_with_bonus
-       FROM player_ratings pr
-       LEFT JOIN league_bonus_settings bs ON bs.league_id = pr.league_id
-       WHERE pr.player_id IN (${playerPh})
-         AND pr.league_id IN (${leaguesPh})
-         AND pr.rating > 0`,
-      [...aggregatedPlayerIds, ...groupLeagueIds]
-    );
+    const stats = await fetchPlayerStatsAggregates(aggregatedPlayerIds, groupLeagueIds);
 
     let bestPhoto = basePlayer.photo_path || '';
     if (!bestPhoto && aggregatedPlayerIds.length > 1) {
@@ -251,7 +298,7 @@ router.get('/:playerId/stats/aggregated/:leagueId', authenticateToken, async (re
         rating: safeNumber(basePlayer.rating),
         photo_path: bestPhoto,
       },
-      stats: mapStatsRow(statsRows[0], bonusRows[0]),
+      stats,
       meta: {
         official_group_id: groupId,
         leagues_count: groupLeagueIds.length,
