@@ -184,6 +184,25 @@ export default function FormationScreen({ route }) {
     return new Set([...starterIds, ...benchIds]);
   }, [starterIds, benchIds]);
 
+  const roleLimits = useMemo(() => {
+    if (!league) return { P: 0, D: 0, C: 0, A: 0 };
+    return {
+      P: Number(league.max_portieri || 0),
+      D: Number(league.max_difensori || 0),
+      C: Number(league.max_centrocampisti || 0),
+      A: Number(league.max_attaccanti || 0),
+    };
+  }, [league]);
+
+  const squadComplete = useMemo(() => {
+    return ['P', 'D', 'C', 'A'].every((role) => {
+      const limit = roleLimits[role] || 0;
+      if (limit <= 0) return true;
+      const count = squad.filter((p) => String(p.role || '').toUpperCase() === role).length;
+      return count === limit;
+    });
+  }, [squad, roleLimits]);
+
   // Giocatori disponibili per ruolo
   // Per titolari: mostra anche i panchinari (verranno spostati automaticamente)
   // Per panchina: mostra solo chi non è né titolare né panchinaro
@@ -552,6 +571,7 @@ export default function FormationScreen({ route }) {
 
   // --- Save ---
   const doSave = async (startersOverride = null) => {
+    if (!squadComplete) return;
     const startersToSave = Array.isArray(startersOverride) ? startersOverride : starters;
     const titolariIds = startersToSave.map(p => p ? p.id : 0);
     const panchinaIds = bench.map(p => p.id);
@@ -573,6 +593,10 @@ export default function FormationScreen({ route }) {
   };
 
   const handleSave = () => {
+    if (!squadComplete) {
+      showToast('Rosa incompleta: completa tutti i ruoli prima di salvare la formazione');
+      return;
+    }
     if (!modulo) {
       showToast('Seleziona un modulo');
       return;
@@ -1019,24 +1043,50 @@ export default function FormationScreen({ route }) {
       </ScrollView>
 
       {/* ── Pulsante Salva (sempre visibile in basso) ── */}
-      {!autoLineup && (
-        <View style={s.saveBar}>
-          <TouchableOpacity
-            style={[s.saveBtn, hasSaved && s.saveBtnSaved, (isExpired || !canEdit || saving) && s.saveBtnDisabled]}
-            onPress={handleSave}
-            disabled={isExpired || !canEdit || saving}
-          >
-            {saving ? (
-              <ActivityIndicator size="small" color="#fff" />
-            ) : (
-              <>
-                <Ionicons name={hasSaved ? "checkmark-circle-outline" : "save-outline"} size={18} color="#fff" />
-                <Text style={s.saveBtnText}>{hasSaved ? 'Aggiorna Formazione' : 'Salva Formazione'}</Text>
-              </>
-            )}
-          </TouchableOpacity>
-        </View>
-      )}
+      {!autoLineup && (() => {
+        const saveBlocked = isExpired || !canEdit || saving;
+        const incompleteSquad = !squadComplete;
+        const btnDisabled = saveBlocked || incompleteSquad;
+        return (
+          <View style={s.saveBar}>
+            <TouchableOpacity
+              style={[
+                s.saveBtn,
+                hasSaved && squadComplete && !btnDisabled && s.saveBtnSaved,
+                incompleteSquad && !saveBlocked && s.saveBtnIncomplete,
+                saveBlocked && s.saveBtnDisabled,
+              ]}
+              onPress={handleSave}
+              disabled={btnDisabled}
+            >
+              {saving ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <>
+                  <Ionicons
+                    name={
+                      incompleteSquad
+                        ? 'alert-circle-outline'
+                        : hasSaved
+                          ? 'checkmark-circle-outline'
+                          : 'save-outline'
+                    }
+                    size={18}
+                    color={incompleteSquad && !saveBlocked ? '#842029' : '#fff'}
+                  />
+                  <Text style={[s.saveBtnText, incompleteSquad && !saveBlocked && s.saveBtnTextIncomplete]}>
+                    {incompleteSquad
+                      ? 'Rosa incompleta'
+                      : hasSaved
+                        ? 'Aggiorna Formazione'
+                        : 'Salva Formazione'}
+                  </Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </View>
+        );
+      })()}
 
       {/* ── Toast ── */}
       {toastMsg && (
@@ -1219,8 +1269,10 @@ const s = StyleSheet.create({
   saveBar: { position: 'absolute', bottom: 95, left: 0, right: 0, backgroundColor: 'rgba(255,255,255,0.95)', paddingVertical: 8, paddingHorizontal: 14, borderTopWidth: 1, borderTopColor: '#eee' },
   saveBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#667eea', paddingVertical: 14, borderRadius: 10, gap: 8 },
   saveBtnSaved: { backgroundColor: '#2e7d32' },
+  saveBtnIncomplete: { backgroundColor: '#f5c2c7' },
   saveBtnDisabled: { backgroundColor: '#bbb' },
   saveBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  saveBtnTextIncomplete: { color: '#842029' },
 
   // Toast
   toast: { position: 'absolute', top: 60, left: 20, right: 20, borderRadius: 12, paddingVertical: 12, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', gap: 10, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.25, shadowRadius: 8, elevation: 10, zIndex: 999 },
