@@ -83,6 +83,8 @@ export async function getAppLoadingMediaSettings() {
     persistMediaCache(null, null);
     return { uri: null, type: null, name: null };
   } catch {
+    const cached = await getCachedAppLoadingMedia();
+    if (cached?.uri) return { ...cached, name: null };
     return { uri: null, type: null, name: null };
   }
 }

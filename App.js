@@ -180,6 +180,13 @@ function AppNavigator() {
   const waitingForAuthBranding = !user && !authBrandingReady;
   const showBootstrapLoader = (loading && !bootstrapTimedOut) || waitingForAuthBranding;
 
+  // Nascondi subito lo splash nativo (su Android può mostrare l'icona app) → video AppLoadingShell
+  useEffect(() => {
+    if (showBootstrapLoader) {
+      SplashScreen.hideAsync().catch(() => {});
+    }
+  }, [showBootstrapLoader]);
+
   useEffect(() => {
     if (!showBootstrapLoader) {
       SplashScreen.hideAsync().catch(() => {});

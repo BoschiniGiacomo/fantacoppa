@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Modal, View, TouchableOpacity, StyleSheet, Platform } from 'react-native';
+import * as SplashScreen from 'expo-splash-screen';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import AppLoadingShell from './AppLoadingShell';
@@ -18,6 +19,12 @@ export default function AppLoadingFullScreenModal({
   onClose,
 }) {
   const insets = useSafeAreaInsets();
+
+  useEffect(() => {
+    if (visible) {
+      SplashScreen.hideAsync().catch(() => {});
+    }
+  }, [visible]);
 
   return (
     <Modal

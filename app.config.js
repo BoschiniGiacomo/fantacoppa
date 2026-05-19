@@ -14,6 +14,10 @@ module.exports = () => {
   return {
     expo: {
       ...expo,
+      plugins: [
+        ...(expo.plugins || []),
+        './plugins/with-android-splash-no-logo',
+      ],
       updates: {
         ...expo.updates,
         checkAutomatically: otaCheck,
