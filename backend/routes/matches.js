@@ -437,6 +437,93 @@ function normalizeTeamNameForFavorite(name) {
     .replace(/[^\p{L}\p{N} ]/gu, '');
 }
 
+/**
+ * Mappa logo per (competition_id, nome squadra): reference_year più alto tra leghe
+ * con almeno una partita visibile e rosa pubblica (stessa visibilità di prima).
+ */
+async function buildBestOfficialTeamLogoMap(competitionIds, canSeeAdminOnly) {
+  const ids = [
+    ...new Set(
+      (Array.isArray(competitionIds) ? competitionIds : [])
+        .map((x) => Number(x))
+        .filter((n) => Number.isFinite(n) && n > 0)
+    ),
+  ];
+  const map = new Map();
+  if (ids.length === 0) return map;
+
+  const ph = ids.map(() => '?').join(', ');
+  const adminFlag = canSeeAdminOnly ? 1 : 0;
+  const params = [...ids, adminFlag, ...ids, adminFlag, ...ids];
+
+  const rows = await query(
+    `
+    WITH leagues_with_matches AS (
+      SELECT DISTINCT m.competition_id, l.id AS league_id
+      FROM official_matches m
+      INNER JOIN teams tx ON tx.id IN (m.home_team_id, m.away_team_id)
+      INNER JOIN leagues l ON l.id = tx.league_id AND l.official_group_id = m.competition_id
+      WHERE m.competition_id IN (${ph})
+        AND (? = 1 OR COALESCE(m.is_admin_only, 0) = 0)
+        AND COALESCE(l.is_official_squad_public, 0) = 1
+      UNION
+      SELECT DISTINCT m.competition_id, l.id AS league_id
+      FROM official_matches m
+      INNER JOIN leagues l ON l.id = m.league_id AND l.official_group_id = m.competition_id
+      WHERE m.competition_id IN (${ph})
+        AND (? = 1 OR COALESCE(m.is_admin_only, 0) = 0)
+        AND COALESCE(l.is_official_squad_public, 0) = 1
+        AND m.league_id IS NOT NULL
+    ),
+    ranked AS (
+      SELECT
+        l.official_group_id AS competition_id,
+        LOWER(TRIM(t.name)) AS team_name_norm,
+        COALESCE(NULLIF(to_jsonb(t)->>'logo_path',''), NULLIF(t.logo_path,'')) AS logo_path,
+        ROW_NUMBER() OVER (
+          PARTITION BY l.official_group_id, LOWER(TRIM(t.name))
+          ORDER BY
+            CASE
+              WHEN NULLIF(TRIM(COALESCE(NULLIF(to_jsonb(t)->>'logo_path',''), NULLIF(t.logo_path,''))), '') IS NOT NULL
+              THEN 0
+              ELSE 1
+            END ASC,
+            NULLIF(to_jsonb(l)->>'reference_year','')::int DESC NULLS LAST,
+            t.id DESC
+        ) AS rn
+      FROM teams t
+      INNER JOIN leagues l ON l.id = t.league_id
+      INNER JOIN leagues_with_matches lwm
+        ON lwm.league_id = l.id AND lwm.competition_id = l.official_group_id
+      WHERE l.official_group_id IN (${ph})
+        AND COALESCE(l.is_official_squad_public, 0) = 1
+    )
+    SELECT competition_id, team_name_norm, logo_path
+    FROM ranked
+    WHERE rn = 1
+    `,
+    params
+  );
+
+  for (const r of Array.isArray(rows) ? rows : []) {
+    const compId = Number(r.competition_id);
+    const norm = normalizeTeamNameForFavorite(r.team_name_norm || '');
+    if (!compId || !norm) continue;
+    map.set(`${compId}:${norm}`, normalizeTeamLogoPathForApi(r.logo_path));
+  }
+  return map;
+}
+
+function pickBestOfficialTeamLogo(logoMap, competitionId, teamName, fallbackPath) {
+  const compId = Number(competitionId);
+  const norm = normalizeTeamNameForFavorite(teamName);
+  if (compId > 0 && norm) {
+    const best = logoMap.get(`${compId}:${norm}`);
+    if (best) return best;
+  }
+  return normalizeTeamLogoPathForApi(fallbackPath);
+}
+
 function normalizeJerseyColorForApi(raw) {
   const s = String(raw || '').trim();
   if (!s) return null;
@@ -1028,6 +1115,8 @@ router.get('/competitions', authenticateToken, async (_req, res) => {
 router.get('/matches', authenticateToken, async (req, res) => {
   try {
     const userId = Number(req.user?.userId);
+    const su = await getSuperuserLevel(userId);
+    const canSeeAdminOnly = su === 1 || su === 2;
     const date = String(req.query?.date || '').trim();
     if (!date) return res.status(400).json({ message: 'date mancante' });
     const rows = await query(
@@ -1156,9 +1245,22 @@ router.get('/matches', authenticateToken, async (req, res) => {
       `,
       [userId, userId, userId, date]
     );
-    const withLogos = (Array.isArray(rows) ? rows : []).map((r) => {
-      const homeLogoPath = normalizeTeamLogoPathForApi(r?.home_team_logo_path);
-      const awayLogoPath = normalizeTeamLogoPathForApi(r?.away_team_logo_path);
+    const matchRows = Array.isArray(rows) ? rows : [];
+    const compIds = [...new Set(matchRows.map((r) => Number(r.competition_id)).filter((n) => n > 0))];
+    const logoMap = await buildBestOfficialTeamLogoMap(compIds, canSeeAdminOnly);
+    const withLogos = matchRows.map((r) => {
+      const homeLogoPath = pickBestOfficialTeamLogo(
+        logoMap,
+        r.competition_id,
+        r.home_team_name,
+        r.home_team_logo_path
+      );
+      const awayLogoPath = pickBestOfficialTeamLogo(
+        logoMap,
+        r.competition_id,
+        r.away_team_name,
+        r.away_team_logo_path
+      );
       return {
         ...r,
         home_team_logo_path: homeLogoPath,
@@ -2355,52 +2457,57 @@ router.get('/matches/strip-teams', authenticateToken, async (req, res) => {
     ]);
 
     const canSeeAdminOnly = su === 1 || su === 2 ? 1 : 0;
-    const compIds = comps.map((c) => Number(c.id)).filter((x) => x > 0);
-    if (compIds.length === 0) return res.json({ teams: [] });
+    const stripCompIds = comps.map((c) => Number(c.id)).filter((x) => x > 0);
+    if (stripCompIds.length === 0) return res.json({ teams: [] });
 
-    const ph = compIds.map(() => '?').join(', ');
+    const enabledCompetitions = await listCompetitionsOnlyEnabled();
+    const logoMapCompIds = enabledCompetitions.map((c) => Number(c.id)).filter((x) => x > 0);
+
+    const ph = stripCompIds.map(() => '?').join(', ');
     const teamRows = await query(
       `WITH comp_teams AS (
-         SELECT m.competition_id, t.id AS team_id, t.name, t.logo_path
+         SELECT m.competition_id, t.id AS team_id, t.name
          FROM official_matches m
          INNER JOIN teams t ON t.id = m.home_team_id
          WHERE m.competition_id IN (${ph})
            AND (? = 1 OR COALESCE(m.is_admin_only, 0) = 0)
          UNION
-         SELECT m.competition_id, t.id AS team_id, t.name, t.logo_path
+         SELECT m.competition_id, t.id AS team_id, t.name
          FROM official_matches m
          INNER JOIN teams t ON t.id = m.away_team_id
          WHERE m.competition_id IN (${ph})
            AND (? = 1 OR COALESCE(m.is_admin_only, 0) = 0)
        ),
        ranked AS (
-         SELECT competition_id, team_id, name, logo_path,
+         SELECT competition_id, team_id, name,
            ROW_NUMBER() OVER (
              PARTITION BY competition_id, LOWER(TRIM(name))
-             ORDER BY
-               CASE WHEN NULLIF(TRIM(logo_path),'') IS NOT NULL THEN 0 ELSE 1 END,
-               team_id DESC
+             ORDER BY team_id DESC
            ) AS rn
          FROM comp_teams
          WHERE name IS NOT NULL AND TRIM(name) <> ''
        )
-       SELECT competition_id, team_id, name, logo_path
+       SELECT competition_id, team_id, name
        FROM ranked WHERE rn = 1
        ORDER BY name ASC`,
-      [...compIds, canSeeAdminOnly, ...compIds, canSeeAdminOnly]
+      [...stripCompIds, canSeeAdminOnly, ...stripCompIds, canSeeAdminOnly]
     );
+
+    const logoMap = await buildBestOfficialTeamLogoMap(logoMapCompIds, canSeeAdminOnly === 1);
 
     const heartSet = new Set();
     for (const r of heartRows || []) {
-      heartSet.add(`${r.official_group_id}:${String(r.team_name_display || '').trim().toLowerCase()}`);
+      heartSet.add(
+        `${r.official_group_id}:${normalizeTeamNameForFavorite(r.team_name_display || '')}`
+      );
     }
 
     const compNameMap = new Map(comps.map((c) => [Number(c.id), c.name]));
     const teams = (teamRows || []).map((r) => {
-      const logoPath = normalizeTeamLogoPathForApi(r?.logo_path);
+      const logoPath = pickBestOfficialTeamLogo(logoMap, r.competition_id, r.name, null);
       const name = String(r.name || '').trim();
       const compId = Number(r.competition_id);
-      const isHeart = heartSet.has(`${compId}:${name.toLowerCase()}`);
+      const isHeart = heartSet.has(`${compId}:${normalizeTeamNameForFavorite(name)}`);
       return {
         team_id: Number(r.team_id),
         name,
@@ -2440,19 +2547,17 @@ router.get('/matches/follow-setup', authenticateToken, async (req, res) => {
       [userId]
     );
 
-    // Squadre presenti nelle partite di ciascuna competizione con logo migliore:
-    // prima il logo disponibile più recente per reference_year, altrimenti la riga più recente.
+    // Squadre presenti nelle partite; logo dalla lega con reference_year più alto tra quelle con partite.
     const teamsByGroup = new Map();
     if (compIds.length > 0) {
+      const logoMap = await buildBestOfficialTeamLogoMap(compIds, canSeeAdminOnly === 1);
       const teamRows = await query(
         `
         WITH comp_teams AS (
           SELECT
             m.competition_id AS official_group_id,
             t.id AS team_id,
-            t.name AS team_name,
-            COALESCE(NULLIF(to_jsonb(t)->>'logo_path',''), NULLIF(t.logo_path,'')) AS logo_path,
-            NULLIF(to_jsonb(l)->>'reference_year','')::int AS reference_year
+            t.name AS team_name
           FROM official_matches m
           INNER JOIN teams t ON t.id = m.home_team_id
           LEFT JOIN leagues l ON l.id = t.league_id
@@ -2465,9 +2570,7 @@ router.get('/matches/follow-setup', authenticateToken, async (req, res) => {
           SELECT
             m.competition_id AS official_group_id,
             t.id AS team_id,
-            t.name AS team_name,
-            COALESCE(NULLIF(to_jsonb(t)->>'logo_path',''), NULLIF(t.logo_path,'')) AS logo_path,
-            NULLIF(to_jsonb(l)->>'reference_year','')::int AS reference_year
+            t.name AS team_name
           FROM official_matches m
           INNER JOIN teams t ON t.id = m.away_team_id
           LEFT JOIN leagues l ON l.id = t.league_id
@@ -2480,13 +2583,9 @@ router.get('/matches/follow-setup', authenticateToken, async (req, res) => {
             official_group_id,
             team_id,
             team_name,
-            NULLIF(TRIM(logo_path), '') AS logo_path,
             ROW_NUMBER() OVER (
               PARTITION BY official_group_id, LOWER(TRIM(team_name))
-              ORDER BY
-                CASE WHEN NULLIF(TRIM(logo_path), '') IS NOT NULL THEN 0 ELSE 1 END ASC,
-                reference_year DESC NULLS LAST,
-                team_id DESC
+              ORDER BY team_id DESC
             ) AS rn
           FROM comp_teams
           WHERE team_name IS NOT NULL AND TRIM(team_name) <> ''
@@ -2494,8 +2593,7 @@ router.get('/matches/follow-setup', authenticateToken, async (req, res) => {
         SELECT
           official_group_id,
           team_id,
-          team_name,
-          logo_path
+          team_name
         FROM ranked
         WHERE rn = 1
         `,
@@ -2506,7 +2604,7 @@ router.get('/matches/follow-setup', authenticateToken, async (req, res) => {
         const gid = safeInt(r.official_group_id);
         const name = String(r.team_name || '').trim();
         const norm = normalizeTeamNameForFavorite(name);
-        const logoPath = normalizeTeamLogoPathForApi(r?.logo_path);
+        const logoPath = pickBestOfficialTeamLogo(logoMap, gid, name, null);
         if (!gid || !name) continue;
         if (!teamsByGroup.has(gid)) teamsByGroup.set(gid, new Map());
         teamsByGroup.get(gid).set(norm, {

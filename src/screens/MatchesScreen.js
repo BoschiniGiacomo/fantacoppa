@@ -29,6 +29,47 @@ import {
 const MATCHES_LIST_POLL_MS_LIVE = 4000;
 const MATCHES_LIST_POLL_MS_IDLE = 12000;
 
+function teamLogoLookupKey(competitionId, teamName) {
+  const norm = String(teamName || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .replace(/[^\p{L}\p{N} ]/gu, '');
+  return `${Number(competitionId)}:${norm}`;
+}
+
+function buildFollowLogoLookup(competitions) {
+  const map = new Map();
+  (Array.isArray(competitions) ? competitions : []).forEach((c) => {
+    const compId = Number(c?.id);
+    if (!compId) return;
+    (Array.isArray(c.teams) ? c.teams : []).forEach((t) => {
+      const name = String(typeof t === 'string' ? t : t?.name || '').trim();
+      if (!name) return;
+      const key = teamLogoLookupKey(compId, name);
+      map.set(key, {
+        logo_path: typeof t === 'string' ? null : t?.logo_path ?? null,
+        logo_url: typeof t === 'string' ? null : t?.logo_url ?? null,
+      });
+    });
+  });
+  return map;
+}
+
+function applyFollowLogosToStripTeams(stripTeams, logoLookup) {
+  if (!logoLookup?.size) return stripTeams;
+  return stripTeams.map((t) => {
+    const key = teamLogoLookupKey(t.competition_id, t.name);
+    const best = logoLookup.get(key);
+    if (!best?.logo_path && !best?.logo_url) return t;
+    return {
+      ...t,
+      logo_path: best.logo_path || t.logo_path,
+      logo_url: best.logo_url || t.logo_url,
+    };
+  });
+}
+
 const DAY_NAMES = ['Dom', 'Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab'];
 const MONTH_NAMES = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic'];
 function toDateKey(date) {
@@ -219,10 +260,15 @@ export default function MatchesScreen() {
 
   const loadStripTeams = useCallback(async () => {
     try {
-      const res = await matchesService.getStripTeams();
-      setHeartTeams(Array.isArray(res?.data?.teams) ? res.data.teams : []);
+      const [stripRes, followRes] = await Promise.all([
+        matchesService.getStripTeams(),
+        token ? matchesService.getFollowSetup().catch(() => null) : Promise.resolve(null),
+      ]);
+      const stripTeams = Array.isArray(stripRes?.data?.teams) ? stripRes.data.teams : [];
+      const logoLookup = buildFollowLogoLookup(followRes?.data?.competitions);
+      setHeartTeams(applyFollowLogosToStripTeams(stripTeams, logoLookup));
     } catch (_) {}
-  }, []);
+  }, [token]);
 
   useFocusEffect(
     useCallback(() => {

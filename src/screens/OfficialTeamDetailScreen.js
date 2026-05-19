@@ -459,7 +459,7 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
       <>
         <View style={styles.seasonKnockoutHeaderRow}>
           <Text style={[styles.seasonKnockoutColumnTitle, seasonKnockoutFlowTall && styles.seasonKnockoutColumnTitleWide]}>
-            Semifinale
+            {seasonKnockoutFlowTall ? 'Semifinali' : 'Semifinale'}
           </Text>
           <Text
             style={[styles.seasonKnockoutColumnTitleSpacer, seasonKnockoutFlowTall && styles.seasonKnockoutColumnTitleSpacerCompact]}

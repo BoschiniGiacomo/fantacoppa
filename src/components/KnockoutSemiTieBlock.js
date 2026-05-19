@@ -111,7 +111,7 @@ function KnockoutTwoLegUnifiedCard({ tie, styles, LogoComponent }) {
 }
 
 /**
- * Blocco semifinale: una partita o andata+ritorno (colonne 1° / 2° sulla riga SF).
+ * Blocco semifinale: una partita o andata+ritorno (colonne A / R sulla riga SF).
  * Tap apre l'ultima partita del tie (ritorno se presente).
  */
 export default function KnockoutSemiTieBlock({
@@ -130,8 +130,8 @@ export default function KnockoutSemiTieBlock({
         <Text style={styles.knockoutSemiSmallLabel}>SF {sfIndex + 1}</Text>
         {tie?.twoLegged ? (
           <View style={styles.knockoutTwoLegScoreCols}>
-            <Text style={styles.knockoutLegColLabel}>1°</Text>
-            <Text style={styles.knockoutLegColLabel}>2°</Text>
+            <Text style={styles.knockoutLegColLabel}>A</Text>
+            <Text style={styles.knockoutLegColLabel}>R</Text>
           </View>
         ) : null}
       </View>

@@ -2139,7 +2139,9 @@ export default function MatchDetailScreen({ navigation, route }) {
     () => (
       <>
         <View style={styles.knockoutHeaderRow}>
-          <Text style={[styles.knockoutColumnTitle, knockoutFlowTall && styles.knockoutColumnTitleWide]}>Semifinale</Text>
+          <Text style={[styles.knockoutColumnTitle, knockoutFlowTall && styles.knockoutColumnTitleWide]}>
+            {knockoutFlowTall ? 'Semifinali' : 'Semifinale'}
+          </Text>
           <Text style={[styles.knockoutColumnTitleSpacer, knockoutFlowTall && styles.knockoutColumnTitleSpacerCompact]} />
           <Text style={styles.knockoutColumnTitle}>Finale</Text>
         </View>

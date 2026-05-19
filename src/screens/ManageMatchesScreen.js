@@ -73,6 +73,13 @@ function leagueEditionDisplay(league) {
   return name || '-';
 }
 
+/** Luogo predefinito in crea/modifica partita se esiste official_match_venues.id = 1. */
+function defaultVenueNameFromList(venues) {
+  const list = Array.isArray(venues) ? venues : [];
+  const item = list.find((v) => Number(v?.id) === 1);
+  return String(item?.name || '').trim();
+}
+
 export default function ManageMatchesScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
@@ -164,6 +171,11 @@ export default function ManageMatchesScreen() {
     const rawTeams = teamsByComp[competitionId] || [];
     return [...rawTeams].sort((a, b) => String(a.name).localeCompare(String(b.name), 'it'));
   }, [teamsByComp, competitionId]);
+
+  const defaultVenueName = useMemo(
+    () => defaultVenueNameFromList(matchDetailsOptions.venues),
+    [matchDetailsOptions.venues]
+  );
 
   const filteredMatches = useMemo(() => {
     const competitionIdNum = Number(filterCompetitionId || 0);
@@ -608,7 +620,7 @@ export default function ManageMatchesScreen() {
       setHomeTeamId(null);
       setAwayTeamId(null);
       setIsAdminOnly(false);
-      setVenue('');
+      setVenue(defaultVenueName);
       setReferee('');
       setMatchStageId(null);
       resetMatchTimingFields();
@@ -683,7 +695,8 @@ export default function ManageMatchesScreen() {
       setKickoffDateObj(parsedKickoff);
       setKickoffAt(formatSqlDateTime(parsedKickoff));
       setEditingMatchId(Number(match.id));
-      setVenue(match?.venue || '');
+      const existingVenue = String(match?.venue || '').trim();
+      setVenue(existingVenue || defaultVenueName);
       setReferee(match?.referee || '');
       setMatchStageId(match?.match_stage_id != null ? Number(match.match_stage_id) : null);
       setRegulationHalfMinutes(String(match?.regulation_half_minutes ?? 30));
@@ -1068,6 +1081,7 @@ export default function ManageMatchesScreen() {
                     setCreateMatchStep(1);
                     setShowCreateTimingDetails(false);
                     setIsAdminOnly(false);
+                    setVenue(defaultVenueName);
                   }
                 }}
               >
