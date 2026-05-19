@@ -110,16 +110,20 @@ router.post('/register', async (req, res) => {
 router.post('/login', async (req, res) => {
   try {
     const { username, password } = req.body;
+    const loginId = String(username || '').trim();
 
-    // Validazione input
-    if (!username || !password) {
-      return res.status(400).json({ message: 'Inserisci username e password' });
+    // Validazione input (campo "username" accetta anche email)
+    if (!loginId || !password) {
+      return res.status(400).json({ message: 'Inserisci username o email e password' });
     }
 
-    // Cerca utente
+    // Cerca utente per username oppure email (case-insensitive sull'email)
     const users = await query(
-      'SELECT id, username, email, password, COALESCE(is_superuser, 0) AS is_superuser FROM users WHERE username = ?',
-      [username]
+      `SELECT id, username, email, password, COALESCE(is_superuser, 0) AS is_superuser
+       FROM users
+       WHERE username = ? OR LOWER(email) = LOWER(?)
+       LIMIT 1`,
+      [loginId, loginId]
     );
 
     if (users.length === 0) {

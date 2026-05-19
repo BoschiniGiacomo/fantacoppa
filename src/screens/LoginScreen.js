@@ -37,13 +37,14 @@ export default function LoginScreen({ navigation }) {
     // Chiudi la tastiera prima di eseguire il login
     Keyboard.dismiss();
     
-    if (!username.trim() || !password.trim()) {
-      showToast('Inserisci username e password');
+    const loginId = username.trim();
+    if (!loginId || !password.trim()) {
+      showToast('Inserisci username o email e password');
       return;
     }
 
     setLoading(true);
-    const result = await login(username, password);
+    const result = await login(loginId, password);
     setLoading(false);
 
     if (!result.success) {
@@ -95,11 +96,14 @@ export default function LoginScreen({ navigation }) {
               <Ionicons name="person-outline" size={20} color="#666" style={styles.inputIcon} />
               <TextInput
                 style={styles.input}
-                placeholder="Username"
+                placeholder="Username o email"
                 value={username}
                 onChangeText={setUsername}
                 autoCapitalize="none"
                 autoCorrect={false}
+                keyboardType={username.includes('@') ? 'email-address' : 'default'}
+                textContentType="username"
+                autoComplete="username"
                 returnKeyType="next"
                 onSubmitEditing={() => passwordInputRef.current?.focus()}
                 blurOnSubmit={false}
