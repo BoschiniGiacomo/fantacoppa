@@ -101,14 +101,25 @@ router.get('/:leagueId/players', authenticateToken, async (req, res) => {
                  LIMIT 1
                ) THEN 1
                ELSE 0
-             END AS owned
+             END AS owned,
+             CASE
+               WHEN EXISTS (
+                 SELECT 1
+                 FROM user_players up
+                 WHERE up.player_id = p.id
+                   AND up.user_id = ?
+                   AND up.league_id = ?
+                 LIMIT 1
+               ) THEN 1
+               ELSE 0
+             END AS directly_owned
       FROM players p
       JOIN teams t
         ON t.id = p.team_id
        AND t.league_id = ?
       WHERE 1=1
     `;
-    const params = [userId, leagueId, userId, leagueId, sourceLeagueId];
+    const params = [userId, leagueId, userId, leagueId, userId, leagueId, sourceLeagueId];
     if (role) {
       sql += ' AND p.role = ?';
       params.push(role);
@@ -229,14 +240,25 @@ router.get('/:leagueId/bootstrap', authenticateToken, async (req, res) => {
                  LIMIT 1
                ) THEN 1
                ELSE 0
-             END AS owned
+             END AS owned,
+             CASE
+               WHEN EXISTS (
+                 SELECT 1
+                 FROM user_players up
+                 WHERE up.player_id = p.id
+                   AND up.user_id = ?
+                   AND up.league_id = ?
+                 LIMIT 1
+               ) THEN 1
+               ELSE 0
+             END AS directly_owned
       FROM players p
       JOIN teams t
         ON t.id = p.team_id
        AND t.league_id = ?
       WHERE 1=1
     `;
-    const params = [userId, leagueId, userId, leagueId, sourceLeagueId];
+    const params = [userId, leagueId, userId, leagueId, userId, leagueId, sourceLeagueId];
     if (role) {
       sql += ' AND p.role = ?';
       params.push(role);

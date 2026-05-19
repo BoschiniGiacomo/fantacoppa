@@ -6,16 +6,16 @@ import {
   FlatList,
   TouchableOpacity,
   TextInput,
-  Alert,
   ActivityIndicator,
   RefreshControl,
   Image,
+  Modal,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { useOnboarding } from '../context/OnboardingContext';
-import { marketService, publicAssetUrl } from '../services/api';
+import { marketService, squadService, publicAssetUrl } from '../services/api';
 import { peekMarketBootstrapDefault, setMarketBootstrapDefault, invalidateLeagueWarmCache } from '../services/leagueWarmCache';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -40,9 +40,12 @@ export default function MarketScreen({ route, navigation }) {
   const [sortBy, setSortBy] = useState('rating'); // 'rating', 'name', 'team'
   const [sortAsc, setSortAsc] = useState(false); // false = decrescente, true = crescente
   const [buyFeedback, setBuyFeedback] = useState('');
+  const [releaseFeedback, setReleaseFeedback] = useState('');
   const [errorToast, setErrorToast] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [buyingPlayer, setBuyingPlayer] = useState(null); // id del giocatore in acquisto
+  const [confirmPlayer, setConfirmPlayer] = useState(null);
+  const [removing, setRemoving] = useState(false);
   const debounceRef = useRef(null);
 
   const roles = [
@@ -178,7 +181,7 @@ export default function MarketScreen({ route, navigation }) {
     try {
       await marketService.buyPlayer(leagueId, player.id);
       // Aggiorna ottimisticamente: marca il giocatore come owned nella lista
-      setPlayers(prev => prev.map(p => p.id === player.id ? { ...p, owned: true } : p));
+      setPlayers(prev => prev.map(p => p.id === player.id ? { ...p, owned: true, directly_owned: 1 } : p));
       // Aggiorna conteggi e budget
       const newCounts = { ...ownedCounts, [player.role]: ownedCounts[player.role] + 1 };
       setOwnedCounts(newCounts);
@@ -203,6 +206,52 @@ export default function MarketScreen({ route, navigation }) {
     } catch (error) {
       showError(error.response?.data?.message || 'Errore durante l\'acquisto');
       setBuyingPlayer(null);
+    }
+  };
+
+  const handleRemovePlayer = (player) => {
+    if (Number(player?.is_injured || 0) === 1) return;
+    if (buyingPlayer || removing) return;
+    if (marketBlocked) {
+      showError(
+        marketBlockReason === 'user'
+          ? 'Sei bloccato dal mercato per questa lega'
+          : 'Il mercato è attualmente bloccato dall\'amministratore'
+      );
+      return;
+    }
+    if (Number(player?.directly_owned || 0) !== 1) return;
+    setConfirmPlayer(player);
+  };
+
+  const confirmRemovePlayer = async () => {
+    if (!confirmPlayer) return;
+    setRemoving(true);
+    try {
+      await squadService.removePlayer(leagueId, confirmPlayer.id);
+      const removed = confirmPlayer;
+      setConfirmPlayer(null);
+      setReleaseFeedback(`${removed.first_name} ${removed.last_name} svincolato!`);
+      setTimeout(() => setReleaseFeedback(''), 2000);
+      invalidateLeagueWarmCache(leagueId);
+      const bootstrapRes = await marketService.getBootstrap(leagueId, {});
+      const data = bootstrapRes?.data || {};
+      applyBootstrapData(data);
+      setMarketBootstrapDefault(leagueId, data);
+      const counts = data?.owned_counts || {};
+      const limits = data?.role_limits || roleLimits;
+      const newCounts = {
+        P: Number(counts.P || 0),
+        D: Number(counts.D || 0),
+        C: Number(counts.C || 0),
+        A: Number(counts.A || 0),
+      };
+      const allFull = ['P', 'D', 'C', 'A'].every((r) => newCounts[r] >= (limits[r] || roleLimits[r]));
+      updateAutoDetect({ squadFull: allFull, squadEmpty: newCounts.P + newCounts.D + newCounts.C + newCounts.A === 0 });
+    } catch (error) {
+      showError(error.response?.data?.message || 'Errore durante lo svincolo');
+    } finally {
+      setRemoving(false);
     }
   };
 
@@ -259,6 +308,8 @@ export default function MarketScreen({ route, navigation }) {
     const roleColor = getRoleColor(item.role);
     const roleFull = ownedCounts[item.role] >= roleLimits[item.role];
     const isInjured = Number(item?.is_injured || 0) === 1;
+    const canRelease = item.owned && Number(item?.directly_owned || 0) === 1 && !isInjured;
+    const releaseDisabled = marketBlocked || !!buyingPlayer || removing;
     const displayName = abbreviateName(item.first_name || '', item.last_name || '');
 
     return (
@@ -310,6 +361,17 @@ export default function MarketScreen({ route, navigation }) {
               <View style={styles.injuredActionBadge}>
                 <Ionicons name="bandage" size={24} color="#fff" />
               </View>
+            ) : canRelease ? (
+              <TouchableOpacity
+                style={[styles.removeButton, releaseDisabled && styles.removeButtonDisabled]}
+                onPress={(e) => {
+                  e.stopPropagation();
+                  handleRemovePlayer(item);
+                }}
+                disabled={releaseDisabled}
+              >
+                <Ionicons name="trash-outline" size={16} color="#fff" />
+              </TouchableOpacity>
             ) : item.owned ? (
               <View style={styles.ownedBadge}>
                 <Ionicons name="checkmark-circle" size={18} color="#198754" />
@@ -333,7 +395,7 @@ export default function MarketScreen({ route, navigation }) {
         </View>
       </TouchableOpacity>
     );
-  }, [budgetValue, ownedCounts, roleLimits, marketBlocked, buyingPlayer, league?.id, navigation]);
+  }, [budgetValue, ownedCounts, roleLimits, marketBlocked, marketBlockReason, buyingPlayer, removing, league?.id, navigation]);
 
   const getItemLayout = useCallback((_, index) => ({ length: 64, offset: 64 * index, index }), []);
 
@@ -534,11 +596,75 @@ export default function MarketScreen({ route, navigation }) {
         }
       />
 
+      {/* Modal conferma svincolo */}
+      <Modal
+        visible={confirmPlayer !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => !removing && setConfirmPlayer(null)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalIconWrap}>
+              <Ionicons name="person-remove" size={28} color="#dc3545" />
+            </View>
+            <Text style={styles.modalTitle}>Svincolare giocatore?</Text>
+            {confirmPlayer && (
+              <View style={styles.modalPlayerInfo}>
+                <View style={[styles.modalRoleBadge, { backgroundColor: getRoleColor(confirmPlayer.role) }]}>
+                  <Text style={styles.modalRoleBadgeText}>{confirmPlayer.role}</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.modalPlayerName}>
+                    {confirmPlayer.first_name} {confirmPlayer.last_name}
+                  </Text>
+                  <Text style={styles.modalPlayerTeam}>{confirmPlayer.team_name}</Text>
+                </View>
+                <Text style={styles.modalPlayerRating}>{confirmPlayer.rating}</Text>
+              </View>
+            )}
+            <Text style={styles.modalDesc}>
+              Il giocatore verrà rimosso dalla rosa e il budget verrà riaccreditato.
+            </Text>
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={styles.modalCancelBtn}
+                onPress={() => setConfirmPlayer(null)}
+                disabled={removing}
+              >
+                <Text style={styles.modalCancelText}>Annulla</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalRemoveBtn, removing && { opacity: 0.6 }]}
+                onPress={confirmRemovePlayer}
+                disabled={removing}
+              >
+                {removing ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <>
+                    <Ionicons name="trash-outline" size={16} color="#fff" />
+                    <Text style={styles.modalRemoveText}>Svincola</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* Toast feedback acquisto - overlay in basso sopra tab bar */}
       {buyFeedback !== '' && (
         <View style={[styles.buyFeedback, { bottom: insets.bottom + 70 }]}>
           <Ionicons name="checkmark-circle" size={18} color="#198754" />
           <Text style={styles.buyFeedbackText}>{buyFeedback}</Text>
+        </View>
+      )}
+
+      {releaseFeedback !== '' && (
+        <View style={[styles.buyFeedback, { bottom: insets.bottom + 70 }]}>
+          <Ionicons name="checkmark-circle" size={18} color="#198754" />
+          <Text style={styles.buyFeedbackText}>{releaseFeedback}</Text>
         </View>
       )}
 
@@ -974,6 +1100,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  removeButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#dc3545',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  removeButtonDisabled: {
+    backgroundColor: '#ccc',
+  },
   buyButton: {
     width: 32,
     height: 32,
@@ -1001,5 +1138,116 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#bbb',
     marginTop: 4,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  modalCard: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 24,
+    width: '100%',
+    maxWidth: 340,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.15,
+    shadowRadius: 24,
+    elevation: 12,
+  },
+  modalIconWrap: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: '#fdecea',
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'center',
+    marginBottom: 14,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#333',
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  modalPlayerInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f8f9fa',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 14,
+    gap: 10,
+  },
+  modalRoleBadge: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalRoleBadgeText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 13,
+  },
+  modalPlayerName: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#333',
+  },
+  modalPlayerTeam: {
+    fontSize: 12,
+    color: '#888',
+    marginTop: 1,
+  },
+  modalPlayerRating: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#667eea',
+  },
+  modalDesc: {
+    fontSize: 13,
+    color: '#777',
+    textAlign: 'center',
+    lineHeight: 18,
+    marginBottom: 20,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  modalCancelBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: '#f0f0f0',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalCancelText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#666',
+  },
+  modalRemoveBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: '#dc3545',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  modalRemoveText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#fff',
   },
 });
