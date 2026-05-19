@@ -16,6 +16,11 @@ function matchesNotConfigured(res, err) {
   });
 }
 
+function isRegularGoalEventType(eventType) {
+  const t = String(eventType || '').trim();
+  return t === 'goal' || t === 'penalty_goal';
+}
+
 function parseBooleanishInt(value, fallback = 0) {
   if (value == null || value === '') return fallback ? 1 : 0;
   if (typeof value === 'boolean') return value ? 1 : 0;
@@ -144,11 +149,12 @@ function buildMatchEventPushContent({ eventType, homeTeamName, awayTeamName, tea
   if (eventType === 'match_end') {
     return { title: 'Partita terminata', body: `${matchLabel}${scoreStr}`.trimEnd() };
   }
-  if (eventType === 'goal') {
+  if (isRegularGoalEventType(eventType)) {
     const title = sideTeam ? `GOAL ${sideTeam}` : 'GOAL';
+    const rigSuffix = eventType === 'penalty_goal' ? ' (rig.)' : '';
     const body = playerFmt
-      ? `goal di ${playerFmt} ${matchLabel}${scoreStr}`.trimEnd()
-      : `goal ${matchLabel}${scoreStr}`.trimEnd();
+      ? `goal di ${playerFmt}${rigSuffix} ${matchLabel}${scoreStr}`.trimEnd()
+      : `goal${rigSuffix} ${matchLabel}${scoreStr}`.trimEnd();
     return { title, body };
   }
   if (eventType === 'own_goal') {
@@ -170,7 +176,7 @@ async function fetchOfficialMatchLiveScore(matchId) {
        COALESCE((
          SELECT SUM(
            CASE
-            WHEN e.event_type = 'goal' AND (
+            WHEN e.event_type IN ('goal','penalty_goal') AND (
               e.team_id = m.home_team_id OR (e.team_id IS NULL AND e.team_side = 'home')
             ) THEN 1
             WHEN e.event_type = 'own_goal' AND (
@@ -180,12 +186,12 @@ async function fetchOfficialMatchLiveScore(matchId) {
            END
          )::int
          FROM official_match_events e
-         WHERE e.match_id = ? AND e.event_type IN ('goal','own_goal')
+         WHERE e.match_id = ? AND e.event_type IN ('goal','penalty_goal','own_goal')
        ), m.home_score, 0) AS home_goals,
        COALESCE((
          SELECT SUM(
            CASE
-            WHEN e.event_type = 'goal' AND (
+            WHEN e.event_type IN ('goal','penalty_goal') AND (
               e.team_id = m.away_team_id OR (e.team_id IS NULL AND e.team_side = 'away')
             ) THEN 1
             WHEN e.event_type = 'own_goal' AND (
@@ -195,7 +201,7 @@ async function fetchOfficialMatchLiveScore(matchId) {
            END
          )::int
          FROM official_match_events e
-         WHERE e.match_id = ? AND e.event_type IN ('goal','own_goal')
+         WHERE e.match_id = ? AND e.event_type IN ('goal','penalty_goal','own_goal')
        ), m.away_score, 0) AS away_goals
      FROM official_matches m
      WHERE m.id = ?
@@ -360,7 +366,7 @@ async function notifyUsersForOfficialMatchEvent({ eventId, matchId, eventType, p
 
   let homeGoals = null;
   let awayGoals = null;
-  if (eventType === 'goal' || eventType === 'own_goal' || eventType === 'match_end') {
+  if (isRegularGoalEventType(eventType) || eventType === 'own_goal' || eventType === 'match_end') {
     const live = await fetchOfficialMatchLiveScore(matchId);
     if (live) {
       homeGoals = live.home;
@@ -519,6 +525,7 @@ function buildEventPayloadForDb(body) {
 function buildEventTitleForDb(eventType, teamSide, payload) {
   const pn = payload && payload.player_name ? String(payload.player_name).trim() : '';
   if (eventType === 'goal') return pn ? `Goal - ${pn}` : 'Goal';
+  if (eventType === 'penalty_goal') return pn ? `Rigore segnato - ${pn}` : 'Rigore segnato';
   if (eventType === 'own_goal') return pn ? `Autogol - ${pn}` : 'Autogol';
   if (eventType === 'yellow_card') return pn ? `Ammonizione - ${pn}` : 'Ammonizione';
   if (eventType === 'red_card') return pn ? `Espulsione - ${pn}` : 'Espulsione';
@@ -694,7 +701,7 @@ async function computeStandingsFromMatches({ leagueId, groupId }) {
       `
       SELECT match_id, event_type, team_side, team_id
       FROM official_match_events
-      WHERE match_id IN (${ph}) AND event_type IN ('goal','own_goal')
+      WHERE match_id IN (${ph}) AND event_type IN ('goal','penalty_goal','own_goal')
       `,
       matchIds
     );
@@ -717,7 +724,7 @@ async function computeStandingsFromMatches({ leagueId, groupId }) {
     for (const e of evs) {
       const evTeamId = Number(e.team_id);
       const byTeamId = Number.isFinite(evTeamId) && evTeamId > 0 && homeTeamId > 0 && awayTeamId > 0;
-      if (e.event_type === 'goal') {
+      if (isRegularGoalEventType(e.event_type)) {
         if (byTeamId) {
           if (evTeamId === homeTeamId) h += 1;
           if (evTeamId === awayTeamId) a += 1;
@@ -919,7 +926,7 @@ async function buildKnockoutBracketForLeague({ competitionId, leagueId }) {
         }
       } else if (e.event_type === 'shootout_missed') {
         s.hasShootout = true;
-      } else if (e.event_type === 'goal') {
+      } else if (isRegularGoalEventType(e.event_type)) {
         if (byTeamId) {
           if (evTeamId === teamRef.home_team_id) s.home += 1;
           if (evTeamId === teamRef.away_team_id) s.away += 1;
@@ -1033,7 +1040,7 @@ router.get('/matches', authenticateToken, async (req, res) => {
         SELECT
           e.match_id,
           SUM(CASE
-                WHEN e.event_type = 'goal' AND (
+                WHEN e.event_type IN ('goal','penalty_goal') AND (
                   e.team_id = om.home_team_id OR (e.team_id IS NULL AND e.team_side = 'home')
                 ) THEN 1
                 WHEN e.event_type = 'own_goal' AND (
@@ -1042,7 +1049,7 @@ router.get('/matches', authenticateToken, async (req, res) => {
                 ELSE 0
               END)::int AS ev_home,
           SUM(CASE
-                WHEN e.event_type = 'goal' AND (
+                WHEN e.event_type IN ('goal','penalty_goal') AND (
                   e.team_id = om.away_team_id OR (e.team_id IS NULL AND e.team_side = 'away')
                 ) THEN 1
                 WHEN e.event_type = 'own_goal' AND (
@@ -1066,7 +1073,7 @@ router.get('/matches', authenticateToken, async (req, res) => {
           BOOL_OR(e.event_type IN ('shootout_goal','shootout_missed')) AS has_shootout
         FROM official_match_events e
         JOIN official_matches om ON om.id = e.match_id
-        WHERE e.event_type IN ('goal','own_goal','shootout_goal','shootout_missed')
+        WHERE e.event_type IN ('goal','penalty_goal','own_goal','shootout_goal','shootout_missed')
         GROUP BY e.match_id
       ),
       last_phase AS (
@@ -1343,7 +1350,7 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
             }
           } else if (e.event_type === 'shootout_missed') {
             s.hasShootout = true;
-          } else if (e.event_type === 'goal') {
+          } else if (isRegularGoalEventType(e.event_type)) {
             if (byTeamId) {
               if (evTeamId === teamRef.home_team_id) s.home += 1;
               if (evTeamId === teamRef.away_team_id) s.away += 1;
@@ -1520,7 +1527,7 @@ router.get('/matches/teams/:teamId/matches', authenticateToken, async (req, res)
         SELECT
           e.match_id,
           SUM(CASE
-                WHEN e.event_type = 'goal' AND (
+                WHEN e.event_type IN ('goal','penalty_goal') AND (
                   e.team_id = om.home_team_id OR (e.team_id IS NULL AND e.team_side = 'home')
                 ) THEN 1
                 WHEN e.event_type = 'own_goal' AND (
@@ -1529,7 +1536,7 @@ router.get('/matches/teams/:teamId/matches', authenticateToken, async (req, res)
                 ELSE 0
               END)::int AS ev_home,
           SUM(CASE
-                WHEN e.event_type = 'goal' AND (
+                WHEN e.event_type IN ('goal','penalty_goal') AND (
                   e.team_id = om.away_team_id OR (e.team_id IS NULL AND e.team_side = 'away')
                 ) THEN 1
                 WHEN e.event_type = 'own_goal' AND (
@@ -1552,7 +1559,7 @@ router.get('/matches/teams/:teamId/matches', authenticateToken, async (req, res)
           BOOL_OR(e.event_type IN ('shootout_goal','shootout_missed')) AS has_shootout
         FROM official_match_events e
         JOIN official_matches om ON om.id = e.match_id
-        WHERE e.event_type IN ('goal','own_goal','shootout_goal','shootout_missed')
+        WHERE e.event_type IN ('goal','penalty_goal','own_goal','shootout_goal','shootout_missed')
         GROUP BY e.match_id
       ),
       last_phase AS (
@@ -2016,7 +2023,7 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
           }
         } else if (e.event_type === 'shootout_missed') {
           hasShootoutEvents = true;
-        } else if (e.event_type === 'goal') {
+        } else if (isRegularGoalEventType(e.event_type)) {
           hasGoalEvents = true;
           if (Number.isFinite(evTeamId) && evTeamId > 0) {
             if (evTeamId === Number(m.home_team_id)) homeGoals += 1;
@@ -2052,7 +2059,7 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
         if (!mine) continue;
         if (e.event_type === 'yellow_card') yellowCards += 1;
         if (e.event_type === 'red_card') redCards += 1;
-        if (e.event_type === 'goal') {
+        if (isRegularGoalEventType(e.event_type)) {
           const pid = Number(e.player_id) || Number(payload?.player_id);
           const aid = Number(e.assist_player_id) || Number(payload?.assist_player_id);
           const scorerMine =

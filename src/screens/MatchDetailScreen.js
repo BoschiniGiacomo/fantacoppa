@@ -132,7 +132,7 @@ function labelSecondHalfEnd(match) {
 function labelExtraSecondHalfEnd(match) {
   const pens = Number(match?.penalties_enabled) === 1;
   const hasSecondExtraHalf = hasExtraSecondHalf(match);
-  if (!hasSecondExtraHalf) return pens ? 'Fine 1° tempo supplementare' : 'Fine partita';
+  if (!hasSecondExtraHalf) return pens ? 'Fine tempo supplementare' : 'Fine partita';
   if (!pens) return 'Fine partita';
   return 'Fine secondo tempo supplementare';
 }
@@ -388,8 +388,12 @@ function eventStoppagePeriodEnd(ev, match) {
     : null;
 }
 
+function isRegularGoalEventType(eventType) {
+  return eventType === 'goal' || eventType === 'penalty_goal';
+}
+
 function isStoppageEditableEventType(eventType) {
-  return ['goal', 'own_goal', 'yellow_card', 'red_card', 'penalty_missed'].includes(eventType);
+  return ['goal', 'penalty_goal', 'own_goal', 'yellow_card', 'red_card', 'penalty_missed'].includes(eventType);
 }
 
 function isShootoutEventType(eventType) {
@@ -858,10 +862,11 @@ function LineupPlayerRow({
 }
 
 /** Stessi tipi di BonusIcon (bonus/malus) — vedi `BONUS_ICONS` in BonusIcon.js */
-const LIVE_EVENT_BONUS_TYPES = new Set(['goal', 'yellow_card', 'red_card', 'penalty_missed', 'own_goal']);
-const EDITABLE_LIVE_EVENT_TYPES = new Set(['goal', 'own_goal', 'yellow_card', 'red_card', 'penalty_missed', 'shootout_goal', 'shootout_missed']);
+const LIVE_EVENT_BONUS_TYPES = new Set(['goal', 'penalty_goal', 'yellow_card', 'red_card', 'penalty_missed', 'own_goal']);
+const EDITABLE_LIVE_EVENT_TYPES = new Set(['goal', 'penalty_goal', 'own_goal', 'yellow_card', 'red_card', 'penalty_missed', 'shootout_goal', 'shootout_missed']);
 const LIVE_EVENT_TYPE_LABELS = {
   goal: 'Goal',
+  penalty_goal: 'Rigore segnato',
   own_goal: 'Autogol',
   yellow_card: 'Giallo',
   red_card: 'Rosso',
@@ -887,6 +892,7 @@ function liveEventTypeLabel(eventType, match) {
 
 const EVENT_WIZARD_TYPES = [
   { id: 'goal', label: 'Goal', bonusType: 'goal' },
+  { id: 'penalty_goal', label: 'Rigore segnato', bonusType: 'penalty_goal' },
   { id: 'own_goal', label: 'Autogol', bonusType: 'own_goal' },
   { id: 'yellow_card', label: 'Ammonizione', bonusType: 'yellow_card' },
   { id: 'red_card', label: 'Espulsione', bonusType: 'red_card' },
@@ -900,7 +906,7 @@ function computeLiveScoreFromEvents(events) {
   for (const ev of events) {
     if (!ev || ev.event_type === 'match_end') continue;
     const s = ev.team_side;
-    if (ev.event_type === 'goal') {
+    if (isRegularGoalEventType(ev.event_type)) {
       if (s === 'home') home += 1;
       else if (s === 'away') away += 1;
     } else if (ev.event_type === 'own_goal') {
@@ -1022,7 +1028,7 @@ function minuteLabelForHeroScorer(ev, match) {
  */
 function buildHeroScorerBlocks(liveEvents, match) {
   const sorted = [...(liveEvents || [])]
-    .filter((e) => e && (e.event_type === 'goal' || e.event_type === 'own_goal'))
+    .filter((e) => e && (isRegularGoalEventType(e.event_type) || e.event_type === 'own_goal'))
     .sort((a, b) => compareEventsForTimelineDisplay(a, b, match));
 
   const homeMap = new Map();
@@ -1034,7 +1040,7 @@ function buildHeroScorerBlocks(liveEvents, match) {
     const minLab = minuteLabelForHeroScorer(ev, match);
 
     let creditsHome;
-    if (ev.event_type === 'goal') {
+    if (isRegularGoalEventType(ev.event_type)) {
       creditsHome = ev.team_side === 'home';
     } else {
       creditsHome = ev.team_side === 'away';
@@ -1733,7 +1739,8 @@ export default function MatchDetailScreen({ navigation, route }) {
     [eventPlayersSorted, eventAssistPlayerId]
   );
   const hasAssistWizardStep = eventType === 'goal';
-  const canSkipPlayerSelection = eventType === 'goal' || eventType === 'own_goal' || eventType === 'penalty_missed';
+  const canSkipPlayerSelection =
+    eventType === 'goal' || eventType === 'penalty_goal' || eventType === 'own_goal' || eventType === 'penalty_missed';
   const eventWizardLastStep = hasAssistWizardStep ? 5 : 4;
   const eventAssistWizardStep = 4;
   const eventSummaryWizardStep = eventWizardLastStep;
@@ -3436,6 +3443,7 @@ export default function MatchDetailScreen({ navigation, route }) {
                                         <View style={styles.rowChips}>
                                           {[
                                             { id: 'goal', label: 'Goal' },
+                                            { id: 'penalty_goal', label: 'Rigore segnato' },
                                             { id: 'own_goal', label: 'Autogol' },
                                             { id: 'yellow_card', label: 'Giallo' },
                                             { id: 'red_card', label: 'Rosso' },

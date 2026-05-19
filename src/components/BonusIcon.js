@@ -43,6 +43,11 @@ const BONUS_ICONS = {
     color: '#198754',
     badge: { icon: 'close-circle', lib: 'ion', color: '#e53935' },
   },
+  /** Rigore segnato in partita (non tabellone rigori): campo + pallone e spunta verde in basso. */
+  penalty_goal: {
+    type: 'penalty_goal',
+    color: '#198754',
+  },
   penalty_saved: {
     icon: 'soccer-field',
     lib: 'mci',
@@ -87,6 +92,37 @@ export default function BonusIcon({ type, size = 18, inactive = false }) {
   if (!config) return null;
 
   const INACTIVE_COLOR = '#ccc';
+
+  if (config.type === 'penalty_goal') {
+    const fieldColor = inactive ? INACTIVE_COLOR : config.color;
+    const ballColor = inactive ? INACTIVE_COLOR : '#222';
+    const checkColor = inactive ? INACTIVE_COLOR : '#198754';
+    const badgeSize = Math.round(size * 0.48);
+    const checkSize = Math.round(size * 0.4);
+    const containerW = Math.round(size * 1.28);
+    const containerH = Math.round(size * 1.18);
+    return (
+      <View style={{ width: containerW, height: containerH }}>
+        <MaterialCommunityIcons name="soccer-field" size={size} color={fieldColor} />
+        <View
+          style={{
+            position: 'absolute',
+            bottom: Math.round(size * -0.2),
+            right: Math.round(size * -0.22),
+            width: badgeSize + 4,
+            height: badgeSize + 4,
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <MaterialCommunityIcons name="soccer" size={badgeSize} color={ballColor} />
+          <View style={{ position: 'absolute', bottom: -3, right: -5 }}>
+            <Ionicons name="checkmark-circle" size={checkSize} color={checkColor} />
+          </View>
+        </View>
+      </View>
+    );
+  }
 
   // Cartellini giallo/rosso: rettangolo colorato
   if (config.type === 'card') {
