@@ -7,9 +7,7 @@
     "icon": "./assets/app-icon.png",
     "userInterfaceStyle": "light",
     "splash": {
-      "image": "./assets/app-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#000000"
     },
     "assetBundlePatterns": [
       "assets/**/*"
@@ -24,16 +22,16 @@
     },
     "android": {
       "package": "com.fantacoppa.app",
-      "versionCode": 13,
+      "versionCode": 14,
       "googleServicesFile": "./android/app/google-services.json",
       "permissions": [],
       "adaptiveIcon": {
-        "foregroundImage": "./assets/app-icon.png",
+        "foregroundImage": "./assets/app-icon-android-adaptive.png",
         "backgroundColor": "#ffffff"
       }
     },
     "extra": {
-      "appVersionCode": 13,
+      "appVersionCode": 14,
       "supabaseUrl": "https://zaqvtlsmefrgbduhzmwk.supabase.co",
       "eas": {
         "projectId": "f1e19392-b5b0-4646-8672-5f8e39654f4a"
@@ -51,9 +49,7 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/app-icon.png",
-          "resizeMode": "contain",
-          "backgroundColor": "#ffffff"
+          "backgroundColor": "#000000"
         }
       ],
       "@react-native-community/datetimepicker",

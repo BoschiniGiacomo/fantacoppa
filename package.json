@@ -17,7 +17,8 @@
     "build:list": "eas build:list",
     "build:download": "eas build:download",
     "update:preview": "eas update --channel preview --message",
-    "update:production": "eas update --channel production --message"
+    "update:production": "eas update --channel production --message",
+    "icons:android-adaptive": "node scripts/build-android-adaptive-icon.js"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
