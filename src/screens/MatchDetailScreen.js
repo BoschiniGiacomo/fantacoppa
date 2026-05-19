@@ -22,6 +22,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
 import { adminMatchesService, matchesService, publicAssetUrl } from '../services/api';
 import BonusIcon from '../components/BonusIcon';
+import KnockoutSemiTieBlock, { KnockoutScoreText, hasKnockoutShootoutScore } from '../components/KnockoutSemiTieBlock';
+import { groupSemifinalsIntoTies } from '../utils/knockoutBracket';
 import {
   computeLiveHeroClock,
   continuationCumulativeMinute,
@@ -441,24 +443,6 @@ function shootoutCanEnd(events) {
   if (s.homeGoals > s.awayGoals + awayRemaining) return true;
   if (s.awayGoals > s.homeGoals + homeRemaining) return true;
   return s.homeTaken >= maxRegularKicks && s.awayTaken >= maxRegularKicks && s.homeGoals !== s.awayGoals;
-}
-
-function hasKnockoutShootoutScore(matchRow) {
-  return Number.isFinite(Number(matchRow?.home_shootout_score)) && Number.isFinite(Number(matchRow?.away_shootout_score));
-}
-
-function KnockoutScoreText({ score, shootoutScore }) {
-  return (
-    <View style={styles.knockoutScoreTextRow}>
-      <Text style={styles.knockoutScoreText}>{score != null ? String(score) : ''}</Text>
-      {shootoutScore != null ? (
-        <>
-          <View style={styles.knockoutShootoutDivider} />
-          <Text style={styles.knockoutShootoutScoreText}>{shootoutScore}</Text>
-        </>
-      ) : null}
-    </View>
-  );
 }
 
 /**
@@ -2148,6 +2132,9 @@ export default function MatchDetailScreen({ navigation, route }) {
     [navigation, matchId]
   );
 
+  const semifinalTies = useMemo(() => groupSemifinalsIntoTies(knockout.semifinals), [knockout.semifinals]);
+  const knockoutFlowTall = semifinalTies.some((t) => t.twoLegged);
+
   const standingsKnockoutBracketGrid = useMemo(
     () => (
       <>
@@ -2158,67 +2145,19 @@ export default function MatchDetailScreen({ navigation, route }) {
         </View>
         <View style={styles.knockoutBracketRow}>
           <View style={styles.knockoutSemisCol}>
-            {[0, 1].map((idx) => {
-              const semi = knockout.semifinals?.[idx] || null;
-              const semiHasShootout = hasKnockoutShootoutScore(semi);
-              return (
-                <View key={`semi-${idx}`} style={styles.knockoutSemiBlock}>
-                  <View style={styles.knockoutSemiLabelRow}>
-                    <Text style={styles.knockoutSemiSmallLabel}>SF {idx + 1}</Text>
-                  </View>
-                  <TouchableOpacity
-                    style={styles.knockoutMatchStackMeasure}
-                    activeOpacity={0.78}
-                    disabled={!semi?.id}
-                    onPress={() => openKnockoutMatchDetail(semi?.id)}
-                    accessibilityRole={semi?.id ? 'button' : undefined}
-                    accessibilityLabel={semi?.id ? `Apri partita semifinale ${idx + 1}` : undefined}
-                  >
-                    <View style={styles.knockoutMatchStack}>
-                      <View style={styles.knockoutTeamBox}>
-                        <View style={styles.knockoutTeamRow}>
-                          {semi?.home_team_name ? (
-                            <TableTeamLogo logoUrl={semi?.home_team_logo_url} logoPath={semi?.home_team_logo_path} size={30} />
-                          ) : (
-                            <View style={styles.knockoutLogoPlaceholder} />
-                          )}
-                          <Text style={styles.knockoutTeamText} numberOfLines={1}>
-                            {semi?.home_team_name || '-'}
-                          </Text>
-                          <View style={styles.knockoutScoreBox}>
-                            <KnockoutScoreText
-                              score={semi?.home_score}
-                              shootoutScore={semiHasShootout ? semi?.home_shootout_score : null}
-                            />
-                          </View>
-                        </View>
-                      </View>
-                      <View style={styles.knockoutTeamBox}>
-                        <View style={styles.knockoutTeamRow}>
-                          {semi?.away_team_name ? (
-                            <TableTeamLogo logoUrl={semi?.away_team_logo_url} logoPath={semi?.away_team_logo_path} size={30} />
-                          ) : (
-                            <View style={styles.knockoutLogoPlaceholder} />
-                          )}
-                          <Text style={styles.knockoutTeamText} numberOfLines={1}>
-                            {semi?.away_team_name || '-'}
-                          </Text>
-                          <View style={styles.knockoutScoreBox}>
-                            <KnockoutScoreText
-                              score={semi?.away_score}
-                              shootoutScore={semiHasShootout ? semi?.away_shootout_score : null}
-                            />
-                          </View>
-                        </View>
-                      </View>
-                    </View>
-                  </TouchableOpacity>
-                </View>
-              );
-            })}
+            {semifinalTies.map((tie, idx) => (
+              <KnockoutSemiTieBlock
+                key={`semi-tie-${idx}-${tie.legs.map((l) => l.id).join('-')}`}
+                tie={tie}
+                sfIndex={idx}
+                onPressMatch={openKnockoutMatchDetail}
+                LogoComponent={TableTeamLogo}
+                styles={styles}
+              />
+            ))}
           </View>
 
-          <View style={styles.knockoutFlowCol}>
+          <View style={[styles.knockoutFlowCol, knockoutFlowTall && styles.knockoutFlowColTall]}>
             <View style={styles.knockoutBracketTopArm} />
             <View style={styles.knockoutBracketBottomArm} />
             <View style={styles.knockoutBracketVertical} />
@@ -2257,6 +2196,7 @@ export default function MatchDetailScreen({ navigation, route }) {
                       <KnockoutScoreText
                         score={knockout.final?.home_score}
                         shootoutScore={finalHasShootout ? knockout.final?.home_shootout_score : null}
+                        styles={styles}
                       />
                     </View>
                   </View>
@@ -2279,6 +2219,7 @@ export default function MatchDetailScreen({ navigation, route }) {
                       <KnockoutScoreText
                         score={knockout.final?.away_score}
                         shootoutScore={finalHasShootout ? knockout.final?.away_shootout_score : null}
+                        styles={styles}
                       />
                     </View>
                   </View>
@@ -2291,7 +2232,7 @@ export default function MatchDetailScreen({ navigation, route }) {
         </View>
       </>
     ),
-    [knockout, openKnockoutMatchDetail]
+    [knockout, openKnockoutMatchDetail, semifinalTies, knockoutFlowTall]
   );
 
   const standingsTableInner = useMemo(
@@ -4819,7 +4760,7 @@ const styles = StyleSheet.create({
   knockoutColumnTitle: { flex: 1.2, fontSize: 12, fontWeight: '800', color: '#6b7280', textTransform: 'uppercase' },
   knockoutColumnTitleSpacer: { width: 56 },
   knockoutBracketRow: { flexDirection: 'row', alignItems: 'stretch', gap: 0 },
-  knockoutSemisCol: { flex: 1.2, gap: 6, alignSelf: 'flex-start', marginRight: -2 },
+  knockoutSemisCol: { flex: 1.2, gap: 10, alignSelf: 'flex-start', marginRight: -2 },
   knockoutSemiBlock: { flexGrow: 0, flexShrink: 0 },
   knockoutFinalCol: { flex: 1.08, alignSelf: 'stretch', justifyContent: 'center', paddingTop: 20, marginLeft: -2 },
   knockoutFinalWrap: { alignItems: 'center' },
@@ -4830,6 +4771,45 @@ const styles = StyleSheet.create({
     height: 112,
     marginTop: 46,
     position: 'relative',
+  },
+  knockoutFlowColTall: {
+    height: 168,
+    marginTop: 58,
+  },
+  knockoutTieStack: { gap: 6, width: '100%' },
+  knockoutLegWrap: {
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    borderRadius: 8,
+    backgroundColor: '#fff',
+    overflow: 'hidden',
+    paddingTop: 4,
+    paddingBottom: 4,
+  },
+  knockoutTwoLegHeaderRow: {
+    marginBottom: 0,
+    paddingRight: 6,
+    minHeight: 16,
+  },
+  knockoutTwoLegHeaderSpacer: { flex: 1, minWidth: 0 },
+  knockoutTwoLegScoreCols: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  knockoutLegColLabel: {
+    minWidth: 20,
+    textAlign: 'center',
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#9ca3af',
+  },
+  knockoutAggregateText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#6b7280',
+    marginTop: 2,
+    paddingHorizontal: 2,
   },
   knockoutBracketTopArm: {
     position: 'absolute',
