@@ -489,8 +489,20 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
               seasonKnockoutFlowTall && styles.seasonKnockoutFlowColCompact,
             ]}
           >
-            <View style={[styles.seasonKnockoutBracketTopArm, seasonKnockoutFlowTall && styles.seasonKnockoutBracketTopArmCompact]} />
-            <View style={[styles.seasonKnockoutBracketBottomArm, seasonKnockoutFlowTall && styles.seasonKnockoutBracketBottomArmCompact]} />
+            <View
+              style={[
+                styles.seasonKnockoutBracketTopArm,
+                seasonKnockoutFlowTall && styles.seasonKnockoutBracketTopArmCompact,
+                seasonKnockoutFlowTall && styles.seasonKnockoutBracketTopArmCompactTall,
+              ]}
+            />
+            <View
+              style={[
+                styles.seasonKnockoutBracketBottomArm,
+                seasonKnockoutFlowTall && styles.seasonKnockoutBracketBottomArmCompact,
+                seasonKnockoutFlowTall && styles.seasonKnockoutBracketBottomArmCompactTall,
+              ]}
+            />
             <View
               style={[
                 styles.seasonKnockoutBracketVertical,
@@ -498,7 +510,13 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
                 seasonKnockoutFlowTall && styles.seasonKnockoutBracketVerticalCompactTall,
               ]}
             />
-            <View style={[styles.seasonKnockoutBracketMiddleArm, seasonKnockoutFlowTall && styles.seasonKnockoutBracketMiddleArmCompact]} />
+            <View
+              style={[
+                styles.seasonKnockoutBracketMiddleArm,
+                seasonKnockoutFlowTall && styles.seasonKnockoutBracketMiddleArmCompact,
+                seasonKnockoutFlowTall && styles.seasonKnockoutBracketMiddleArmCompactTall,
+              ]}
+            />
           </View>
 
           <View style={styles.seasonKnockoutFinalCol}>
@@ -1434,7 +1452,7 @@ const styles = StyleSheet.create({
   },
   seasonKnockoutFlowColTall: {
     height: 152,
-    marginTop: 52,
+    marginTop: 42,
   },
   seasonKnockoutFlowColCompact: { width: 28 },
   seasonKnockoutTieStack: { gap: 6, width: '100%' },
@@ -1462,10 +1480,13 @@ const styles = StyleSheet.create({
   seasonKnockoutBracketVertical: { position: 'absolute', left: 38, top: 10, width: 1, height: 92, backgroundColor: '#d1d5db' },
   seasonKnockoutBracketMiddleArm: { position: 'absolute', left: 38, top: 56, width: 14, height: 1, backgroundColor: '#d1d5db' },
   seasonKnockoutBracketTopArmCompact: { left: 3, width: 14 },
+  seasonKnockoutBracketTopArmCompactTall: { top: 4 },
   seasonKnockoutBracketBottomArmCompact: { left: 3, width: 14 },
+  seasonKnockoutBracketBottomArmCompactTall: { bottom: 10 },
   seasonKnockoutBracketVerticalCompact: { left: 17 },
-  seasonKnockoutBracketVerticalCompactTall: { height: 132 },
+  seasonKnockoutBracketVerticalCompactTall: { top: 4, height: 138 },
   seasonKnockoutBracketMiddleArmCompact: { left: 17, width: 11 },
+  seasonKnockoutBracketMiddleArmCompactTall: { top: 88 },
   seasonKnockoutFinalLabelRow: { height: 0, marginBottom: 0 },
   seasonKnockoutMatchStackMeasure: { width: '100%' },
   seasonKnockoutMatchStack: { gap: 6, width: '100%' },

@@ -2158,8 +2158,20 @@ export default function MatchDetailScreen({ navigation, route }) {
           </View>
 
           <View style={[styles.knockoutFlowCol, knockoutFlowTall && styles.knockoutFlowColTall, knockoutFlowTall && styles.knockoutFlowColCompact]}>
-            <View style={[styles.knockoutBracketTopArm, knockoutFlowTall && styles.knockoutBracketTopArmCompact]} />
-            <View style={[styles.knockoutBracketBottomArm, knockoutFlowTall && styles.knockoutBracketBottomArmCompact]} />
+            <View
+              style={[
+                styles.knockoutBracketTopArm,
+                knockoutFlowTall && styles.knockoutBracketTopArmCompact,
+                knockoutFlowTall && styles.knockoutBracketTopArmCompactTall,
+              ]}
+            />
+            <View
+              style={[
+                styles.knockoutBracketBottomArm,
+                knockoutFlowTall && styles.knockoutBracketBottomArmCompact,
+                knockoutFlowTall && styles.knockoutBracketBottomArmCompactTall,
+              ]}
+            />
             <View
               style={[
                 styles.knockoutBracketVertical,
@@ -2167,7 +2179,13 @@ export default function MatchDetailScreen({ navigation, route }) {
                 knockoutFlowTall && styles.knockoutBracketVerticalCompactTall,
               ]}
             />
-            <View style={[styles.knockoutBracketMiddleArm, knockoutFlowTall && styles.knockoutBracketMiddleArmCompact]} />
+            <View
+              style={[
+                styles.knockoutBracketMiddleArm,
+                knockoutFlowTall && styles.knockoutBracketMiddleArmCompact,
+                knockoutFlowTall && styles.knockoutBracketMiddleArmCompactTall,
+              ]}
+            />
           </View>
 
           <View style={styles.knockoutFinalCol}>
@@ -4789,7 +4807,7 @@ const styles = StyleSheet.create({
   },
   knockoutFlowColTall: {
     height: 152,
-    marginTop: 52,
+    marginTop: 44,
   },
   knockoutFlowColCompact: { width: 28 },
   knockoutTieStack: { gap: 6, width: '100%' },
@@ -4845,10 +4863,13 @@ const styles = StyleSheet.create({
     backgroundColor: '#d1d5db',
   },
   knockoutBracketTopArmCompact: { left: 3, width: 14 },
+  knockoutBracketTopArmCompactTall: { top: 4 },
   knockoutBracketBottomArmCompact: { left: 3, width: 14 },
+  knockoutBracketBottomArmCompactTall: { bottom: 10 },
   knockoutBracketVerticalCompact: { left: 17 },
-  knockoutBracketVerticalCompactTall: { height: 132 },
+  knockoutBracketVerticalCompactTall: { top: 4, height: 138 },
   knockoutBracketMiddleArmCompact: { left: 17, width: 11 },
+  knockoutBracketMiddleArmCompactTall: { top: 86 },
   knockoutFinalLabelRow: { height: 0, marginBottom: 0 },
   knockoutStageLabel: { fontSize: 12, fontWeight: '700', color: '#6b7280', textTransform: 'uppercase', marginBottom: 4 },
   knockoutMatchRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, width: '100%' },
