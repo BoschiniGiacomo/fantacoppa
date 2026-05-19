@@ -1334,6 +1334,10 @@ export default function MatchDetailScreen({ navigation, route }) {
     const n = computeSuggestedTimelineMinute(liveEvents, match, liveTimerOffsetSec);
     return `${n}\u2032`;
   }, [liveEvents, match, tick, liveTimerOffsetSec]);
+  const suggestedTimelineMinuteInput = useMemo(
+    () => String(computeSuggestedTimelineMinute(liveEvents, match, liveTimerOffsetSec)),
+    [liveEvents, match, liveTimerOffsetSec, tick]
+  );
   const heroRunningMinuteInt = useMemo(
     () => computeHeroRunningDisplayMinuteInt(liveEvents, match, liveTimerOffsetSec),
     [liveEvents, match, liveTimerOffsetSec, tick]
@@ -1664,10 +1668,10 @@ export default function MatchDetailScreen({ navigation, route }) {
 
   useEffect(() => {
     if (!showEventEditor || editorModalTab !== 'events' || eventMinuteDirty) return;
-    if ((eventMinute || '').trim() === '' && eventMinuteClearedAtSuggestionRef.current === suggestedTimelineMinuteStr) return;
+    if ((eventMinute || '').trim() === '' && eventMinuteClearedAtSuggestionRef.current === suggestedTimelineMinuteInput) return;
     eventMinuteClearedAtSuggestionRef.current = null;
-    setEventMinute(suggestedTimelineMinuteStr);
-  }, [showEventEditor, editorModalTab, eventMinuteDirty, eventMinute, suggestedTimelineMinuteStr]);
+    setEventMinute(suggestedTimelineMinuteInput);
+  }, [showEventEditor, editorModalTab, eventMinuteDirty, eventMinute, suggestedTimelineMinuteInput]);
 
   const eventMinuteNum = useMemo(() => parseTimelineMinuteToInt(eventMinute), [eventMinute]);
   const eventStoppagePeriodEndValue = useMemo(
@@ -1678,6 +1682,14 @@ export default function MatchDetailScreen({ navigation, route }) {
     () => eventStoppagePeriodEndValue != null ? formatMinuteStoppageLabel(eventMinuteNum, eventStoppagePeriodEndValue) : '',
     [eventMinuteNum, eventStoppagePeriodEndValue]
   );
+  const eventMinuteRecapLabel = useMemo(() => {
+    const raw = (eventMinute || '').trim();
+    if (!raw) return suggestedTimelineMinuteStr;
+    if (eventStoppageLabel) return eventStoppageLabel;
+    const n = parseTimelineMinuteToInt(raw);
+    if (!Number.isFinite(n) || n < 0) return suggestedTimelineMinuteStr;
+    return `${n}\u2032`;
+  }, [eventMinute, suggestedTimelineMinuteStr, eventStoppageLabel]);
   const eventPlayersSorted = useMemo(() => {
     const players = Array.isArray(teamPlayers?.[eventTeamSide]) ? teamPlayers[eventTeamSide] : [];
     return [...players].sort((a, b) => {
@@ -1964,7 +1976,7 @@ export default function MatchDetailScreen({ navigation, route }) {
       setEventMinuteStepOpen(false);
       setEventMinuteDirty(false);
       eventMinuteClearedAtSuggestionRef.current = null;
-      setEventMinute(suggestedTimelineMinuteStr);
+      setEventMinute(suggestedTimelineMinuteInput);
         await loadDetail({ showLoading: false });
         closeEventModal();
       } catch (err) {
@@ -2880,7 +2892,7 @@ export default function MatchDetailScreen({ navigation, route }) {
                 setEventAssistSearch('');
                 setEventMinuteStepOpen(false);
                 setShowEventEditor(true);
-                setEventMinute(suggestedTimelineMinuteStr);
+                setEventMinute(suggestedTimelineMinuteInput);
                 fillMatchEndDefaults();
               }}
               accessibilityLabel="Aggiungi evento"
@@ -3838,7 +3850,7 @@ export default function MatchDetailScreen({ navigation, route }) {
                             ) : null}
                             <View style={styles.eventSummaryRow}>
                               <Text style={styles.eventSummaryKey}>Minuto</Text>
-                              <Text style={styles.eventSummaryVal}>{(eventMinute || '').trim() || suggestedTimelineMinuteStr}</Text>
+                              <Text style={styles.eventSummaryVal}>{eventMinuteRecapLabel}</Text>
                             </View>
                           </View>
                           {eventMinuteStepOpen ? (
@@ -3853,7 +3865,7 @@ export default function MatchDetailScreen({ navigation, route }) {
                                   const d = t.replace(/\D/g, '').slice(0, 3);
                                   setEventMinute(d);
                                   if (d.trim() === '') {
-                                    eventMinuteClearedAtSuggestionRef.current = suggestedTimelineMinuteStr;
+                                    eventMinuteClearedAtSuggestionRef.current = suggestedTimelineMinuteInput;
                                     setEventMinuteDirty(false);
                                   } else {
                                     eventMinuteClearedAtSuggestionRef.current = null;

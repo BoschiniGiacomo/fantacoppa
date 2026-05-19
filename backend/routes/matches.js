@@ -1115,8 +1115,6 @@ router.get('/competitions', authenticateToken, async (_req, res) => {
 router.get('/matches', authenticateToken, async (req, res) => {
   try {
     const userId = Number(req.user?.userId);
-    const su = await getSuperuserLevel(userId);
-    const canSeeAdminOnly = su === 1 || su === 2;
     const date = String(req.query?.date || '').trim();
     if (!date) return res.status(400).json({ message: 'date mancante' });
     const rows = await query(
@@ -1245,22 +1243,9 @@ router.get('/matches', authenticateToken, async (req, res) => {
       `,
       [userId, userId, userId, date]
     );
-    const matchRows = Array.isArray(rows) ? rows : [];
-    const compIds = [...new Set(matchRows.map((r) => Number(r.competition_id)).filter((n) => n > 0))];
-    const logoMap = await buildBestOfficialTeamLogoMap(compIds, canSeeAdminOnly);
-    const withLogos = matchRows.map((r) => {
-      const homeLogoPath = pickBestOfficialTeamLogo(
-        logoMap,
-        r.competition_id,
-        r.home_team_name,
-        r.home_team_logo_path
-      );
-      const awayLogoPath = pickBestOfficialTeamLogo(
-        logoMap,
-        r.competition_id,
-        r.away_team_name,
-        r.away_team_logo_path
-      );
+    const withLogos = (Array.isArray(rows) ? rows : []).map((r) => {
+      const homeLogoPath = normalizeTeamLogoPathForApi(r?.home_team_logo_path);
+      const awayLogoPath = normalizeTeamLogoPathForApi(r?.away_team_logo_path);
       return {
         ...r,
         home_team_logo_path: homeLogoPath,
