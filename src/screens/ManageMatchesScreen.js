@@ -62,6 +62,17 @@ function formatDisplayDateTime(sqlDateTime) {
   return `${dd}/${mm}/${yyyy} ${hh}:${min}`;
 }
 
+/** Etichetta visiva lega/edizione: anno se reference_year valorizzato, altrimenti nome lega. */
+function leagueEditionDisplay(league) {
+  if (!league) return '-';
+  const refYear = league.reference_year;
+  if (refYear != null && refYear !== '' && Number.isFinite(Number(refYear))) {
+    return String(Math.trunc(Number(refYear)));
+  }
+  const name = String(league.name || '').trim();
+  return name || '-';
+}
+
 export default function ManageMatchesScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
@@ -196,10 +207,10 @@ export default function ManageMatchesScreen() {
     () => competitions.find((c) => Number(c.id) === Number(competitionId))?.name || '-',
     [competitions, competitionId]
   );
-  const selectedLeagueName = useMemo(
-    () => (leaguesByComp[competitionId] || []).find((l) => Number(l.id) === Number(selectedLeagueIdForForm))?.name || '-',
-    [leaguesByComp, competitionId, selectedLeagueIdForForm]
-  );
+  const selectedLeagueName = useMemo(() => {
+    const league = (leaguesByComp[competitionId] || []).find((l) => Number(l.id) === Number(selectedLeagueIdForForm));
+    return leagueEditionDisplay(league);
+  }, [leaguesByComp, competitionId, selectedLeagueIdForForm]);
   const selectedHomeTeamName = useMemo(
     () => selectedTeams.find((t) => Number(t.id) === Number(homeTeamId))?.name || '-',
     [selectedTeams, homeTeamId]
@@ -216,10 +227,10 @@ export default function ManageMatchesScreen() {
     () => competitions.find((c) => Number(c.id) === Number(competitionId))?.name || '-',
     [competitions, competitionId]
   );
-  const selectedEditLeagueName = useMemo(
-    () => (leaguesByComp[competitionId] || []).find((l) => Number(l.id) === Number(selectedLeagueIdForForm))?.name || '-',
-    [leaguesByComp, competitionId, selectedLeagueIdForForm]
-  );
+  const selectedEditLeagueName = useMemo(() => {
+    const league = (leaguesByComp[competitionId] || []).find((l) => Number(l.id) === Number(selectedLeagueIdForForm));
+    return leagueEditionDisplay(league);
+  }, [leaguesByComp, competitionId, selectedLeagueIdForForm]);
   const selectedEditHomeTeamName = useMemo(
     () => selectedTeams.find((t) => Number(t.id) === Number(homeTeamId))?.name || '-',
     [selectedTeams, homeTeamId]
@@ -238,7 +249,7 @@ export default function ManageMatchesScreen() {
     };
     pushRow('Data e ora', editOriginal.kickoffLabel, formatDisplayDateTime(kickoffAt));
     pushRow('Competizione', editOriginal.competitionName, selectedEditCompetitionName);
-    pushRow('Lega', editOriginal.leagueName, selectedEditLeagueName);
+    pushRow('Edizione', editOriginal.leagueName, selectedEditLeagueName);
     pushRow('Squadra casa', editOriginal.homeTeamName, selectedEditHomeTeamName);
     pushRow('Squadra ospite', editOriginal.awayTeamName, selectedEditAwayTeamName);
     pushRow('Luogo', editOriginal.venue || '-', venue || '-');
@@ -686,10 +697,15 @@ export default function ManageMatchesScreen() {
       setEditOriginal({
         kickoffLabel: formatDisplayDateTime(String(match.kickoff_at || '')),
         competitionName: String(match?.competition_name || '-'),
-        leagueName:
-          (loadedLeagues || []).find((l) => Number(l.id) === Number(preselectedLeagueId))?.name ||
-          String(match?.league_name || '-') ||
-          '-',
+        leagueName: (() => {
+          const league = (loadedLeagues || []).find((l) => Number(l.id) === Number(preselectedLeagueId));
+          if (league) return leagueEditionDisplay(league);
+          const refYear = match?.league_reference_year ?? match?.reference_year;
+          if (refYear != null && refYear !== '' && Number.isFinite(Number(refYear))) {
+            return String(Math.trunc(Number(refYear)));
+          }
+          return String(match?.league_name || '-').trim() || '-';
+        })(),
         homeTeamName: String(match?.home_team_name || '-'),
         awayTeamName: String(match?.away_team_name || '-'),
         venue: String(match?.venue || ''),
@@ -1129,7 +1145,7 @@ export default function ManageMatchesScreen() {
                       </View>
                     </ScrollView>
 
-                    <Text style={styles.label}>Filtro lega</Text>
+                    <Text style={styles.label}>Filtro edizione</Text>
                     {!filterCompetitionId ? <Text style={styles.muted}>Seleziona prima una competizione</Text> : null}
                     <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                       <View style={styles.rowWrap}>
@@ -1156,7 +1172,7 @@ export default function ManageMatchesScreen() {
                                 }}
                               >
                                 <Text style={[styles.chipText, Number(filterLeagueId) === Number(l.id) && styles.chipTextActive]}>
-                                  {l.name}
+                                  {leagueEditionDisplay(l)}
                                 </Text>
                               </TouchableOpacity>
                             )))
@@ -1165,7 +1181,7 @@ export default function ManageMatchesScreen() {
                     </ScrollView>
 
                     <Text style={styles.label}>Filtro squadra</Text>
-                    {!filterCompetitionId || !filterLeagueId ? <Text style={styles.muted}>Seleziona prima competizione e lega</Text> : null}
+                    {!filterCompetitionId || !filterLeagueId ? <Text style={styles.muted}>Seleziona prima competizione ed edizione</Text> : null}
                     <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                       <View style={styles.rowWrap}>
                         <TouchableOpacity
@@ -1591,7 +1607,7 @@ export default function ManageMatchesScreen() {
                     ))}
                   </View>
                 </ScrollView>
-                  <Text style={styles.label}>Lega</Text>
+                  <Text style={styles.label}>Edizione</Text>
                 {!!competitionId && (leaguesByComp[competitionId] || []).length > 0 ? (
                     <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                       <View style={styles.rowWrap}>
@@ -1603,7 +1619,7 @@ export default function ManageMatchesScreen() {
                               style={[styles.chip, enabled && styles.chipActive]}
                               onPress={() => selectLeagueForTeams(competitionId, Number(l.id))}
                             >
-                              <Text style={[styles.chipText, enabled && styles.chipTextActive]}>{l.name}</Text>
+                              <Text style={[styles.chipText, enabled && styles.chipTextActive]}>{leagueEditionDisplay(l)}</Text>
                             </TouchableOpacity>
                           );
                         })}
@@ -1719,7 +1735,7 @@ export default function ManageMatchesScreen() {
                 <View style={styles.summaryBox}>
                   <Text style={styles.label}>Data e ora</Text>
                   <Text style={styles.summaryValue}>{formatDisplayDateTime(kickoffAt)}</Text>
-                  <Text style={styles.label}>Competizione / Lega</Text>
+                  <Text style={styles.label}>Competizione / Edizione</Text>
                   <Text style={styles.summaryValue}>{selectedCompetitionName} - {selectedLeagueName}</Text>
                   <Text style={styles.label}>Partita</Text>
                   <Text style={styles.summaryValue}>{selectedHomeTeamName} vs {selectedAwayTeamName}</Text>
@@ -1822,7 +1838,7 @@ export default function ManageMatchesScreen() {
                     </ScrollView>
                     {!!competitionId && (leaguesByComp[competitionId] || []).length > 0 ? (
                       <>
-                      <Text style={styles.label}>Lega</Text>
+                      <Text style={styles.label}>Edizione</Text>
                         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                           <View style={styles.rowWrap}>
                             {(leaguesByComp[competitionId] || []).map((l) => {
@@ -1833,7 +1849,7 @@ export default function ManageMatchesScreen() {
                                   style={[styles.chip, enabled && styles.chipActive]}
                                   onPress={() => selectLeagueForTeams(competitionId, Number(l.id))}
                                 >
-                                  <Text style={[styles.chipText, enabled && styles.chipTextActive]}>{l.name}</Text>
+                                  <Text style={[styles.chipText, enabled && styles.chipTextActive]}>{leagueEditionDisplay(l)}</Text>
                                 </TouchableOpacity>
                               );
                             })}
