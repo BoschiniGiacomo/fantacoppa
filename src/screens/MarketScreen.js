@@ -188,10 +188,17 @@ export default function MarketScreen({ route, navigation }) {
       updateAutoDetect({ squadFull: allFull, squadEmpty: false });
       setBuyFeedback(`${player.first_name} ${player.last_name} acquistato!`);
       setTimeout(() => setBuyFeedback(''), 2000);
-      // Sblocca subito, ricarica lista in background
       setBuyingPlayer(null);
-      marketService.getPlayers(leagueId, { role: selectedRole, search: searchQuery })
-        .then(res => setPlayers(res.data || []))
+      // Ricarica roster completo (senza filtro ruolo): altrimenti `players` resta solo sul ruolo
+      // corrente e cambiando filtro ruolo la lista risulta vuota fino al refresh manuale.
+      invalidateLeagueWarmCache(leagueId);
+      marketService
+        .getBootstrap(leagueId, {})
+        .then((bootstrapRes) => {
+          const data = bootstrapRes?.data || {};
+          applyBootstrapData(data);
+          setMarketBootstrapDefault(leagueId, data);
+        })
         .catch(() => {});
     } catch (error) {
       showError(error.response?.data?.message || 'Errore durante l\'acquisto');
