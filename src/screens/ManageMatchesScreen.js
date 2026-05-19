@@ -309,7 +309,7 @@ export default function ManageMatchesScreen() {
   };
 
   const loadMatchDetailsOptions = async () => {
-    if (!canManageMatchDetails) return;
+    if (!canManageMatches) return;
     const res = await adminMatchDetailsService.getAll();
     setMatchDetailsOptions({
       venues: Array.isArray(res?.data?.venues) ? res.data.venues : [],

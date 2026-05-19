@@ -3361,7 +3361,7 @@ router.post('/admin/matches/standings/ties/resolve', authenticateToken, requireS
 });
 
 // Match details options: venues/referees/stages
-router.get('/admin/match-details', authenticateToken, requireSuperuserLevels([1]), async (_req, res) => {
+router.get('/admin/match-details', authenticateToken, requireSuperuserLevels([1, 2]), async (_req, res) => {
   try {
     const venues = await query(`SELECT id, name FROM official_match_venues ORDER BY name ASC`);
     const referees = await query(`SELECT id, name FROM official_match_referees ORDER BY name ASC`);
