@@ -1,5 +1,17 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Animated, BackHandler, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Animated,
+  BackHandler,
+  Image,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -22,6 +34,76 @@ function TeamLogo({ logoUrl, logoPath }) {
     );
   }
   return <Image source={{ uri }} style={styles.logo} onError={() => setFailed(true)} resizeMode="contain" />;
+}
+
+const SEASON_YEAR_PICKER_MAX_HEIGHT = 180;
+
+function SeasonYearPickerMenu({ open, onClose, anchorRef, options, onSelectOption }) {
+  const [layout, setLayout] = useState(null);
+
+  useEffect(() => {
+    if (!open) {
+      setLayout(null);
+      return undefined;
+    }
+    let cancelled = false;
+    const measureAnchor = () => {
+      if (!anchorRef?.current) return;
+      anchorRef.current.measureInWindow((x, y, width, height) => {
+        if (cancelled) return;
+        setLayout({
+          left: x,
+          top: y + height + 2,
+          width: Math.max(width, 120),
+        });
+      });
+    };
+    measureAnchor();
+    const retryTimer = setTimeout(measureAnchor, 64);
+    return () => {
+      cancelled = true;
+      clearTimeout(retryTimer);
+    };
+  }, [open, anchorRef, options.length]);
+
+  if (!open || !layout) return null;
+
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+      <View style={styles.seasonPickerModalRoot}>
+        <Pressable style={styles.seasonPickerModalBackdrop} onPress={onClose} accessibilityRole="button" accessibilityLabel="Chiudi selezione anno" />
+        <View
+          style={[
+            styles.seasonPickerDropdownModal,
+            { top: layout.top, left: layout.left, width: layout.width },
+          ]}
+        >
+          <ScrollView
+            style={styles.seasonPickerDropdownScroll}
+            contentContainerStyle={styles.seasonPickerDropdownScrollContent}
+            showsVerticalScrollIndicator
+            keyboardShouldPersistTaps="handled"
+            bounces={false}
+            overScrollMode="always"
+            nestedScrollEnabled
+          >
+            {options.map((item) => (
+              <TouchableOpacity
+                key={item.key}
+                style={[styles.seasonPickerItem, item.active && styles.seasonPickerItemActive]}
+                onPress={() => onSelectOption(item)}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.seasonPickerItemText, item.active && styles.seasonPickerItemTextActive]}>
+                  {item.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
 }
 
 function formatFavoriteCount(raw) {
@@ -257,6 +339,9 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
   const itemLayoutsRef = useRef({});
   const [matchesTick, setMatchesTick] = useState(0);
   const initialScrollDoneRef = useRef(false);
+  const seasonPickerAnchorRef = useRef(null);
+  const statsPickerAnchorRef = useRef(null);
+  const teamPickerAnchorRef = useRef(null);
 
   const load = useCallback(async (showLoading = false) => {
     if (!teamId || !competitionId) return;
@@ -416,6 +501,45 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
     });
     return list;
   }, [teamSeasonSquad]);
+  const seasonYearOptions = useMemo(
+    () =>
+      (Array.isArray(seasonYears) ? seasonYears : []).map((y) => ({
+        key: `season-year-${y}`,
+        label: String(y),
+        value: Number(y),
+        active: Number(selectedSeasonYear) === Number(y),
+      })),
+    [seasonYears, selectedSeasonYear]
+  );
+  const statsYearOptions = useMemo(() => {
+    const opts = [
+      {
+        key: 'stats-season-absolute',
+        label: 'Assolute',
+        value: ABSOLUTE_STATS_KEY,
+        active: selectedStatsYear === ABSOLUTE_STATS_KEY,
+      },
+    ];
+    (Array.isArray(statsYears) ? statsYears : []).forEach((y) => {
+      opts.push({
+        key: `stats-season-year-${y}`,
+        label: String(y),
+        value: Number(y),
+        active: selectedStatsYear !== ABSOLUTE_STATS_KEY && Number(selectedStatsYear) === Number(y),
+      });
+    });
+    return opts;
+  }, [statsYears, selectedStatsYear]);
+  const teamYearOptions = useMemo(
+    () =>
+      (Array.isArray(teamSeasonYears) ? teamSeasonYears : []).map((y) => ({
+        key: `team-season-year-${y}`,
+        label: String(y),
+        value: Number(y),
+        active: Number(selectedTeamSeasonYear) === Number(y),
+      })),
+    [teamSeasonYears, selectedTeamSeasonYear]
+  );
   const lastStartedIndex = useMemo(() => {
     if (!Array.isArray(teamMatches) || teamMatches.length === 0) return -1;
     const now = Date.now();
@@ -813,7 +937,7 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
             showsVerticalScrollIndicator={false}
           >
             <View style={styles.card}>
-              <View style={styles.seasonPickerWrap}>
+              <View ref={seasonPickerAnchorRef} style={styles.seasonPickerWrap} collapsable={false}>
               <TouchableOpacity
                 style={styles.seasonPickerBtn}
                 onPress={() => setSeasonPickerOpen((v) => !v)}
@@ -824,28 +948,16 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
                 </Text>
                 <Ionicons name={seasonPickerOpen ? 'chevron-up' : 'chevron-down'} size={16} color="#475569" />
               </TouchableOpacity>
-              {seasonPickerOpen ? (
-                <View style={styles.seasonPickerDropdown}>
-                  <ScrollView style={styles.seasonPickerDropdownScroll} nestedScrollEnabled>
-                    {seasonYears.map((y) => {
-                      const active = Number(selectedSeasonYear) === Number(y);
-                      return (
-                        <TouchableOpacity
-                          key={`season-year-${y}`}
-                          style={[styles.seasonPickerItem, active && styles.seasonPickerItemActive]}
-                          onPress={() => {
-                            setSeasonPickerOpen(false);
-                            void loadSeasonStandings(Number(y));
-                          }}
-                          activeOpacity={0.8}
-                        >
-                          <Text style={[styles.seasonPickerItemText, active && styles.seasonPickerItemTextActive]}>{y}</Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </ScrollView>
-                </View>
-              ) : null}
+              <SeasonYearPickerMenu
+                open={seasonPickerOpen}
+                onClose={() => setSeasonPickerOpen(false)}
+                anchorRef={seasonPickerAnchorRef}
+                options={seasonYearOptions}
+                onSelectOption={(item) => {
+                  setSeasonPickerOpen(false);
+                  void loadSeasonStandings(item.value);
+                }}
+              />
             </View>
             {seasonLoading ? (
               <View style={styles.matchesLoadingBox}>
@@ -904,7 +1016,7 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
           </ScrollView>
         ) : activeTab === 'stats' ? (
           <View style={[styles.card, styles.teamCard]}>
-            <View style={styles.seasonPickerWrap}>
+            <View ref={statsPickerAnchorRef} style={styles.seasonPickerWrap} collapsable={false}>
               <TouchableOpacity
                 style={styles.seasonPickerBtn}
                 onPress={() => setStatsPickerOpen((v) => !v)}
@@ -917,49 +1029,16 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
                 </Text>
                 <Ionicons name={statsPickerOpen ? 'chevron-up' : 'chevron-down'} size={16} color="#475569" />
               </TouchableOpacity>
-              {statsPickerOpen ? (
-                <View style={styles.seasonPickerDropdown}>
-                  <ScrollView style={styles.seasonPickerDropdownScroll} nestedScrollEnabled>
-                    <TouchableOpacity
-                      key="stats-season-absolute"
-                      style={[
-                        styles.seasonPickerItem,
-                        selectedStatsYear === ABSOLUTE_STATS_KEY && styles.seasonPickerItemActive,
-                      ]}
-                      onPress={() => {
-                        setStatsPickerOpen(false);
-                        void loadTeamSeasonStats(ABSOLUTE_STATS_KEY);
-                      }}
-                      activeOpacity={0.8}
-                    >
-                      <Text
-                        style={[
-                          styles.seasonPickerItemText,
-                          selectedStatsYear === ABSOLUTE_STATS_KEY && styles.seasonPickerItemTextActive,
-                        ]}
-                      >
-                        Assolute
-                      </Text>
-                    </TouchableOpacity>
-                    {statsYears.map((y) => {
-                      const active = selectedStatsYear !== ABSOLUTE_STATS_KEY && Number(selectedStatsYear) === Number(y);
-                      return (
-                        <TouchableOpacity
-                          key={`stats-season-year-${y}`}
-                          style={[styles.seasonPickerItem, active && styles.seasonPickerItemActive]}
-                          onPress={() => {
-                            setStatsPickerOpen(false);
-                            void loadTeamSeasonStats(Number(y));
-                          }}
-                          activeOpacity={0.8}
-                        >
-                          <Text style={[styles.seasonPickerItemText, active && styles.seasonPickerItemTextActive]}>{y}</Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </ScrollView>
-                </View>
-              ) : null}
+              <SeasonYearPickerMenu
+                open={statsPickerOpen}
+                onClose={() => setStatsPickerOpen(false)}
+                anchorRef={statsPickerAnchorRef}
+                options={statsYearOptions}
+                onSelectOption={(item) => {
+                  setStatsPickerOpen(false);
+                  void loadTeamSeasonStats(item.value);
+                }}
+              />
             </View>
 
             {statsLoading ? (
@@ -967,7 +1046,11 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
                 <ActivityIndicator color="#667eea" />
               </View>
             ) : (
-              <ScrollView style={styles.teamSquadList} contentContainerStyle={styles.statsListContent} showsVerticalScrollIndicator={false}>
+              <ScrollView
+                style={styles.teamSquadList}
+                contentContainerStyle={styles.statsListContent}
+                showsVerticalScrollIndicator={false}
+              >
                 <View style={styles.statsBlock}>
                   <Text style={styles.statsBlockTitle}>Generale</Text>
                   <View style={styles.statsValueRow}>
@@ -1064,7 +1147,7 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
           </View>
         ) : activeTab === 'team' ? (
           <View style={[styles.card, styles.teamCard]}>
-            <View style={styles.seasonPickerWrap}>
+            <View ref={teamPickerAnchorRef} style={styles.seasonPickerWrap} collapsable={false}>
               <TouchableOpacity
                 style={styles.seasonPickerBtn}
                 onPress={() => setTeamPickerOpen((v) => !v)}
@@ -1075,28 +1158,16 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
                 </Text>
                 <Ionicons name={teamPickerOpen ? 'chevron-up' : 'chevron-down'} size={16} color="#475569" />
               </TouchableOpacity>
-              {teamPickerOpen ? (
-                <View style={styles.seasonPickerDropdown}>
-                  <ScrollView style={styles.seasonPickerDropdownScroll} nestedScrollEnabled>
-                    {teamSeasonYears.map((y) => {
-                      const active = Number(selectedTeamSeasonYear) === Number(y);
-                      return (
-                        <TouchableOpacity
-                          key={`team-season-year-${y}`}
-                          style={[styles.seasonPickerItem, active && styles.seasonPickerItemActive]}
-                          onPress={() => {
-                            setTeamPickerOpen(false);
-                            void loadTeamSeasonSquad(Number(y));
-                          }}
-                          activeOpacity={0.8}
-                        >
-                          <Text style={[styles.seasonPickerItemText, active && styles.seasonPickerItemTextActive]}>{y}</Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </ScrollView>
-                </View>
-              ) : null}
+              <SeasonYearPickerMenu
+                open={teamPickerOpen}
+                onClose={() => setTeamPickerOpen(false)}
+                anchorRef={teamPickerAnchorRef}
+                options={teamYearOptions}
+                onSelectOption={(item) => {
+                  setTeamPickerOpen(false);
+                  void loadTeamSeasonSquad(item.value);
+                }}
+              />
             </View>
 
             {teamSeasonLoading ? (
@@ -1106,7 +1177,11 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
             ) : sortedTeamSeasonSquad.length === 0 ? (
               <Text style={styles.placeholderText}>Nessun giocatore disponibile per la stagione selezionata.</Text>
             ) : (
-              <ScrollView style={styles.teamSquadList} contentContainerStyle={styles.teamSquadListContent} showsVerticalScrollIndicator={false}>
+              <ScrollView
+                style={styles.teamSquadList}
+                contentContainerStyle={styles.teamSquadListContent}
+                showsVerticalScrollIndicator={false}
+              >
                 {sortedTeamSeasonSquad.map((p, i) => {
                   const role = String(p?.role || '').trim().toUpperCase();
                   const roleColor = ROLE_COLORS[role] || '#6b7280';
@@ -1334,7 +1409,6 @@ const styles = StyleSheet.create({
   seasonPickerWrap: {
     marginBottom: 10,
     position: 'relative',
-    zIndex: 20,
   },
   seasonPickerBtn: {
     height: 38,
@@ -1352,24 +1426,32 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#334155',
   },
-  seasonPickerDropdown: {
+  seasonPickerModalRoot: {
+    flex: 1,
+  },
+  seasonPickerModalBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  seasonPickerDropdownModal: {
     position: 'absolute',
-    top: 44,
-    left: 0,
-    right: 0,
+    height: SEASON_YEAR_PICKER_MAX_HEIGHT,
     borderWidth: 1,
     borderColor: '#dbe3ef',
     borderRadius: 10,
     backgroundColor: '#fff',
-    maxHeight: 180,
-    zIndex: 30,
-    elevation: 6,
+    overflow: 'hidden',
+    elevation: 8,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.15,
     shadowRadius: 8,
   },
-  seasonPickerDropdownScroll: { maxHeight: 180 },
+  seasonPickerDropdownScroll: {
+    height: SEASON_YEAR_PICKER_MAX_HEIGHT,
+  },
+  seasonPickerDropdownScrollContent: {
+    paddingBottom: 4,
+  },
   seasonPickerItem: {
     paddingHorizontal: 8,
     paddingVertical: 10,
