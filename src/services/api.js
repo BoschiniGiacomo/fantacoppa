@@ -655,6 +655,12 @@ export const superuserService = {
     }),
   toggleOfficialSquadPublic: (groupId, leagueId) =>
     api.put(`/superuser/official-groups/${groupId}/leagues/${leagueId}/official-squad-public`),
+  setOfficialLeagueTwoGroups: (groupId, leagueId, enabled) =>
+    api.put(`/admin/official-groups/${groupId}/leagues/${leagueId}/two-official-groups`, { enabled: !!enabled }),
+  getOfficialLeagueGironiTeams: (groupId, leagueId) =>
+    api.get(`/admin/official-groups/${groupId}/leagues/${leagueId}/official-gironi-teams`),
+  saveOfficialLeagueGironiTeams: (groupId, leagueId, assignments) =>
+    api.put(`/admin/official-groups/${groupId}/leagues/${leagueId}/official-gironi-teams`, { assignments }),
   setLeagueOfficial: (leagueId, data) => api.put(`/superuser/leagues/${leagueId}/official`, data),
   toggleVisibleForLinking: (leagueId) => api.put(`/superuser/leagues/${leagueId}/visible-for-linking`),
   toggleLeagueHiddenFromDiscovery: (leagueId) => api.put(`/superuser/leagues/${leagueId}/hidden-from-discovery`),

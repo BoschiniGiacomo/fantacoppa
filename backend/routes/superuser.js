@@ -6,6 +6,7 @@ const router = express.Router();
 const { query } = require('../config/database');
 const { authenticateToken } = require('../middleware/auth');
 const { ensureAppSettingsTable } = require('../utils/appSettingsStore');
+const { ensureLeagueOfficialGironiSchema } = require('../utils/leagueOfficialGironi');
 
 let superuserTablesReady = false;
 async function ensureSuperuserTables() {
@@ -393,6 +394,7 @@ router.delete('/official-groups/:id', authenticateToken, requireSuperuser, async
 
 router.get('/official-groups/:id/leagues', authenticateToken, requireSuperuser, async (req, res) => {
   try {
+    await ensureLeagueOfficialGironiSchema();
     const groupId = Number(req.params.id);
     if (!groupId || groupId <= 0) return res.status(400).json({ message: 'ID gruppo non valido' });
 
@@ -409,11 +411,12 @@ router.get('/official-groups/:id/leagues', authenticateToken, requireSuperuser, 
       `SELECT l.id, l.name, l.access_code, l.created_at,
               NULLIF(to_jsonb(l)->>'reference_year','')::int AS reference_year,
               COALESCE(l.is_official_squad_public, 0) AS is_official_squad_public,
+              COALESCE(l.official_two_groups, 0) AS official_two_groups,
               COUNT(DISTINCT lm.user_id)::int AS member_count
        FROM leagues l
        LEFT JOIN league_members lm ON lm.league_id = l.id
        WHERE l.official_group_id = ?
-       GROUP BY l.id, l.name, l.access_code, l.created_at, NULLIF(to_jsonb(l)->>'reference_year','')::int, l.is_official_squad_public
+       GROUP BY l.id, l.name, l.access_code, l.created_at, NULLIF(to_jsonb(l)->>'reference_year','')::int, l.is_official_squad_public, l.official_two_groups
        ORDER BY l.created_at DESC, l.id DESC`,
       [groupId]
     );
@@ -493,6 +496,8 @@ router.put(
     }
   }
 );
+
+// Due gironi: endpoint su /api/admin/... in routes/matches.js (stessi permessi SU1/SU2)
 
 router.get('/player-clusters/suggestions/:groupId', authenticateToken, requireSuperuser, async (req, res) => {
   try {

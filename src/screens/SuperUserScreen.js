@@ -11,6 +11,7 @@ import {
   TextInput,
   Modal,
   Image,
+  Switch,
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import LoopingVideoView from '../components/LoopingVideoView';
@@ -65,6 +66,8 @@ export default function SuperUserScreen() {
   const [selectedGroupForEdit, setSelectedGroupForEdit] = useState(null);
   const [showGroupDetailModal, setShowGroupDetailModal] = useState(false);
   const [referenceYearDrafts, setReferenceYearDrafts] = useState({});
+  /** @type {Record<string, Array<{id:number,name:string,girone_index?:number|null}>>} */
+  const [gironiTeamsByLeague, setGironiTeamsByLeague] = useState({});
   const [savingReferenceYearByLeague, setSavingReferenceYearByLeague] = useState({});
   const [yearPickerLeague, setYearPickerLeague] = useState(null);
   const [toastMsg, setToastMsg] = useState(null);
@@ -960,6 +963,62 @@ export default function SuperUserScreen() {
     }
   };
 
+  const handleToggleTwoOfficialGroups = async (groupId, league, enabled) => {
+    try {
+      await superuserService.setOfficialLeagueTwoGroups(groupId, league.id, enabled);
+      setSelectedGroupForEdit((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          leagues: (prev.leagues || []).map((l) =>
+            Number(l.id) === Number(league.id) ? { ...l, official_two_groups: enabled ? 1 : 0 } : l
+          ),
+        };
+      });
+      if (enabled) {
+        try {
+          const res = await superuserService.getOfficialLeagueGironiTeams(groupId, league.id);
+          setGironiTeamsByLeague((prev) => ({ ...prev, [league.id]: res.data?.teams || [] }));
+        } catch (_) {
+          showToast('Impossibile caricare le squadre per i gironi');
+        }
+      } else {
+        setGironiTeamsByLeague((prev) => {
+          const next = { ...prev };
+          delete next[league.id];
+          return next;
+        });
+      }
+      showToast(
+        enabled
+          ? 'Due gironi attivi: assegna ogni squadra a G1 o G2'
+          : 'Due gironi disattivati per questa lega',
+        'success'
+      );
+    } catch (error) {
+      console.error('Error toggling two official groups:', error);
+      showToast(error?.response?.data?.message || 'Errore durante l\'operazione');
+    }
+  };
+
+  const handleAssignTeamGirone = async (groupId, leagueId, teamId, gironeIndex) => {
+    const list = [...(gironiTeamsByLeague[leagueId] || [])];
+    if (list.length === 0) return;
+    const next = list.map((t) =>
+      Number(t.id) === Number(teamId) ? { ...t, girone_index: gironeIndex } : t
+    );
+    const assignments = next
+      .filter((t) => t.girone_index === 1 || t.girone_index === 2)
+      .map((t) => ({ team_id: t.id, girone_index: Number(t.girone_index) }));
+    try {
+      const res = await superuserService.saveOfficialLeagueGironiTeams(groupId, leagueId, assignments);
+      setGironiTeamsByLeague((prev) => ({ ...prev, [leagueId]: res.data?.teams || next }));
+    } catch (error) {
+      console.error('Error saving girone assignment:', error);
+      showToast(error?.response?.data?.message || 'Salvataggio girone non riuscito');
+    }
+  };
+
   const selectableReferenceYears = useMemo(() => {
     const nowYear = new Date().getFullYear();
     const years = [];
@@ -1586,6 +1645,21 @@ export default function SuperUserScreen() {
                         });
                         setReferenceYearDrafts(nextDrafts);
                         setShowGroupDetailModal(true);
+                        leaguesInGroup.forEach((lg) => {
+                          if (Number(lg.official_two_groups) === 1) {
+                            void (async () => {
+                              try {
+                                const gt = await superuserService.getOfficialLeagueGironiTeams(item.id, lg.id);
+                                setGironiTeamsByLeague((prev) => ({
+                                  ...prev,
+                                  [lg.id]: gt.data?.teams || [],
+                                }));
+                              } catch (_) {
+                                /* ignore */
+                              }
+                            })();
+                          }
+                        });
                       } catch (error) {
                         console.error('Error loading group leagues:', error);
                         showToast('Impossibile caricare le leghe del gruppo');
@@ -2023,6 +2097,7 @@ export default function SuperUserScreen() {
           setShowGroupDetailModal(false);
           setSelectedGroupForEdit(null);
           setReferenceYearDrafts({});
+          setGironiTeamsByLeague({});
         }}
       >
         <View style={styles.modalOverlay}>
@@ -2036,6 +2111,7 @@ export default function SuperUserScreen() {
                   setShowGroupDetailModal(false);
                   setSelectedGroupForEdit(null);
                   setReferenceYearDrafts({});
+                  setGironiTeamsByLeague({});
                 }}
               >
                 <Ionicons name="close" size={24} color="#666" />
@@ -2135,6 +2211,99 @@ export default function SuperUserScreen() {
                           }
                         />
                       </TouchableOpacity>
+                      <View
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          marginTop: 12,
+                          paddingVertical: 6,
+                        }}
+                      >
+                        <Text style={{ fontSize: 12, fontWeight: '700', color: '#475569', flex: 1, paddingRight: 8 }}>
+                          Due gironi (in Gestione partite: tipologia Gironi solo stesso girone)
+                        </Text>
+                        <Switch
+                          value={Number(league.official_two_groups || 0) === 1}
+                          onValueChange={(v) => handleToggleTwoOfficialGroups(selectedGroupForEdit.id, league, v)}
+                          trackColor={{ false: '#ccc', true: '#a5b4fc' }}
+                          thumbColor={Number(league.official_two_groups || 0) === 1 ? '#667eea' : '#f4f3f4'}
+                        />
+                      </View>
+                      {Number(league.official_two_groups || 0) === 1 ? (
+                        <View style={{ marginTop: 8, paddingBottom: 4 }}>
+                          <Text style={{ fontSize: 11, color: '#64748b', marginBottom: 8 }}>
+                            Assegna ogni squadra a Girone 1 o Girone 2.
+                          </Text>
+                          {(gironiTeamsByLeague[league.id] || []).length === 0 ? (
+                            <Text style={{ fontSize: 12, color: '#94a3b8' }}>Caricamento squadre…</Text>
+                          ) : (
+                            (gironiTeamsByLeague[league.id] || []).map((tm) => (
+                              <View
+                                key={`gir-${league.id}-${tm.id}`}
+                                style={{
+                                  flexDirection: 'row',
+                                  alignItems: 'center',
+                                  marginBottom: 8,
+                                }}
+                              >
+                                <Text style={{ flex: 1, fontSize: 13, color: '#1e293b', marginRight: 8 }} numberOfLines={1}>
+                                  {tm.name}
+                                </Text>
+                                <View style={{ flexDirection: 'row' }}>
+                                  <TouchableOpacity
+                                    onPress={() =>
+                                      handleAssignTeamGirone(selectedGroupForEdit.id, league.id, tm.id, 1)
+                                    }
+                                    style={{
+                                      paddingHorizontal: 10,
+                                      paddingVertical: 6,
+                                      borderRadius: 8,
+                                      borderWidth: 1,
+                                      borderColor: Number(tm.girone_index) === 1 ? '#4f46e5' : '#e2e8f0',
+                                      backgroundColor: Number(tm.girone_index) === 1 ? '#eef2ff' : '#fff',
+                                      marginRight: 6,
+                                    }}
+                                  >
+                                    <Text
+                                      style={{
+                                        fontSize: 12,
+                                        fontWeight: '700',
+                                        color: Number(tm.girone_index) === 1 ? '#4f46e5' : '#64748b',
+                                      }}
+                                    >
+                                      G1
+                                    </Text>
+                                  </TouchableOpacity>
+                                  <TouchableOpacity
+                                    onPress={() =>
+                                      handleAssignTeamGirone(selectedGroupForEdit.id, league.id, tm.id, 2)
+                                    }
+                                    style={{
+                                      paddingHorizontal: 10,
+                                      paddingVertical: 6,
+                                      borderRadius: 8,
+                                      borderWidth: 1,
+                                      borderColor: Number(tm.girone_index) === 2 ? '#4f46e5' : '#e2e8f0',
+                                      backgroundColor: Number(tm.girone_index) === 2 ? '#eef2ff' : '#fff',
+                                    }}
+                                  >
+                                    <Text
+                                      style={{
+                                        fontSize: 12,
+                                        fontWeight: '700',
+                                        color: Number(tm.girone_index) === 2 ? '#4f46e5' : '#64748b',
+                                      }}
+                                    >
+                                      G2
+                                    </Text>
+                                  </TouchableOpacity>
+                                </View>
+                              </View>
+                            ))
+                          )}
+                        </View>
+                      ) : null}
                     </View>
                   ))
                 ) : (
@@ -2174,6 +2343,8 @@ export default function SuperUserScreen() {
                             await superuserService.deleteOfficialGroup(selectedGroupForEdit.id);
                             setShowGroupDetailModal(false);
                             setSelectedGroupForEdit(null);
+                            setGironiTeamsByLeague({});
+                            setReferenceYearDrafts({});
                             await loadOfficialGroups();
                             await loadLeagues();
                             showToast('Gruppo eliminato con successo', 'success');

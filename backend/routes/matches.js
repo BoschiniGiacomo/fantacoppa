@@ -3,6 +3,10 @@ const router = express.Router();
 const { query } = require('../config/database');
 const { authenticateToken } = require('../middleware/auth');
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
+const {
+  ensureLeagueOfficialGironiSchema,
+  assertOfficialGironiTeamsSameGroup,
+} = require('../utils/leagueOfficialGironi');
 
 function isMissingDbObjectError(err) {
   return err && (err.code === '42P01' || err.code === '42703'); // undefined_table / undefined_column
@@ -2758,6 +2762,143 @@ router.put('/admin/competitions/:competitionId', authenticateToken, requireSuper
   }
 });
 
+// Due gironi (stesso router admin /api — evita 404 se /superuser non è aggiornato sul server)
+router.put(
+  '/admin/official-groups/:groupId/leagues/:leagueId/two-official-groups',
+  authenticateToken,
+  requireSuperuserLevels([1, 2]),
+  async (req, res) => {
+    try {
+      await ensureLeagueOfficialGironiSchema();
+      const groupId = Number(req.params.groupId);
+      const leagueId = Number(req.params.leagueId);
+      if (!groupId || groupId <= 0) return res.status(400).json({ message: 'ID gruppo non valido' });
+      if (!leagueId || leagueId <= 0) return res.status(400).json({ message: 'ID lega non valido' });
+      const raw = req.body?.enabled;
+      const enabled =
+        raw === true ||
+        raw === 1 ||
+        String(raw || '').trim() === '1' ||
+        String(raw || '').trim().toLowerCase() === 'true';
+
+      const belongs = await query(
+        `SELECT id FROM leagues WHERE id = ? AND official_group_id = ? LIMIT 1`,
+        [leagueId, groupId]
+      );
+      if (!belongs.length) return res.status(404).json({ message: 'Lega non trovata nel gruppo selezionato' });
+
+      await query(`UPDATE leagues SET official_two_groups = ? WHERE id = ?`, [enabled ? 1 : 0, leagueId]);
+      if (!enabled) {
+        await query(`DELETE FROM league_official_team_gironi WHERE league_id = ?`, [leagueId]);
+      }
+      return res.json({ ok: true, league_id: leagueId, official_two_groups: enabled ? 1 : 0 });
+    } catch (error) {
+      return res.status(500).json({ message: 'Errore aggiornamento due gironi', error: error.message });
+    }
+  }
+);
+
+router.get(
+  '/admin/official-groups/:groupId/leagues/:leagueId/official-gironi-teams',
+  authenticateToken,
+  requireSuperuserLevels([1, 2]),
+  async (req, res) => {
+    try {
+      await ensureLeagueOfficialGironiSchema();
+      const groupId = Number(req.params.groupId);
+      const leagueId = Number(req.params.leagueId);
+      if (!groupId || groupId <= 0) return res.status(400).json({ message: 'ID gruppo non valido' });
+      if (!leagueId || leagueId <= 0) return res.status(400).json({ message: 'ID lega non valido' });
+
+      const belongs = await query(
+        `SELECT COALESCE(official_two_groups, 0) AS two_g
+         FROM leagues WHERE id = ? AND official_group_id = ? LIMIT 1`,
+        [leagueId, groupId]
+      );
+      if (!belongs.length) return res.status(404).json({ message: 'Lega non trovata nel gruppo selezionato' });
+
+      const rows = await query(
+        `SELECT t.id, t.name, g.girone_index AS girone_index
+         FROM teams t
+         LEFT JOIN league_official_team_gironi g ON g.league_id = t.league_id AND g.team_id = t.id
+         WHERE t.league_id = ?
+         ORDER BY t.name ASC, t.id ASC`,
+        [leagueId]
+      );
+      return res.json({
+        ok: true,
+        league_id: leagueId,
+        official_two_groups: Number(belongs[0].two_g || 0),
+        teams: rows || [],
+      });
+    } catch (error) {
+      return res.status(500).json({ message: 'Errore caricamento squadre gironi', error: error.message });
+    }
+  }
+);
+
+router.put(
+  '/admin/official-groups/:groupId/leagues/:leagueId/official-gironi-teams',
+  authenticateToken,
+  requireSuperuserLevels([1, 2]),
+  async (req, res) => {
+    try {
+      await ensureLeagueOfficialGironiSchema();
+      const groupId = Number(req.params.groupId);
+      const leagueId = Number(req.params.leagueId);
+      if (!groupId || groupId <= 0) return res.status(400).json({ message: 'ID gruppo non valido' });
+      if (!leagueId || leagueId <= 0) return res.status(400).json({ message: 'ID lega non valido' });
+
+      const leagueRows = await query(
+        `SELECT id, COALESCE(official_two_groups, 0) AS two_g
+         FROM leagues WHERE id = ? AND official_group_id = ? LIMIT 1`,
+        [leagueId, groupId]
+      );
+      if (!leagueRows.length) return res.status(404).json({ message: 'Lega non trovata nel gruppo selezionato' });
+      if (Number(leagueRows[0].two_g) !== 1) {
+        return res.status(400).json({ message: 'Attiva prima "Due gironi" per questa lega' });
+      }
+
+      const assignments = Array.isArray(req.body?.assignments) ? req.body.assignments : [];
+      const teamRows = await query(`SELECT id FROM teams WHERE league_id = ?`, [leagueId]);
+      const allowedTeamIds = new Set((teamRows || []).map((r) => Number(r.id)));
+
+      const normalized = [];
+      for (const a of assignments) {
+        const tid = Number(a?.team_id);
+        const gi = Number(a?.girone_index);
+        if (!Number.isFinite(tid) || tid <= 0 || !allowedTeamIds.has(tid)) {
+          return res.status(400).json({ message: `team_id non valido nella lega: ${a?.team_id}` });
+        }
+        if (!Number.isFinite(gi) || (gi !== 1 && gi !== 2)) {
+          return res.status(400).json({ message: 'girone_index deve essere 1 o 2' });
+        }
+        normalized.push({ team_id: tid, girone_index: gi });
+      }
+
+      await query(`DELETE FROM league_official_team_gironi WHERE league_id = ?`, [leagueId]);
+      for (const { team_id, girone_index } of normalized) {
+        await query(
+          `INSERT INTO league_official_team_gironi (league_id, team_id, girone_index) VALUES (?, ?, ?)`,
+          [leagueId, team_id, girone_index]
+        );
+      }
+
+      const out = await query(
+        `SELECT t.id, t.name, g.girone_index AS girone_index
+         FROM teams t
+         LEFT JOIN league_official_team_gironi g ON g.league_id = t.league_id AND g.team_id = t.id
+         WHERE t.league_id = ?
+         ORDER BY t.name ASC, t.id ASC`,
+        [leagueId]
+      );
+      return res.json({ ok: true, league_id: leagueId, teams: out || [] });
+    } catch (error) {
+      return res.status(500).json({ message: 'Errore salvataggio gironi squadre', error: error.message });
+    }
+  }
+);
+
 // GET /admin/matches?date=YYYY-MM-DD
 router.get('/admin/matches', authenticateToken, requireSuperuserLevels([1, 2]), async (req, res) => {
   try {
@@ -2810,6 +2951,7 @@ router.get('/admin/matches', authenticateToken, requireSuperuserLevels([1, 2]), 
 // GET /admin/matches/competition/:competitionId/teams
 router.get('/admin/matches/competition/:competitionId/teams', authenticateToken, requireSuperuserLevels([1, 2]), async (req, res) => {
   try {
+    await ensureLeagueOfficialGironiSchema();
     const competitionId = Number(req.params.competitionId);
     const onlyLeagues = Number(req.query?.only_leagues) === 1;
     const leagueIdsCsv = String(req.query?.league_ids || '').trim();
@@ -2820,7 +2962,8 @@ router.get('/admin/matches/competition/:competitionId/teams', authenticateToken,
          name,
          official_group_id,
          access_code,
-         NULLIF(to_jsonb(leagues)->>'reference_year','')::int AS reference_year
+         NULLIF(to_jsonb(leagues)->>'reference_year','')::int AS reference_year,
+         COALESCE(official_two_groups, 0) AS official_two_groups
        FROM leagues
        WHERE official_group_id = ? AND COALESCE(is_official, 0) = 1
        ORDER BY name ASC, id ASC`,
@@ -2838,8 +2981,10 @@ router.get('/admin/matches/competition/:competitionId/teams', authenticateToken,
     if (!leagueIds.length) return res.json({ official_leagues: officialLeagues, teams: [] });
 
     const teams = await query(
-      `SELECT t.id, t.name, t.league_id
+      `SELECT t.id, t.name, t.league_id, g.girone_index AS girone_index
        FROM teams t
+       LEFT JOIN league_official_team_gironi g
+         ON g.league_id = t.league_id AND g.team_id = t.id
        WHERE t.league_id IN (${leagueIds.map(() => '?').join(', ')})
        ORDER BY t.name ASC, t.id ASC`,
       leagueIds
@@ -2886,6 +3031,8 @@ router.post('/admin/matches', authenticateToken, requireSuperuserLevels([1, 2]),
     const referee = req.body?.referee != null ? String(req.body.referee).trim() : null;
     const isAdminOnly = parseBooleanishInt(req.body?.is_admin_only, 0);
     const { stageId: matchStageId } = await resolveMatchStageInput(req.body?.match_stage_id);
+    const gironiErrCreate = await assertOfficialGironiTeamsSameGroup(leagueId, matchStageId, homeTeamId, awayTeamId);
+    if (gironiErrCreate) return res.status(400).json({ message: gironiErrCreate });
     if (Number(matchStageId) === 3) {
       const finalRows = await query(
         `
@@ -3045,6 +3192,10 @@ router.put('/admin/matches/:matchId', authenticateToken, requireSuperuserLevels(
     if (!Array.isArray(leagueRows) || leagueRows.length === 0) {
       return res.status(400).json({ message: 'Lega non valida per la competizione selezionata' });
     }
+
+    const gironiErr = await assertOfficialGironiTeamsSameGroup(leagueId, matchStageId, homeTeamId, awayTeamId);
+    if (gironiErr) return res.status(400).json({ message: gironiErr });
+
     if (Number(matchStageId) === 3) {
       const finalRows = await query(
         `

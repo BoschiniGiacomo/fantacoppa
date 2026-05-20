@@ -19,6 +19,9 @@ import { useAuth } from '../context/AuthContext';
 import { adminCompetitionsService, adminMatchDetailsService, adminMatchesService, superuserService } from '../services/api';
 import { parseAppDate } from '../utils/dateTime';
 
+/** Deve coincidere con `official_match_stages.id` per la tipologia «Gironi» (di solito 1). */
+const OFFICIAL_MATCH_STAGE_GIRONI_ID = 1;
+
 const TOAST_DURATION_MS = 2400;
 
 function todayYmd() {
@@ -172,6 +175,34 @@ export default function ManageMatchesScreen() {
     return [...rawTeams].sort((a, b) => String(a.name).localeCompare(String(b.name), 'it'));
   }, [teamsByComp, competitionId]);
 
+  const gironiStageMatchBlocked = useMemo(() => {
+    const league = (leaguesByComp[competitionId] || []).find(
+      (l) => Number(l.id) === Number(selectedLeagueIdForForm)
+    );
+    if (!league || Number(league.official_two_groups) !== 1) return null;
+    if (Number(matchStageId) !== OFFICIAL_MATCH_STAGE_GIRONI_ID) return null;
+    if (!homeTeamId || !awayTeamId) return null;
+    const home = selectedTeams.find((t) => Number(t.id) === Number(homeTeamId));
+    const away = selectedTeams.find((t) => Number(t.id) === Number(awayTeamId));
+    const gh = home?.girone_index != null && home.girone_index !== '' ? Number(home.girone_index) : null;
+    const ga = away?.girone_index != null && away.girone_index !== '' ? Number(away.girone_index) : null;
+    if (gh == null || Number.isNaN(gh) || ga == null || Number.isNaN(ga)) {
+      return 'Per la tipologia Gironi con due gironi attivi, assegna entrambe le squadre a un girone (Superuser → Ufficiali).';
+    }
+    if (gh !== ga) {
+      return 'Partita di gironi: le squadre selezionate sono in gironi diversi.';
+    }
+    return null;
+  }, [
+    leaguesByComp,
+    competitionId,
+    selectedLeagueIdForForm,
+    matchStageId,
+    homeTeamId,
+    awayTeamId,
+    selectedTeams,
+  ]);
+
   const defaultVenueName = useMemo(
     () => defaultVenueNameFromList(matchDetailsOptions.venues),
     [matchDetailsOptions.venues]
@@ -209,11 +240,12 @@ export default function ManageMatchesScreen() {
     competitionId &&
       selectedLeagueIdForForm > 0 &&
       kickoffAt &&
-      !(homeTeamId && awayTeamId && homeTeamId === awayTeamId)
+      !(homeTeamId && awayTeamId && homeTeamId === awayTeamId) &&
+      !gironiStageMatchBlocked
   );
   const canCreateStep1 = Boolean(kickoffAt && competitionId && selectedLeagueIdForForm > 0);
   const canCreateStep2 = !(homeTeamId && awayTeamId && homeTeamId === awayTeamId);
-  const canCreateStep3 = true;
+  const canCreateStep3 = !gironiStageMatchBlocked;
 
   const selectedCompetitionName = useMemo(
     () => competitions.find((c) => Number(c.id) === Number(competitionId))?.name || '-',
@@ -1736,6 +1768,11 @@ export default function ManageMatchesScreen() {
                     ))}
                   </View>
                 </ScrollView>
+                {gironiStageMatchBlocked ? (
+                  <Text style={{ color: '#b91c1c', fontSize: 13, marginTop: 10, fontWeight: '600' }}>
+                    {gironiStageMatchBlocked}
+                  </Text>
+                ) : null}
                   <TouchableOpacity style={styles.inlineLinkBtn} onPress={() => setShowCreateTimingDetails((v) => !v)}>
                     <Text style={styles.inlineLinkBtnText}>
                       {showCreateTimingDetails ? 'Nascondi dettagli durata' : 'Modifica durata / supplementari / rigori'}
@@ -1962,6 +1999,11 @@ export default function ManageMatchesScreen() {
                         ))}
                       </View>
                     </ScrollView>
+                    {gironiStageMatchBlocked ? (
+                      <Text style={{ color: '#b91c1c', fontSize: 13, marginTop: 10, fontWeight: '600' }}>
+                        {gironiStageMatchBlocked}
+                      </Text>
+                    ) : null}
                   <TouchableOpacity style={styles.inlineLinkBtn} onPress={() => setShowEditTimingDetails((v) => !v)}>
                     <Text style={styles.inlineLinkBtnText}>
                       {showEditTimingDetails ? 'Nascondi dettagli durata' : 'Modifica durata / supplementari / rigori'}
@@ -2006,7 +2048,19 @@ export default function ManageMatchesScreen() {
                 </TouchableOpacity>
                 {editMatchStep < 4 ? (
                 <TouchableOpacity
-                    style={[styles.primaryBtn, { flex: 1, marginTop: 0 }]}
+                    style={[
+                      styles.primaryBtn,
+                      { flex: 1, marginTop: 0 },
+                      ((editMatchStep === 1 && !canCreateStep1) ||
+                        (editMatchStep === 2 && !canCreateStep2) ||
+                        (editMatchStep === 3 && !canCreateStep3)) &&
+                        styles.primaryBtnDisabled,
+                    ]}
+                    disabled={
+                      (editMatchStep === 1 && !canCreateStep1) ||
+                      (editMatchStep === 2 && !canCreateStep2) ||
+                      (editMatchStep === 3 && !canCreateStep3)
+                    }
                     onPress={() => setEditMatchStep((s) => Math.min(4, s + 1))}
                 >
                     <Text style={styles.primaryBtnText}>Avanti</Text>
