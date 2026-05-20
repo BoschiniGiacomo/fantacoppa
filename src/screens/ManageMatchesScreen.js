@@ -208,6 +208,25 @@ export default function ManageMatchesScreen() {
     [matchDetailsOptions.venues]
   );
 
+  /** Senza opzione "-" sul luogo: su step 3 forza un luogo se la lista è valorizzata. */
+  useEffect(() => {
+    const isVenueStep =
+      (showCreateMatchForm && createMatchStep === 3) || (showEditMatchForm && editMatchStep === 3);
+    if (!isVenueStep) return;
+    const list = matchDetailsOptions.venues || [];
+    if (!Array.isArray(list) || list.length === 0) return;
+    if (String(venue || '').trim() !== '') return;
+    const next = defaultVenueNameFromList(list) || String(list[0]?.name || '').trim();
+    if (next) setVenue(next);
+  }, [
+    showCreateMatchForm,
+    showEditMatchForm,
+    createMatchStep,
+    editMatchStep,
+    matchDetailsOptions.venues,
+    venue,
+  ]);
+
   const filteredMatches = useMemo(() => {
     const competitionIdNum = Number(filterCompetitionId || 0);
     const leagueIdNum = Number(filterLeagueId || 0);
@@ -1720,9 +1739,6 @@ export default function ManageMatchesScreen() {
                 <Text style={styles.label}>Luogo</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                   <View style={styles.rowWrap}>
-                    <TouchableOpacity style={[styles.chip, !venue && styles.chipActive]} onPress={() => setVenue('')}>
-                      <Text style={[styles.chipText, !venue && styles.chipTextActive]}>-</Text>
-                    </TouchableOpacity>
                     {(matchDetailsOptions.venues || []).map((v) => (
                       <TouchableOpacity
                         key={`venue-create-${v.id}`}
@@ -1951,9 +1967,6 @@ export default function ManageMatchesScreen() {
                     <Text style={styles.label}>Luogo</Text>
                     <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                       <View style={styles.rowWrap}>
-                        <TouchableOpacity style={[styles.chip, !venue && styles.chipActive]} onPress={() => setVenue('')}>
-                          <Text style={[styles.chipText, !venue && styles.chipTextActive]}>-</Text>
-                        </TouchableOpacity>
                         {(matchDetailsOptions.venues || []).map((v) => (
                           <TouchableOpacity
                             key={`venue-edit-${v.id}`}

@@ -991,7 +991,7 @@ export default function SuperUserScreen() {
       }
       showToast(
         enabled
-          ? 'Due gironi attivi: assegna ogni squadra a G1 o G2'
+          ? 'Due gironi attivi: assegna ogni squadra a G. A o G. B'
           : 'Due gironi disattivati per questa lega',
         'success'
       );
@@ -2233,7 +2233,7 @@ export default function SuperUserScreen() {
                       {Number(league.official_two_groups || 0) === 1 ? (
                         <View style={{ marginTop: 8, paddingBottom: 4 }}>
                           <Text style={{ fontSize: 11, color: '#64748b', marginBottom: 8 }}>
-                            Assegna ogni squadra a Girone 1 o Girone 2.
+                            Assegna ogni squadra a G. A o G. B.
                           </Text>
                           {(gironiTeamsByLeague[league.id] || []).length === 0 ? (
                             <Text style={{ fontSize: 12, color: '#94a3b8' }}>Caricamento squadre…</Text>
@@ -2272,7 +2272,7 @@ export default function SuperUserScreen() {
                                         color: Number(tm.girone_index) === 1 ? '#4f46e5' : '#64748b',
                                       }}
                                     >
-                                      G1
+                                      G. A
                                     </Text>
                                   </TouchableOpacity>
                                   <TouchableOpacity
@@ -2295,7 +2295,7 @@ export default function SuperUserScreen() {
                                         color: Number(tm.girone_index) === 2 ? '#4f46e5' : '#64748b',
                                       }}
                                     >
-                                      G2
+                                      G. B
                                     </Text>
                                   </TouchableOpacity>
                                 </View>

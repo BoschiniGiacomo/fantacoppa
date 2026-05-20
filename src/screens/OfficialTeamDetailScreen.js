@@ -1058,15 +1058,15 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
                     <Text style={styles.statsValue}>{Number(statsGeneral.played || 0)}</Text>
                   </View>
                   <View style={styles.statsValueRow}>
-                    <Text style={styles.statsLabel}>Gol</Text>
+                    <Text style={styles.statsLabel}>Goal fatti</Text>
                     <Text style={styles.statsValue}>{Number(statsGeneral.goals || 0)}</Text>
                   </View>
                   <View style={styles.statsValueRow}>
-                    <Text style={styles.statsLabel}>Gol subiti</Text>
+                    <Text style={styles.statsLabel}>Goal subiti</Text>
                     <Text style={styles.statsValue}>{Number(statsGeneral.goals_conceded || 0)}</Text>
                   </View>
                   <View style={styles.statsValueRow}>
-                    <Text style={styles.statsLabel}>Cartellini Gialli/Rossi</Text>
+                    <Text style={styles.statsLabel}>Cartellini gialli/rossi</Text>
                     <Text style={styles.statsValue}>
                       {Number(statsGeneral.yellow_cards || 0)} / {Number(statsGeneral.red_cards || 0)}
                     </Text>
