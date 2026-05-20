@@ -2263,7 +2263,7 @@ export default function MatchDetailScreen({ navigation, route }) {
               <Text style={[styles.th, { flex: 1 }]}>Squadra</Text>
               <Text style={[styles.th, { width: 40, textAlign: 'center' }]}>PG</Text>
               <Text style={[styles.th, { width: 40, textAlign: 'center' }]}>DR</Text>
-              <Text style={[styles.th, { width: 40, textAlign: 'center' }]}>Pt</Text>
+              <Text style={[styles.th, { width: 40, textAlign: 'center' }]}>PT</Text>
             </View>
             {block.standings.map((r, i) => (
               <View key={`${block.key}-st-${i}`} style={styles.tableRow}>
@@ -4807,7 +4807,7 @@ const styles = StyleSheet.create({
   knockoutColumnTitleSpacer: { width: 56 },
   knockoutColumnTitleSpacerCompact: { width: 28 },
   knockoutBracketScroll: { marginHorizontal: -4 },
-  knockoutBracketScrollContent: { paddingRight: 12, paddingBottom: 4 },
+  knockoutBracketScrollContent: { paddingRight: 12, paddingBottom: 14 },
   knockoutBracketRow: { flexDirection: 'row', alignItems: 'stretch', gap: 0 },
   knockoutSemisCol: { flex: 1.2, gap: 10, alignSelf: 'flex-start', marginRight: -2 },
   knockoutStageColScroll: { width: 200, gap: 10, alignSelf: 'flex-start', marginRight: -2, flexShrink: 0 },

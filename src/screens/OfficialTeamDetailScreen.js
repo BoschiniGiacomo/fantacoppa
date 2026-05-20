@@ -940,7 +940,7 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
                           <Text style={[styles.seasonTh, { flex: 1 }]}>Squadra</Text>
                           <Text style={[styles.seasonTh, { width: 40, textAlign: 'center' }]}>PG</Text>
                           <Text style={[styles.seasonTh, { width: 40, textAlign: 'center' }]}>DR</Text>
-                          <Text style={[styles.seasonTh, { width: 40, textAlign: 'center' }]}>Pt</Text>
+                          <Text style={[styles.seasonTh, { width: 40, textAlign: 'center' }]}>PT</Text>
                         </View>
                         {block.standings.map((r, i) => {
                           const isWatched = normalizeNameForCompare(r?.team_name) === normalizeNameForCompare(teamName);
@@ -1527,7 +1527,7 @@ const styles = StyleSheet.create({
   seasonKnockoutColumnTitleSpacer: { width: 56 },
   seasonKnockoutColumnTitleSpacerCompact: { width: 28 },
   seasonKnockoutBracketScroll: { marginHorizontal: -4 },
-  seasonKnockoutBracketScrollContent: { paddingRight: 12, paddingBottom: 4 },
+  seasonKnockoutBracketScrollContent: { paddingRight: 12, paddingBottom: 14 },
   seasonKnockoutBracketRow: { flexDirection: 'row', alignItems: 'stretch', gap: 0 },
   seasonKnockoutSemisCol: { flex: 1.2, gap: 10, alignSelf: 'flex-start', marginRight: -2 },
   seasonKnockoutStageColScroll: { width: 200, gap: 10, alignSelf: 'flex-start', marginRight: -2, flexShrink: 0 },

@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { View, Text, TouchableOpacity, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, Platform } from 'react-native';
 import KnockoutSemiTieBlock from './KnockoutSemiTieBlock';
 import { KnockoutScoreText, hasKnockoutShootoutScore } from './KnockoutSemiTieBlock';
 import {
@@ -403,7 +403,10 @@ export default function OfficialKnockoutBracket({
       <View>
         <ScrollView
           horizontal
-          showsHorizontalScrollIndicator={false}
+          showsHorizontalScrollIndicator
+          persistentScrollbar={Platform.OS === 'android'}
+          indicatorStyle="black"
+          scrollIndicatorInsets={{ bottom: 2 }}
           style={layout.bracketScroll}
           contentContainerStyle={layout.bracketScrollContent}
         >
@@ -412,7 +415,7 @@ export default function OfficialKnockoutBracket({
               <KnockoutStageHeaderTitle label="Quarti" layout={layout} mirrorTwoLegPad={quarterTwoLegged} />
               <KnockoutStageColumn
                 ties={quarterfinalTies}
-                tieLabelPrefix="Q"
+                tieLabelPrefix="QF"
                 bare
                 {...commonStageProps}
               />
