@@ -72,11 +72,16 @@ const SQL_WALKOVER_MATCHES_CTE = `
             AND (e.player_id IS NULL OR e.player_id <= 0)
             AND COALESCE(TRIM(
               CASE
-                WHEN e.payload_json IS NULL THEN ''
-                WHEN jsonb_typeof(e.payload_json) = 'object' THEN COALESCE(e.payload_json->>'player_name', '')
-                ELSE ''
+                WHEN e.payload_json IS NULL OR BTRIM(e.payload_json) IN ('', '{}') THEN ''
+                ELSE COALESCE((e.payload_json::jsonb)->>'player_name', '')
               END
             ), '') = ''
+            AND COALESCE(NULLIF(TRIM(
+              CASE
+                WHEN e.payload_json IS NULL OR BTRIM(e.payload_json) IN ('', '{}') THEN ''
+                ELSE COALESCE((e.payload_json::jsonb)->>'player_id', '')
+              END
+            ), ''), '0')::int <= 0
           GROUP BY e.match_id
           HAVING COUNT(*) = 3
         ) wg
