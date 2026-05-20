@@ -21,11 +21,57 @@ function KnockoutFlowConnector({ flowTall, layout }) {
   );
 }
 
-function KnockoutStageColumn({ title, titleWide, ties, tieLabelPrefix, onPressMatch, LogoComponent, tieBlockStyles, layout }) {
-  const { stageCol, stageColWide, stageColScroll } = layout;
+function KnockoutHeaderFlowSpacer({ flowTall, layout }) {
   return (
-    <View style={[stageCol, titleWide && stageColWide, stageColScroll]}>
-      <Text style={[layout.columnTitle, titleWide && layout.columnTitleWide]}>{title}</Text>
+    <View
+      style={[
+        layout.flowCol,
+        flowTall && layout.flowColTall,
+        flowTall && layout.flowColCompact,
+        layout.headerFlowSpacer,
+      ]}
+    />
+  );
+}
+
+function KnockoutHeaderStageCell({ label, titleWide, layout, mirrorTwoLegPad }) {
+  return (
+    <View style={[layout.stageCol, titleWide && layout.stageColWide]}>
+      <View style={layout.semiLabelRow}>
+        <Text style={layout.stageColumnTitle}>{label}</Text>
+        {mirrorTwoLegPad ? (
+          <View style={layout.twoLegScoreCols}>
+            <View style={layout.headerLegColSpacer} />
+            <View style={layout.headerLegColSpacer} />
+          </View>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
+function KnockoutHeaderFinalCell({ layout }) {
+  return (
+    <View style={[layout.finalCol, layout.headerFinalCol]}>
+      <View style={layout.semiLabelRow}>
+        <Text style={layout.stageColumnTitle}>Finale</Text>
+      </View>
+    </View>
+  );
+}
+
+function KnockoutStageColumn({
+  titleWide,
+  ties,
+  tieLabelPrefix,
+  onPressMatch,
+  LogoComponent,
+  tieBlockStyles,
+  layout,
+}) {
+  const { stageCol, stageColWide } = layout;
+  return (
+    <View style={[stageCol, titleWide && stageColWide, layout.stageColScroll]}>
       {ties.map((tie, idx) => (
         <KnockoutSemiTieBlock
           key={`${tieLabelPrefix}-tie-${idx}-${tie.legs.map((l) => l.id).join('-')}`}
@@ -122,17 +168,34 @@ export default function OfficialKnockoutBracket({
   const layout = useMemo(() => {
     const s = layoutStyles || {};
     return {
-      headerRow: s.headerRow,
-      columnTitle: s.columnTitle,
-      columnTitleWide: s.columnTitleWide,
-      columnTitleSpacer: s.columnTitleSpacer,
-      columnTitleSpacerCompact: s.columnTitleSpacerCompact,
+      headerRow: [s.headerRow, { alignItems: 'flex-start' }],
+      stageColumnTitle: [
+        s.stageColumnTitle,
+        {
+          fontSize: 12,
+          fontWeight: '800',
+          color: '#6b7280',
+          textTransform: 'uppercase',
+          marginBottom: 0,
+        },
+      ],
+      semiLabelRow: s.semiLabelRow,
+      twoLegScoreCols: s.twoLegScoreCols,
+      headerLegColSpacer: [s.headerLegColSpacer, { minWidth: 20 }],
+      headerFlowSpacer: [
+        s.headerFlowSpacer,
+        { height: 0, marginTop: 0, minHeight: 0, overflow: 'hidden' },
+      ],
+      headerFinalCol: [
+        s.headerFinalCol,
+        { justifyContent: 'flex-start', paddingTop: 0, alignSelf: 'flex-start' },
+      ],
       bracketRow: s.bracketRow,
       bracketScroll: s.bracketScroll,
       bracketScrollContent: s.bracketScrollContent,
       stageCol: hasQuarterfinals ? s.stageColScroll || s.stageCol : s.stageCol,
       stageColWide: s.stageColWide,
-      stageColScroll: s.stageColScroll,
+      stageColScroll: hasQuarterfinals ? s.stageColScroll : null,
       flowCol: s.flowCol,
       flowColTall: s.flowColTall,
       flowColCompact: s.flowColCompact,
@@ -160,19 +223,32 @@ export default function OfficialKnockoutBracket({
     };
   }, [layoutStyles, hasQuarterfinals]);
 
+  const semiHeaderLabel =
+    semifinalTies.length > 1 || semifinalTies.some((t) => t.twoLegged) ? 'Semifinali' : 'Semifinale';
+  const semiTwoLegged = semifinalTies.some((t) => t.twoLegged);
+  const quarterTwoLegged = quarterfinalTies.some((t) => t.twoLegged);
+
   const header = (
-    <View style={layout.headerRow}>
+    <View style={[layout.bracketRow, layout.headerRow]}>
       {hasQuarterfinals ? (
         <>
-          <Text style={[layout.columnTitle, layout.columnTitleWide]}>Quarti</Text>
-          <Text style={[layout.columnTitleSpacer, flowTall && layout.columnTitleSpacerCompact]} />
+          <KnockoutHeaderStageCell
+            label="Quarti"
+            titleWide={flowTall}
+            layout={layout}
+            mirrorTwoLegPad={quarterTwoLegged}
+          />
+          <KnockoutHeaderFlowSpacer flowTall={flowTall} layout={layout} />
         </>
       ) : null}
-      <Text style={[layout.columnTitle, flowTall && layout.columnTitleWide]}>
-        {semifinalTies.length > 1 || semifinalTies.some((t) => t.twoLegged) ? 'Semifinali' : 'Semifinale'}
-      </Text>
-      <Text style={[layout.columnTitleSpacer, flowTall && layout.columnTitleSpacerCompact]} />
-      <Text style={layout.columnTitle}>Finale</Text>
+      <KnockoutHeaderStageCell
+        label={semiHeaderLabel}
+        titleWide={flowTall}
+        layout={layout}
+        mirrorTwoLegPad={semiTwoLegged}
+      />
+      <KnockoutHeaderFlowSpacer flowTall={flowTall} layout={layout} />
+      <KnockoutHeaderFinalCell layout={layout} />
     </View>
   );
 
@@ -181,7 +257,6 @@ export default function OfficialKnockoutBracket({
       {hasQuarterfinals ? (
         <>
           <KnockoutStageColumn
-            title="Quarti"
             titleWide={flowTall}
             ties={quarterfinalTies}
             tieLabelPrefix="Q"
@@ -194,9 +269,6 @@ export default function OfficialKnockoutBracket({
         </>
       ) : null}
       <KnockoutStageColumn
-        title={
-          semifinalTies.length > 1 || semifinalTies.some((t) => t.twoLegged) ? 'Semifinali' : 'Semifinale'
-        }
         titleWide={flowTall}
         ties={semifinalTies}
         tieLabelPrefix="SF"
