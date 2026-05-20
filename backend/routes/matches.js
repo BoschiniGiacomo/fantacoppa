@@ -2002,18 +2002,6 @@ async function expandLeagueIdsForRatingsMany(leagueIds) {
   return [...out];
 }
 
-const PRESENCES_DEBUG =
-  process.env.PRESENCES_DEBUG === '1' || process.env.NODE_ENV !== 'production';
-
-function logPresencesDebug(label, payload) {
-  if (!PRESENCES_DEBUG) return;
-  try {
-    console.log(`[official-team-presences] ${label}`, JSON.stringify(payload));
-  } catch {
-    console.log(`[official-team-presences] ${label}`, payload);
-  }
-}
-
 /**
  * In modalità Assolute: giocatori nello stesso cluster (approved) → una riga, presenze = somma.
  */
@@ -2088,17 +2076,14 @@ async function mergeAbsolutePresencesByCluster(perPlayer, officialGroupId) {
  * rating > 0, una per (lega stagione, giornata), voti letti da tutte le leghe del bacino resolveLeagueIds.
  * Solo giocatori con players.team_id = teams.id della rosa di quella stagione.
  */
-async function fetchOfficialTeamPresencesWithVoteRanking(seasonTeamRows, debugCtx = {}) {
+async function fetchOfficialTeamPresencesWithVoteRanking(seasonTeamRows, opts = {}) {
   const franchiseRows = (seasonTeamRows || [])
     .map((r) => ({
       canonLeagueId: Number(r.league_id),
       teamTableId: Number(r.id),
     }))
     .filter((r) => Number.isFinite(r.canonLeagueId) && r.canonLeagueId > 0 && Number.isFinite(r.teamTableId) && r.teamTableId > 0);
-  if (!franchiseRows.length) {
-    logPresencesDebug('empty_franchise_rows', debugCtx);
-    return [];
-  }
+  if (!franchiseRows.length) return [];
 
   const scopeTriplets = [];
   for (const fr of franchiseRows) {
@@ -2107,10 +2092,7 @@ async function fetchOfficialTeamPresencesWithVoteRanking(seasonTeamRows, debugCt
       scopeTriplets.push([fr.canonLeagueId, fr.teamTableId, rlid]);
     }
   }
-  if (!scopeTriplets.length) {
-    logPresencesDebug('empty_rating_league_scope', { franchiseRows, ...debugCtx });
-    return [];
-  }
+  if (!scopeTriplets.length) return [];
 
   const phScope = scopeTriplets.map(() => '(?, ?, ?)').join(', ');
   const flatScope = scopeTriplets.flat();
@@ -2153,45 +2135,8 @@ async function fetchOfficialTeamPresencesWithVoteRanking(seasonTeamRows, debugCt
     }))
     .filter((r) => r.value > 0);
 
-  if (debugCtx.isAbsoluteMode && Number(debugCtx.competitionId) > 0) {
-    const merged = await mergeAbsolutePresencesByCluster(perPlayer, Number(debugCtx.competitionId));
-    if (PRESENCES_DEBUG) {
-      logPresencesDebug('merged_clusters', {
-        before: perPlayer.length,
-        after: merged.length,
-        competitionId: debugCtx.competitionId,
-      });
-    }
-    return merged;
-  }
-
-  if (PRESENCES_DEBUG) {
-    const allRatingLeagueIds = [...new Set(scopeTriplets.map((t) => t[2]))];
-    const phRl = allRatingLeagueIds.map(() => '?').join(', ');
-    const teamIds = [...new Set(franchiseRows.map((f) => f.teamTableId))];
-    const phT = teamIds.map(() => '?').join(', ');
-    const [ratedAny, ratedTeam] = await Promise.all([
-      query(
-        `SELECT COUNT(*)::int AS c FROM player_ratings WHERE league_id IN (${phRl}) AND rating > 0`,
-        allRatingLeagueIds
-      ),
-      query(
-        `SELECT COUNT(*)::int AS c FROM player_ratings pr
-         INNER JOIN players p ON p.id = pr.player_id
-         WHERE pr.league_id IN (${phRl}) AND pr.rating > 0 AND p.team_id IN (${phT})`,
-        [...allRatingLeagueIds, ...teamIds]
-      ),
-    ]);
-    logPresencesDebug('result', {
-      ...debugCtx,
-      franchiseRows,
-      ratingLeagueIds: allRatingLeagueIds,
-      scopeRows: scopeTriplets.length,
-      ratingsInScope: Number(ratedAny[0]?.c || 0),
-      ratingsWithMatchingTeamId: Number(ratedTeam[0]?.c || 0),
-      playersReturned: (rows || []).length,
-      top3: (rows || []).slice(0, 3),
-    });
+  if (opts.isAbsoluteMode && Number(opts.competitionId) > 0) {
+    return mergeAbsolutePresencesByCluster(perPlayer, Number(opts.competitionId));
   }
 
   return perPlayer
@@ -2323,24 +2268,10 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
       });
     }
 
-    const presencesDebugCtx = {
-      teamId,
-      competitionId,
-      teamName,
-      selectedYear,
+    const presencesPromise = fetchOfficialTeamPresencesWithVoteRanking(seasonTeamRows, {
       isAbsoluteMode,
-      targetLeagueIds,
-      seasonTeamRows: (seasonTeamRows || []).map((r) => ({
-        team_table_id: Number(r.id),
-        league_id: Number(r.league_id),
-      })),
-    };
-    const presencesPromise = fetchOfficialTeamPresencesWithVoteRanking(seasonTeamRows, presencesDebugCtx).catch(
-      (err) => {
-        console.error('[official-team-presences] query failed', err?.message || err, presencesDebugCtx);
-        return [];
-      }
-    );
+      competitionId,
+    }).catch(() => []);
 
     const matchIds = (seasonMatches || []).map((m) => Number(m.id)).filter((n) => Number.isFinite(n) && n > 0);
 
