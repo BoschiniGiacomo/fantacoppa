@@ -21,11 +21,10 @@ function sortLegsChronologically(legs) {
 }
 
 /**
- * Raggruppa le semifinali in accoppiamenti (max 2 leg per coppia).
- * Restituisce al più 2 tie ordinati per data prima partita.
+ * Raggruppa partite a eliminazione in accoppiamenti (max 2 leg per coppia).
  */
-export function groupSemifinalsIntoTies(semifinals) {
-  const raw = (Array.isArray(semifinals) ? semifinals : []).filter((m) => m && m.id != null);
+export function groupKnockoutMatchesIntoTies(matches, maxTies = 2) {
+  const raw = (Array.isArray(matches) ? matches : []).filter((m) => m && m.id != null);
   const byPair = new Map();
   for (const m of raw) {
     const key = knockoutTiePairKey(m);
@@ -83,5 +82,27 @@ export function groupSemifinalsIntoTies(semifinals) {
   }
 
   ties.sort((a, b) => parseKickoffMs(a.legs[0]?.kickoff_at) - parseKickoffMs(b.legs[0]?.kickoff_at));
-  return ties.slice(0, 2);
+  const cap = Number.isFinite(Number(maxTies)) && Number(maxTies) > 0 ? Math.trunc(Number(maxTies)) : 2;
+  return ties.slice(0, cap);
+}
+
+/** Semifinali: al più 2 accoppiamenti. */
+export function groupSemifinalsIntoTies(semifinals) {
+  return groupKnockoutMatchesIntoTies(semifinals, 2);
+}
+
+/** Quarti (stage_id 4): al più 4 accoppiamenti. */
+export function groupQuarterfinalsIntoTies(quarterfinals) {
+  return groupKnockoutMatchesIntoTies(quarterfinals, 4);
+}
+
+export const EMPTY_OFFICIAL_KNOCKOUT = { quarterfinals: [], semifinals: [], final: null };
+
+export function hasOfficialKnockoutBracket(knockout) {
+  const k = knockout || EMPTY_OFFICIAL_KNOCKOUT;
+  return (
+    (Array.isArray(k.quarterfinals) && k.quarterfinals.length > 0) ||
+    (Array.isArray(k.semifinals) && k.semifinals.length > 0) ||
+    !!k.final
+  );
 }

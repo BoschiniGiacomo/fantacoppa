@@ -16,8 +16,8 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { matchesService, publicAssetUrl } from '../services/api';
-import KnockoutSemiTieBlock, { KnockoutScoreText, hasKnockoutShootoutScore } from '../components/KnockoutSemiTieBlock';
-import { groupSemifinalsIntoTies } from '../utils/knockoutBracket';
+import { EMPTY_OFFICIAL_KNOCKOUT, hasOfficialKnockoutBracket } from '../utils/knockoutBracket';
+import OfficialKnockoutBracket from '../components/OfficialKnockoutBracket';
 import { parseAppDate } from '../utils/dateTime';
 
 function TeamLogo({ logoUrl, logoPath }) {
@@ -313,7 +313,7 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
   const [selectedSeasonYear, setSelectedSeasonYear] = useState(null);
   const [seasonStandings, setSeasonStandings] = useState([]);
   const [seasonStandingsGroups, setSeasonStandingsGroups] = useState(null);
-  const [seasonKnockout, setSeasonKnockout] = useState({ semifinals: [], final: null });
+  const [seasonKnockout, setSeasonKnockout] = useState(EMPTY_OFFICIAL_KNOCKOUT);
   const [seasonPickerOpen, setSeasonPickerOpen] = useState(false);
   const [teamSeasonLoading, setTeamSeasonLoading] = useState(false);
   const [teamSeasonYears, setTeamSeasonYears] = useState([]);
@@ -402,6 +402,7 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
         setSeasonStandingsGroups(useTwoGroupTables ? groupsRaw : null);
         setSeasonStandings(useTwoGroupTables ? [] : standingsRows);
         setSeasonKnockout({
+          quarterfinals: Array.isArray(knockoutRows?.quarterfinals) ? knockoutRows.quarterfinals : [],
           semifinals: Array.isArray(knockoutRows?.semifinals) ? knockoutRows.semifinals : [],
           final: knockoutRows?.final || null,
         });
@@ -557,10 +558,7 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
     });
     return idx;
   }, [teamMatches]);
-  const hasSeasonKnockoutBracket =
-    (Array.isArray(seasonKnockout.semifinals) && seasonKnockout.semifinals.length > 0) || !!seasonKnockout.final;
-  const seasonSemifinalTies = useMemo(() => groupSemifinalsIntoTies(seasonKnockout.semifinals), [seasonKnockout.semifinals]);
-  const seasonKnockoutFlowTall = seasonSemifinalTies.some((t) => t.twoLegged);
+  const hasSeasonKnockoutBracket = hasOfficialKnockoutBracket(seasonKnockout);
   const seasonKnockoutBlockStyles = useMemo(
     () => ({
       knockoutSemiBlock: styles.seasonKnockoutSemiBlock,
@@ -584,138 +582,45 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
     }),
     []
   );
-  const seasonKnockoutBracketGrid = useMemo(
-    () => (
-      <>
-        <View style={styles.seasonKnockoutHeaderRow}>
-          <Text style={[styles.seasonKnockoutColumnTitle, seasonKnockoutFlowTall && styles.seasonKnockoutColumnTitleWide]}>
-            {seasonKnockoutFlowTall ? 'Semifinali' : 'Semifinale'}
-          </Text>
-          <Text
-            style={[styles.seasonKnockoutColumnTitleSpacer, seasonKnockoutFlowTall && styles.seasonKnockoutColumnTitleSpacerCompact]}
-          />
-          <Text style={styles.seasonKnockoutColumnTitle}>Finale</Text>
-        </View>
-        <View style={styles.seasonKnockoutBracketRow}>
-          <View style={[styles.seasonKnockoutSemisCol, seasonKnockoutFlowTall && styles.seasonKnockoutSemisColWide]}>
-            {seasonSemifinalTies.map((tie, idx) => (
-              <KnockoutSemiTieBlock
-                key={`season-semi-tie-${idx}-${tie.legs.map((l) => l.id).join('-')}`}
-                tie={tie}
-                sfIndex={idx}
-                onPressMatch={(matchId) =>
-                  navigation.navigate('MatchDetail', { matchId: Number(matchId), from: 'official-team-season' })
-                }
-                LogoComponent={SeasonKnockoutLogoAdapter}
-                styles={seasonKnockoutBlockStyles}
-              />
-            ))}
-          </View>
-
-          <View
-            style={[
-              styles.seasonKnockoutFlowCol,
-              seasonKnockoutFlowTall && styles.seasonKnockoutFlowColTall,
-              seasonKnockoutFlowTall && styles.seasonKnockoutFlowColCompact,
-            ]}
-          >
-            <View
-              style={[
-                styles.seasonKnockoutBracketTopArm,
-                seasonKnockoutFlowTall && styles.seasonKnockoutBracketTopArmCompact,
-                seasonKnockoutFlowTall && styles.seasonKnockoutBracketTopArmCompactTall,
-              ]}
-            />
-            <View
-              style={[
-                styles.seasonKnockoutBracketBottomArm,
-                seasonKnockoutFlowTall && styles.seasonKnockoutBracketBottomArmCompact,
-                seasonKnockoutFlowTall && styles.seasonKnockoutBracketBottomArmCompactTall,
-              ]}
-            />
-            <View
-              style={[
-                styles.seasonKnockoutBracketVertical,
-                seasonKnockoutFlowTall && styles.seasonKnockoutBracketVerticalCompact,
-                seasonKnockoutFlowTall && styles.seasonKnockoutBracketVerticalCompactTall,
-              ]}
-            />
-            <View
-              style={[
-                styles.seasonKnockoutBracketMiddleArm,
-                seasonKnockoutFlowTall && styles.seasonKnockoutBracketMiddleArmCompact,
-                seasonKnockoutFlowTall && styles.seasonKnockoutBracketMiddleArmCompactTall,
-              ]}
-            />
-          </View>
-
-          <View style={styles.seasonKnockoutFinalCol}>
-            <View style={styles.seasonKnockoutFinalLabelRow} />
-            {(() => {
-              const finalHasShootout = hasKnockoutShootoutScore(seasonKnockout.final);
-              return (
-                <TouchableOpacity
-                  style={styles.seasonKnockoutMatchStackMeasure}
-                  activeOpacity={0.78}
-                  disabled={!seasonKnockout.final?.id}
-                  onPress={() => navigation.navigate('MatchDetail', { matchId: Number(seasonKnockout.final.id), from: 'official-team-season' })}
-                  accessibilityRole={seasonKnockout.final?.id ? 'button' : undefined}
-                  accessibilityLabel={seasonKnockout.final?.id ? 'Apri partita finale' : undefined}
-                >
-                  <View style={styles.seasonKnockoutMatchStack}>
-                    <View style={styles.seasonKnockoutTeamBox}>
-                      <View style={styles.seasonKnockoutTeamRow}>
-                        {seasonKnockout.final?.home_team_name ? (
-                          <SeasonKnockoutLogo
-                            logoUrl={seasonKnockout.final?.home_team_logo_url}
-                            logoPath={seasonKnockout.final?.home_team_logo_path}
-                          />
-                        ) : (
-                          <View style={styles.seasonKnockoutLogoPlaceholder} />
-                        )}
-                        <Text style={styles.seasonKnockoutTeamText} numberOfLines={1}>
-                          {seasonKnockout.final?.home_team_name || '-'}
-                        </Text>
-                        <View style={styles.seasonKnockoutScoreBox}>
-                          <KnockoutScoreText
-                            score={seasonKnockout.final?.home_score}
-                            shootoutScore={finalHasShootout ? seasonKnockout.final?.home_shootout_score : null}
-                            styles={seasonKnockoutBlockStyles}
-                          />
-                        </View>
-                      </View>
-                    </View>
-                    <View style={styles.seasonKnockoutTeamBox}>
-                      <View style={styles.seasonKnockoutTeamRow}>
-                        {seasonKnockout.final?.away_team_name ? (
-                          <SeasonKnockoutLogo
-                            logoUrl={seasonKnockout.final?.away_team_logo_url}
-                            logoPath={seasonKnockout.final?.away_team_logo_path}
-                          />
-                        ) : (
-                          <View style={styles.seasonKnockoutLogoPlaceholder} />
-                        )}
-                        <Text style={styles.seasonKnockoutTeamText} numberOfLines={1}>
-                          {seasonKnockout.final?.away_team_name || '-'}
-                        </Text>
-                        <View style={styles.seasonKnockoutScoreBox}>
-                          <KnockoutScoreText
-                            score={seasonKnockout.final?.away_score}
-                            shootoutScore={finalHasShootout ? seasonKnockout.final?.away_shootout_score : null}
-                            styles={seasonKnockoutBlockStyles}
-                          />
-                        </View>
-                      </View>
-                    </View>
-                  </View>
-                </TouchableOpacity>
-              );
-            })()}
-          </View>
-        </View>
-      </>
-    ),
-    [navigation, seasonKnockout, seasonSemifinalTies, seasonKnockoutFlowTall, seasonKnockoutBlockStyles]
+  const seasonKnockoutLayout = useMemo(
+    () => ({
+      headerRow: styles.seasonKnockoutHeaderRow,
+      columnTitle: styles.seasonKnockoutColumnTitle,
+      columnTitleWide: styles.seasonKnockoutColumnTitleWide,
+      columnTitleSpacer: styles.seasonKnockoutColumnTitleSpacer,
+      columnTitleSpacerCompact: styles.seasonKnockoutColumnTitleSpacerCompact,
+      bracketRow: styles.seasonKnockoutBracketRow,
+      bracketScroll: styles.seasonKnockoutBracketScroll,
+      bracketScrollContent: styles.seasonKnockoutBracketScrollContent,
+      stageCol: styles.seasonKnockoutSemisCol,
+      stageColWide: styles.seasonKnockoutSemisColWide,
+      stageColScroll: styles.seasonKnockoutStageColScroll,
+      flowCol: styles.seasonKnockoutFlowCol,
+      flowColTall: styles.seasonKnockoutFlowColTall,
+      flowColCompact: styles.seasonKnockoutFlowColCompact,
+      bracketTopArm: styles.seasonKnockoutBracketTopArm,
+      bracketTopArmCompact: styles.seasonKnockoutBracketTopArmCompact,
+      bracketTopArmCompactTall: styles.seasonKnockoutBracketTopArmCompactTall,
+      bracketBottomArm: styles.seasonKnockoutBracketBottomArm,
+      bracketBottomArmCompact: styles.seasonKnockoutBracketBottomArmCompact,
+      bracketBottomArmCompactTall: styles.seasonKnockoutBracketBottomArmCompactTall,
+      bracketVertical: styles.seasonKnockoutBracketVertical,
+      bracketVerticalCompact: styles.seasonKnockoutBracketVerticalCompact,
+      bracketVerticalCompactTall: styles.seasonKnockoutBracketVerticalCompactTall,
+      bracketMiddleArm: styles.seasonKnockoutBracketMiddleArm,
+      bracketMiddleArmCompact: styles.seasonKnockoutBracketMiddleArmCompact,
+      bracketMiddleArmCompactTall: styles.seasonKnockoutBracketMiddleArmCompactTall,
+      finalCol: styles.seasonKnockoutFinalCol,
+      finalLabelRow: styles.seasonKnockoutFinalLabelRow,
+      matchStackMeasure: styles.seasonKnockoutMatchStackMeasure,
+      matchStack: styles.seasonKnockoutMatchStack,
+      teamBox: styles.seasonKnockoutTeamBox,
+      teamRow: styles.seasonKnockoutTeamRow,
+      teamText: styles.seasonKnockoutTeamText,
+      scoreBox: styles.seasonKnockoutScoreBox,
+      logoPlaceholder: styles.seasonKnockoutLogoPlaceholder,
+    }),
+    []
   );
 
   useEffect(() => {
@@ -1039,7 +944,15 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
             {!seasonLoading && hasSeasonKnockoutBracket ? (
               <View style={[styles.card, styles.seasonKnockoutCard]}>
                 <Text style={styles.seasonKnockoutTitle}>Fasi finali</Text>
-                {seasonKnockoutBracketGrid}
+                <OfficialKnockoutBracket
+                  knockout={seasonKnockout}
+                  onPressMatch={(matchId) =>
+                    navigation.navigate('MatchDetail', { matchId: Number(matchId), from: 'official-team-season' })
+                  }
+                  LogoComponent={SeasonKnockoutLogoAdapter}
+                  tieBlockStyles={seasonKnockoutBlockStyles}
+                  layoutStyles={seasonKnockoutLayout}
+                />
               </View>
             ) : null}
           </ScrollView>
@@ -1570,8 +1483,11 @@ const styles = StyleSheet.create({
   seasonKnockoutColumnTitleWide: { flex: 1.35 },
   seasonKnockoutColumnTitleSpacer: { width: 56 },
   seasonKnockoutColumnTitleSpacerCompact: { width: 28 },
+  seasonKnockoutBracketScroll: { marginHorizontal: -4 },
+  seasonKnockoutBracketScrollContent: { paddingRight: 12, paddingBottom: 4 },
   seasonKnockoutBracketRow: { flexDirection: 'row', alignItems: 'stretch', gap: 0 },
   seasonKnockoutSemisCol: { flex: 1.2, gap: 10, alignSelf: 'flex-start', marginRight: -2 },
+  seasonKnockoutStageColScroll: { width: 200, gap: 10, alignSelf: 'flex-start', marginRight: -2, flexShrink: 0 },
   seasonKnockoutSemisColWide: { flex: 1.35, marginRight: 0 },
   seasonKnockoutSemiBlock: { flexGrow: 0, flexShrink: 0 },
   seasonKnockoutFinalCol: { flex: 1.08, alignSelf: 'stretch', justifyContent: 'center', paddingTop: 20, marginLeft: -2 },

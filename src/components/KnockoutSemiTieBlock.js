@@ -117,17 +117,21 @@ function KnockoutTwoLegUnifiedCard({ tie, styles, LogoComponent }) {
 export default function KnockoutSemiTieBlock({
   tie,
   sfIndex,
+  tieLabelPrefix = 'SF',
   onPressMatch,
   LogoComponent,
   styles,
 }) {
   const pressId = tie?.twoLegged ? tie?.latestMatchId : tie?.legs?.[0]?.id;
   const disabled = !pressId;
+  const prefix = String(tieLabelPrefix || 'SF').trim() || 'SF';
 
   return (
     <View style={styles.knockoutSemiBlock}>
       <View style={styles.knockoutSemiLabelRow}>
-        <Text style={styles.knockoutSemiSmallLabel}>SF {sfIndex + 1}</Text>
+        <Text style={styles.knockoutSemiSmallLabel}>
+          {prefix} {sfIndex + 1}
+        </Text>
         {tie?.twoLegged ? (
           <View style={styles.knockoutTwoLegScoreCols}>
             <Text style={styles.knockoutLegColLabel}>A</Text>

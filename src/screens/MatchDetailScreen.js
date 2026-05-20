@@ -22,8 +22,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
 import { adminMatchesService, matchesService, publicAssetUrl } from '../services/api';
 import BonusIcon from '../components/BonusIcon';
-import KnockoutSemiTieBlock, { KnockoutScoreText, hasKnockoutShootoutScore } from '../components/KnockoutSemiTieBlock';
-import { groupSemifinalsIntoTies } from '../utils/knockoutBracket';
+import { EMPTY_OFFICIAL_KNOCKOUT, hasOfficialKnockoutBracket } from '../utils/knockoutBracket';
+import OfficialKnockoutBracket from '../components/OfficialKnockoutBracket';
 import {
   computeLiveHeroClock,
   continuationCumulativeMinute,
@@ -1229,11 +1229,10 @@ export default function MatchDetailScreen({ navigation, route }) {
   const liveEvents = data?.events || [];
   const standings = data?.standings || [];
   const standings_groups = Array.isArray(data?.standings_groups) ? data.standings_groups : null;
-  const knockout = data?.knockout || { semifinals: [], final: null };
+  const knockout = data?.knockout || EMPTY_OFFICIAL_KNOCKOUT;
   const matchStageId = match?.match_stage_id != null ? Number(match.match_stage_id) : NaN;
-  const standingsIsKnockoutMatch = matchStageId === 2 || matchStageId === 3;
-  const hasKnockoutBracket =
-    (Array.isArray(knockout.semifinals) && knockout.semifinals.length > 0) || !!knockout.final;
+  const standingsIsKnockoutMatch = matchStageId === 2 || matchStageId === 3 || matchStageId === 4;
+  const hasKnockoutBracket = hasOfficialKnockoutBracket(knockout);
 
   useEffect(() => {
     const sid = match?.match_stage_id != null ? Number(match.match_stage_id) : NaN;
@@ -2145,133 +2144,45 @@ export default function MatchDetailScreen({ navigation, route }) {
     [navigation, matchId]
   );
 
-  const semifinalTies = useMemo(() => groupSemifinalsIntoTies(knockout.semifinals), [knockout.semifinals]);
-  const knockoutFlowTall = semifinalTies.some((t) => t.twoLegged);
-
-  const standingsKnockoutBracketGrid = useMemo(
-    () => (
-      <>
-        <View style={styles.knockoutHeaderRow}>
-          <Text style={[styles.knockoutColumnTitle, knockoutFlowTall && styles.knockoutColumnTitleWide]}>
-            {knockoutFlowTall ? 'Semifinali' : 'Semifinale'}
-          </Text>
-          <Text style={[styles.knockoutColumnTitleSpacer, knockoutFlowTall && styles.knockoutColumnTitleSpacerCompact]} />
-          <Text style={styles.knockoutColumnTitle}>Finale</Text>
-        </View>
-        <View style={styles.knockoutBracketRow}>
-          <View style={[styles.knockoutSemisCol, knockoutFlowTall && styles.knockoutSemisColWide]}>
-            {semifinalTies.map((tie, idx) => (
-              <KnockoutSemiTieBlock
-                key={`semi-tie-${idx}-${tie.legs.map((l) => l.id).join('-')}`}
-                tie={tie}
-                sfIndex={idx}
-                onPressMatch={openKnockoutMatchDetail}
-                LogoComponent={TableTeamLogo}
-                styles={styles}
-              />
-            ))}
-          </View>
-
-          <View style={[styles.knockoutFlowCol, knockoutFlowTall && styles.knockoutFlowColTall, knockoutFlowTall && styles.knockoutFlowColCompact]}>
-            <View
-              style={[
-                styles.knockoutBracketTopArm,
-                knockoutFlowTall && styles.knockoutBracketTopArmCompact,
-                knockoutFlowTall && styles.knockoutBracketTopArmCompactTall,
-              ]}
-            />
-            <View
-              style={[
-                styles.knockoutBracketBottomArm,
-                knockoutFlowTall && styles.knockoutBracketBottomArmCompact,
-                knockoutFlowTall && styles.knockoutBracketBottomArmCompactTall,
-              ]}
-            />
-            <View
-              style={[
-                styles.knockoutBracketVertical,
-                knockoutFlowTall && styles.knockoutBracketVerticalCompact,
-                knockoutFlowTall && styles.knockoutBracketVerticalCompactTall,
-              ]}
-            />
-            <View
-              style={[
-                styles.knockoutBracketMiddleArm,
-                knockoutFlowTall && styles.knockoutBracketMiddleArmCompact,
-                knockoutFlowTall && styles.knockoutBracketMiddleArmCompactTall,
-              ]}
-            />
-          </View>
-
-          <View style={styles.knockoutFinalCol}>
-            <View style={styles.knockoutFinalLabelRow} />
-            {(() => {
-              const finalHasShootout = hasKnockoutShootoutScore(knockout.final);
-              return (
-            <TouchableOpacity
-              style={styles.knockoutMatchStackMeasure}
-              activeOpacity={0.78}
-              disabled={!knockout.final?.id}
-              onPress={() => openKnockoutMatchDetail(knockout.final?.id)}
-              accessibilityRole={knockout.final?.id ? 'button' : undefined}
-              accessibilityLabel={knockout.final?.id ? 'Apri partita finale' : undefined}
-            >
-              <View style={styles.knockoutMatchStack}>
-                <View style={styles.knockoutTeamBox}>
-                  <View style={styles.knockoutTeamRow}>
-                    {knockout.final?.home_team_name ? (
-                      <TableTeamLogo
-                        logoUrl={knockout.final?.home_team_logo_url}
-                        logoPath={knockout.final?.home_team_logo_path}
-                        size={30}
-                      />
-                    ) : (
-                      <View style={styles.knockoutLogoPlaceholder} />
-                    )}
-                    <Text style={styles.knockoutTeamText} numberOfLines={1}>
-                      {knockout.final?.home_team_name || '-'}
-                    </Text>
-                    <View style={styles.knockoutScoreBox}>
-                      <KnockoutScoreText
-                        score={knockout.final?.home_score}
-                        shootoutScore={finalHasShootout ? knockout.final?.home_shootout_score : null}
-                        styles={styles}
-                      />
-                    </View>
-                  </View>
-                </View>
-                <View style={styles.knockoutTeamBox}>
-                  <View style={styles.knockoutTeamRow}>
-                    {knockout.final?.away_team_name ? (
-                      <TableTeamLogo
-                        logoUrl={knockout.final?.away_team_logo_url}
-                        logoPath={knockout.final?.away_team_logo_path}
-                        size={30}
-                      />
-                    ) : (
-                      <View style={styles.knockoutLogoPlaceholder} />
-                    )}
-                    <Text style={styles.knockoutTeamText} numberOfLines={1}>
-                      {knockout.final?.away_team_name || '-'}
-                    </Text>
-                    <View style={styles.knockoutScoreBox}>
-                      <KnockoutScoreText
-                        score={knockout.final?.away_score}
-                        shootoutScore={finalHasShootout ? knockout.final?.away_shootout_score : null}
-                        styles={styles}
-                      />
-                    </View>
-                  </View>
-                </View>
-              </View>
-            </TouchableOpacity>
-              );
-            })()}
-          </View>
-        </View>
-      </>
-    ),
-    [knockout, openKnockoutMatchDetail, semifinalTies, knockoutFlowTall]
+  const knockoutLayout = useMemo(
+    () => ({
+      headerRow: styles.knockoutHeaderRow,
+      columnTitle: styles.knockoutColumnTitle,
+      columnTitleWide: styles.knockoutColumnTitleWide,
+      columnTitleSpacer: styles.knockoutColumnTitleSpacer,
+      columnTitleSpacerCompact: styles.knockoutColumnTitleSpacerCompact,
+      bracketRow: styles.knockoutBracketRow,
+      bracketScroll: styles.knockoutBracketScroll,
+      bracketScrollContent: styles.knockoutBracketScrollContent,
+      stageCol: styles.knockoutSemisCol,
+      stageColWide: styles.knockoutSemisColWide,
+      stageColScroll: styles.knockoutStageColScroll,
+      flowCol: styles.knockoutFlowCol,
+      flowColTall: styles.knockoutFlowColTall,
+      flowColCompact: styles.knockoutFlowColCompact,
+      bracketTopArm: styles.knockoutBracketTopArm,
+      bracketTopArmCompact: styles.knockoutBracketTopArmCompact,
+      bracketTopArmCompactTall: styles.knockoutBracketTopArmCompactTall,
+      bracketBottomArm: styles.knockoutBracketBottomArm,
+      bracketBottomArmCompact: styles.knockoutBracketBottomArmCompact,
+      bracketBottomArmCompactTall: styles.knockoutBracketBottomArmCompactTall,
+      bracketVertical: styles.knockoutBracketVertical,
+      bracketVerticalCompact: styles.knockoutBracketVerticalCompact,
+      bracketVerticalCompactTall: styles.knockoutBracketVerticalCompactTall,
+      bracketMiddleArm: styles.knockoutBracketMiddleArm,
+      bracketMiddleArmCompact: styles.knockoutBracketMiddleArmCompact,
+      bracketMiddleArmCompactTall: styles.knockoutBracketMiddleArmCompactTall,
+      finalCol: styles.knockoutFinalCol,
+      finalLabelRow: styles.knockoutFinalLabelRow,
+      matchStackMeasure: styles.knockoutMatchStackMeasure,
+      matchStack: styles.knockoutMatchStack,
+      teamBox: styles.knockoutTeamBox,
+      teamRow: styles.knockoutTeamRow,
+      teamText: styles.knockoutTeamText,
+      scoreBox: styles.knockoutScoreBox,
+      logoPlaceholder: styles.knockoutLogoPlaceholder,
+    }),
+    []
   );
 
   const standingsTableBlocks = useMemo(() => {
@@ -2811,7 +2722,13 @@ export default function MatchDetailScreen({ navigation, route }) {
                 {hasKnockoutBracket ? (
                   <View style={[styles.card, styles.knockoutCard]}>
                     <Text style={styles.knockoutTitle}>Fasi finali</Text>
-                    {standingsKnockoutBracketGrid}
+                    <OfficialKnockoutBracket
+                      knockout={knockout}
+                      onPressMatch={openKnockoutMatchDetail}
+                      LogoComponent={TableTeamLogo}
+                      tieBlockStyles={styles}
+                      layoutStyles={knockoutLayout}
+                    />
                   </View>
                 ) : null}
                 {hasStandingsTableRows ? (
@@ -2855,7 +2772,15 @@ export default function MatchDetailScreen({ navigation, route }) {
                         color="#9ca3af"
                       />
                     </TouchableOpacity>
-                    {standingsKnockoutExpanded ? standingsKnockoutBracketGrid : null}
+                    {standingsKnockoutExpanded ? (
+                      <OfficialKnockoutBracket
+                        knockout={knockout}
+                        onPressMatch={openKnockoutMatchDetail}
+                        LogoComponent={TableTeamLogo}
+                        tieBlockStyles={styles}
+                        layoutStyles={knockoutLayout}
+                      />
+                    ) : null}
                   </View>
                 ) : null}
               </>
@@ -4827,8 +4752,11 @@ const styles = StyleSheet.create({
   knockoutColumnTitleWide: { flex: 1.35 },
   knockoutColumnTitleSpacer: { width: 56 },
   knockoutColumnTitleSpacerCompact: { width: 28 },
+  knockoutBracketScroll: { marginHorizontal: -4 },
+  knockoutBracketScrollContent: { paddingRight: 12, paddingBottom: 4 },
   knockoutBracketRow: { flexDirection: 'row', alignItems: 'stretch', gap: 0 },
   knockoutSemisCol: { flex: 1.2, gap: 10, alignSelf: 'flex-start', marginRight: -2 },
+  knockoutStageColScroll: { width: 200, gap: 10, alignSelf: 'flex-start', marginRight: -2, flexShrink: 0 },
   knockoutSemisColWide: { flex: 1.35, marginRight: 0 },
   knockoutSemiBlock: { flexGrow: 0, flexShrink: 0 },
   knockoutFinalCol: { flex: 1.08, alignSelf: 'stretch', justifyContent: 'center', paddingTop: 20, marginLeft: -2 },

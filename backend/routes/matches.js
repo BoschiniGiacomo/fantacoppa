@@ -1003,7 +1003,7 @@ async function buildKnockoutBracketForLeague({ competitionId, leagueId }) {
   const compId = Number(competitionId);
   const lid = Number(leagueId);
   if (!Number.isFinite(compId) || compId <= 0 || !Number.isFinite(lid) || lid <= 0) {
-    return { semifinals: [], final: null };
+    return { quarterfinals: [], semifinals: [], final: null };
   }
 
   const knockoutRows = await query(
@@ -1034,7 +1034,7 @@ async function buildKnockoutBracketForLeague({ competitionId, leagueId }) {
           AND at.league_id = ?
         )
       )
-      AND NULLIF(to_jsonb(m)->>'match_stage_id','')::int IN (2, 3)
+      AND NULLIF(to_jsonb(m)->>'match_stage_id','')::int IN (2, 3, 4)
     ORDER BY
       NULLIF(to_jsonb(m)->>'match_stage_id','')::int ASC,
       m.kickoff_at ASC NULLS LAST,
@@ -1135,6 +1135,7 @@ async function buildKnockoutBracketForLeague({ competitionId, leagueId }) {
   });
 
   return {
+    quarterfinals: mapped.filter((m) => m.stage_id === 4),
     semifinals: mapped.filter((m) => m.stage_id === 2),
     final: mapped.find((m) => m.stage_id === 3) || null,
   };
@@ -1394,7 +1395,8 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
       matchLeagueId > 0 ? matchLeagueId : (homeLeagueId > 0 && homeLeagueId === awayLeagueId ? homeLeagueId : 0);
 
     await ensureUnavailablePlayersTable();
-    const [homeTeam, awayTeam, rawEvents, homeLineup, awayLineup, unavailableRows, standingsBundle, knockoutRows] = await Promise.all([
+    const emptyKnockout = { quarterfinals: [], semifinals: [], final: null };
+    const [homeTeam, awayTeam, rawEvents, homeLineup, awayLineup, unavailableRows, standingsBundle, knockout] = await Promise.all([
       getTeamMeta(homeTeamId),
       getTeamMeta(awayTeamId),
       query(
@@ -1412,21 +1414,11 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
           }).catch(() => ({ standings: [], standings_groups: null }))
         : Promise.resolve({ standings: [], standings_groups: null }),
       currentLeagueId > 0
-        ? query(
-            `SELECT m.id, NULLIF(to_jsonb(m)->>'match_stage_id','')::int AS match_stage_id, ms.name AS stage_name,
-              m.kickoff_at, m.home_team_id, ht.name AS home_team_name, ht.logo_path AS home_team_logo_path,
-              m.away_team_id, at.name AS away_team_name, at.logo_path AS away_team_logo_path, m.home_score, m.away_score
-            FROM official_matches m
-            LEFT JOIN official_match_stages ms ON ms.id = NULLIF(to_jsonb(m)->>'match_stage_id','')::int
-            LEFT JOIN teams ht ON ht.id = m.home_team_id
-            LEFT JOIN teams at ON at.id = m.away_team_id
-            WHERE m.competition_id = ?
-              AND (m.league_id = ? OR (m.league_id IS NULL AND ht.league_id = ? AND at.league_id = ?))
-              AND NULLIF(to_jsonb(m)->>'match_stage_id','')::int IN (2, 3)
-            ORDER BY NULLIF(to_jsonb(m)->>'match_stage_id','')::int ASC, m.kickoff_at ASC NULLS LAST, m.id ASC`,
-            [Number(matchRow.competition_id), currentLeagueId, currentLeagueId, currentLeagueId]
-          ).catch(() => [])
-        : Promise.resolve([]),
+        ? buildKnockoutBracketForLeague({
+            leagueId: currentLeagueId,
+            competitionId: Number(matchRow.competition_id),
+          }).catch(() => emptyKnockout)
+        : Promise.resolve(emptyKnockout),
     ]);
 
     const homeLogoPath = normalizeTeamLogoPathForApi(homeTeam?.logo_path);
@@ -1467,107 +1459,7 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
 
     const standings = Array.isArray(standingsBundle?.standings) ? standingsBundle.standings : [];
     const standings_groups = standingsBundle?.standings_groups ?? null;
-
-    let knockout = { semifinals: [], final: null };
-    try {
-      const knockoutIds = (Array.isArray(knockoutRows) ? knockoutRows : [])
-        .map((r) => Number(r.id))
-        .filter((n) => Number.isFinite(n) && n > 0);
-      const knockoutTeamByMatchId = new Map(
-        (Array.isArray(knockoutRows) ? knockoutRows : []).map((r) => [
-          Number(r.id),
-          { home_team_id: Number(r.home_team_id || 0), away_team_id: Number(r.away_team_id || 0) },
-        ])
-      );
-      const liveScoreByMatch = new Map();
-      if (knockoutIds.length > 0) {
-        const ph = knockoutIds.map(() => '?').join(', ');
-        const evRows = await query(
-          `
-          SELECT match_id, event_type, team_side, team_id
-          FROM official_match_events
-          WHERE match_id IN (${ph})
-          ORDER BY id ASC
-          `,
-          knockoutIds
-        );
-        (Array.isArray(evRows) ? evRows : []).forEach((e) => {
-          const mid = Number(e.match_id);
-          if (!liveScoreByMatch.has(mid)) {
-            liveScoreByMatch.set(mid, { home: 0, away: 0, homeShootout: 0, awayShootout: 0, hasEvents: false, hasShootout: false });
-          }
-          const s = liveScoreByMatch.get(mid);
-          // Appena la partita ha eventi live (anche solo inizio/fine), il tabellone deve mostrare 0-0.
-          s.hasEvents = true;
-          const teamRef = knockoutTeamByMatchId.get(mid) || { home_team_id: 0, away_team_id: 0 };
-          const evTeamId = Number(e.team_id);
-          const byTeamId =
-            Number.isFinite(evTeamId) && evTeamId > 0 && teamRef.home_team_id > 0 && teamRef.away_team_id > 0;
-          if (e.event_type === 'shootout_goal') {
-            s.hasShootout = true;
-            if (byTeamId) {
-              if (evTeamId === teamRef.home_team_id) s.homeShootout += 1;
-              if (evTeamId === teamRef.away_team_id) s.awayShootout += 1;
-            } else {
-              if (e.team_side === 'home') s.homeShootout += 1;
-              if (e.team_side === 'away') s.awayShootout += 1;
-            }
-          } else if (e.event_type === 'shootout_missed') {
-            s.hasShootout = true;
-          } else if (isRegularGoalEventType(e.event_type)) {
-            if (byTeamId) {
-              if (evTeamId === teamRef.home_team_id) s.home += 1;
-              if (evTeamId === teamRef.away_team_id) s.away += 1;
-            } else {
-              if (e.team_side === 'home') s.home += 1;
-              if (e.team_side === 'away') s.away += 1;
-            }
-          } else if (e.event_type === 'own_goal') {
-            if (byTeamId) {
-              if (evTeamId === teamRef.home_team_id) s.away += 1;
-              if (evTeamId === teamRef.away_team_id) s.home += 1;
-            } else {
-              if (e.team_side === 'home') s.away += 1;
-              if (e.team_side === 'away') s.home += 1;
-            }
-          }
-        });
-      }
-
-      const mapped = (Array.isArray(knockoutRows) ? knockoutRows : []).map((r) => {
-        const live = liveScoreByMatch.get(Number(r.id)) || null;
-        const hs = live?.hasEvents ? Number(live.home) : (r.home_score != null ? Number(r.home_score) : null);
-        const as = live?.hasEvents ? Number(live.away) : (r.away_score != null ? Number(r.away_score) : null);
-        const hps = live?.hasShootout ? Number(live.homeShootout) : null;
-        const aps = live?.hasShootout ? Number(live.awayShootout) : null;
-        const homeLogoPath = normalizeTeamLogoPathForApi(r?.home_team_logo_path);
-        const awayLogoPath = normalizeTeamLogoPathForApi(r?.away_team_logo_path);
-        return {
-          id: Number(r.id),
-          stage_id: Number(r.match_stage_id),
-          stage_name: r.stage_name != null ? String(r.stage_name) : null,
-          kickoff_at: r.kickoff_at,
-          home_team_id: r.home_team_id != null ? Number(r.home_team_id) : null,
-          home_team_name: r.home_team_name != null ? String(r.home_team_name) : null,
-          home_team_logo_path: homeLogoPath,
-          home_team_logo_url: logoUrlForPath(homeLogoPath),
-          away_team_id: r.away_team_id != null ? Number(r.away_team_id) : null,
-          away_team_name: r.away_team_name != null ? String(r.away_team_name) : null,
-          away_team_logo_path: awayLogoPath,
-          away_team_logo_url: logoUrlForPath(awayLogoPath),
-          home_score: Number.isFinite(hs) ? hs : null,
-          away_score: Number.isFinite(as) ? as : null,
-          home_shootout_score: Number.isFinite(hps) && Number.isFinite(aps) ? hps : null,
-          away_shootout_score: Number.isFinite(hps) && Number.isFinite(aps) ? aps : null,
-        };
-      });
-      knockout = {
-        semifinals: mapped.filter((m) => m.stage_id === 2),
-        final: mapped.find((m) => m.stage_id === 3) || null,
-      };
-    } catch (_) {
-      knockout = { semifinals: [], final: null };
-    }
+    const knockoutSafe = knockout && typeof knockout === 'object' ? knockout : emptyKnockout;
 
     return res.json({
       match,
@@ -1577,7 +1469,7 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
       events: correctedEvents,
       standings,
       standings_groups,
-      knockout,
+      knockout: knockoutSafe,
       favorites: {
         match: Number(match.is_favorite_match) ? 1 : 0,
         home_team: 0,
@@ -1840,7 +1732,7 @@ router.get('/matches/teams/:teamId/season-standings', authenticateToken, async (
     if (!teamName) {
       const fallback = await query(`SELECT name FROM teams WHERE id = ? LIMIT 1`, [teamId]);
       if (!fallback[0]) return res.status(404).json({ message: 'Squadra non trovata' });
-      return res.json({ team: { id: teamId, name: String(fallback[0].name || '').trim() }, available_years: [], selected_year: null, standings: [], knockout: { semifinals: [], final: null } });
+      return res.json({ team: { id: teamId, name: String(fallback[0].name || '').trim() }, available_years: [], selected_year: null, standings: [], knockout: { quarterfinals: [], semifinals: [], final: null } });
     }
 
     const availableYears = Array.from(
@@ -1869,7 +1761,7 @@ router.get('/matches/teams/:teamId/season-standings', authenticateToken, async (
 
     let standings = [];
     let standings_groups = null;
-    let knockout = { semifinals: [], final: null };
+    let knockout = { quarterfinals: [], semifinals: [], final: null };
     if (selectedLeagueId) {
       const [tablesResult, ko] = await Promise.all([
         computeOfficialLeagueGironiStandings({ leagueId: selectedLeagueId, competitionId }),
