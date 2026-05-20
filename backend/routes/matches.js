@@ -947,6 +947,58 @@ async function computeStandingsFromMatches({ leagueId, groupId, allowedTeamIds =
   });
 }
 
+/** Classifica fase gironi: unica tabella oppure Girone A + B se la lega ha due gironi e le assegnazioni sono valide. */
+async function computeOfficialLeagueGironiStandings({ leagueId, competitionId }) {
+  const lid = Number(leagueId);
+  const compId = Number(competitionId);
+  if (!Number.isFinite(lid) || lid <= 0 || !Number.isFinite(compId) || compId <= 0) {
+    return { standings: [], standings_groups: null };
+  }
+
+  const leagueMetaRows = await query(
+    `SELECT COALESCE(official_two_groups, 0) AS official_two_groups FROM leagues WHERE id = ? LIMIT 1`,
+    [lid]
+  );
+  const twoGroups = Number(leagueMetaRows[0]?.official_two_groups || 0) === 1;
+
+  if (!twoGroups) {
+    const standings = await computeStandingsFromMatches({ leagueId: lid, groupId: compId }).catch(() => []);
+    return { standings: Array.isArray(standings) ? standings : [], standings_groups: null };
+  }
+
+  await ensureLeagueOfficialGironiSchema();
+  const gironiRows = await query(
+    `SELECT team_id, girone_index FROM league_official_team_gironi WHERE league_id = ?`,
+    [lid]
+  );
+  const idsG1 = [];
+  const idsG2 = [];
+  for (const r of gironiRows || []) {
+    const gi = Number(r.girone_index);
+    const tid = Number(r.team_id);
+    if (!Number.isFinite(tid) || tid <= 0) continue;
+    if (gi === 1) idsG1.push(tid);
+    else if (gi === 2) idsG2.push(tid);
+  }
+  const useSplit = idsG1.length > 0 && idsG2.length > 0;
+  if (!useSplit) {
+    const standings = await computeStandingsFromMatches({ leagueId: lid, groupId: compId }).catch(() => []);
+    return { standings: Array.isArray(standings) ? standings : [], standings_groups: null };
+  }
+
+  const [sA, sB] = await Promise.all([
+    computeStandingsFromMatches({ leagueId: lid, groupId: compId, allowedTeamIds: idsG1 }).catch(() => []),
+    computeStandingsFromMatches({ leagueId: lid, groupId: compId, allowedTeamIds: idsG2 }).catch(() => []),
+  ]);
+  return {
+    standings: [],
+    standings_groups: [
+      { girone_index: 1, label: 'Girone A', standings: Array.isArray(sA) ? sA : [] },
+      { girone_index: 2, label: 'Girone B', standings: Array.isArray(sB) ? sB : [] },
+    ],
+  };
+}
+
 async function buildKnockoutBracketForLeague({ competitionId, leagueId }) {
   const compId = Number(competitionId);
   const lid = Number(leagueId);
@@ -1342,7 +1394,7 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
       matchLeagueId > 0 ? matchLeagueId : (homeLeagueId > 0 && homeLeagueId === awayLeagueId ? homeLeagueId : 0);
 
     await ensureUnavailablePlayersTable();
-    const [homeTeam, awayTeam, rawEvents, homeLineup, awayLineup, unavailableRows, standingsResult, knockoutRows] = await Promise.all([
+    const [homeTeam, awayTeam, rawEvents, homeLineup, awayLineup, unavailableRows, standingsBundle, knockoutRows] = await Promise.all([
       getTeamMeta(homeTeamId),
       getTeamMeta(awayTeamId),
       query(
@@ -1354,8 +1406,11 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
       getTeamPlayersLineup(awayTeamId),
       query(`SELECT player_id FROM official_match_unavailable_players WHERE match_id = ?`, [matchId]),
       currentLeagueId > 0
-        ? computeStandingsFromMatches({ leagueId: currentLeagueId, groupId: Number(matchRow.competition_id) }).catch(() => [])
-        : Promise.resolve([]),
+        ? computeOfficialLeagueGironiStandings({
+            leagueId: currentLeagueId,
+            competitionId: Number(matchRow.competition_id),
+          }).catch(() => ({ standings: [], standings_groups: null }))
+        : Promise.resolve({ standings: [], standings_groups: null }),
       currentLeagueId > 0
         ? query(
             `SELECT m.id, NULLIF(to_jsonb(m)->>'match_stage_id','')::int AS match_stage_id, ms.name AS stage_name,
@@ -1410,7 +1465,8 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
     const homeUnavailable = homeLineup.filter((p) => unavailableSet.has(Number(p.id)));
     const awayUnavailable = awayLineup.filter((p) => unavailableSet.has(Number(p.id)));
 
-    const standings = Array.isArray(standingsResult) ? standingsResult : [];
+    const standings = Array.isArray(standingsBundle?.standings) ? standingsBundle.standings : [];
+    const standings_groups = standingsBundle?.standings_groups ?? null;
 
     let knockout = { semifinals: [], final: null };
     try {
@@ -1520,6 +1576,7 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
       team_players: { home: homeLineup, away: awayLineup },
       events: correctedEvents,
       standings,
+      standings_groups,
       knockout,
       favorites: {
         match: Number(match.is_favorite_match) ? 1 : 0,
@@ -1814,60 +1871,13 @@ router.get('/matches/teams/:teamId/season-standings', authenticateToken, async (
     let standings_groups = null;
     let knockout = { semifinals: [], final: null };
     if (selectedLeagueId) {
-      const leagueMetaRows = await query(
-        `SELECT COALESCE(official_two_groups, 0) AS official_two_groups FROM leagues WHERE id = ? LIMIT 1`,
-        [selectedLeagueId]
-      );
-      const twoGroups = Number(leagueMetaRows[0]?.official_two_groups || 0) === 1;
-
-      if (twoGroups) {
-        await ensureLeagueOfficialGironiSchema();
-        const gironiRows = await query(
-          `SELECT team_id, girone_index FROM league_official_team_gironi WHERE league_id = ?`,
-          [selectedLeagueId]
-        );
-        const idsG1 = [];
-        const idsG2 = [];
-        for (const r of gironiRows || []) {
-          const gi = Number(r.girone_index);
-          const tid = Number(r.team_id);
-          if (!Number.isFinite(tid) || tid <= 0) continue;
-          if (gi === 1) idsG1.push(tid);
-          else if (gi === 2) idsG2.push(tid);
-        }
-        const useSplit = idsG1.length > 0 && idsG2.length > 0;
-        if (useSplit) {
-          const [sA, sB, ko] = await Promise.all([
-            computeStandingsFromMatches({
-              leagueId: selectedLeagueId,
-              groupId: competitionId,
-              allowedTeamIds: idsG1,
-            }),
-            computeStandingsFromMatches({
-              leagueId: selectedLeagueId,
-              groupId: competitionId,
-              allowedTeamIds: idsG2,
-            }),
-            buildKnockoutBracketForLeague({ leagueId: selectedLeagueId, competitionId }),
-          ]);
-          knockout = ko;
-          standings_groups = [
-            { girone_index: 1, label: 'Girone A', standings: Array.isArray(sA) ? sA : [] },
-            { girone_index: 2, label: 'Girone B', standings: Array.isArray(sB) ? sB : [] },
-          ];
-          standings = [];
-        } else {
-          [standings, knockout] = await Promise.all([
-            computeStandingsFromMatches({ leagueId: selectedLeagueId, groupId: competitionId }),
-            buildKnockoutBracketForLeague({ leagueId: selectedLeagueId, competitionId }),
-          ]);
-        }
-      } else {
-        [standings, knockout] = await Promise.all([
-          computeStandingsFromMatches({ leagueId: selectedLeagueId, groupId: competitionId }),
-          buildKnockoutBracketForLeague({ leagueId: selectedLeagueId, competitionId }),
-        ]);
-      }
+      const [tablesResult, ko] = await Promise.all([
+        computeOfficialLeagueGironiStandings({ leagueId: selectedLeagueId, competitionId }),
+        buildKnockoutBracketForLeague({ leagueId: selectedLeagueId, competitionId }),
+      ]);
+      standings = tablesResult.standings;
+      standings_groups = tablesResult.standings_groups;
+      knockout = ko;
     }
 
     return res.json({

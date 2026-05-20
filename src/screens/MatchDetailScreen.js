@@ -1228,6 +1228,7 @@ export default function MatchDetailScreen({ navigation, route }) {
   const teamPlayers = data?.team_players || { home: [], away: [] };
   const liveEvents = data?.events || [];
   const standings = data?.standings || [];
+  const standings_groups = Array.isArray(data?.standings_groups) ? data.standings_groups : null;
   const knockout = data?.knockout || { semifinals: [], final: null };
   const matchStageId = match?.match_stage_id != null ? Number(match.match_stage_id) : NaN;
   const standingsIsKnockoutMatch = matchStageId === 2 || matchStageId === 3;
@@ -2273,38 +2274,62 @@ export default function MatchDetailScreen({ navigation, route }) {
     [knockout, openKnockoutMatchDetail, semifinalTies, knockoutFlowTall]
   );
 
+  const standingsTableBlocks = useMemo(() => {
+    const split = Array.isArray(standings_groups) && standings_groups.length >= 2;
+    if (split) {
+      return standings_groups.map((g, idx) => ({
+        label:
+          String(g?.label || (idx === 0 ? 'Girone A' : 'Girone B')).trim() ||
+          (idx === 0 ? 'Girone A' : 'Girone B'),
+        standings: Array.isArray(g?.standings) ? g.standings : [],
+        key: `g-${g?.girone_index ?? idx}`,
+      }));
+    }
+    return [{ label: null, standings, key: 'single' }];
+  }, [standings_groups, standings]);
+
+  const hasStandingsTableRows = useMemo(
+    () => standingsTableBlocks.some((b) => (b.standings || []).length > 0),
+    [standingsTableBlocks]
+  );
+
   const standingsTableInner = useMemo(
     () => (
-      <>
-        <View style={styles.tableHeader}>
-          <Text style={[styles.th, { width: 38, textAlign: 'center' }]}>Pos</Text>
-          <Text style={[styles.th, { flex: 1 }]}>Squadra</Text>
-          <Text style={[styles.th, { width: 40, textAlign: 'center' }]}>PG</Text>
-          <Text style={[styles.th, { width: 40, textAlign: 'center' }]}>DR</Text>
-          <Text style={[styles.th, { width: 40, textAlign: 'center' }]}>Pt</Text>
-        </View>
-        {standings.map((r, i) => (
-          <View key={`st-${i}`} style={styles.tableRow}>
-            <Text style={[styles.td, { width: 38, textAlign: 'center' }]}>{r.position}</Text>
-            <TouchableOpacity
-              style={[styles.teamCell, { flex: 1 }]}
-              activeOpacity={0.75}
-              disabled={!Number(r.team_id)}
-              onPress={() => openOfficialTeamDetail(r.team_id, r.team_name_display || r.team_name)}
-            >
-              <TableTeamLogo logoUrl={r.team_logo_url} logoPath={r.team_logo_path} />
-              <Text style={[styles.td, styles.tdTeamName]} numberOfLines={2}>
-                {r.team_name_display || r.team_name || '-'}
-              </Text>
-            </TouchableOpacity>
-            <Text style={[styles.td, { width: 40, textAlign: 'center' }]}>{r.played}</Text>
-            <Text style={[styles.td, { width: 40, textAlign: 'center' }]}>{r.goal_diff}</Text>
-            <Text style={[styles.td, { width: 40, textAlign: 'center' }]}>{r.points}</Text>
+      <View style={styles.standingsTablesCol}>
+        {standingsTableBlocks.map((block) => (
+          <View key={block.key} style={styles.standingsTableBlock}>
+            {block.label ? <Text style={styles.standingsGironeTitle}>{block.label}</Text> : null}
+            <View style={styles.tableHeader}>
+              <Text style={[styles.th, { width: 38, textAlign: 'center' }]}>Pos</Text>
+              <Text style={[styles.th, { flex: 1 }]}>Squadra</Text>
+              <Text style={[styles.th, { width: 40, textAlign: 'center' }]}>PG</Text>
+              <Text style={[styles.th, { width: 40, textAlign: 'center' }]}>DR</Text>
+              <Text style={[styles.th, { width: 40, textAlign: 'center' }]}>Pt</Text>
+            </View>
+            {block.standings.map((r, i) => (
+              <View key={`${block.key}-st-${i}`} style={styles.tableRow}>
+                <Text style={[styles.td, { width: 38, textAlign: 'center' }]}>{r.position}</Text>
+                <TouchableOpacity
+                  style={[styles.teamCell, { flex: 1 }]}
+                  activeOpacity={0.75}
+                  disabled={!Number(r.team_id)}
+                  onPress={() => openOfficialTeamDetail(r.team_id, r.team_name_display || r.team_name)}
+                >
+                  <TableTeamLogo logoUrl={r.team_logo_url} logoPath={r.team_logo_path} />
+                  <Text style={[styles.td, styles.tdTeamName]} numberOfLines={2}>
+                    {r.team_name_display || r.team_name || '-'}
+                  </Text>
+                </TouchableOpacity>
+                <Text style={[styles.td, { width: 40, textAlign: 'center' }]}>{r.played}</Text>
+                <Text style={[styles.td, { width: 40, textAlign: 'center' }]}>{r.goal_diff}</Text>
+                <Text style={[styles.td, { width: 40, textAlign: 'center' }]}>{r.points}</Text>
+              </View>
+            ))}
           </View>
         ))}
-      </>
+      </View>
     ),
-    [openOfficialTeamDetail, standings]
+    [openOfficialTeamDetail, standingsTableBlocks]
   );
 
   if (loading) {
@@ -2789,7 +2814,7 @@ export default function MatchDetailScreen({ navigation, route }) {
                     {standingsKnockoutBracketGrid}
                   </View>
                 ) : null}
-                {standings.length > 0 ? (
+                {hasStandingsTableRows ? (
                   <View style={[styles.card, styles.knockoutCard]}>
                     <TouchableOpacity
                       style={styles.standingsFoldHeader}
@@ -4784,6 +4809,9 @@ const styles = StyleSheet.create({
   matchEndLine: { flex: 1, height: StyleSheet.hairlineWidth * 2, minHeight: 1, backgroundColor: '#ccc' },
   matchEndLabel: { paddingHorizontal: 10, fontSize: 12, fontWeight: '700', color: '#444', textAlign: 'center', flexShrink: 1 },
   tableHeader: { flexDirection: 'row', alignItems: 'flex-end', borderBottomWidth: 1, borderBottomColor: '#ececec', paddingBottom: 10, marginBottom: 4 },
+  standingsTablesCol: { gap: 14, width: '100%' },
+  standingsTableBlock: { width: '100%' },
+  standingsGironeTitle: { fontSize: 15, fontWeight: '800', color: '#111827', marginBottom: 8 },
   tableRow: {
     flexDirection: 'row',
     alignItems: 'center',
