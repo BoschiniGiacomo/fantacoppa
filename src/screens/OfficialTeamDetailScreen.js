@@ -1182,7 +1182,7 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
                       <View style={[styles.statsTableRow, styles.statsTableHeaderRow]}>
                         <Text style={[styles.statsTableCell, styles.statsTablePos, styles.statsTableHeaderCell]}>Pos.</Text>
                         <Text style={[styles.statsTableCell, styles.statsTablePlayer, styles.statsTableHeaderCell]}>Giocatore</Text>
-                        <Text style={[styles.statsTableCell, styles.statsTableValue, styles.statsTableHeaderCell]}>G. voto</Text>
+                        <Text style={[styles.statsTableCell, styles.statsTableValue, styles.statsTableHeaderCell]}>Pres.</Text>
                       </View>
                       {statsPresences.map((s, i) => (
                         <View key={`pr-${i}`} style={styles.statsTableRow}>

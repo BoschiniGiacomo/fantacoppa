@@ -2015,6 +2015,75 @@ function logPresencesDebug(label, payload) {
 }
 
 /**
+ * In modalità Assolute: giocatori nello stesso cluster (approved) → una riga, presenze = somma.
+ */
+async function mergeAbsolutePresencesByCluster(perPlayer, officialGroupId) {
+  const entries = (perPlayer || []).filter((e) => Number(e.value) > 0);
+  if (!entries.length) return [];
+
+  const groupId = Number(officialGroupId);
+  if (!Number.isFinite(groupId) || groupId <= 0) {
+    return entries
+      .map(({ name, value }) => ({ name, value }))
+      .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name, 'it'));
+  }
+
+  const playerIds = [...new Set(entries.map((e) => Number(e.player_id)).filter((id) => id > 0))];
+  if (!playerIds.length) {
+    return entries
+      .map(({ name, value }) => ({ name, value }))
+      .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name, 'it'));
+  }
+
+  const ph = playerIds.map(() => '?').join(', ');
+  const memberRows = await query(
+    `
+    SELECT pcm.player_id, pcm.cluster_id
+    FROM player_cluster_members pcm
+    INNER JOIN player_clusters pc ON pc.id = pcm.cluster_id
+    WHERE pc.official_group_id = ?
+      AND pc.status = 'approved'
+      AND pcm.player_id IN (${ph})
+    `,
+    [groupId, ...playerIds]
+  );
+
+  const playerToCluster = new Map();
+  for (const r of memberRows || []) {
+    const pid = Number(r.player_id);
+    const cid = Number(r.cluster_id);
+    if (pid > 0 && cid > 0) playerToCluster.set(pid, cid);
+  }
+
+  const buckets = new Map();
+  for (const e of entries) {
+    const pid = Number(e.player_id);
+    const clusterId = playerToCluster.get(pid);
+    const key = clusterId ? `c:${clusterId}` : `p:${pid}`;
+    const prev = buckets.get(key);
+    if (!prev) {
+      buckets.set(key, {
+        name: e.name,
+        value: Number(e.value) || 0,
+        labelScore: Number(e.value) || 0,
+      });
+      continue;
+    }
+    prev.value += Number(e.value) || 0;
+    const v = Number(e.value) || 0;
+    if (v > prev.labelScore) {
+      prev.labelScore = v;
+      prev.name = e.name;
+    }
+  }
+
+  return [...buckets.values()]
+    .filter((b) => b.value > 0)
+    .map((b) => ({ name: b.name, value: b.value }))
+    .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name, 'it'));
+}
+
+/**
  * Presenze con voto = come fetchPlayerStatsAggregates (games_with_rating):
  * rating > 0, una per (lega stagione, giornata), voti letti da tutte le leghe del bacino resolveLeagueIds.
  * Solo giocatori con players.team_id = teams.id della rosa di quella stagione.
@@ -2065,6 +2134,7 @@ async function fetchOfficialTeamPresencesWithVoteRanking(seasonTeamRows, debugCt
       WHERE pr.rating > 0
     )
     SELECT
+      p.id AS player_id,
       TRIM(CONCAT(COALESCE(p.first_name, ''), ' ', COALESCE(p.last_name, ''))) AS player_name,
       COUNT(DISTINCT (rated.canon_league_id, rated.giornata))::int AS presenze
     FROM rated
@@ -2074,6 +2144,26 @@ async function fetchOfficialTeamPresencesWithVoteRanking(seasonTeamRows, debugCt
     ORDER BY presenze DESC, player_name ASC`;
 
   const rows = await query(sql, flatScope);
+
+  const perPlayer = (rows || [])
+    .map((r) => ({
+      player_id: Number(r.player_id),
+      name: String(r.player_name || '').trim() || 'Giocatore',
+      value: Number(r.presenze || 0),
+    }))
+    .filter((r) => r.value > 0);
+
+  if (debugCtx.isAbsoluteMode && Number(debugCtx.competitionId) > 0) {
+    const merged = await mergeAbsolutePresencesByCluster(perPlayer, Number(debugCtx.competitionId));
+    if (PRESENCES_DEBUG) {
+      logPresencesDebug('merged_clusters', {
+        before: perPlayer.length,
+        after: merged.length,
+        competitionId: debugCtx.competitionId,
+      });
+    }
+    return merged;
+  }
 
   if (PRESENCES_DEBUG) {
     const allRatingLeagueIds = [...new Set(scopeTriplets.map((t) => t[2]))];
@@ -2104,12 +2194,8 @@ async function fetchOfficialTeamPresencesWithVoteRanking(seasonTeamRows, debugCt
     });
   }
 
-  return (rows || [])
-    .map((r) => ({
-      name: String(r.player_name || '').trim() || 'Giocatore',
-      value: Number(r.presenze || 0),
-    }))
-    .filter((r) => r.value > 0)
+  return perPlayer
+    .map(({ name, value }) => ({ name, value }))
     .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name, 'it'));
 }
 
