@@ -61,7 +61,7 @@ function KnockoutHeaderStageCell({ label, titleWide, layout, mirrorTwoLegPad, is
 
 function KnockoutHeaderFinalCell({ layout }) {
   return (
-    <View style={[layout.finalCol, layout.headerFinalCol]}>
+    <View style={layout.finalHeaderCol}>
       <KnockoutStageHeaderTitle label="Finale" layout={layout} />
     </View>
   );
@@ -177,7 +177,11 @@ function KnockoutFinalColumn({ finalMatch, onPressMatch, LogoComponent, tieBlock
     />
   );
   if (bare) return content;
-  return <View style={layout.finalCol}>{content}</View>;
+  return (
+    <View style={[layout.finalCol, layout.finalColBody]}>
+      <View style={layout.finalMatchWrap}>{content}</View>
+    </View>
+  );
 }
 
 /**
@@ -221,9 +225,12 @@ export default function OfficialKnockoutBracket({
         s.headerFlowSpacer,
         { height: 0, marginTop: 0, minHeight: 0, overflow: 'hidden' },
       ],
-      headerFinalCol: [
-        s.headerFinalCol,
-        { justifyContent: 'flex-start', paddingTop: 0, alignSelf: 'flex-start' },
+      finalHeaderCol: s.finalHeaderCol,
+      finalColStack: s.finalColStack,
+      finalColBody: s.finalColBody,
+      finalMatchWrap: [
+        s.finalMatchWrap,
+        { flex: 1, justifyContent: 'center', paddingTop: 20, width: '100%' },
       ],
       bracketRow: s.bracketRow,
       bracketScroll: s.bracketScroll,
@@ -273,7 +280,7 @@ export default function OfficialKnockoutBracket({
   if (hasQuarterfinals) {
     const quarterColStyle = [layout.quarterCol, flowTall && layout.stageColWide];
     const stageColStyle = [layout.stageCol, flowTall && layout.stageColWide];
-    const finalColStyle = [layout.finalCol, layout.headerFinalCol];
+    const finalColStyle = [layout.finalCol, layout.finalColStack];
 
     return (
       <View>
@@ -305,7 +312,9 @@ export default function OfficialKnockoutBracket({
             <KnockoutFlowConnector flowTall={flowTall} layout={layout} />
             <View style={finalColStyle}>
               <KnockoutStageHeaderTitle label="Finale" layout={layout} />
-              <KnockoutFinalColumn finalMatch={k.final} bare {...commonStageProps} />
+              <View style={layout.finalMatchWrap}>
+                <KnockoutFinalColumn finalMatch={k.final} bare {...commonStageProps} />
+              </View>
             </View>
           </View>
         </ScrollView>
