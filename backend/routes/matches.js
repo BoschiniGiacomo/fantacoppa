@@ -1978,8 +1978,92 @@ router.get('/matches/teams/:teamId/season-squad', authenticateToken, async (req,
   }
 });
 
+/** Leghe collegate (stesso bacino voti) per scope player_ratings. */
+async function expandLeagueIdsForRatingsMany(leagueIds) {
+  const base = [...new Set((leagueIds || []).map(Number).filter((n) => Number.isFinite(n) && n > 0))];
+  if (!base.length) return [];
+  const ph = base.map(() => '?').join(', ');
+  const rows = await query(
+    `SELECT id, COALESCE(linked_to_league_id, 0) AS linked_to_league_id FROM leagues WHERE id IN (${ph})`,
+    base
+  );
+  const effective = new Set();
+  for (const lid of base) {
+    const r = (rows || []).find((x) => Number(x.id) === lid);
+    const linked = Number(r?.linked_to_league_id || 0);
+    effective.add(linked > 0 ? linked : lid);
+  }
+  const effArr = [...effective];
+  const ph2 = effArr.map(() => '?').join(', ');
+  const children = await query(`SELECT id FROM leagues WHERE linked_to_league_id IN (${ph2})`, effArr);
+  const out = new Set(base);
+  effArr.forEach((id) => out.add(id));
+  (children || []).forEach((c) => out.add(Number(c.id)));
+  return [...out];
+}
+
+/**
+ * Presenze = giornate distinte con voto > 0 (come "Con voto" nel profilo giocatore).
+ * Filtra per (lega canonica, players.team_id) del franchise così in modalità assoluta non si mescolano le rose A/B.
+ */
+async function fetchOfficialTeamPresencesWithVoteRanking(seasonTeamRows) {
+  const pairs = (seasonTeamRows || [])
+    .map((r) => [Number(r.league_id), Number(r.id)])
+    .filter(([l, t]) => Number.isFinite(l) && l > 0 && Number.isFinite(t) && t > 0);
+  if (!pairs.length) return [];
+
+  const targetLeagueIds = [...new Set(pairs.map((p) => p[0]))];
+  const expandedLeagueIds = await expandLeagueIdsForRatingsMany(targetLeagueIds);
+  if (!expandedLeagueIds.length) return [];
+
+  const phVals = pairs.map(() => '(?, ?)').join(', ');
+  const flatPairs = pairs.flat();
+  const phExp = expandedLeagueIds.map(() => '?').join(', ');
+
+  const sql = `
+    WITH franchise AS (
+      SELECT * FROM (VALUES ${phVals}) AS t(canonical_league_id, team_table_id)
+    ),
+    rated AS (
+      SELECT
+        pr.player_id,
+        pr.giornata,
+        CASE
+          WHEN COALESCE(l.linked_to_league_id, 0) > 0
+            AND EXISTS (
+              SELECT 1 FROM franchise f WHERE f.canonical_league_id = l.linked_to_league_id
+            )
+            THEN l.linked_to_league_id
+          ELSE pr.league_id
+        END AS canon_league_id
+      FROM player_ratings pr
+      INNER JOIN leagues l ON l.id = pr.league_id
+      WHERE pr.league_id IN (${phExp})
+        AND pr.rating > 0
+    )
+    SELECT
+      TRIM(CONCAT(COALESCE(p.first_name, ''), ' ', COALESCE(p.last_name, ''))) AS player_name,
+      COUNT(DISTINCT (rated.canon_league_id, rated.giornata))::int AS presenze
+    FROM rated
+    INNER JOIN players p ON p.id = rated.player_id
+    INNER JOIN franchise f
+      ON f.canonical_league_id = rated.canon_league_id AND f.team_table_id = p.team_id
+    GROUP BY p.id, p.first_name, p.last_name
+    HAVING COUNT(DISTINCT (rated.canon_league_id, rated.giornata)) > 0
+    ORDER BY presenze DESC, player_name ASC`;
+
+  const rows = await query(sql, [...flatPairs, ...expandedLeagueIds]);
+  return (rows || [])
+    .map((r) => ({
+      name: String(r.player_name || '').trim() || 'Giocatore',
+      value: Number(r.presenze || 0),
+    }))
+    .filter((r) => r.value > 0)
+    .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name, 'it'));
+}
+
 // GET /matches/teams/:teamId/season-stats?competition_id=xx&reference_year=yyyy
-// Statistiche squadra per anno: generale, W/D/L con %, marcatori e assistman.
+// Statistiche squadra per anno: generale, W/D/L con %, marcatori, assistman e presenze (giornate con voto).
 router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req, res) => {
   try {
     const teamId = Number(req.params.teamId);
@@ -2014,7 +2098,7 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
     if (!teamName) {
       const fb = await query(`SELECT name FROM teams WHERE id = ? LIMIT 1`, [teamId]);
       if (!fb[0]) return res.status(404).json({ message: 'Squadra non trovata' });
-      return res.json({ team: { id: teamId, name: String(fb[0].name || '').trim() }, available_years: [], selected_year: null, general: { played: 0, goals: 0, goals_conceded: 0, yellow_cards: 0, red_cards: 0 }, outcomes: { wins: 0, draws: 0, losses: 0, wins_pct: 0, draws_pct: 0, losses_pct: 0 }, scorers: [], assistmen: [] });
+      return res.json({ team: { id: teamId, name: String(fb[0].name || '').trim() }, available_years: [], selected_year: null, general: { played: 0, goals: 0, goals_conceded: 0, yellow_cards: 0, red_cards: 0 }, outcomes: { wins: 0, draws: 0, losses: 0, wins_pct: 0, draws_pct: 0, losses_pct: 0 }, scorers: [], assistmen: [], presences: [] });
     }
 
     const availableYears = Array.from(
@@ -2064,6 +2148,7 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
         outcomes: { wins: 0, draws: 0, losses: 0, wins_pct: 0, draws_pct: 0, losses_pct: 0 },
         scorers: [],
         assistmen: [],
+        presences: [],
       });
     }
 
@@ -2097,8 +2182,12 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
         outcomes: { wins: 0, draws: 0, losses: 0, wins_pct: 0, draws_pct: 0, losses_pct: 0 },
         scorers: [],
         assistmen: [],
+        presences: [],
       });
     }
+
+    const presencesPromise = fetchOfficialTeamPresencesWithVoteRanking(seasonTeamRows).catch(() => []);
+
     const matchIds = (seasonMatches || []).map((m) => Number(m.id)).filter((n) => Number.isFinite(n) && n > 0);
 
     let evRows = [];
@@ -2269,6 +2358,8 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
         .map(([name, value]) => ({ name, value: Number(value || 0) }))
         .sort((a, b) => (b.value - a.value) || a.name.localeCompare(b.name, 'it'));
 
+    const presences = await presencesPromise;
+
     return res.json({
       team: { id: teamId, name: teamName },
       available_years: availableYears,
@@ -2290,6 +2381,7 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
       },
       scorers: listFromMap(scorersMap),
       assistmen: listFromMap(assistsMap),
+      presences: Array.isArray(presences) ? presences : [],
     });
   } catch (err) {
     if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);

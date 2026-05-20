@@ -329,6 +329,7 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
   const [statsOutcomes, setStatsOutcomes] = useState({ wins: 0, draws: 0, losses: 0, wins_pct: 0, draws_pct: 0, losses_pct: 0 });
   const [statsScorers, setStatsScorers] = useState([]);
   const [statsAssistmen, setStatsAssistmen] = useState([]);
+  const [statsPresences, setStatsPresences] = useState([]);
   const [statsPickerOpen, setStatsPickerOpen] = useState(false);
   const [displayedFavoriteCount, setDisplayedFavoriteCount] = useState(0);
   const favoriteAnim = React.useRef(new Animated.Value(0)).current;
@@ -470,6 +471,7 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
         setStatsOutcomes(res?.data?.outcomes || { wins: 0, draws: 0, losses: 0, wins_pct: 0, draws_pct: 0, losses_pct: 0 });
         setStatsScorers(Array.isArray(res?.data?.scorers) ? res.data.scorers : []);
         setStatsAssistmen(Array.isArray(res?.data?.assistmen) ? res.data.assistmen : []);
+        setStatsPresences(Array.isArray(res?.data?.presences) ? res.data.presences : []);
         setSelectedStatsYear((prev) => {
           if (backendSelected === ABSOLUTE_STATS_KEY) return ABSOLUTE_STATS_KEY;
           if (backendSelected == null || !Number.isFinite(backendSelected)) return prev;
@@ -1169,6 +1171,31 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
                     </>
                   )}
                 </View>
+
+                <View style={styles.statsBlock}>
+                  <Text style={styles.statsBlockTitle}>Presenze</Text>
+                  
+                  {(statsPresences || []).length === 0 ? (
+                    <Text style={styles.placeholderText}>Nessuna presenza con voto nel periodo selezionato.</Text>
+                  ) : (
+                    <>
+                      <View style={[styles.statsTableRow, styles.statsTableHeaderRow]}>
+                        <Text style={[styles.statsTableCell, styles.statsTablePos, styles.statsTableHeaderCell]}>Pos.</Text>
+                        <Text style={[styles.statsTableCell, styles.statsTablePlayer, styles.statsTableHeaderCell]}>Giocatore</Text>
+                        <Text style={[styles.statsTableCell, styles.statsTableValue, styles.statsTableHeaderCell]}>G. voto</Text>
+                      </View>
+                      {statsPresences.map((s, i) => (
+                        <View key={`pr-${i}`} style={styles.statsTableRow}>
+                          <Text style={[styles.statsTableCell, styles.statsTablePos]}>{i + 1}</Text>
+                          <Text style={[styles.statsTableCell, styles.statsTablePlayer]} numberOfLines={1}>
+                            {String(s?.name || '-')}
+                          </Text>
+                          <Text style={[styles.statsTableCell, styles.statsTableValue]}>{Number(s?.value || 0)}</Text>
+                        </View>
+                      ))}
+                    </>
+                  )}
+                </View>
               </ScrollView>
             )}
           </View>
@@ -1697,7 +1724,14 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '800',
     color: '#334155',
-    marginBottom: 6,
+    marginBottom: 4,
+  },
+  statsBlockSubtitle: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#64748b',
+    marginBottom: 8,
+    lineHeight: 17,
   },
   statsRow: {
     fontSize: 14,
