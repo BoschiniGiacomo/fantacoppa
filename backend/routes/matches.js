@@ -2002,57 +2002,104 @@ async function expandLeagueIdsForRatingsMany(leagueIds) {
   return [...out];
 }
 
+const PRESENCES_DEBUG =
+  process.env.PRESENCES_DEBUG === '1' || process.env.NODE_ENV !== 'production';
+
+function logPresencesDebug(label, payload) {
+  if (!PRESENCES_DEBUG) return;
+  try {
+    console.log(`[official-team-presences] ${label}`, JSON.stringify(payload));
+  } catch {
+    console.log(`[official-team-presences] ${label}`, payload);
+  }
+}
+
 /**
- * Presenze = giornate distinte con voto > 0 (come "Con voto" nel profilo giocatore).
- * Filtra per (lega canonica, players.team_id) del franchise così in modalità assoluta non si mescolano le rose A/B.
+ * Presenze con voto = come fetchPlayerStatsAggregates (games_with_rating):
+ * rating > 0, una per (lega stagione, giornata), voti letti da tutte le leghe del bacino resolveLeagueIds.
+ * Solo giocatori con players.team_id = teams.id della rosa di quella stagione.
  */
-async function fetchOfficialTeamPresencesWithVoteRanking(seasonTeamRows) {
-  const pairs = (seasonTeamRows || [])
-    .map((r) => [Number(r.league_id), Number(r.id)])
-    .filter(([l, t]) => Number.isFinite(l) && l > 0 && Number.isFinite(t) && t > 0);
-  if (!pairs.length) return [];
+async function fetchOfficialTeamPresencesWithVoteRanking(seasonTeamRows, debugCtx = {}) {
+  const franchiseRows = (seasonTeamRows || [])
+    .map((r) => ({
+      canonLeagueId: Number(r.league_id),
+      teamTableId: Number(r.id),
+    }))
+    .filter((r) => Number.isFinite(r.canonLeagueId) && r.canonLeagueId > 0 && Number.isFinite(r.teamTableId) && r.teamTableId > 0);
+  if (!franchiseRows.length) {
+    logPresencesDebug('empty_franchise_rows', debugCtx);
+    return [];
+  }
 
-  const targetLeagueIds = [...new Set(pairs.map((p) => p[0]))];
-  const expandedLeagueIds = await expandLeagueIdsForRatingsMany(targetLeagueIds);
-  if (!expandedLeagueIds.length) return [];
+  const scopeTriplets = [];
+  for (const fr of franchiseRows) {
+    const ratingLeagueIds = await expandLeagueIdsForRatingsMany([fr.canonLeagueId]);
+    for (const rlid of ratingLeagueIds) {
+      scopeTriplets.push([fr.canonLeagueId, fr.teamTableId, rlid]);
+    }
+  }
+  if (!scopeTriplets.length) {
+    logPresencesDebug('empty_rating_league_scope', { franchiseRows, ...debugCtx });
+    return [];
+  }
 
-  const phVals = pairs.map(() => '(?, ?)').join(', ');
-  const flatPairs = pairs.flat();
-  const phExp = expandedLeagueIds.map(() => '?').join(', ');
+  const phScope = scopeTriplets.map(() => '(?, ?, ?)').join(', ');
+  const flatScope = scopeTriplets.flat();
 
   const sql = `
-    WITH franchise AS (
-      SELECT * FROM (VALUES ${phVals}) AS t(canonical_league_id, team_table_id)
+    WITH franchise_scope AS (
+      SELECT * FROM (VALUES ${phScope}) AS t(canon_league_id, team_table_id, rating_league_id)
     ),
     rated AS (
-      SELECT
+      SELECT DISTINCT
         pr.player_id,
         pr.giornata,
-        CASE
-          WHEN COALESCE(l.linked_to_league_id, 0) > 0
-            AND EXISTS (
-              SELECT 1 FROM franchise f WHERE f.canonical_league_id = l.linked_to_league_id
-            )
-            THEN l.linked_to_league_id
-          ELSE pr.league_id
-        END AS canon_league_id
+        fs.canon_league_id
       FROM player_ratings pr
-      INNER JOIN leagues l ON l.id = pr.league_id
-      WHERE pr.league_id IN (${phExp})
-        AND pr.rating > 0
+      INNER JOIN franchise_scope fs ON pr.league_id = fs.rating_league_id
+      INNER JOIN players p ON p.id = pr.player_id AND p.team_id = fs.team_table_id
+      WHERE pr.rating > 0
     )
     SELECT
       TRIM(CONCAT(COALESCE(p.first_name, ''), ' ', COALESCE(p.last_name, ''))) AS player_name,
       COUNT(DISTINCT (rated.canon_league_id, rated.giornata))::int AS presenze
     FROM rated
     INNER JOIN players p ON p.id = rated.player_id
-    INNER JOIN franchise f
-      ON f.canonical_league_id = rated.canon_league_id AND f.team_table_id = p.team_id
     GROUP BY p.id, p.first_name, p.last_name
     HAVING COUNT(DISTINCT (rated.canon_league_id, rated.giornata)) > 0
     ORDER BY presenze DESC, player_name ASC`;
 
-  const rows = await query(sql, [...flatPairs, ...expandedLeagueIds]);
+  const rows = await query(sql, flatScope);
+
+  if (PRESENCES_DEBUG) {
+    const allRatingLeagueIds = [...new Set(scopeTriplets.map((t) => t[2]))];
+    const phRl = allRatingLeagueIds.map(() => '?').join(', ');
+    const teamIds = [...new Set(franchiseRows.map((f) => f.teamTableId))];
+    const phT = teamIds.map(() => '?').join(', ');
+    const [ratedAny, ratedTeam] = await Promise.all([
+      query(
+        `SELECT COUNT(*)::int AS c FROM player_ratings WHERE league_id IN (${phRl}) AND rating > 0`,
+        allRatingLeagueIds
+      ),
+      query(
+        `SELECT COUNT(*)::int AS c FROM player_ratings pr
+         INNER JOIN players p ON p.id = pr.player_id
+         WHERE pr.league_id IN (${phRl}) AND pr.rating > 0 AND p.team_id IN (${phT})`,
+        [...allRatingLeagueIds, ...teamIds]
+      ),
+    ]);
+    logPresencesDebug('result', {
+      ...debugCtx,
+      franchiseRows,
+      ratingLeagueIds: allRatingLeagueIds,
+      scopeRows: scopeTriplets.length,
+      ratingsInScope: Number(ratedAny[0]?.c || 0),
+      ratingsWithMatchingTeamId: Number(ratedTeam[0]?.c || 0),
+      playersReturned: (rows || []).length,
+      top3: (rows || []).slice(0, 3),
+    });
+  }
+
   return (rows || [])
     .map((r) => ({
       name: String(r.player_name || '').trim() || 'Giocatore',
@@ -2186,7 +2233,24 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
       });
     }
 
-    const presencesPromise = fetchOfficialTeamPresencesWithVoteRanking(seasonTeamRows).catch(() => []);
+    const presencesDebugCtx = {
+      teamId,
+      competitionId,
+      teamName,
+      selectedYear,
+      isAbsoluteMode,
+      targetLeagueIds,
+      seasonTeamRows: (seasonTeamRows || []).map((r) => ({
+        team_table_id: Number(r.id),
+        league_id: Number(r.league_id),
+      })),
+    };
+    const presencesPromise = fetchOfficialTeamPresencesWithVoteRanking(seasonTeamRows, presencesDebugCtx).catch(
+      (err) => {
+        console.error('[official-team-presences] query failed', err?.message || err, presencesDebugCtx);
+        return [];
+      }
+    );
 
     const matchIds = (seasonMatches || []).map((m) => Number(m.id)).filter((n) => Number.isFinite(n) && n > 0);
 
