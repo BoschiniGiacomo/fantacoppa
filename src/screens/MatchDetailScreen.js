@@ -22,7 +22,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
 import { adminMatchesService, matchesService, publicAssetUrl } from '../services/api';
 import BonusIcon from '../components/BonusIcon';
-import { EMPTY_OFFICIAL_KNOCKOUT, hasOfficialKnockoutBracket } from '../utils/knockoutBracket';
+import {
+  EMPTY_OFFICIAL_KNOCKOUT,
+  hasOfficialKnockoutBracket,
+  KNOCKOUT_BRACKET_LOGO_SIZE,
+} from '../utils/knockoutBracket';
 import OfficialKnockoutBracket from '../components/OfficialKnockoutBracket';
 import {
   computeLiveHeroClock,
@@ -504,6 +508,10 @@ function HeroTeamLogo({ logoUrl, logoPath }) {
     );
   }
   return <Image source={{ uri }} style={styles.heroLogo} onError={() => setFailed(true)} resizeMode="contain" />;
+}
+
+function KnockoutBracketTeamLogo({ logoUrl, logoPath, size = KNOCKOUT_BRACKET_LOGO_SIZE }) {
+  return <TableTeamLogo logoUrl={logoUrl} logoPath={logoPath} size={size} />;
 }
 
 function TableTeamLogo({ logoUrl, logoPath, size = 36 }) {
@@ -2167,6 +2175,10 @@ export default function MatchDetailScreen({ navigation, route }) {
       flowCol: styles.knockoutFlowCol,
       flowColTall: styles.knockoutFlowColTall,
       flowColCompact: styles.knockoutFlowColCompact,
+      flowColSemiFinal: styles.knockoutFlowColSemiFinal,
+      flowColSemiFinalTall: styles.knockoutFlowColSemiFinalTall,
+      middleArmSemiFinal: styles.knockoutBracketMiddleArmSemiFinal,
+      middleArmSemiFinalTall: styles.knockoutBracketMiddleArmSemiFinalTall,
       bracketTopArm: styles.knockoutBracketTopArm,
       bracketTopArmCompact: styles.knockoutBracketTopArmCompact,
       bracketTopArmCompactTall: styles.knockoutBracketTopArmCompactTall,
@@ -2188,6 +2200,7 @@ export default function MatchDetailScreen({ navigation, route }) {
       teamText: styles.knockoutTeamText,
       scoreBox: styles.knockoutScoreBox,
       logoPlaceholder: styles.knockoutLogoPlaceholder,
+      logoSize: KNOCKOUT_BRACKET_LOGO_SIZE,
     }),
     []
   );
@@ -2732,7 +2745,7 @@ export default function MatchDetailScreen({ navigation, route }) {
                     <OfficialKnockoutBracket
                       knockout={knockout}
                       onPressMatch={openKnockoutMatchDetail}
-                      LogoComponent={TableTeamLogo}
+                      LogoComponent={KnockoutBracketTeamLogo}
                       tieBlockStyles={styles}
                       layoutStyles={knockoutLayout}
                     />
@@ -2783,7 +2796,7 @@ export default function MatchDetailScreen({ navigation, route }) {
                       <OfficialKnockoutBracket
                         knockout={knockout}
                         onPressMatch={openKnockoutMatchDetail}
-                        LogoComponent={TableTeamLogo}
+                        LogoComponent={KnockoutBracketTeamLogo}
                         tieBlockStyles={styles}
                         layoutStyles={knockoutLayout}
                       />
@@ -4792,6 +4805,8 @@ const styles = StyleSheet.create({
     marginTop: 44,
   },
   knockoutFlowColCompact: { width: 28 },
+  knockoutFlowColSemiFinal: { marginTop: 75 },
+  knockoutFlowColSemiFinalTall: { marginTop: 73 },
   knockoutTieStack: { gap: 6, width: '100%' },
   knockoutTwoLegScoreCols: {
     flexDirection: 'row',
@@ -4852,6 +4867,8 @@ const styles = StyleSheet.create({
   knockoutBracketVerticalCompactTall: { top: 4, height: 138 },
   knockoutBracketMiddleArmCompact: { left: 17, width: 11 },
   knockoutBracketMiddleArmCompactTall: { top: 86 },
+  knockoutBracketMiddleArmSemiFinal: { top: 52 },
+  knockoutBracketMiddleArmSemiFinalTall: { top: 82 },
   knockoutFinalLabelRow: { height: 0, marginBottom: 0 },
   knockoutStageLabel: { fontSize: 12, fontWeight: '700', color: '#6b7280', textTransform: 'uppercase', marginBottom: 4 },
   knockoutMatchRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, width: '100%' },

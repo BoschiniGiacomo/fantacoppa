@@ -98,6 +98,9 @@ export function groupQuarterfinalsIntoTies(quarterfinals) {
 
 export const EMPTY_OFFICIAL_KNOCKOUT = { quarterfinals: [], semifinals: [], final: null };
 
+/** Loghi tabellone fasi finali (Q / SF / finale): stesso ingombro ovunque. */
+export const KNOCKOUT_BRACKET_LOGO_SIZE = 30;
+
 export function hasOfficialKnockoutBracket(knockout) {
   const k = knockout || EMPTY_OFFICIAL_KNOCKOUT;
   return (

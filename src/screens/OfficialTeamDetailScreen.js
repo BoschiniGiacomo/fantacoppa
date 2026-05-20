@@ -605,6 +605,10 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
       flowCol: styles.seasonKnockoutFlowCol,
       flowColTall: styles.seasonKnockoutFlowColTall,
       flowColCompact: styles.seasonKnockoutFlowColCompact,
+      flowColSemiFinal: styles.seasonKnockoutFlowColSemiFinal,
+      flowColSemiFinalTall: styles.seasonKnockoutFlowColSemiFinalTall,
+      middleArmSemiFinal: styles.seasonKnockoutBracketMiddleArmSemiFinal,
+      middleArmSemiFinalTall: styles.seasonKnockoutBracketMiddleArmSemiFinalTall,
       bracketTopArm: styles.seasonKnockoutBracketTopArm,
       bracketTopArmCompact: styles.seasonKnockoutBracketTopArmCompact,
       bracketTopArmCompactTall: styles.seasonKnockoutBracketTopArmCompactTall,
@@ -626,6 +630,7 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
       teamText: styles.seasonKnockoutTeamText,
       scoreBox: styles.seasonKnockoutScoreBox,
       logoPlaceholder: styles.seasonKnockoutLogoPlaceholder,
+      logoSize: 30,
     }),
     []
   );
@@ -1522,6 +1527,8 @@ const styles = StyleSheet.create({
     marginTop: 42,
   },
   seasonKnockoutFlowColCompact: { width: 28 },
+  seasonKnockoutFlowColSemiFinal: { marginTop: 77 },
+  seasonKnockoutFlowColSemiFinalTall: { marginTop: 73 },
   seasonKnockoutTieStack: { gap: 6, width: '100%' },
   seasonKnockoutTwoLegScoreCols: {
     flexDirection: 'row',
@@ -1554,6 +1561,8 @@ const styles = StyleSheet.create({
   seasonKnockoutBracketVerticalCompactTall: { top: 4, height: 138 },
   seasonKnockoutBracketMiddleArmCompact: { left: 17, width: 11 },
   seasonKnockoutBracketMiddleArmCompactTall: { top: 88 },
+  seasonKnockoutBracketMiddleArmSemiFinal: { top: 50 },
+  seasonKnockoutBracketMiddleArmSemiFinalTall: { top: 82 },
   seasonKnockoutFinalLabelRow: { height: 0, marginBottom: 0 },
   seasonKnockoutMatchStackMeasure: { width: '100%' },
   seasonKnockoutMatchStack: { gap: 6, width: '100%' },

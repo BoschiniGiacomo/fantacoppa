@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, TouchableOpacity } from 'react-native';
+import { KNOCKOUT_BRACKET_LOGO_SIZE } from '../utils/knockoutBracket';
 
 export function hasKnockoutShootoutScore(matchRow) {
   return Number.isFinite(Number(matchRow?.home_shootout_score)) && Number.isFinite(Number(matchRow?.away_shootout_score));
@@ -53,7 +54,11 @@ function KnockoutTeamRow({ match, side, styles, LogoComponent }) {
   return (
     <View style={styles.knockoutTeamBox}>
       <View style={styles.knockoutTeamRow}>
-        {name ? <LogoComponent logoUrl={logoUrl} logoPath={logoPath} size={30} /> : <View style={styles.knockoutLogoPlaceholder} />}
+        {name ? (
+          <LogoComponent logoUrl={logoUrl} logoPath={logoPath} size={KNOCKOUT_BRACKET_LOGO_SIZE} />
+        ) : (
+          <View style={styles.knockoutLogoPlaceholder} />
+        )}
         <Text style={styles.knockoutTeamText} numberOfLines={1}>
           {name || '-'}
         </Text>
@@ -68,7 +73,7 @@ function KnockoutTwoLegTeamRow({ team, leg1, leg2, styles, LogoComponent }) {
     <View style={styles.knockoutTeamBox}>
       <View style={styles.knockoutTeamRow}>
         {team?.name ? (
-          <LogoComponent logoUrl={team.logo_url} logoPath={team.logo_path} size={30} />
+          <LogoComponent logoUrl={team.logo_url} logoPath={team.logo_path} size={KNOCKOUT_BRACKET_LOGO_SIZE} />
         ) : (
           <View style={styles.knockoutLogoPlaceholder} />
         )}

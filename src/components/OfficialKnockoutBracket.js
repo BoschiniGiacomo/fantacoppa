@@ -6,17 +6,53 @@ import {
   EMPTY_OFFICIAL_KNOCKOUT,
   groupQuarterfinalsIntoTies,
   groupSemifinalsIntoTies,
+  KNOCKOUT_BRACKET_LOGO_SIZE,
 } from '../utils/knockoutBracket';
 
-function KnockoutFlowConnector({ flowTall, layout }) {
-  const { flowCol, flowColTall, flowColCompact, topArm, topArmCompact, topArmCompactTall, bottomArm, bottomArmCompact, bottomArmCompactTall, vertical, verticalCompact, verticalCompactTall, middleArm, middleArmCompact, middleArmCompactTall } =
-    layout;
+function KnockoutFlowConnector({ flowTall, layout, afterSemis = false, withQuarterfinals = false }) {
+  const {
+    flowCol,
+    flowColTall,
+    flowColCompact,
+    flowColSemiFinal,
+    flowColSemiFinalTall,
+    topArm,
+    topArmCompact,
+    topArmCompactTall,
+    bottomArm,
+    bottomArmCompact,
+    bottomArmCompactTall,
+    vertical,
+    verticalCompact,
+    verticalCompactTall,
+    middleArm,
+    middleArmCompact,
+    middleArmCompactTall,
+    middleArmSemiFinal,
+    middleArmSemiFinalTall,
+  } = layout;
   return (
-    <View style={[flowCol, flowTall && flowColTall, flowTall && flowColCompact]}>
+    <View
+      style={[
+        flowCol,
+        flowTall && flowColTall,
+        flowTall && flowColCompact,
+        afterSemis && withQuarterfinals && flowColSemiFinal,
+        afterSemis && withQuarterfinals && flowTall && flowColSemiFinalTall,
+      ]}
+    >
       <View style={[topArm, flowTall && topArmCompact, flowTall && topArmCompactTall]} />
       <View style={[bottomArm, flowTall && bottomArmCompact, flowTall && bottomArmCompactTall]} />
       <View style={[vertical, flowTall && verticalCompact, flowTall && verticalCompactTall]} />
-      <View style={[middleArm, flowTall && middleArmCompact, flowTall && middleArmCompactTall]} />
+      <View
+        style={[
+          middleArm,
+          flowTall && middleArmCompact,
+          flowTall && middleArmCompactTall,
+          afterSemis && withQuarterfinals && middleArmSemiFinal,
+          afterSemis && withQuarterfinals && flowTall && middleArmSemiFinalTall,
+        ]}
+      />
     </View>
   );
 }
@@ -125,7 +161,11 @@ function KnockoutFinalMatchContent({ finalMatch, onPressMatch, LogoComponent, ti
           <View style={layout.teamBox}>
             <View style={layout.teamRow}>
               {finalMatch?.home_team_name ? (
-                <LogoComponent logoUrl={finalMatch?.home_team_logo_url} logoPath={finalMatch?.home_team_logo_path} />
+                <LogoComponent
+                  logoUrl={finalMatch?.home_team_logo_url}
+                  logoPath={finalMatch?.home_team_logo_path}
+                  size={layout.logoSize}
+                />
               ) : (
                 <View style={layout.logoPlaceholder} />
               )}
@@ -144,7 +184,11 @@ function KnockoutFinalMatchContent({ finalMatch, onPressMatch, LogoComponent, ti
           <View style={layout.teamBox}>
             <View style={layout.teamRow}>
               {finalMatch?.away_team_name ? (
-                <LogoComponent logoUrl={finalMatch?.away_team_logo_url} logoPath={finalMatch?.away_team_logo_path} />
+                <LogoComponent
+                  logoUrl={finalMatch?.away_team_logo_url}
+                  logoPath={finalMatch?.away_team_logo_path}
+                  size={layout.logoSize}
+                />
               ) : (
                 <View style={layout.logoPlaceholder} />
               )}
@@ -166,7 +210,15 @@ function KnockoutFinalMatchContent({ finalMatch, onPressMatch, LogoComponent, ti
   );
 }
 
-function KnockoutFinalColumn({ finalMatch, onPressMatch, LogoComponent, tieBlockStyles, layout, bare = false }) {
+function KnockoutFinalColumn({
+  finalMatch,
+  onPressMatch,
+  LogoComponent,
+  tieBlockStyles,
+  layout,
+  bare = false,
+  stackedLayout = false,
+}) {
   const content = (
     <KnockoutFinalMatchContent
       finalMatch={finalMatch}
@@ -177,11 +229,14 @@ function KnockoutFinalColumn({ finalMatch, onPressMatch, LogoComponent, tieBlock
     />
   );
   if (bare) return content;
-  return (
-    <View style={[layout.finalCol, layout.finalColBody]}>
-      <View style={layout.finalMatchWrap}>{content}</View>
-    </View>
-  );
+  if (stackedLayout) {
+    return (
+      <View style={[layout.finalCol, layout.finalColBody]}>
+        <View style={layout.finalMatchWrap}>{content}</View>
+      </View>
+    );
+  }
+  return <View style={layout.finalCol}>{content}</View>;
 }
 
 /**
@@ -241,6 +296,8 @@ export default function OfficialKnockoutBracket({
       flowCol: s.flowCol,
       flowColTall: s.flowColTall,
       flowColCompact: s.flowColCompact,
+      flowColSemiFinal: hasQuarterfinals ? s.flowColSemiFinal : null,
+      flowColSemiFinalTall: hasQuarterfinals ? s.flowColSemiFinalTall : null,
       topArm: s.bracketTopArm,
       topArmCompact: s.bracketTopArmCompact,
       topArmCompactTall: s.bracketTopArmCompactTall,
@@ -253,6 +310,8 @@ export default function OfficialKnockoutBracket({
       middleArm: s.bracketMiddleArm,
       middleArmCompact: s.bracketMiddleArmCompact,
       middleArmCompactTall: s.bracketMiddleArmCompactTall,
+      middleArmSemiFinal: hasQuarterfinals ? s.middleArmSemiFinal : null,
+      middleArmSemiFinalTall: hasQuarterfinals ? s.middleArmSemiFinalTall : null,
       finalCol: s.finalCol,
       finalLabelRow: s.finalLabelRow,
       matchStackMeasure: s.matchStackMeasure,
@@ -262,8 +321,9 @@ export default function OfficialKnockoutBracket({
       teamText: s.teamText,
       scoreBox: s.scoreBox,
       logoPlaceholder: s.logoPlaceholder,
+      logoSize: s.logoSize ?? KNOCKOUT_BRACKET_LOGO_SIZE,
     };
-  }, [layoutStyles]);
+  }, [layoutStyles, hasQuarterfinals]);
 
   const semiHeaderLabel =
     semifinalTies.length > 1 || semifinalTies.some((t) => t.twoLegged) ? 'Semifinali' : 'Semifinale';
@@ -300,7 +360,7 @@ export default function OfficialKnockoutBracket({
                 {...commonStageProps}
               />
             </View>
-            <KnockoutFlowConnector flowTall={flowTall} layout={layout} />
+            <KnockoutFlowConnector flowTall={flowTall} layout={layout} withQuarterfinals />
             <View style={stageColStyle}>
               <KnockoutStageHeaderTitle
                 label={semiHeaderLabel}
@@ -309,7 +369,7 @@ export default function OfficialKnockoutBracket({
               />
               <KnockoutStageColumn ties={semifinalTies} tieLabelPrefix="SF" bare {...commonStageProps} />
             </View>
-            <KnockoutFlowConnector flowTall={flowTall} layout={layout} />
+            <KnockoutFlowConnector flowTall={flowTall} layout={layout} afterSemis withQuarterfinals />
             <View style={finalColStyle}>
               <KnockoutStageHeaderTitle label="Finale" layout={layout} />
               <View style={layout.finalMatchWrap}>
@@ -338,7 +398,7 @@ export default function OfficialKnockoutBracket({
   const bracketBody = (
     <View style={layout.bracketRow}>
       <KnockoutStageColumn titleWide={flowTall} ties={semifinalTies} tieLabelPrefix="SF" {...commonStageProps} />
-      <KnockoutFlowConnector flowTall={flowTall} layout={layout} />
+      <KnockoutFlowConnector flowTall={flowTall} layout={layout} afterSemis />
       <KnockoutFinalColumn finalMatch={k.final} {...commonStageProps} />
     </View>
   );
