@@ -193,7 +193,12 @@ function getMatchYear(iso) {
 
 function getMatchStatusText(match) {
   const phase = String(match?.last_phase_type || '').trim();
-  if (phase === 'match_end') return 'Partita\nterminata';
+  if (phase === 'match_end') {
+    if (match?.is_walkover === true || match?.is_walkover === 1 || match?.is_walkover === '1') {
+      return 'A tavolino';
+    }
+    return 'Partita\nterminata';
+  }
   if (phase) return 'Partita in corso';
   return formatKickoffTime(match?.kickoff_at);
 }
@@ -1550,7 +1555,7 @@ const styles = StyleSheet.create({
   },
   seasonKnockoutFlowStraightFirstTieSlot: {
     justifyContent: 'flex-start',
-    paddingTop: 38,
+    paddingTop: 50,
   },
   seasonKnockoutFlowStraightTieSlotTall: { minHeight: 124 },
   seasonKnockoutFlowStraightLine: {

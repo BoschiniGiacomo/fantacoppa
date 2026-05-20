@@ -25,6 +25,67 @@ function isRegularGoalEventType(eventType) {
   return t === 'goal' || t === 'penalty_goal';
 }
 
+function parseEventPayloadJson(ev) {
+  let payload = ev?.payload_json ?? ev?.payload;
+  if (typeof payload === 'string') {
+    try {
+      payload = JSON.parse(payload);
+    } catch {
+      payload = {};
+    }
+  }
+  return payload && typeof payload === 'object' ? payload : {};
+}
+
+function eventHasGoalScorer(ev) {
+  const pid = Number(ev?.player_id);
+  if (Number.isFinite(pid) && pid > 0) return true;
+  const payload = parseEventPayloadJson(ev);
+  const payloadPid = Number(payload?.player_id);
+  if (Number.isFinite(payloadPid) && payloadPid > 0) return true;
+  return String(payload?.player_name ?? '').trim().length > 0;
+}
+
+function isWalkoverMinute(minute) {
+  const m = Number(minute);
+  return Number.isFinite(m) && m === 0;
+}
+
+/** 3 goal/penalty_goal al minuto 0 senza marcatore, partita chiusa con match_end. */
+function computeIsWalkoverFromEvents(events) {
+  const list = Array.isArray(events) ? events : [];
+  if (!list.some((e) => String(e?.event_type) === 'match_end')) return false;
+  const goals = list.filter((e) => e && isRegularGoalEventType(e.event_type));
+  if (goals.length !== 3) return false;
+  if (!goals.every((e) => isWalkoverMinute(e.minute))) return false;
+  return goals.every((e) => !eventHasGoalScorer(e));
+}
+
+const SQL_WALKOVER_MATCHES_CTE = `
+      walkover_matches AS (
+        SELECT wg.match_id
+        FROM (
+          SELECT e.match_id
+          FROM official_match_events e
+          WHERE e.event_type IN ('goal','penalty_goal')
+            AND COALESCE(e.minute, 0) = 0
+            AND (e.player_id IS NULL OR e.player_id <= 0)
+            AND COALESCE(TRIM(
+              CASE
+                WHEN e.payload_json IS NULL THEN ''
+                WHEN jsonb_typeof(e.payload_json) = 'object' THEN COALESCE(e.payload_json->>'player_name', '')
+                ELSE ''
+              END
+            ), '') = ''
+          GROUP BY e.match_id
+          HAVING COUNT(*) = 3
+        ) wg
+        WHERE EXISTS (
+          SELECT 1 FROM official_match_events me
+          WHERE me.match_id = wg.match_id AND me.event_type = 'match_end'
+        )
+      )`;
+
 function parseBooleanishInt(value, fallback = 0) {
   if (value == null || value === '') return fallback ? 1 : 0;
   if (typeof value === 'boolean') return value ? 1 : 0;
@@ -141,7 +202,16 @@ function teamNameFromSide(teamSide, homeTeamName, awayTeamName) {
 }
 
 /** Titolo + corpo push (goal / autogol / fine partita come richiesto). */
-function buildMatchEventPushContent({ eventType, homeTeamName, awayTeamName, teamSide, payload, homeGoals, awayGoals }) {
+function buildMatchEventPushContent({
+  eventType,
+  homeTeamName,
+  awayTeamName,
+  teamSide,
+  payload,
+  homeGoals,
+  awayGoals,
+  isWalkover = false,
+}) {
   const matchLabel = `${homeTeamName || 'Casa'} - ${awayTeamName || 'Trasferta'}`;
   const playerFmt = formatPlayerInitialLast(String(payload?.player_name || '').trim());
   const scoreStr = formatScorePlain(homeGoals, awayGoals);
@@ -151,7 +221,8 @@ function buildMatchEventPushContent({ eventType, homeTeamName, awayTeamName, tea
     return { title: 'Inizio partita', body: `${matchLabel}: la partita e iniziata.` };
   }
   if (eventType === 'match_end') {
-    return { title: 'Partita terminata', body: `${matchLabel}${scoreStr}`.trimEnd() };
+    const title = isWalkover ? 'A tavolino' : 'Partita terminata';
+    return { title, body: `${matchLabel}${scoreStr}`.trimEnd() };
   }
   if (isRegularGoalEventType(eventType)) {
     const title = sideTeam ? `GOAL ${sideTeam}` : 'GOAL';
@@ -378,6 +449,17 @@ async function notifyUsersForOfficialMatchEvent({ eventId, matchId, eventType, p
     }
   }
 
+  let isWalkover = false;
+  if (eventType === 'match_end') {
+    const walkoverRows = await safeQuery(
+      `SELECT event_type, minute, player_id, payload_json
+       FROM official_match_events
+       WHERE match_id = ?`,
+      [matchId]
+    );
+    isWalkover = computeIsWalkoverFromEvents(walkoverRows || []);
+  }
+
   const pushText = buildMatchEventPushContent({
     eventType,
     homeTeamName: match.home_team_name,
@@ -386,6 +468,7 @@ async function notifyUsersForOfficialMatchEvent({ eventId, matchId, eventType, p
     payload,
     homeGoals,
     awayGoals,
+    isWalkover,
   });
   if (!pushText) return { targeted_users: targetsByUser.size, reserved: 0, sent: 0, invalidated: 0, errors: 0 };
   const { title, body } = pushText;
@@ -1269,7 +1352,8 @@ router.get('/matches', authenticateToken, async (req, res) => {
           'penalties_start','match_end'
         )
         GROUP BY e.match_id
-      )
+      ),
+${SQL_WALKOVER_MATCHES_CTE}
       SELECT
         m.id,
         m.competition_id,
@@ -1299,7 +1383,8 @@ router.get('/matches', authenticateToken, async (req, res) => {
         COALESCE(mn.enabled, 0) AS notifications_enabled,
         COALESCE(lp.last_phase_type, NULL) AS last_phase_type,
         COALESCE(lp.last_phase_minute, NULL) AS last_phase_minute,
-        COALESCE(pe.live_phase_events, '[]'::json) AS live_phase_events
+        COALESCE(pe.live_phase_events, '[]'::json) AS live_phase_events,
+        COALESCE(wo.match_id IS NOT NULL, false) AS is_walkover
       FROM official_matches m
       INNER JOIN official_league_groups og ON og.id = m.competition_id
       LEFT JOIN leagues lg ON lg.id = m.league_id
@@ -1309,6 +1394,7 @@ router.get('/matches', authenticateToken, async (req, res) => {
       LEFT JOIN ev_scores evs ON evs.match_id = m.id
       LEFT JOIN last_phase lp ON lp.match_id = m.id
       LEFT JOIN phase_events pe ON pe.match_id = m.id
+      LEFT JOIN walkover_matches wo ON wo.match_id = m.id
       LEFT JOIN user_official_match_favorites fm ON fm.user_id = ? AND fm.match_id = m.id
       LEFT JOIN user_official_match_notifications mn ON mn.user_id = ? AND mn.match_id = m.id
       WHERE (m.kickoff_at AT TIME ZONE 'Europe/Rome')::date = ?::date
@@ -1439,6 +1525,7 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
     };
 
     const events = (Array.isArray(rawEvents) ? rawEvents : []).map(enrichEventForApi);
+    match.is_walkover = computeIsWalkoverFromEvents(events) ? 1 : 0;
     const nowMs = Date.now();
     const correctedEvents = events.map((ev) => {
       if (!ev || ev.event_type !== 'match_start' || !ev.created_at) return ev;
@@ -1630,7 +1717,8 @@ router.get('/matches/teams/:teamId/matches', authenticateToken, async (req, res)
           'penalties_start','match_end'
         )
         ORDER BY e.match_id, e.id DESC
-      )
+      ),
+${SQL_WALKOVER_MATCHES_CTE}
       SELECT
         m.id,
         m.kickoff_at,
@@ -1646,13 +1734,15 @@ router.get('/matches/teams/:teamId/matches', authenticateToken, async (req, res)
         COALESCE(evs.ev_away, m.away_score) AS away_score,
         CASE WHEN COALESCE(evs.has_shootout, false) THEN COALESCE(evs.ev_home_shootout, 0) ELSE NULL END AS home_shootout_score,
         CASE WHEN COALESCE(evs.has_shootout, false) THEN COALESCE(evs.ev_away_shootout, 0) ELSE NULL END AS away_shootout_score,
-        lp.last_phase_type
+        lp.last_phase_type,
+        COALESCE(wo.match_id IS NOT NULL, false) AS is_walkover
       FROM official_matches m
       INNER JOIN teams ht ON ht.id = m.home_team_id
       INNER JOIN teams at ON at.id = m.away_team_id
       LEFT JOIN official_match_stages ms ON ms.id = NULLIF(to_jsonb(m)->>'match_stage_id','')::int
       LEFT JOIN ev_scores evs ON evs.match_id = m.id
       LEFT JOIN last_phase lp ON lp.match_id = m.id
+      LEFT JOIN walkover_matches wo ON wo.match_id = m.id
       WHERE m.competition_id = ?
         AND ((SELECT can_see FROM su) = 1 OR COALESCE(m.is_admin_only, 0) = 0)
         AND (
@@ -1685,6 +1775,7 @@ router.get('/matches/teams/:teamId/matches', authenticateToken, async (req, res)
         home_shootout_score: r.home_shootout_score != null ? Number(r.home_shootout_score) : null,
         away_shootout_score: r.away_shootout_score != null ? Number(r.away_shootout_score) : null,
         last_phase_type: r.last_phase_type || null,
+        is_walkover: r.is_walkover === true || r.is_walkover === 1 ? 1 : 0,
       };
     });
 

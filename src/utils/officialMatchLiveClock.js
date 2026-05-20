@@ -1,4 +1,5 @@
 import { parseAppDate } from './dateTime';
+import { getOfficialMatchEndDisplayLabel } from './officialMatchWalkover';
 
 /**
  * Logica cronometro hero / lista partite (fasi, minuti, anello secondi).
@@ -121,7 +122,12 @@ export function computeLiveHeroClock(events, match, tick, elapsedOffsetSec = 0) 
     };
   }
   if (last.event_type === 'match_end') {
-    return { variant: 'static', main: 'Fine partita', sub: null, showSub: false };
+    return {
+      variant: 'static',
+      main: getOfficialMatchEndDisplayLabel(match, events),
+      sub: null,
+      showSub: false,
+    };
   }
   if (last.event_type === 'penalties_start') {
     return { variant: 'static', main: 'Rigori', sub: null, showSub: false };

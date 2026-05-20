@@ -40,6 +40,11 @@ import {
   parseEventCreatedAtMs,
   regulationHalfMinutes,
 } from '../utils/officialMatchLiveClock';
+import {
+  getOfficialMatchEndDisplayLabel,
+  OFFICIAL_MATCH_END_LABEL,
+  OFFICIAL_WALKOVER_END_LABEL,
+} from '../utils/officialMatchWalkover';
 import { parseAppDate } from '../utils/dateTime';
 
 const MONTH_SHORT_IT = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic'];
@@ -127,19 +132,20 @@ const PHASE_ROW_LABELS = {
 };
 
 /** Timeline / pulsante fase: senza supplementari e senza rigori, fine 2°T = fine partita. */
-function labelSecondHalfEnd(match) {
+function labelSecondHalfEnd(match, events) {
   const et = Number(match?.extra_time_enabled) === 1;
   const pens = Number(match?.penalties_enabled) === 1;
-  if (!et && !pens) return 'Fine partita';
+  if (!et && !pens) return getOfficialMatchEndDisplayLabel(match, events);
   return 'Fine secondo tempo';
 }
 
 /** Fine 2° tempo sup.: senza rigori (vittoria ai supplementari) = stessa etichetta di fine partita. */
-function labelExtraSecondHalfEnd(match) {
+function labelExtraSecondHalfEnd(match, events) {
   const pens = Number(match?.penalties_enabled) === 1;
   const hasSecondExtraHalf = hasExtraSecondHalf(match);
-  if (!hasSecondExtraHalf) return pens ? 'Fine tempo supplementare' : 'Fine partita';
-  if (!pens) return 'Fine partita';
+  const endLabel = getOfficialMatchEndDisplayLabel(match, events);
+  if (!hasSecondExtraHalf) return pens ? 'Fine tempo supplementare' : endLabel;
+  if (!pens) return endLabel;
   return 'Fine secondo tempo supplementare';
 }
 
@@ -877,8 +883,9 @@ const LIVE_EVENT_TYPE_LABELS = {
   match_end: 'Fine partita',
 };
 
-function liveEventTypeLabel(eventType, match) {
-  if (eventType === 'extra_second_half_end') return labelExtraSecondHalfEnd(match);
+function liveEventTypeLabel(eventType, match, events) {
+  if (eventType === 'match_end') return getOfficialMatchEndDisplayLabel(match, events);
+  if (eventType === 'extra_second_half_end') return labelExtraSecondHalfEnd(match, events);
   return LIVE_EVENT_TYPE_LABELS[eventType] || eventType;
 }
 
@@ -1338,6 +1345,10 @@ export default function MatchDetailScreen({ navigation, route }) {
     () => computeLiveHeroClock(liveEvents, match, tick, liveTimerOffsetSec),
     [liveEvents, match, tick, liveTimerOffsetSec]
   );
+  const matchEndDisplayLabel = useMemo(
+    () => getOfficialMatchEndDisplayLabel(match, liveEvents),
+    [match, liveEvents]
+  );
   const suggestedTimelineMinuteStr = useMemo(() => {
     const n = computeSuggestedTimelineMinute(liveEvents, match, liveTimerOffsetSec);
     return `${n}\u2032`;
@@ -1475,9 +1486,13 @@ export default function MatchDetailScreen({ navigation, route }) {
   const shootoutTimelineLabel = hasShootoutPhase
     ? `Rigori [${shootoutState.homeGoals}] ${liveScorePreview.home} - ${liveScorePreview.away} [${shootoutState.awayGoals}]`
     : null;
-  const heroMainText = shootoutHeroLabel && (heroClock.main === 'Rigori' || heroClock.main === 'Fine partita')
-    ? shootoutHeroLabel
-    : heroClock.main;
+  const heroMainText =
+    shootoutHeroLabel &&
+    (heroClock.main === 'Rigori' ||
+      heroClock.main === OFFICIAL_MATCH_END_LABEL ||
+      heroClock.main === OFFICIAL_WALKOVER_END_LABEL)
+      ? shootoutHeroLabel
+      : heroClock.main;
   const nextShootoutTeamSide = useMemo(() => {
     const shootoutEvents = (liveEvents || [])
       .filter((e) => e && isShootoutEventType(e.event_type))
@@ -2330,7 +2345,8 @@ export default function MatchDetailScreen({ navigation, route }) {
                     heroMainText === 'PT sup' ||
                     heroMainText === 'FT sup' ||
                     heroMainText === 'Rigori' ||
-                    heroMainText === 'Fine partita' ||
+                    heroMainText === OFFICIAL_MATCH_END_LABEL ||
+                    heroMainText === OFFICIAL_WALKOVER_END_LABEL ||
                     String(heroMainText || '').startsWith('Rig.:')) &&
                     styles.heroStaticPtFt,
                 ]}
@@ -2601,7 +2617,7 @@ export default function MatchDetailScreen({ navigation, route }) {
                     );
                   }
                   if (ev.event_type === 'second_half_end') {
-                    const ftLabel = labelSecondHalfEnd(match);
+                    const ftLabel = labelSecondHalfEnd(match, liveEvents);
                     return (
                       <View key={`ev-${ev.id}`} style={styles.matchEndBanner}>
                         <View style={styles.matchEndLine} />
@@ -2634,7 +2650,7 @@ export default function MatchDetailScreen({ navigation, route }) {
                     );
                   }
                   if (ev.event_type === 'extra_second_half_end') {
-                    const etEndLabel = labelExtraSecondHalfEnd(match);
+                    const etEndLabel = labelExtraSecondHalfEnd(match, liveEvents);
                     return (
                       <View key={`ev-${ev.id}`} style={styles.matchEndBanner}>
                         <View style={styles.matchEndLine} />
@@ -2676,7 +2692,7 @@ export default function MatchDetailScreen({ navigation, route }) {
                       <View key={`ev-${ev.id}`} style={styles.matchEndBanner}>
                         <View style={styles.matchEndLine} />
                         <Text style={styles.matchEndLabel} numberOfLines={2}>
-                          {shootoutTimelineLabel || `Fine partita ${score.home} - ${score.away}`}
+                          {shootoutTimelineLabel || `${matchEndDisplayLabel} ${score.home} - ${score.away}`}
                         </Text>
                         <View style={styles.matchEndLine} />
                       </View>
@@ -3366,7 +3382,7 @@ export default function MatchDetailScreen({ navigation, route }) {
                         liveEventsTimelineSorted.map((ev) => {
                           const editable = EDITABLE_LIVE_EVENT_TYPES.has(ev.event_type);
                           const isEditing = Number(editingLiveEventId) === Number(ev.id);
-                          const label = liveEventTypeLabel(ev.event_type, match);
+                          const label = liveEventTypeLabel(ev.event_type, match, liveEvents);
                           const name = ev?.payload?.player_name ? ` - ${ev.payload.player_name}` : '';
                           const editMinuteNum = isEditing && editingLiveEventDraft ? parseTimelineMinuteToInt(editingLiveEventDraft.minute) : NaN;
                           const editStoppageEnd = stoppagePeriodEndForMinute(editMinuteNum, match);
@@ -3988,7 +4004,7 @@ export default function MatchDetailScreen({ navigation, route }) {
                 </View>
                 <Text style={styles.confirmTitle}>Elimina evento</Text>
                 <Text style={styles.confirmMessage}>
-                  Vuoi eliminare "{liveEventTypeLabel(confirmDeleteEvent?.event_type, match) || confirmDeleteEvent?.event_type || 'evento'}"?
+                  Vuoi eliminare "{liveEventTypeLabel(confirmDeleteEvent?.event_type, match, liveEvents) || confirmDeleteEvent?.event_type || 'evento'}"?
                 </Text>
                 <View style={styles.confirmButtons}>
                   <TouchableOpacity
@@ -4828,7 +4844,7 @@ const styles = StyleSheet.create({
   },
   knockoutFlowStraightFirstTieSlot: {
     justifyContent: 'flex-start',
-    paddingTop: 38,
+    paddingTop: 50,
   },
   knockoutFlowStraightTieSlotTall: { minHeight: 124 },
   knockoutFlowStraightLine: {
