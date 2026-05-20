@@ -2048,7 +2048,11 @@ async function fetchOfficialTeamPresencesWithVoteRanking(seasonTeamRows, debugCt
 
   const sql = `
     WITH franchise_scope AS (
-      SELECT * FROM (VALUES ${phScope}) AS t(canon_league_id, team_table_id, rating_league_id)
+      SELECT
+        v.canon_league_id::int AS canon_league_id,
+        v.team_table_id::int AS team_table_id,
+        v.rating_league_id::int AS rating_league_id
+      FROM (VALUES ${phScope}) AS v(canon_league_id, team_table_id, rating_league_id)
     ),
     rated AS (
       SELECT DISTINCT
