@@ -2198,6 +2198,8 @@ export default function MatchDetailScreen({ navigation, route }) {
       flowStraightTieSlot: styles.knockoutFlowStraightTieSlot,
       flowStraightTieSlotTall: styles.knockoutFlowStraightTieSlotTall,
       flowStraightFirstTieSlot: styles.knockoutFlowStraightFirstTieSlot,
+      flowStraightSecondTieSlot: styles.knockoutFlowStraightSecondTieSlot,
+      flowStraightSecondTieSlotTall: styles.knockoutFlowStraightSecondTieSlotTall,
       flowStraightLine: styles.knockoutFlowStraightLine,
       flowStraightLineTall: styles.knockoutFlowStraightLineTall,
       flowStraightLineCompact: styles.knockoutFlowStraightLineCompact,
@@ -4848,6 +4850,13 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-start',
     paddingTop: 50,
   },
+  knockoutFlowStraightSecondTieSlot: {
+    justifyContent: 'flex-start',
+    paddingTop: 18,
+  },
+  knockoutFlowStraightSecondTieSlotTall: {
+    paddingTop: 42,
+  },
   knockoutFlowStraightTieSlotTall: { minHeight: 124 },
   knockoutFlowStraightLine: {
     height: 1,
@@ -4918,8 +4927,8 @@ const styles = StyleSheet.create({
   knockoutBracketVerticalCompactTall: { top: 4, height: 138 },
   knockoutBracketMiddleArmCompact: { left: 17, width: 11 },
   knockoutBracketMiddleArmCompactTall: { top: 86 },
-  knockoutBracketMiddleArmSemiFinal: { top: 52 },
-  knockoutBracketMiddleArmSemiFinalTall: { top: 82 },
+  knockoutBracketMiddleArmSemiFinal: { top: 61 },
+  knockoutBracketMiddleArmSemiFinalTall: { top: 91 },
   knockoutFinalLabelRow: { height: 0, marginBottom: 0 },
   knockoutStageLabel: { fontSize: 12, fontWeight: '700', color: '#6b7280', textTransform: 'uppercase', marginBottom: 4 },
   knockoutMatchRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, width: '100%' },

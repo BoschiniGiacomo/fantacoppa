@@ -27,6 +27,8 @@ function KnockoutStraightConnector({ flowTall, layout, quarterTies = [] }) {
             layout.flowStraightTieSlot,
             tie?.twoLegged && layout.flowStraightTieSlotTall,
             idx === 0 && layout.flowStraightFirstTieSlot,
+            idx === 1 && layout.flowStraightSecondTieSlot,
+            tie?.twoLegged && idx === 1 && layout.flowStraightSecondTieSlotTall,
           ]}
         >
           <View
@@ -346,6 +348,8 @@ export default function OfficialKnockoutBracket({
       flowStraightTieSlot: s.flowStraightTieSlot,
       flowStraightTieSlotTall: s.flowStraightTieSlotTall,
       flowStraightFirstTieSlot: s.flowStraightFirstTieSlot,
+      flowStraightSecondTieSlot: s.flowStraightSecondTieSlot,
+      flowStraightSecondTieSlotTall: s.flowStraightSecondTieSlotTall,
       flowStraightLine: s.flowStraightLine,
       flowStraightLineTall: s.flowStraightLineTall,
       flowStraightLineCompact: s.flowStraightLineCompact,

@@ -616,6 +616,8 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
       flowStraightTieSlot: styles.seasonKnockoutFlowStraightTieSlot,
       flowStraightTieSlotTall: styles.seasonKnockoutFlowStraightTieSlotTall,
       flowStraightFirstTieSlot: styles.seasonKnockoutFlowStraightFirstTieSlot,
+      flowStraightSecondTieSlot: styles.seasonKnockoutFlowStraightSecondTieSlot,
+      flowStraightSecondTieSlotTall: styles.seasonKnockoutFlowStraightSecondTieSlotTall,
       flowStraightLine: styles.seasonKnockoutFlowStraightLine,
       flowStraightLineTall: styles.seasonKnockoutFlowStraightLineTall,
       flowStraightLineCompact: styles.seasonKnockoutFlowStraightLineCompact,
@@ -1567,6 +1569,13 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-start',
     paddingTop: 50,
   },
+  seasonKnockoutFlowStraightSecondTieSlot: {
+    justifyContent: 'flex-start',
+    paddingTop: 18,
+  },
+  seasonKnockoutFlowStraightSecondTieSlotTall: {
+    paddingTop: 42,
+  },
   seasonKnockoutFlowStraightTieSlotTall: { minHeight: 124 },
   seasonKnockoutFlowStraightLine: {
     height: 1,
@@ -1609,8 +1618,8 @@ const styles = StyleSheet.create({
   seasonKnockoutBracketVerticalCompactTall: { top: 4, height: 138 },
   seasonKnockoutBracketMiddleArmCompact: { left: 17, width: 11 },
   seasonKnockoutBracketMiddleArmCompactTall: { top: 88 },
-  seasonKnockoutBracketMiddleArmSemiFinal: { top: 50 },
-  seasonKnockoutBracketMiddleArmSemiFinalTall: { top: 82 },
+  seasonKnockoutBracketMiddleArmSemiFinal: { top: 61 },
+  seasonKnockoutBracketMiddleArmSemiFinalTall: { top: 91 },
   seasonKnockoutFinalLabelRow: { height: 0, marginBottom: 0 },
   seasonKnockoutMatchStackMeasure: { width: '100%' },
   seasonKnockoutMatchStack: { gap: 6, width: '100%' },
