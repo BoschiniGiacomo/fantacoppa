@@ -312,6 +312,7 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
   const [seasonYears, setSeasonYears] = useState([]);
   const [selectedSeasonYear, setSelectedSeasonYear] = useState(null);
   const [seasonStandings, setSeasonStandings] = useState([]);
+  const [seasonStandingsGroups, setSeasonStandingsGroups] = useState(null);
   const [seasonKnockout, setSeasonKnockout] = useState({ semifinals: [], final: null });
   const [seasonPickerOpen, setSeasonPickerOpen] = useState(false);
   const [teamSeasonLoading, setTeamSeasonLoading] = useState(false);
@@ -392,10 +393,13 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
         const res = await matchesService.getOfficialTeamSeasonStandings(teamId, competitionId, targetYear);
         const years = Array.isArray(res?.data?.available_years) ? res.data.available_years : [];
         const standingsRows = Array.isArray(res?.data?.standings) ? res.data.standings : [];
+        const groupsRaw = Array.isArray(res?.data?.standings_groups) ? res.data.standings_groups : null;
+        const useTwoGroupTables = Boolean(groupsRaw && groupsRaw.length >= 2);
         const knockoutRows = res?.data?.knockout || { semifinals: [], final: null };
         const backendSelected = res?.data?.selected_year != null ? Number(res.data.selected_year) : null;
         setSeasonYears(years);
-        setSeasonStandings(standingsRows);
+        setSeasonStandingsGroups(useTwoGroupTables ? groupsRaw : null);
+        setSeasonStandings(useTwoGroupTables ? [] : standingsRows);
         setSeasonKnockout({
           semifinals: Array.isArray(knockoutRows?.semifinals) ? knockoutRows.semifinals : [],
           final: knockoutRows?.final || null,
@@ -963,49 +967,72 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
               <View style={styles.matchesLoadingBox}>
                 <ActivityIndicator color="#667eea" />
               </View>
-            ) : seasonStandings.length === 0 ? (
-              <Text style={styles.placeholderText}>Nessuna classifica disponibile per la stagione selezionata.</Text>
-            ) : (
-              <View style={styles.seasonTableWrap}>
-                <View style={styles.seasonTableHeader}>
-                  <Text style={[styles.seasonTh, { width: 38, textAlign: 'center' }]}>Pos</Text>
-                  <Text style={[styles.seasonTh, { flex: 1 }]}>Squadra</Text>
-                  <Text style={[styles.seasonTh, { width: 40, textAlign: 'center' }]}>PG</Text>
-                  <Text style={[styles.seasonTh, { width: 40, textAlign: 'center' }]}>DR</Text>
-                  <Text style={[styles.seasonTh, { width: 40, textAlign: 'center' }]}>Pt</Text>
-                </View>
-                {seasonStandings.map((r, i) => {
-                  const isWatched = normalizeNameForCompare(r?.team_name) === normalizeNameForCompare(teamName);
-                  const rowTeamId = Number(r?.team_id);
-                  return (
-                    <View key={`season-st-${i}`} style={[styles.seasonTableRow, isWatched && styles.seasonTableRowWatched]}>
-                      <Text style={[styles.seasonTd, { width: 38, textAlign: 'center' }]}>{r.position}</Text>
-                      <TouchableOpacity
-                        style={[styles.teamCell, { flex: 1 }]}
-                        activeOpacity={0.75}
-                        disabled={!rowTeamId || rowTeamId <= 0}
-                        onPress={() => {
-                          if (!rowTeamId || rowTeamId <= 0) return;
-                          navigation.navigate('OfficialTeamDetail', {
-                            teamId: rowTeamId,
-                            competitionId,
-                            teamName: String(r.team_name_display || r.team_name || '').trim() || '-',
-                          });
-                        }}
-                      >
-                        <TeamRowLogo logoUrl={r.team_logo_url} logoPath={r.team_logo_path} />
-                        <Text style={[styles.seasonTd, styles.seasonTdTeamName]} numberOfLines={2}>
-                          {r.team_name_display || r.team_name || '-'}
-                        </Text>
-                      </TouchableOpacity>
-                      <Text style={[styles.seasonTd, { width: 40, textAlign: 'center' }]}>{r.played}</Text>
-                      <Text style={[styles.seasonTd, { width: 40, textAlign: 'center' }]}>{r.goal_diff}</Text>
-                      <Text style={[styles.seasonTd, { width: 40, textAlign: 'center' }]}>{r.points}</Text>
+            ) : (() => {
+              const split =
+                Array.isArray(seasonStandingsGroups) &&
+                seasonStandingsGroups.length >= 2;
+              const blocks = split
+                ? seasonStandingsGroups.map((g, idx) => ({
+                    label: String(g?.label || (idx === 0 ? 'Girone A' : 'Girone B')).trim() || (idx === 0 ? 'Girone A' : 'Girone B'),
+                    standings: Array.isArray(g?.standings) ? g.standings : [],
+                    key: `g-${g?.girone_index ?? idx}`,
+                  }))
+                : [{ label: null, standings: seasonStandings, key: 'single' }];
+              const anyRows = blocks.some((b) => (b.standings || []).length > 0);
+              if (!anyRows) {
+                return (
+                  <Text style={styles.placeholderText}>Nessuna classifica disponibile per la stagione selezionata.</Text>
+                );
+              }
+              return (
+                <View style={styles.seasonStandingsTablesCol}>
+                  {blocks.map((block) => (
+                    <View key={block.key} style={styles.seasonStandingsTableBlock}>
+                      {block.label ? <Text style={styles.seasonGironeTitle}>{block.label}</Text> : null}
+                      <View style={styles.seasonTableWrap}>
+                        <View style={styles.seasonTableHeader}>
+                          <Text style={[styles.seasonTh, { width: 38, textAlign: 'center' }]}>Pos</Text>
+                          <Text style={[styles.seasonTh, { flex: 1 }]}>Squadra</Text>
+                          <Text style={[styles.seasonTh, { width: 40, textAlign: 'center' }]}>PG</Text>
+                          <Text style={[styles.seasonTh, { width: 40, textAlign: 'center' }]}>DR</Text>
+                          <Text style={[styles.seasonTh, { width: 40, textAlign: 'center' }]}>Pt</Text>
+                        </View>
+                        {block.standings.map((r, i) => {
+                          const isWatched = normalizeNameForCompare(r?.team_name) === normalizeNameForCompare(teamName);
+                          const rowTeamId = Number(r?.team_id);
+                          return (
+                            <View key={`${block.key}-st-${i}`} style={[styles.seasonTableRow, isWatched && styles.seasonTableRowWatched]}>
+                              <Text style={[styles.seasonTd, { width: 38, textAlign: 'center' }]}>{r.position}</Text>
+                              <TouchableOpacity
+                                style={[styles.teamCell, { flex: 1 }]}
+                                activeOpacity={0.75}
+                                disabled={!rowTeamId || rowTeamId <= 0}
+                                onPress={() => {
+                                  if (!rowTeamId || rowTeamId <= 0) return;
+                                  navigation.navigate('OfficialTeamDetail', {
+                                    teamId: rowTeamId,
+                                    competitionId,
+                                    teamName: String(r.team_name_display || r.team_name || '').trim() || '-',
+                                  });
+                                }}
+                              >
+                                <TeamRowLogo logoUrl={r.team_logo_url} logoPath={r.team_logo_path} />
+                                <Text style={[styles.seasonTd, styles.seasonTdTeamName]} numberOfLines={2}>
+                                  {r.team_name_display || r.team_name || '-'}
+                                </Text>
+                              </TouchableOpacity>
+                              <Text style={[styles.seasonTd, { width: 40, textAlign: 'center' }]}>{r.played}</Text>
+                              <Text style={[styles.seasonTd, { width: 40, textAlign: 'center' }]}>{r.goal_diff}</Text>
+                              <Text style={[styles.seasonTd, { width: 40, textAlign: 'center' }]}>{r.points}</Text>
+                            </View>
+                          );
+                        })}
+                      </View>
                     </View>
-                  );
-                })}
-              </View>
-            )}
+                  ))}
+                </View>
+              );
+            })()}
             </View>
             {!seasonLoading && hasSeasonKnockoutBracket ? (
               <View style={[styles.card, styles.seasonKnockoutCard]}>
@@ -1508,6 +1535,9 @@ const styles = StyleSheet.create({
     paddingBottom: 6,
   },
   seasonKnockoutTitle: { fontSize: 16, fontWeight: '800', color: '#111827', textAlign: 'center', marginBottom: 6 },
+  seasonStandingsTablesCol: { gap: 14 },
+  seasonStandingsTableBlock: { width: '100%' },
+  seasonGironeTitle: { fontSize: 15, fontWeight: '800', color: '#111827', marginBottom: 8 },
   seasonKnockoutHeaderRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
   seasonKnockoutColumnTitle: { flex: 1.2, fontSize: 12, fontWeight: '800', color: '#6b7280', textTransform: 'uppercase' },
   seasonKnockoutColumnTitleWide: { flex: 1.35 },

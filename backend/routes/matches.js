@@ -749,9 +749,16 @@ async function getManualTieOrderMap({ leagueId, groupId }) {
   }
 }
 
-async function computeStandingsFromMatches({ leagueId, groupId }) {
-  const teams = await query(
-    `
+async function computeStandingsFromMatches({ leagueId, groupId, allowedTeamIds = null }) {
+  const restrictIds =
+    Array.isArray(allowedTeamIds) && allowedTeamIds.length > 0
+      ? [...new Set(allowedTeamIds.map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0))]
+      : null;
+  if (Array.isArray(allowedTeamIds) && allowedTeamIds.length > 0 && (!restrictIds || restrictIds.length === 0)) {
+    return [];
+  }
+
+  let teamsSql = `
     SELECT
       t.id,
       t.name,
@@ -759,16 +766,20 @@ async function computeStandingsFromMatches({ leagueId, groupId }) {
       COALESCE(NULLIF(to_jsonb(t)->>'logo_path',''), NULLIF(t.logo_path, '')) AS logo_path
     FROM teams t
     WHERE t.league_id = ?
-    ORDER BY t.id ASC
-    `,
-    [leagueId]
-  );
+  `;
+  const teamsParams = [leagueId];
+  if (restrictIds) {
+    const ph = restrictIds.map(() => '?').join(', ');
+    teamsSql += ` AND t.id IN (${ph})`;
+    teamsParams.push(...restrictIds);
+  }
+  teamsSql += ` ORDER BY t.id ASC`;
+
+  const teams = await query(teamsSql, teamsParams);
   const teamMap = new Map((Array.isArray(teams) ? teams : []).map((t) => [Number(t.id), t]));
   if (teamMap.size === 0) return [];
 
-  // Match della competizione che coinvolgono team di questa lega
-  const matches = await query(
-    `
+  let matchesSql = `
     SELECT
       m.id,
       m.home_team_id,
@@ -780,9 +791,15 @@ async function computeStandingsFromMatches({ leagueId, groupId }) {
       AND m.home_team_id IN (SELECT id FROM teams WHERE league_id = ?)
       AND m.away_team_id IN (SELECT id FROM teams WHERE league_id = ?)
       AND m.match_stage_id = 1
-    `,
-    [groupId, leagueId, leagueId]
-  );
+  `;
+  const matchesParams = [groupId, leagueId, leagueId];
+  if (restrictIds) {
+    const ph = restrictIds.map(() => '?').join(', ');
+    matchesSql += ` AND m.home_team_id IN (${ph}) AND m.away_team_id IN (${ph})`;
+    matchesParams.push(...restrictIds, ...restrictIds);
+  }
+
+  const matches = await query(matchesSql, matchesParams);
 
   const matchIds = (Array.isArray(matches) ? matches : []).map((m) => Number(m.id)).filter((x) => x > 0);
   const eventsByMatch = new Map();
@@ -1794,12 +1811,63 @@ router.get('/matches/teams/:teamId/season-standings', authenticateToken, async (
     }
 
     let standings = [];
+    let standings_groups = null;
     let knockout = { semifinals: [], final: null };
     if (selectedLeagueId) {
-      [standings, knockout] = await Promise.all([
-        computeStandingsFromMatches({ leagueId: selectedLeagueId, groupId: competitionId }),
-        buildKnockoutBracketForLeague({ leagueId: selectedLeagueId, competitionId }),
-      ]);
+      const leagueMetaRows = await query(
+        `SELECT COALESCE(official_two_groups, 0) AS official_two_groups FROM leagues WHERE id = ? LIMIT 1`,
+        [selectedLeagueId]
+      );
+      const twoGroups = Number(leagueMetaRows[0]?.official_two_groups || 0) === 1;
+
+      if (twoGroups) {
+        await ensureLeagueOfficialGironiSchema();
+        const gironiRows = await query(
+          `SELECT team_id, girone_index FROM league_official_team_gironi WHERE league_id = ?`,
+          [selectedLeagueId]
+        );
+        const idsG1 = [];
+        const idsG2 = [];
+        for (const r of gironiRows || []) {
+          const gi = Number(r.girone_index);
+          const tid = Number(r.team_id);
+          if (!Number.isFinite(tid) || tid <= 0) continue;
+          if (gi === 1) idsG1.push(tid);
+          else if (gi === 2) idsG2.push(tid);
+        }
+        const useSplit = idsG1.length > 0 && idsG2.length > 0;
+        if (useSplit) {
+          const [sA, sB, ko] = await Promise.all([
+            computeStandingsFromMatches({
+              leagueId: selectedLeagueId,
+              groupId: competitionId,
+              allowedTeamIds: idsG1,
+            }),
+            computeStandingsFromMatches({
+              leagueId: selectedLeagueId,
+              groupId: competitionId,
+              allowedTeamIds: idsG2,
+            }),
+            buildKnockoutBracketForLeague({ leagueId: selectedLeagueId, competitionId }),
+          ]);
+          knockout = ko;
+          standings_groups = [
+            { girone_index: 1, label: 'Girone A', standings: Array.isArray(sA) ? sA : [] },
+            { girone_index: 2, label: 'Girone B', standings: Array.isArray(sB) ? sB : [] },
+          ];
+          standings = [];
+        } else {
+          [standings, knockout] = await Promise.all([
+            computeStandingsFromMatches({ leagueId: selectedLeagueId, groupId: competitionId }),
+            buildKnockoutBracketForLeague({ leagueId: selectedLeagueId, competitionId }),
+          ]);
+        }
+      } else {
+        [standings, knockout] = await Promise.all([
+          computeStandingsFromMatches({ leagueId: selectedLeagueId, groupId: competitionId }),
+          buildKnockoutBracketForLeague({ leagueId: selectedLeagueId, competitionId }),
+        ]);
+      }
     }
 
     return res.json({
@@ -1807,6 +1875,7 @@ router.get('/matches/teams/:teamId/season-standings', authenticateToken, async (
       available_years: availableYears,
       selected_year: selectedYear,
       standings: Array.isArray(standings) ? standings : [],
+      standings_groups: standings_groups,
       knockout,
     });
   } catch (err) {
