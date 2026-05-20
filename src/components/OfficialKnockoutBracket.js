@@ -9,7 +9,51 @@ import {
   KNOCKOUT_BRACKET_LOGO_SIZE,
 } from '../utils/knockoutBracket';
 
-function KnockoutFlowConnector({ flowTall, layout, afterSemis = false, withQuarterfinals = false }) {
+function KnockoutStraightConnector({ flowTall, layout, quarterTies = [] }) {
+  const ties = quarterTies.length > 0 ? quarterTies : [{ twoLegged: false }];
+  return (
+    <View
+      style={[
+        layout.flowColStraightStack,
+        flowTall && layout.flowColStraightStackTall,
+        flowTall && layout.flowColCompact,
+      ]}
+    >
+      <View style={layout.flowStraightHeaderSpacer} />
+      {ties.map((tie, idx) => (
+        <View
+          key={`q-flow-line-${idx}`}
+          style={[
+            layout.flowStraightTieSlot,
+            tie?.twoLegged && layout.flowStraightTieSlotTall,
+            idx === 0 && layout.flowStraightFirstTieSlot,
+          ]}
+        >
+          <View
+            style={[
+              layout.flowStraightLine,
+              flowTall && layout.flowStraightLineTall,
+              flowTall && layout.flowColCompact && layout.flowStraightLineCompact,
+            ]}
+          />
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function KnockoutFlowConnector({
+  flowTall,
+  layout,
+  quarterTies = [],
+  afterQuarters = false,
+  afterSemis = false,
+  withQuarterfinals = false,
+}) {
+  if (afterQuarters) {
+    return <KnockoutStraightConnector flowTall={flowTall} layout={layout} quarterTies={quarterTies} />;
+  }
+
   const {
     flowCol,
     flowColTall,
@@ -296,6 +340,15 @@ export default function OfficialKnockoutBracket({
       flowCol: s.flowCol,
       flowColTall: s.flowColTall,
       flowColCompact: s.flowColCompact,
+      flowColStraightStack: s.flowColStraightStack,
+      flowColStraightStackTall: s.flowColStraightStackTall,
+      flowStraightHeaderSpacer: s.flowStraightHeaderSpacer,
+      flowStraightTieSlot: s.flowStraightTieSlot,
+      flowStraightTieSlotTall: s.flowStraightTieSlotTall,
+      flowStraightFirstTieSlot: s.flowStraightFirstTieSlot,
+      flowStraightLine: s.flowStraightLine,
+      flowStraightLineTall: s.flowStraightLineTall,
+      flowStraightLineCompact: s.flowStraightLineCompact,
       flowColSemiFinal: hasQuarterfinals ? s.flowColSemiFinal : null,
       flowColSemiFinalTall: hasQuarterfinals ? s.flowColSemiFinalTall : null,
       topArm: s.bracketTopArm,
@@ -360,7 +413,13 @@ export default function OfficialKnockoutBracket({
                 {...commonStageProps}
               />
             </View>
-            <KnockoutFlowConnector flowTall={flowTall} layout={layout} withQuarterfinals />
+            <KnockoutFlowConnector
+              flowTall={flowTall}
+              layout={layout}
+              quarterTies={quarterfinalTies}
+              afterQuarters
+              withQuarterfinals
+            />
             <View style={stageColStyle}>
               <KnockoutStageHeaderTitle
                 label={semiHeaderLabel}
