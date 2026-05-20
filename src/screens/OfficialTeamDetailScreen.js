@@ -797,14 +797,24 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
                     const matchYear = getMatchYear(m.kickoff_at);
                     const previousMatchYear = idx > 0 ? getMatchYear(teamMatches[idx - 1]?.kickoff_at) : null;
                     const showYearDivider = matchYear != null && matchYear !== previousMatchYear;
-                    const hs = m.home_score != null ? Number(m.home_score) : null;
-                    const as = m.away_score != null ? Number(m.away_score) : null;
+                    const isTerminated = String(m?.last_phase_type || '').trim() === 'match_end';
+                    const hs =
+                      m.home_score != null
+                        ? Number(m.home_score)
+                        : isTerminated
+                          ? 0
+                          : null;
+                    const as =
+                      m.away_score != null
+                        ? Number(m.away_score)
+                        : isTerminated
+                          ? 0
+                          : null;
                     const hasScore = Number.isFinite(hs) && Number.isFinite(as);
                     const hps = m.home_shootout_score != null ? Number(m.home_shootout_score) : null;
                     const aps = m.away_shootout_score != null ? Number(m.away_shootout_score) : null;
                     const hasShootout = Number.isFinite(hps) && Number.isFinite(aps);
                     const statusText = getMatchStatusText(m);
-                    const isTerminated = statusText.includes('\n');
                     const showShootoutStatus = isTerminated && hasShootout;
                     const outcomeAccentColor = isTerminated ? getOutcomeAccentColor(m, teamName) : '#e2e8f0';
                     return (

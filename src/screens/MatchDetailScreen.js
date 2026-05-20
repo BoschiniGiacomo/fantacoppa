@@ -42,6 +42,7 @@ import {
 } from '../utils/officialMatchLiveClock';
 import {
   getOfficialMatchEndDisplayLabel,
+  goalEventHasScorer,
   OFFICIAL_MATCH_END_LABEL,
   OFFICIAL_WALKOVER_END_LABEL,
 } from '../utils/officialMatchWalkover';
@@ -1034,6 +1035,7 @@ function buildHeroScorerBlocks(liveEvents, match) {
   const awayMap = new Map();
 
   for (const ev of sorted) {
+    if (isRegularGoalEventType(ev.event_type) && !goalEventHasScorer(ev)) continue;
     const shortName = formatHeroPlayerShortName(ev?.payload?.player_name);
     const isOg = ev.event_type === 'own_goal';
     const minLab = minuteLabelForHeroScorer(ev, match);

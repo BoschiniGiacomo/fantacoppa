@@ -20,7 +20,8 @@ function parseEventPayload(ev) {
   return payload && typeof payload === 'object' ? payload : {};
 }
 
-function eventHasGoalScorer(ev) {
+/** Goal con marcatore (colonna o payload): i goal a tavolino non lo hanno. */
+export function goalEventHasScorer(ev) {
   const pid = Number(ev?.player_id);
   if (Number.isFinite(pid) && pid > 0) return true;
   const payload = parseEventPayload(ev);
@@ -44,7 +45,11 @@ export function isOfficialWalkoverMatch(match, events) {
   const goals = list.filter((e) => e && isRegularGoalEventType(e.event_type));
   if (goals.length !== 3) return false;
   if (!goals.every((e) => isWalkoverMinute(e.minute))) return false;
-  return goals.every((e) => !eventHasGoalScorer(e));
+  return goals.every((e) => !goalEventHasScorer(e));
+}
+
+export function isOfficialMatchEnded(match) {
+  return String(match?.last_phase_type || '').trim() === 'match_end';
 }
 
 /** Etichetta fine partita in hero / lista / timeline (non i pulsanti admin). */

@@ -1735,8 +1735,8 @@ ${SQL_WALKOVER_MATCHES_CTE}
         m.away_team_id,
         at.name AS away_team_name,
         at.logo_path AS away_team_logo_path,
-        COALESCE(evs.ev_home, m.home_score) AS home_score,
-        COALESCE(evs.ev_away, m.away_score) AS away_score,
+        COALESCE(evs.ev_home, m.home_score, CASE WHEN lp.last_phase_type = 'match_end' THEN 0 END) AS home_score,
+        COALESCE(evs.ev_away, m.away_score, CASE WHEN lp.last_phase_type = 'match_end' THEN 0 END) AS away_score,
         CASE WHEN COALESCE(evs.has_shootout, false) THEN COALESCE(evs.ev_home_shootout, 0) ELSE NULL END AS home_shootout_score,
         CASE WHEN COALESCE(evs.has_shootout, false) THEN COALESCE(evs.ev_away_shootout, 0) ELSE NULL END AS away_shootout_score,
         lp.last_phase_type,
@@ -2392,12 +2392,15 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
         if (e.event_type === 'yellow_card') yellowCards += 1;
         if (e.event_type === 'red_card') redCards += 1;
         if (isRegularGoalEventType(e.event_type)) {
+          if (!eventHasGoalScorer(e)) continue;
           const pid = Number(e.player_id) || Number(payload?.player_id);
           const aid = Number(e.assist_player_id) || Number(payload?.assist_player_id);
           const scorerMine =
-            (Number.isFinite(pid) && pid > 0 && seasonTeamIds.includes(Number(playerTeamMap.get(pid)))) || mine;
+            (Number.isFinite(pid) && pid > 0 && seasonTeamIds.includes(Number(playerTeamMap.get(pid)))) ||
+            mine;
           const assistMine =
-            (Number.isFinite(aid) && aid > 0 && seasonTeamIds.includes(Number(playerTeamMap.get(aid)))) || mine;
+            (Number.isFinite(aid) && aid > 0 && seasonTeamIds.includes(Number(playerTeamMap.get(aid)))) ||
+            mine;
           const pn =
             (Number.isFinite(pid) && pid > 0 ? String(playerNameMap.get(pid) || '').trim() : '') ||
             String(payload?.player_name || '').trim();
