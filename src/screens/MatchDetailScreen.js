@@ -4873,8 +4873,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 4,
   },
-  knockoutLegColLabel: {
+  knockoutLegColLabelFallbackSlot: {
     minWidth: 20,
+    alignItems: 'center',
+  },
+  knockoutLegColLabel: {
     textAlign: 'center',
     fontSize: 10,
     fontWeight: '800',

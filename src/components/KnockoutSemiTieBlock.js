@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback, useState } from 'react';
 import { View, Text, TouchableOpacity } from 'react-native';
 import { KNOCKOUT_BRACKET_LOGO_SIZE } from '../utils/knockoutBracket';
 
@@ -34,9 +34,9 @@ function teamLegScore(leg, teamId) {
   };
 }
 
-function KnockoutScoreCell({ score, shootout, styles }) {
+function KnockoutScoreCell({ score, shootout, styles, onLayout }) {
   return (
-    <View style={styles.knockoutScoreBox}>
+    <View style={styles.knockoutScoreBox} onLayout={onLayout}>
       <KnockoutScoreText score={score} shootoutScore={shootout} styles={styles} />
     </View>
   );
@@ -68,7 +68,7 @@ function KnockoutTeamRow({ match, side, styles, LogoComponent }) {
   );
 }
 
-function KnockoutTwoLegTeamRow({ team, leg1, leg2, styles, LogoComponent }) {
+function KnockoutTwoLegTeamRow({ team, leg1, leg2, styles, LogoComponent, measureLegCols, onLegColLayout }) {
   return (
     <View style={styles.knockoutTeamBox}>
       <View style={styles.knockoutTeamRow}>
@@ -81,15 +81,33 @@ function KnockoutTwoLegTeamRow({ team, leg1, leg2, styles, LogoComponent }) {
           {team?.name || '-'}
         </Text>
         <View style={styles.knockoutTwoLegScoreCols}>
-          <KnockoutScoreCell score={leg1?.score} shootout={leg1?.shootout} styles={styles} />
-          <KnockoutScoreCell score={leg2?.score} shootout={leg2?.shootout} styles={styles} />
+          <KnockoutScoreCell
+            score={leg1?.score}
+            shootout={leg1?.shootout}
+            styles={styles}
+            onLayout={
+              measureLegCols
+                ? (e) => onLegColLayout?.(0, e.nativeEvent.layout.width)
+                : undefined
+            }
+          />
+          <KnockoutScoreCell
+            score={leg2?.score}
+            shootout={leg2?.shootout}
+            styles={styles}
+            onLayout={
+              measureLegCols
+                ? (e) => onLegColLayout?.(1, e.nativeEvent.layout.width)
+                : undefined
+            }
+          />
         </View>
       </View>
     </View>
   );
 }
 
-function KnockoutTwoLegUnifiedCard({ tie, styles, LogoComponent }) {
+function KnockoutTwoLegUnifiedCard({ tie, styles, LogoComponent, onLegColLayout }) {
   const leg1 = tie.legs[0];
   const leg2 = tie.legs[1];
   const teamA = tie.teamA;
@@ -103,6 +121,8 @@ function KnockoutTwoLegUnifiedCard({ tie, styles, LogoComponent }) {
         leg2={teamLegScore(leg2, teamA?.id)}
         styles={styles}
         LogoComponent={LogoComponent}
+        measureLegCols
+        onLegColLayout={onLegColLayout}
       />
       <KnockoutTwoLegTeamRow
         team={teamB}
@@ -119,6 +139,15 @@ function KnockoutTwoLegUnifiedCard({ tie, styles, LogoComponent }) {
  * Blocco semifinale: una partita o andata+ritorno (colonne A / R sulla riga SF).
  * Tap apre l'ultima partita del tie (ritorno se presente).
  */
+function KnockoutLegColLabel({ letter, width, styles }) {
+  const slotStyle = width > 0 ? { width, alignItems: 'center' } : styles.knockoutLegColLabelFallbackSlot;
+  return (
+    <View style={slotStyle}>
+      <Text style={styles.knockoutLegColLabel}>{letter}</Text>
+    </View>
+  );
+}
+
 export default function KnockoutSemiTieBlock({
   tie,
   sfIndex,
@@ -130,6 +159,18 @@ export default function KnockoutSemiTieBlock({
   const pressId = tie?.twoLegged ? tie?.latestMatchId : tie?.legs?.[0]?.id;
   const disabled = !pressId;
   const prefix = String(tieLabelPrefix || 'SF').trim() || 'SF';
+  const [legColWidths, setLegColWidths] = useState([0, 0]);
+
+  const onLegColLayout = useCallback((idx, width) => {
+    const w = Math.ceil(Number(width) || 0);
+    if (w <= 0) return;
+    setLegColWidths((prev) => {
+      if (prev[idx] === w) return prev;
+      const next = [...prev];
+      next[idx] = w;
+      return next;
+    });
+  }, []);
 
   return (
     <View style={styles.knockoutSemiBlock}>
@@ -139,8 +180,8 @@ export default function KnockoutSemiTieBlock({
         </Text>
         {tie?.twoLegged ? (
           <View style={styles.knockoutTwoLegScoreCols}>
-            <Text style={styles.knockoutLegColLabel}>A</Text>
-            <Text style={styles.knockoutLegColLabel}>R</Text>
+            <KnockoutLegColLabel letter="A" width={legColWidths[0]} styles={styles} />
+            <KnockoutLegColLabel letter="R" width={legColWidths[1]} styles={styles} />
           </View>
         ) : null}
       </View>
@@ -155,7 +196,12 @@ export default function KnockoutSemiTieBlock({
         <View style={styles.knockoutTieStack}>
           {tie?.twoLegged ? (
             <>
-              <KnockoutTwoLegUnifiedCard tie={tie} styles={styles} LogoComponent={LogoComponent} />
+              <KnockoutTwoLegUnifiedCard
+                tie={tie}
+                styles={styles}
+                LogoComponent={LogoComponent}
+                onLegColLayout={onLegColLayout}
+              />
               {tie.aggregate ? (
                 <Text style={styles.knockoutAggregateText}>
                   Complessivo: {tie.aggregate.home} - {tie.aggregate.away}

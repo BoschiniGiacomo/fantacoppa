@@ -573,6 +573,7 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
       knockoutTieStack: styles.seasonKnockoutTieStack,
       knockoutTwoLegScoreCols: styles.seasonKnockoutTwoLegScoreCols,
       knockoutLegColLabel: styles.seasonKnockoutLegColLabel,
+      knockoutLegColLabelFallbackSlot: styles.seasonKnockoutLegColLabelFallbackSlot,
       knockoutMatchStack: styles.seasonKnockoutMatchStack,
       knockoutTeamBox: styles.seasonKnockoutTeamBox,
       knockoutTeamRow: styles.seasonKnockoutTeamRow,
@@ -1592,8 +1593,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 4,
   },
-  seasonKnockoutLegColLabel: {
+  seasonKnockoutLegColLabelFallbackSlot: {
     minWidth: 20,
+    alignItems: 'center',
+  },
+  seasonKnockoutLegColLabel: {
     textAlign: 'center',
     fontSize: 10,
     fontWeight: '800',
