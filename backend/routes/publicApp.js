@@ -76,8 +76,10 @@ router.get('/login-background', async (_req, res) => {
     );
     const row = rows[0] || {};
     const pathVal = row.path ? String(row.path).trim() : null;
+    logMediaDbRead('login_background', _req, { path: pathVal, ok: true });
     return res.json({ path: pathVal || null });
   } catch (error) {
+    logMediaDbRead('login_background', _req, { ok: false, error: error.message });
     return res.status(500).json({ message: 'Errore lettura impostazioni', error: error.message });
   }
 });

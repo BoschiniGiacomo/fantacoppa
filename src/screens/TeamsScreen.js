@@ -7,7 +7,6 @@ import {
   TouchableOpacity,
   RefreshControl,
   TextInput,
-  Image,
   ActivityIndicator,
 } from 'react-native';
 import { useAuth } from '../context/AuthContext';
@@ -20,7 +19,7 @@ import {
   invalidateLeagueWarmCache,
 } from '../services/leagueWarmCache';
 import { Ionicons } from '@expo/vector-icons';
-import { publicAssetUrl } from '../services/api';
+import { FantasyTeamLogoImage } from '../components/StableCachedImage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { defaultLogosMap } from '../constants/defaultLogos';
@@ -147,11 +146,7 @@ export default function TeamsScreen({ route, navigation }) {
             <Text style={styles.logoEmoji}>{defaultLogosMap[teamLogo]?.emoji || '⚽'}</Text>
           </View>
         ) : (
-          <Image
-            source={{ uri: publicAssetUrl(teamLogo) }}
-            style={styles.logoCircle}
-            onError={() => {}}
-          />
+          <FantasyTeamLogoImage teamLogo={teamLogo} style={styles.logoCircle} />
         )}
 
         {/* Info centrale */}

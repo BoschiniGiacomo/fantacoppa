@@ -5,7 +5,7 @@ import { getLoginBackgroundSettings } from './loginBackgroundSettings';
 import { getCachedLocalUriForPath } from './stableMediaDiskCache';
 import { logMediaCache } from './mediaCacheDebug';
 
-const CACHE_KEY = 'auth_branding_cache_v3';
+const CACHE_KEY = 'auth_branding_cache_v4';
 
 export async function prefetchAuthImage(uri) {
   if (!uri || !/^https?:\/\//i.test(uri)) return;
@@ -22,7 +22,7 @@ export async function getCachedAuthBranding() {
     if (!raw) return { logo: null, background: null };
     const parsed = JSON.parse(raw);
     let logo = parsed?.logo?.uri ? parsed.logo : null;
-    const background = parsed?.background?.uri ? parsed.background : null;
+    let background = parsed?.background?.uri ? parsed.background : null;
 
     if (logo?.path) {
       const local = await getCachedLocalUriForPath(logo.path, { asset: 'login_logo' });
@@ -36,8 +36,30 @@ export async function getCachedAuthBranding() {
       logMediaCache('logo_cache_async_only_uri', { uri: logo.uri, layer: 'async_storage' });
     }
 
-    if (background?.uri) {
-      logMediaCache('login_bg_cache', { uri: background.uri, layer: 'async_storage', note: 'sfondo ancora remoto' });
+    if (background?.path) {
+      const local = await getCachedLocalUriForPath(background.path, { asset: 'login_background' });
+      if (local) {
+        background = { uri: local, path: background.path };
+        logMediaCache('login_bg_cache_disk', {
+          path: background.path,
+          uri: local,
+          layer: 'async_storage',
+          asset: 'login_background',
+        });
+      } else if (background?.uri) {
+        logMediaCache('login_bg_cache_async_remote', {
+          path: background.path,
+          uri: background.uri,
+          layer: 'async_storage',
+          asset: 'login_background',
+        });
+      }
+    } else if (background?.uri) {
+      logMediaCache('login_bg_cache_async_only_uri', {
+        uri: background.uri,
+        layer: 'async_storage',
+        asset: 'login_background',
+      });
     }
 
     return { logo, background };
@@ -53,9 +75,7 @@ async function persistAuthBrandingCache(logo, background) {
   } catch {}
 }
 
-/**
- * Logo login su disco (path stabile); sfondo login resta URL remoto per ora.
- */
+/** Logo e sfondo login su disco (path stabile Supabase). */
 export async function loadAuthBranding() {
   let logo = null;
   let background = null;
@@ -66,6 +86,7 @@ export async function loadAuthBranding() {
     logMediaCache('branding_load_ok', {
       logoPath: logo?.path,
       logoUri: logo?.uri,
+      bgPath: background?.path,
       bgUri: background?.uri,
       layer: 'api_db',
     });

@@ -13,7 +13,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { leagueService } from '../services/api';
-import { PlayerPhotoImage } from '../components/StableCachedImage';
+import { FantasyTeamLogoImage, PlayerPhotoImage } from '../components/StableCachedImage';
 import { defaultLogosMap } from '../constants/defaultLogos';
 import { parseAppDate } from '../utils/dateTime';
 import BonusIcon from '../components/BonusIcon';
@@ -239,7 +239,7 @@ export default function LiveScoresScreen({ route, navigation }) {
                       <Text style={styles.teamLogoEmoji}>{defaultLogosMap[tLogo]?.emoji || '⚽'}</Text>
                     </View>
                   ) : (
-                    <Image source={{ uri: publicAssetUrl(tLogo) }} style={styles.teamLogoWrap} />
+                    <FantasyTeamLogoImage teamLogo={tLogo} style={styles.teamLogoWrap} />
                   );
                 })()}
                 <View style={styles.teamInfo}>

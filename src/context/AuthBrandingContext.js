@@ -25,6 +25,14 @@ export function AuthBrandingProvider({ children }) {
           layer: 'ui_context',
         });
       }
+      if (branding.background) {
+        logMediaCache('login_bg_ui_api', {
+          path: branding.background.path,
+          uri: branding.background.uri,
+          layer: 'ui_context',
+          asset: 'login_background',
+        });
+      }
       setLogo(branding.logo);
       setBackground(branding.background);
     } finally {
@@ -44,7 +52,15 @@ export function AuthBrandingProvider({ children }) {
         });
         setLogo(cached.logo);
       }
-      if (cached.background) setBackground(cached.background);
+      if (cached.background) {
+        logMediaCache('login_bg_ui_cache', {
+          path: cached.background.path,
+          uri: cached.background.uri,
+          layer: 'ui_context',
+          asset: 'login_background',
+        });
+        setBackground(cached.background);
+      }
     });
     refresh();
     return () => {

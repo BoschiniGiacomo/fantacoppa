@@ -13,7 +13,7 @@ import { useAuth } from '../context/AuthContext';
 import { teamsService } from '../services/api';
 import { peekTeamDetail, setTeamDetail } from '../services/leagueWarmCache';
 import { Ionicons } from '@expo/vector-icons';
-import { PlayerPhotoImage } from '../components/StableCachedImage';
+import { FantasyTeamLogoImage, PlayerPhotoImage } from '../components/StableCachedImage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { defaultLogosMap } from '../constants/defaultLogos';
@@ -153,11 +153,7 @@ export default function TeamDetailScreen({ route, navigation }) {
                 <Text style={styles.logoEmoji}>{defaultLogosMap[teamLogo]?.emoji || '⚽'}</Text>
               </View>
             ) : (
-              <Image
-                source={{ uri: publicAssetUrl(teamLogo) }}
-                style={styles.logo}
-                onError={() => {}}
-              />
+              <FantasyTeamLogoImage teamLogo={teamLogo} style={styles.logo} />
             )}
 
             {/* Info */}

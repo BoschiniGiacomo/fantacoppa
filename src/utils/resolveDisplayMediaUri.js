@@ -29,7 +29,7 @@ function pickRemoteFallback({ logoUrl, logoPath, photoPath, teamLogo }) {
 
 /**
  * Risolve URI per logo squadra / foto giocatore con cache disco + log.
- * @param {'team_logo'|'player_photo'|'fantasy_team_logo'} asset
+ * @param {'team_logo'|'player_photo'|'fantasy_team_logo'|'login_background'} asset
  */
 export async function resolveDisplayMediaUri({
   logoUrl,

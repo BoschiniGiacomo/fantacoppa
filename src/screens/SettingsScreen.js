@@ -19,7 +19,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useFocusEffect } from '@react-navigation/native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { Ionicons } from '@expo/vector-icons';
-import { publicAssetUrl } from '../services/api';
+import { FantasyTeamLogoImage } from '../components/StableCachedImage';
 import BonusIcon from '../components/BonusIcon';
 import * as ImagePicker from 'expo-image-picker';
 import { leagueService, marketService } from '../services/api';
@@ -1441,10 +1441,7 @@ export default function SettingsScreen({ route, navigation }) {
                   </View>
                 ) : teamLogo && !teamLogo.startsWith('default_') ? (
                   <View style={styles.logoWrapper}>
-                    <Image 
-                      source={{ uri: publicAssetUrl(teamLogo) }} 
-                      style={styles.selectedLogoImage}
-                    />
+                    <FantasyTeamLogoImage teamLogo={teamLogo} style={styles.selectedLogoImage} />
                     <TouchableOpacity 
                       style={styles.editLogoBadge}
                       onPress={() => setShowLogoModal(true)}

@@ -23,7 +23,7 @@ function clientMeta(req) {
 }
 
 /**
- * @param {'app_loading'|'login_logo'} asset
+ * @param {'app_loading'|'login_logo'|'login_background'} asset
  * @param {import('express').Request} req
  * @param {{ path?: string|null, type?: string|null, ok?: boolean, error?: string }} result
  */
@@ -31,10 +31,15 @@ function logMediaDbRead(asset, req, result = {}) {
   const labels = {
     app_loading: 'video/immagine caricamento',
     login_logo: 'logo login',
+    login_background: 'sfondo login',
   };
   const label = labels[asset] || asset;
   const endpoint =
-    asset === 'app_loading' ? 'GET /api/public/app-loading' : 'GET /api/public/login-logo';
+    asset === 'app_loading'
+      ? 'GET /api/public/app-loading'
+      : asset === 'login_background'
+        ? 'GET /api/public/login-background'
+        : 'GET /api/public/login-logo';
   const meta = clientMeta(req);
   const pathVal = trimPath(result.path);
   const typeVal = trimPath(result.type);
@@ -66,7 +71,12 @@ function shouldLogClientEventOnRender(body = {}) {
 
   if (uriSource === 'local_disk') return false;
   if (event === 'disk_hit' || event.endsWith('_display_resolve')) return false;
-  if (event.includes('cache_disk') || event === 'logo_resolved' || event === 'loading_api') {
+  if (
+    event.includes('cache_disk') ||
+    event === 'logo_resolved' ||
+    event === 'login_bg_resolved' ||
+    event === 'loading_api'
+  ) {
     return false;
   }
 
@@ -104,7 +114,9 @@ function logMediaClientEvent(req, body = {}) {
             ? 'video caricamento'
             : asset === 'login_logo'
               ? 'logo login'
-              : asset;
+              : asset === 'login_background'
+                ? 'sfondo login'
+                : asset;
 
   console.log(`${LOG} === download Supabase (${asset}) ===`);
   console.log(`${LOG} event=${event}`);

@@ -14,7 +14,9 @@ const RENDER_REPORT_EVENTS = new Set([
   'logo_cache_async_remote',
   'team_logo_remote_only',
   'fantasy_team_logo_remote_only',
+  'login_bg_remote_only',
   'player_photo_remote_only',
+  'login_bg_cache_async_remote',
   'loading_api_error',
 ]);
 
@@ -35,6 +37,7 @@ function inferAsset(event, payload) {
   if (event.includes('player_photo')) return 'player_photo';
   if (event.includes('fantasy_team')) return 'fantasy_team_logo';
   if (event.includes('team_logo')) return 'team_logo';
+  if (event.includes('login_bg') || payload.asset === 'login_background') return 'login_background';
   if (event.includes('login') || event.includes('logo_')) return 'login_logo';
   if (event.includes('loading') || event.includes('disk_')) return 'loading_video';
   return 'media';

@@ -6,7 +6,6 @@ import {
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
-  Image,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
@@ -15,7 +14,6 @@ import { useOnboarding } from '../context/OnboardingContext';
 import { leagueService } from '../services/api';
 import { peekDashboard, setDashboard } from '../services/leagueWarmCache';
 import { Ionicons } from '@expo/vector-icons';
-import { publicAssetUrl } from '../services/api';
 import TeamInfoModal from '../components/TeamInfoModal';
 import { defaultLogosMap } from '../constants/defaultLogos';
 import { FantasyTeamLogoImage } from '../components/StableCachedImage';
@@ -424,7 +422,7 @@ export default function LeagueScreen({ route, navigation }) {
                     <Text style={styles.rankLogoEmoji}>{defaultLogosMap[tLogo]?.emoji || '⚽'}</Text>
                   </View>
                 ) : (
-                  <Image source={{ uri: publicAssetUrl(tLogo) }} style={styles.rankLogo} />
+                  <FantasyTeamLogoImage teamLogo={tLogo} style={styles.rankLogo} />
                 )}
                 <Text style={[styles.rankName, isMe && styles.rankNameMe]} numberOfLines={1}>{tName}</Text>
                 <Text style={styles.rankPts}>{pts}</Text>
