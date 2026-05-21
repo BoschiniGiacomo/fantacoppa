@@ -469,9 +469,9 @@ async function isLeagueAdmin(userId, leagueId) {
 async function getRequireJoinApproval(leagueId) {
   try {
     const rows = await query(
-      `SELECT COALESCE(require_approval, 0) AS require_approval
-       FROM leagues
-       WHERE id = ?
+      `SELECT COALESCE(require_approval, 0)::int AS require_approval
+       FROM league_market_settings
+       WHERE league_id = ?
        LIMIT 1`,
       [leagueId]
     );
