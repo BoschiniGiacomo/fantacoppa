@@ -44,7 +44,11 @@ app.use('/api', (req, res, next) => {
   }
 
   // Endpoint pubblici senza controllo versione (bootstrap / asset globali / auth pre-login).
-  if (req.path === '/public/app-loading' || req.path === '/auth/forgot-password') {
+  if (
+    req.path === '/public/app-loading' ||
+    req.path === '/public/media-cache-event' ||
+    req.path === '/auth/forgot-password'
+  ) {
     return next();
   }
 
