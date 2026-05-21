@@ -59,25 +59,40 @@ function logMediaDbRead(asset, req, result = {}) {
   console.log(`${LOG} === fine lettura ${label} da DB ===`);
 }
 
+/** Su Render logghiamo solo eventi con egress Supabase (vecchie app possono ancora inviare disk_hit). */
+function shouldLogClientEventOnRender(body = {}) {
+  const event = String(body.event || '').trim();
+  const uriSource = String(body.uriSource || '').trim();
+
+  if (uriSource === 'local_disk') return false;
+  if (event === 'disk_hit' || event.endsWith('_display_resolve')) return false;
+  if (event.includes('cache_disk') || event === 'logo_resolved' || event === 'loading_api') {
+    return false;
+  }
+
+  return (
+    event === 'disk_download_start' ||
+    event === 'disk_download_ok' ||
+    event === 'disk_download_fail_remote_fallback' ||
+    event === 'loading_cache_v3_video_remote' ||
+    event === 'logo_cache_async_remote' ||
+    event.endsWith('_remote_only')
+  );
+}
+
 /**
- * Eventi inviati dall'app (cache locale vs download rete) — visibili su Render.
+ * Eventi inviati dall'app — su Render solo download / fallback remoto.
  * @param {import('express').Request} req
  * @param {{ asset?: string, event?: string, path?: string, uriSource?: string, layer?: string }} body
  */
 function logMediaClientEvent(req, body = {}) {
+  if (!shouldLogClientEventOnRender(body)) return;
+
   const asset = trimPath(body.asset) || '(unknown)';
   const event = trimPath(body.event) || '(unknown)';
   const pathVal = trimPath(body.path);
-  const uriSource = trimPath(body.uriSource) || '(no)';
-  const layer = trimPath(body.layer) || '(no)';
   const meta = clientMeta(req);
 
-  console.log(`${LOG} === evento app (${asset}) ===`);
-  console.log(`${LOG} event=${event} uriSource=${uriSource} layer=${layer}`);
-  if (pathVal) console.log(`${LOG} path=${pathVal}`);
-  console.log(
-    `${LOG} client: ip=${meta.ip} appVersion=${meta.appVersion} build=${meta.appVersionCode}`
-  );
   const assetLabel =
     asset === 'team_logo'
       ? 'logo squadra ufficiale'
@@ -91,22 +106,23 @@ function logMediaClientEvent(req, body = {}) {
               ? 'logo login'
               : asset;
 
-  if (uriSource === 'local_disk') {
-    console.log(
-      `${LOG} interpretazione: ${assetLabel} da disco telefono (nessun egress Supabase per questo file)`
-    );
-  } else if (uriSource === 'remote_network') {
-    console.log(
-      `${LOG} interpretazione: ${assetLabel} da URL remoto (possibile egress Supabase)`
-    );
-  } else if (event === 'disk_download_start') {
-    console.log(`${LOG} interpretazione: download ${assetLabel} da Supabase in corso sul telefono`);
-  } else if (event === 'disk_hit' || event === 'disk_download_ok') {
-    console.log(`${LOG} interpretazione: cache disco ok per ${assetLabel}`);
-  } else if (String(event).includes('display_resolve')) {
-    console.log(`${LOG} interpretazione: risoluzione ${assetLabel} per visualizzazione in app`);
+  console.log(`${LOG} === download Supabase (${asset}) ===`);
+  console.log(`${LOG} event=${event}`);
+  if (pathVal) console.log(`${LOG} path=${pathVal}`);
+  console.log(
+    `${LOG} client: ip=${meta.ip} appVersion=${meta.appVersion} build=${meta.appVersionCode}`
+  );
+
+  if (event === 'disk_download_start') {
+    console.log(`${LOG} interpretazione: egress — download ${assetLabel} avviato sul telefono`);
+  } else if (event === 'disk_download_ok') {
+    console.log(`${LOG} interpretazione: egress — download ${assetLabel} completato e salvato in locale`);
+  } else if (event === 'disk_download_fail_remote_fallback') {
+    console.log(`${LOG} interpretazione: download fallito, uso URL remoto (egress possibile)`);
+  } else {
+    console.log(`${LOG} interpretazione: egress — ${assetLabel} servito da rete (non da cache disco)`);
   }
-  console.log(`${LOG} === fine evento app (${asset}) ===`);
+  console.log(`${LOG} === fine download Supabase (${asset}) ===`);
 }
 
 module.exports = {
