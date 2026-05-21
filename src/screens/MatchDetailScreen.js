@@ -679,6 +679,7 @@ const LINEUP_JERSEY_PRESET_FORCE_BLACK_NUMBER = new Set([
   '#0857c3',
   '#38bdf8',
   '#f97316',
+  '#f472b6',
   '#008450',
 ]);
 

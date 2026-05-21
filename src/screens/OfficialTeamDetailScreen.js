@@ -264,7 +264,14 @@ function relativeLuminanceHex6(hex6) {
   return 0.2126 * lin(rs) + 0.7152 * lin(gs) + 0.0722 * lin(bs);
 }
 
-const JERSEY_PRESET_FORCE_BLACK_NUMBER = new Set(['#c1121c', '#0857c3', '#38bdf8', '#f97316', '#008450']);
+const JERSEY_PRESET_FORCE_BLACK_NUMBER = new Set([
+  '#c1121c',
+  '#0857c3',
+  '#38bdf8',
+  '#f97316',
+  '#f472b6',
+  '#008450',
+]);
 
 function jerseyNumberColorForShirt(shirtHex6) {
   const expanded = jerseyToHex6(typeof shirtHex6 === 'string' ? shirtHex6 : '');

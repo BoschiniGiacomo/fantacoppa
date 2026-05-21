@@ -29,6 +29,7 @@ const OFFICIAL_JERSEY_COLOR_PRESETS = [
   '#0857C3',
   '#38bdf8',
   '#f97316',
+  '#f472b6',
   '#ffc72c',
   '#008450',
   '#7c3aed',
