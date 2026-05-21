@@ -17,7 +17,8 @@ import MatchMinuteRing from '../components/MatchMinuteRing';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/native';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { matchesService, publicAssetUrl } from '../services/api';
+import { matchesService } from '../services/api';
+import { TeamLogoImage } from '../components/StableCachedImage';
 import { useAuth } from '../context/AuthContext';
 import {
   computeLiveHeroClock,
@@ -104,19 +105,14 @@ function labelForDate(date) {
 }
 
 function TeamRowLogo({ logoUrl, logoPath }) {
-  const uri = logoUrl || publicAssetUrl(logoPath);
-  const [failed, setFailed] = useState(false);
-  useEffect(() => {
-    setFailed(false);
-  }, [uri]);
-  if (!uri || failed) {
-    return (
-      <View style={styles.teamLogoFallback}>
-        <Ionicons name="shield-outline" size={17} color="#667eea" />
-      </View>
-    );
-  }
-  return <Image source={{ uri }} style={styles.teamLogo} onError={() => setFailed(true)} resizeMode="contain" />;
+  return (
+    <TeamLogoImage
+      logoUrl={logoUrl}
+      logoPath={logoPath}
+      style={styles.teamLogo}
+      fallbackStyle={styles.teamLogoFallback}
+    />
+  );
 }
 
 const LIST_RING_SIZE = 32;
@@ -529,7 +525,6 @@ export default function MatchesScreen() {
             contentContainerStyle={styles.heartStrip}
           >
             {heartTeams.map((t, idx) => {
-              const logoUri = t.logo_url || publicAssetUrl(t.logo_path);
               return (
                 <TouchableOpacity
                   key={`heart-${t.team_id ?? idx}-${t.name}`}
@@ -547,11 +542,13 @@ export default function MatchesScreen() {
                 >
                   <View style={styles.heartTeamCircleWrap}>
                     <View style={styles.heartTeamCircle}>
-                      {logoUri ? (
-                        <Image source={{ uri: logoUri }} style={styles.heartTeamLogo} resizeMode="contain" />
-                      ) : (
-                        <Ionicons name="shield-outline" size={28} color="#667eea" />
-                      )}
+                      <TeamLogoImage
+                        logoUrl={t.logo_url}
+                        logoPath={t.logo_path}
+                        style={styles.heartTeamLogo}
+                        fallbackStyle={styles.heartTeamLogoFallback}
+                        fallbackIconSize={28}
+                      />
                     </View>
                     {Number(t.is_heart) === 1 && (
                       <View style={styles.heartBadge}>
@@ -999,6 +996,12 @@ const styles = StyleSheet.create({
   heartTeamLogo: {
     width: 36,
     height: 36,
+  },
+  heartTeamLogoFallback: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   heartTeamName: {
     fontSize: 11,

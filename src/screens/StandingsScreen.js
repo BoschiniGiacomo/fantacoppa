@@ -12,7 +12,8 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
-import { leagueService, formationService, publicAssetUrl } from '../services/api';
+import { leagueService, formationService } from '../services/api';
+import { PlayerPhotoImage } from '../components/StableCachedImage';
 import {
   peekLeagueDetail,
   peekStandingsFull,
@@ -371,7 +372,10 @@ export default function StandingsScreen({ route, navigation }) {
                                   >
                                     {hasPhoto ? (
                                       <>
-                                        <Image source={{ uri: publicAssetUrl(vis.photo_path) }} style={{ width: slotSize * 0.90, height: slotSize * 0.90, position: 'absolute', top: -slotSize * 0.11 }} />
+                                        <PlayerPhotoImage
+                                          photoPath={vis.photo_path}
+                                          style={{ width: slotSize * 0.90, height: slotSize * 0.90, position: 'absolute', top: -slotSize * 0.11 }}
+                                        />
                                         <View style={[styles.miniSlotOverlay, { backgroundColor: roleColor }]}>
                                           <Text style={styles.miniSlotOverlayText}>{midTruncate(vis.last_name)}</Text>
                                         </View>

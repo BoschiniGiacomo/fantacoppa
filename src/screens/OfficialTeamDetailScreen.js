@@ -15,25 +15,22 @@ import {
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { matchesService, publicAssetUrl } from '../services/api';
+import { matchesService } from '../services/api';
+import { TeamLogoImage } from '../components/StableCachedImage';
 import { EMPTY_OFFICIAL_KNOCKOUT, hasOfficialKnockoutBracket } from '../utils/knockoutBracket';
 import OfficialKnockoutBracket from '../components/OfficialKnockoutBracket';
 import { parseAppDate } from '../utils/dateTime';
 
 function TeamLogo({ logoUrl, logoPath }) {
-  const uri = logoUrl || publicAssetUrl(logoPath);
-  const [failed, setFailed] = useState(false);
-  useEffect(() => {
-    setFailed(false);
-  }, [uri]);
-  if (!uri || failed) {
-    return (
-      <View style={styles.logoFallback}>
-        <Ionicons name="shield-outline" size={56} color="#667eea" />
-      </View>
-    );
-  }
-  return <Image source={{ uri }} style={styles.logo} onError={() => setFailed(true)} resizeMode="contain" />;
+  return (
+    <TeamLogoImage
+      logoUrl={logoUrl}
+      logoPath={logoPath}
+      style={styles.logo}
+      fallbackStyle={styles.logoFallback}
+      fallbackIconSize={56}
+    />
+  );
 }
 
 const SEASON_YEAR_PICKER_MAX_HEIGHT = 180;
@@ -115,35 +112,25 @@ function formatFavoriteCount(raw) {
 }
 
 function TeamRowLogo({ logoUrl, logoPath }) {
-  const uri = logoUrl || publicAssetUrl(logoPath);
-  const [failed, setFailed] = useState(false);
-  useEffect(() => {
-    setFailed(false);
-  }, [uri]);
-  if (!uri || failed) {
-    return (
-      <View style={styles.matchTeamLogoFallback}>
-        <Ionicons name="shield-outline" size={16} color="#667eea" />
-      </View>
-    );
-  }
-  return <Image source={{ uri }} style={styles.matchTeamLogo} onError={() => setFailed(true)} resizeMode="contain" />;
+  return (
+    <TeamLogoImage
+      logoUrl={logoUrl}
+      logoPath={logoPath}
+      style={styles.matchTeamLogo}
+      fallbackStyle={styles.matchTeamLogoFallback}
+    />
+  );
 }
 
 function SeasonKnockoutLogo({ logoUrl, logoPath }) {
-  const uri = logoUrl || publicAssetUrl(logoPath);
-  const [failed, setFailed] = useState(false);
-  useEffect(() => {
-    setFailed(false);
-  }, [uri]);
-  if (!uri || failed) {
-    return (
-      <View style={styles.seasonKnockoutLogoFallback}>
-        <Ionicons name="shield-outline" size={17} color="#667eea" />
-      </View>
-    );
-  }
-  return <Image source={{ uri }} style={styles.seasonKnockoutLogo} onError={() => setFailed(true)} resizeMode="contain" />;
+  return (
+    <TeamLogoImage
+      logoUrl={logoUrl}
+      logoPath={logoPath}
+      style={styles.seasonKnockoutLogo}
+      fallbackStyle={styles.seasonKnockoutLogoFallback}
+    />
+  );
 }
 
 function formatKickoffTime(iso) {

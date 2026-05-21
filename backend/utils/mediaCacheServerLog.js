@@ -78,14 +78,33 @@ function logMediaClientEvent(req, body = {}) {
   console.log(
     `${LOG} client: ip=${meta.ip} appVersion=${meta.appVersion} build=${meta.appVersionCode}`
   );
+  const assetLabel =
+    asset === 'team_logo'
+      ? 'logo squadra ufficiale'
+      : asset === 'fantasy_team_logo'
+        ? 'logo squadra fantasy'
+        : asset === 'player_photo'
+          ? 'foto giocatore'
+          : asset === 'loading_video'
+            ? 'video caricamento'
+            : asset === 'login_logo'
+              ? 'logo login'
+              : asset;
+
   if (uriSource === 'local_disk') {
-    console.log(`${LOG} interpretazione: file gia su disco telefono (nessun egress Supabase per questo asset)`);
+    console.log(
+      `${LOG} interpretazione: ${assetLabel} da disco telefono (nessun egress Supabase per questo file)`
+    );
   } else if (uriSource === 'remote_network') {
-    console.log(`${LOG} interpretazione: URL remoto / download da rete (possibile egress Supabase)`);
+    console.log(
+      `${LOG} interpretazione: ${assetLabel} da URL remoto (possibile egress Supabase)`
+    );
   } else if (event === 'disk_download_start') {
-    console.log(`${LOG} interpretazione: download da Supabase in corso sul telefono`);
+    console.log(`${LOG} interpretazione: download ${assetLabel} da Supabase in corso sul telefono`);
   } else if (event === 'disk_hit' || event === 'disk_download_ok') {
-    console.log(`${LOG} interpretazione: cache disco ok sul telefono`);
+    console.log(`${LOG} interpretazione: cache disco ok per ${assetLabel}`);
+  } else if (String(event).includes('display_resolve')) {
+    console.log(`${LOG} interpretazione: risoluzione ${assetLabel} per visualizzazione in app`);
   }
   console.log(`${LOG} === fine evento app (${asset}) ===`);
 }

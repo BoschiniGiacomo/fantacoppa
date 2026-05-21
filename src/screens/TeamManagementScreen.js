@@ -21,6 +21,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { leagueService, publicAssetUrl } from '../services/api';
+import { TeamLogoImage } from '../components/StableCachedImage';
 
 /** Preset per colore maglia (formazioni partite). */
 const OFFICIAL_JERSEY_COLOR_PRESETS = [
@@ -50,37 +51,14 @@ function isJerseyWhiteHexString(hex) {
   return h === '#fff' || h === '#ffffff';
 }
 
-/** Logo squadra ufficiale: `logo_url` dall’API o `publicAssetUrl(logo_path)`. */
 function OfficialTeamRowLogo({ logoUrl, logoPath, style, fallbackStyle }) {
-  const logoPathUri = logoPath ? publicAssetUrl(logoPath) : null;
-  const logoUrlUri = logoUrl ? publicAssetUrl(logoUrl) : null;
-  // Niente fallback Altervista: tutto deve arrivare dal backend nuovo.
-  const candidates = [logoPathUri, logoUrlUri].filter(Boolean);
-  const [uriIndex, setUriIndex] = useState(0);
-  const [cacheBust, setCacheBust] = useState(() => `${Date.now()}`);
-  useEffect(() => {
-    setUriIndex(0);
-    setCacheBust(`${Date.now()}`);
-  }, [logoPathUri, logoUrlUri]);
-
-  const rawUri = candidates[uriIndex] || null;
-  const uri = rawUri ? `${rawUri}${rawUri.includes('?') ? '&' : '?'}v=${encodeURIComponent(cacheBust)}` : null;
-  if (!uri) {
-    return (
-      <View style={fallbackStyle}>
-        <Ionicons name="shield" size={16} color="#667eea" />
-      </View>
-    );
-  }
   return (
-    <Image
-      source={{ uri }}
+    <TeamLogoImage
+      logoUrl={logoUrl}
+      logoPath={logoPath}
       style={style}
-      onError={() => {
-        if (uriIndex < candidates.length - 1) {
-          setUriIndex((i) => i + 1);
-        }
-      }}
+      fallbackStyle={fallbackStyle}
+      fallbackIcon="shield"
     />
   );
 }

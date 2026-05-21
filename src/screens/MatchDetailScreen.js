@@ -20,7 +20,8 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
-import { adminMatchesService, matchesService, publicAssetUrl } from '../services/api';
+import { adminMatchesService, matchesService } from '../services/api';
+import { TeamLogoImage } from '../components/StableCachedImage';
 import BonusIcon from '../components/BonusIcon';
 import {
   EMPTY_OFFICIAL_KNOCKOUT,
@@ -502,19 +503,15 @@ function computeSuggestedTimelineMinute(events, match, elapsedOffsetSec = 0) {
 }
 
 function HeroTeamLogo({ logoUrl, logoPath }) {
-  const uri = logoUrl || publicAssetUrl(logoPath);
-  const [failed, setFailed] = useState(false);
-  useEffect(() => {
-    setFailed(false);
-  }, [uri]);
-  if (!uri || failed) {
-    return (
-      <View style={styles.heroLogoFallback}>
-        <Ionicons name="shield-outline" size={32} color="#667eea" />
-      </View>
-    );
-  }
-  return <Image source={{ uri }} style={styles.heroLogo} onError={() => setFailed(true)} resizeMode="contain" />;
+  return (
+    <TeamLogoImage
+      logoUrl={logoUrl}
+      logoPath={logoPath}
+      style={styles.heroLogo}
+      fallbackStyle={styles.heroLogoFallback}
+      fallbackIconSize={32}
+    />
+  );
 }
 
 function KnockoutBracketTeamLogo({ logoUrl, logoPath, size = KNOCKOUT_BRACKET_LOGO_SIZE }) {
@@ -522,25 +519,21 @@ function KnockoutBracketTeamLogo({ logoUrl, logoPath, size = KNOCKOUT_BRACKET_LO
 }
 
 function TableTeamLogo({ logoUrl, logoPath, size = 36 }) {
-  const uri = logoUrl || publicAssetUrl(logoPath);
-  const [failed, setFailed] = useState(false);
   const safeSize = Number.isFinite(Number(size)) && Number(size) > 0 ? Number(size) : 36;
   const boxStyle = {
     width: safeSize,
     height: safeSize,
   };
   const iconSize = Math.max(10, Math.round(safeSize * 0.56));
-  useEffect(() => {
-    setFailed(false);
-  }, [uri]);
-  if (!uri || failed) {
-    return (
-      <View style={[styles.tableLogoFallback, boxStyle]}>
-        <Ionicons name="shield-outline" size={iconSize} color="#667eea" />
-      </View>
-    );
-  }
-  return <Image source={{ uri }} style={[styles.tableLogo, boxStyle]} onError={() => setFailed(true)} resizeMode="contain" />;
+  return (
+    <TeamLogoImage
+      logoUrl={logoUrl}
+      logoPath={logoPath}
+      style={[styles.tableLogo, boxStyle]}
+      fallbackStyle={[styles.tableLogoFallback, boxStyle]}
+      fallbackIconSize={iconSize}
+    />
+  );
 }
 
 /** Allineato a Mia Rosa (`SquadScreen`): colori ruolo P/D/C/A. */

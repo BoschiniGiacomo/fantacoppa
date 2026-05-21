@@ -2,19 +2,19 @@ import api from '../services/api';
 
 const TAG = '[FC-MediaCache]';
 
-/** Eventi inviati a Render (evita spam su ogni ui_context). */
+/**
+ * Solo eventi con egress Supabase → visibili su Render.
+ * Hit locale (disk_hit, *_display_resolve local_disk) restano solo in Metro/logcat.
+ */
 const RENDER_REPORT_EVENTS = new Set([
   'disk_download_start',
   'disk_download_ok',
   'disk_download_fail_remote_fallback',
-  'disk_hit',
-  'loading_cache_v3_video_disk',
   'loading_cache_v3_video_remote',
-  'loading_cache_v2',
-  'logo_cache_disk',
   'logo_cache_async_remote',
-  'logo_resolved',
-  'loading_api',
+  'team_logo_remote_only',
+  'fantasy_team_logo_remote_only',
+  'player_photo_remote_only',
   'loading_api_error',
 ]);
 
@@ -32,13 +32,17 @@ export function mediaUriSource(uri) {
 
 function inferAsset(event, payload) {
   if (payload.asset) return payload.asset;
-  if (event.includes('logo')) return 'login_logo';
+  if (event.includes('player_photo')) return 'player_photo';
+  if (event.includes('fantasy_team')) return 'fantasy_team_logo';
+  if (event.includes('team_logo')) return 'team_logo';
+  if (event.includes('login') || event.includes('logo_')) return 'login_logo';
   if (event.includes('loading') || event.includes('disk_')) return 'loading_video';
   return 'media';
 }
 
 function shouldReportToRender(event, payload) {
   if (!RENDER_REPORT_EVENTS.has(event)) return false;
+  if (payload.uriSource === 'local_disk') return false;
   if (payload.layer === 'ui_context') return false;
   const key = `${event}|${payload.path || ''}|${payload.uriSource || ''}`;
   const now = Date.now();

@@ -6,7 +6,8 @@ import {
 import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { useOnboarding } from '../context/OnboardingContext';
-import { formationService, leagueService, squadService, publicAssetUrl } from '../services/api';
+import { formationService, leagueService, squadService } from '../services/api';
+import { PlayerPhotoImage } from '../components/StableCachedImage';
 import {
   peekFormationMatchdays,
   peekLeagueDetail,
@@ -899,7 +900,10 @@ export default function FormationScreen({ route }) {
                               >
                                 {hasPhoto ? (
                                   <>
-                                    <Image source={{ uri: publicAssetUrl(player.photo_path) }} style={{ width: slotSize * 0.90, height: slotSize * 0.90, position: 'absolute', top: -slotSize * 0.11 }} />
+                                    <PlayerPhotoImage
+                                      photoPath={player.photo_path}
+                                      style={{ width: slotSize * 0.90, height: slotSize * 0.90, position: 'absolute', top: -slotSize * 0.11 }}
+                                    />
                                     <View style={[s.fieldPhotoOverlay, { backgroundColor: roleColor }]}>
                                       <Text style={s.fieldPhotoOverlayText}>{midTruncate(player.last_name, truncLen)}</Text>
                                     </View>
@@ -971,7 +975,7 @@ export default function FormationScreen({ route }) {
                         <View style={s.benchCardBody}>
                           {player.photo_path ? (
                             <View style={s.benchPhotoWrap}>
-                              <Image source={{ uri: publicAssetUrl(player.photo_path) }} style={s.benchPhoto} />
+                              <PlayerPhotoImage photoPath={player.photo_path} style={s.benchPhoto} />
                               <View style={[s.benchPhotoRoleOverlay, { backgroundColor: ROLE_COLOR[player.role] }]}>
                                 <Text style={s.benchPhotoRoleText}>{player.role}</Text>
                               </View>
@@ -1020,7 +1024,7 @@ export default function FormationScreen({ route }) {
                   <View style={s.benchCardBody}>
                     {bench[dragState.fromIdx].photo_path ? (
                       <View style={s.benchPhotoWrap}>
-                        <Image source={{ uri: publicAssetUrl(bench[dragState.fromIdx].photo_path) }} style={s.benchPhoto} />
+                        <PlayerPhotoImage photoPath={bench[dragState.fromIdx].photo_path} style={s.benchPhoto} />
                         <View style={[s.benchPhotoRoleOverlay, { backgroundColor: ROLE_COLOR[bench[dragState.fromIdx].role] }]}>
                           <Text style={s.benchPhotoRoleText}>{bench[dragState.fromIdx].role}</Text>
                         </View>
@@ -1138,7 +1142,7 @@ export default function FormationScreen({ route }) {
                   <TouchableOpacity style={s.modalRow} onPress={() => selectPlayer(item)}>
                     {item.photo_path ? (
                       <View style={s.modalPhotoWrap}>
-                        <Image source={{ uri: publicAssetUrl(item.photo_path) }} style={s.modalPhoto} />
+                        <PlayerPhotoImage photoPath={item.photo_path} style={s.modalPhoto} />
                         <View style={[s.modalPhotoRoleOverlay, { backgroundColor: ROLE_COLOR[item.role] }]}>
                           <Text style={s.modalPhotoRoleText}>{item.role}</Text>
                         </View>

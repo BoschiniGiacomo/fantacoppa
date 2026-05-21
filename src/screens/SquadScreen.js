@@ -14,7 +14,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { useOnboarding } from '../context/OnboardingContext';
-import { squadService, publicAssetUrl } from '../services/api';
+import { squadService } from '../services/api';
+import { PlayerPhotoImage } from '../components/StableCachedImage';
 import { peekSquadBootstrap, setSquadBootstrap, invalidateLeagueWarmCache } from '../services/leagueWarmCache';
 import { Ionicons } from '@expo/vector-icons';
 import InjurySwapIcon from '../components/InjurySwapIcon';
@@ -240,7 +241,7 @@ export default function SquadScreen({ route, navigation }) {
               <View style={styles.playerContent}>
                 {player.photo_path ? (
                   <View style={styles.playerPhotoCol}>
-                    <Image source={{ uri: publicAssetUrl(player.photo_path) }} style={styles.playerPhotoBadge} />
+                    <PlayerPhotoImage photoPath={player.photo_path} style={styles.playerPhotoBadge} />
                     <View style={[styles.playerPhotoRoleOverlay, { backgroundColor: roleColor }]}>
                       <Text style={styles.playerPhotoRoleText}>{player.role}</Text>
                     </View>

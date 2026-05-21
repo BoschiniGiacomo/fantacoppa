@@ -15,7 +15,8 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { useOnboarding } from '../context/OnboardingContext';
-import { marketService, squadService, publicAssetUrl } from '../services/api';
+import { marketService, squadService } from '../services/api';
+import { PlayerPhotoImage } from '../components/StableCachedImage';
 import { peekMarketBootstrapDefault, setMarketBootstrapDefault, invalidateLeagueWarmCache } from '../services/leagueWarmCache';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -333,7 +334,7 @@ export default function MarketScreen({ route, navigation }) {
         <View style={styles.playerContent}>
           {item.photo_path ? (
             <View style={styles.playerPhotoCol}>
-              <Image source={{ uri: publicAssetUrl(item.photo_path) }} style={styles.playerPhotoBadge} />
+              <PlayerPhotoImage photoPath={item.photo_path} style={styles.playerPhotoBadge} />
               <View style={[styles.playerPhotoRoleOverlay, { backgroundColor: roleColor }]}>
                 <Text style={styles.playerPhotoRoleText}>{item.role}</Text>
               </View>

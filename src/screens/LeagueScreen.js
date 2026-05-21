@@ -18,6 +18,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { publicAssetUrl } from '../services/api';
 import TeamInfoModal from '../components/TeamInfoModal';
 import { defaultLogosMap } from '../constants/defaultLogos';
+import { FantasyTeamLogoImage } from '../components/StableCachedImage';
 import { parseAppDate } from '../utils/dateTime';
 
 export default function LeagueScreen({ route, navigation }) {
@@ -284,10 +285,9 @@ export default function LeagueScreen({ route, navigation }) {
                   <Text style={styles.teamLogoEmoji}>{defaultLogosMap[userTeamInfo.team_logo]?.emoji || '⚽'}</Text>
                 </View>
               ) : (
-                <Image
-                  source={{ uri: publicAssetUrl(userTeamInfo.team_logo) }}
+                <FantasyTeamLogoImage
+                  teamLogo={userTeamInfo.team_logo}
                   style={styles.teamLogo}
-                  onError={() => {}}
                 />
               )
             ) : (

@@ -10,7 +10,8 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { playerStatsService, publicAssetUrl } from '../services/api';
+import { playerStatsService } from '../services/api';
+import { PlayerPhotoImage } from '../components/StableCachedImage';
 import BonusIcon from '../components/BonusIcon';
 
 const ROLE_COLORS = {
@@ -218,7 +219,7 @@ export default function PlayerStatsScreen({ route, navigation }) {
 
         {photoPath ? (
           <View style={styles.headerPhotoWrap}>
-            <Image source={{ uri: publicAssetUrl(photoPath) }} style={styles.headerPhoto} />
+            <PlayerPhotoImage photoPath={photoPath} style={styles.headerPhoto} />
             <View style={[styles.headerPhotoRoleBadge, { backgroundColor: ROLE_COLORS[playerRole] || '#999' }]}>
               <Text style={styles.headerPhotoRoleText}>{playerRole}</Text>
             </View>

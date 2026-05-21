@@ -13,7 +13,7 @@ import { useAuth } from '../context/AuthContext';
 import { teamsService } from '../services/api';
 import { peekTeamDetail, setTeamDetail } from '../services/leagueWarmCache';
 import { Ionicons } from '@expo/vector-icons';
-import { publicAssetUrl } from '../services/api';
+import { PlayerPhotoImage } from '../components/StableCachedImage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { defaultLogosMap } from '../constants/defaultLogos';
@@ -226,7 +226,7 @@ export default function TeamDetailScreen({ route, navigation }) {
                     >
                       {player.photo_path ? (
                         <View style={styles.playerPhotoCol}>
-                          <Image source={{ uri: publicAssetUrl(player.photo_path) }} style={styles.playerPhotoBadge} />
+                          <PlayerPhotoImage photoPath={player.photo_path} style={styles.playerPhotoBadge} />
                           <View style={[styles.playerPhotoRoleOverlay, { backgroundColor: ROLE_COLORS[player.role] || '#999' }]}>
                             <Text style={styles.playerPhotoRoleText}>{player.role}</Text>
                           </View>
