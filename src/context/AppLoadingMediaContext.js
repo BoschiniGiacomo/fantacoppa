@@ -4,6 +4,7 @@ import {
   getCachedAppLoadingMedia,
   subscribeAppLoadingMedia,
 } from '../utils/appLoadingMediaSettings';
+import { logMediaCache } from '../utils/mediaCacheDebug';
 
 const AppLoadingMediaContext = createContext({
   uri: null,
@@ -24,6 +25,12 @@ export function AppLoadingMediaProvider({ children }) {
     // Instant: read cached URI from AsyncStorage (~5ms vs ~1s API)
     getCachedAppLoadingMedia().then((cached) => {
       if (!cancelled && cached?.uri) {
+        logMediaCache('loading_ui_cache', {
+          type: cached.type,
+          path: cached.path,
+          uri: cached.uri,
+          layer: 'ui_context',
+        });
         setState(cached);
       }
     });
@@ -31,7 +38,15 @@ export function AppLoadingMediaProvider({ children }) {
     // Background: fetch fresh from API and update if changed
     const load = () => {
       getAppLoadingMediaSettings().then((r) => {
-        if (!cancelled) setState(r);
+        if (!cancelled) {
+          logMediaCache('loading_ui_api', {
+            type: r?.type,
+            path: r?.path,
+            uri: r?.uri,
+            layer: 'ui_context',
+          });
+          setState(r);
+        }
       });
     };
     load();

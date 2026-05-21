@@ -1,5 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
-import { loadAuthBranding } from '../utils/authBrandingSettings';
+import { getCachedAuthBranding, loadAuthBranding } from '../utils/authBrandingSettings';
+import { logMediaCache } from '../utils/mediaCacheDebug';
 
 const AuthBrandingContext = createContext({
   logo: null,
@@ -17,6 +18,13 @@ export function AuthBrandingProvider({ children }) {
     setReady(false);
     try {
       const branding = await loadAuthBranding();
+      if (branding.logo) {
+        logMediaCache('logo_ui_api', {
+          path: branding.logo.path,
+          uri: branding.logo.uri,
+          layer: 'ui_context',
+        });
+      }
       setLogo(branding.logo);
       setBackground(branding.background);
     } finally {
@@ -25,7 +33,23 @@ export function AuthBrandingProvider({ children }) {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+    getCachedAuthBranding().then((cached) => {
+      if (cancelled) return;
+      if (cached.logo) {
+        logMediaCache('logo_ui_cache', {
+          path: cached.logo.path,
+          uri: cached.logo.uri,
+          layer: 'ui_context',
+        });
+        setLogo(cached.logo);
+      }
+      if (cached.background) setBackground(cached.background);
+    });
     refresh();
+    return () => {
+      cancelled = true;
+    };
   }, [refresh]);
 
   return (
