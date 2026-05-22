@@ -837,6 +837,44 @@ async function getManualTieOrderMap({ leagueId, groupId }) {
   }
 }
 
+/**
+ * Risultato per classifica: gol da eventi, altrimenti colonne DB, altrimenti 0-0 se partita chiusa (match_end).
+ * Allineato a COALESCE(evs, home_score, CASE match_end THEN 0) nelle liste partite.
+ */
+function resolveOfficialMatchResultForStandings(m, evScore, isMatchEnded) {
+  if (evScore?.has) {
+    return { home: evScore.home, away: evScore.away, counted: true };
+  }
+  const hSet = m?.home_score != null && m?.home_score !== '';
+  const aSet = m?.away_score != null && m?.away_score !== '';
+  if (hSet && aSet) {
+    const home = Number(m.home_score);
+    const away = Number(m.away_score);
+    if (Number.isFinite(home) && Number.isFinite(away)) {
+      return { home, away, counted: true };
+    }
+  }
+  if (isMatchEnded) {
+    const home = hSet && Number.isFinite(Number(m.home_score)) ? Number(m.home_score) : 0;
+    const away = aSet && Number.isFinite(Number(m.away_score)) ? Number(m.away_score) : 0;
+    return { home, away, counted: true };
+  }
+  return { counted: false };
+}
+
+async function fetchMatchEndedIds(matchIds) {
+  const ids = (Array.isArray(matchIds) ? matchIds : [])
+    .map((id) => Number(id))
+    .filter((id) => Number.isFinite(id) && id > 0);
+  if (!ids.length) return new Set();
+  const ph = ids.map(() => '?').join(', ');
+  const rows = await query(
+    `SELECT DISTINCT match_id FROM official_match_events WHERE match_id IN (${ph}) AND event_type = 'match_end'`,
+    ids
+  );
+  return new Set((rows || []).map((r) => Number(r.match_id)).filter((id) => id > 0));
+}
+
 async function computeStandingsFromMatches({ leagueId, groupId, allowedTeamIds = null }) {
   const restrictIds =
     Array.isArray(allowedTeamIds) && allowedTeamIds.length > 0
@@ -890,6 +928,7 @@ async function computeStandingsFromMatches({ leagueId, groupId, allowedTeamIds =
   const matches = await query(matchesSql, matchesParams);
 
   const matchIds = (Array.isArray(matches) ? matches : []).map((m) => Number(m.id)).filter((x) => x > 0);
+  const endedMatchIds = await fetchMatchEndedIds(matchIds);
   const eventsByMatch = new Map();
   if (matchIds.length) {
     const ph = matchIds.map(() => '?').join(', ');
@@ -948,9 +987,10 @@ async function computeStandingsFromMatches({ leagueId, groupId, allowedTeamIds =
     if (!table.has(homeId) || !table.has(awayId)) continue;
 
     const evScore = scoreFromEvents(Number(m.id), homeId, awayId);
-    const hs = evScore.has ? evScore.home : (m.home_score != null ? Number(m.home_score) : null);
-    const as = evScore.has ? evScore.away : (m.away_score != null ? Number(m.away_score) : null);
-    if (hs == null || as == null) continue; // non giocata/risultato non disponibile
+    const resolved = resolveOfficialMatchResultForStandings(m, evScore, endedMatchIds.has(Number(m.id)));
+    if (!resolved.counted) continue; // non giocata / risultato non disponibile
+    const hs = resolved.home;
+    const as = resolved.away;
     playedMatches.push({ homeId, awayId, hs, as });
 
     const home = table.get(homeId);
@@ -2262,6 +2302,7 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
     }).catch(() => []);
 
     const matchIds = (seasonMatches || []).map((m) => Number(m.id)).filter((n) => Number.isFinite(n) && n > 0);
+    const seasonEndedMatchIds = await fetchMatchEndedIds(matchIds);
 
     let evRows = [];
     if (matchIds.length > 0) {
@@ -2375,10 +2416,12 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
           }
         }
       }
-      const hsRaw = hasGoalEvents ? homeGoals : (m.home_score != null ? Number(m.home_score) : null);
-      const asRaw = hasGoalEvents ? awayGoals : (m.away_score != null ? Number(m.away_score) : null);
-      const hs = hsRaw == null && hasShootoutEvents ? 0 : hsRaw;
-      const as = asRaw == null && hasShootoutEvents ? 0 : asRaw;
+      const evScore = { has: hasGoalEvents, home: homeGoals, away: awayGoals };
+      const resolvedSeason = resolveOfficialMatchResultForStandings(m, evScore, seasonEndedMatchIds.has(Number(m.id)));
+      let hs = resolvedSeason.counted ? resolvedSeason.home : null;
+      let as = resolvedSeason.counted ? resolvedSeason.away : null;
+      if (hs == null && hasShootoutEvents) hs = 0;
+      if (as == null && hasShootoutEvents) as = 0;
 
       for (const e of events) {
         const payload = safeJsonParse(e.payload_json) || {};
@@ -3631,6 +3674,18 @@ router.post('/admin/matches/:matchId/events', authenticateToken, requireSuperuse
     }
     const insertRows = getInsertRows(rows);
     const eventId = Number(insertRows[0]?.id || 0);
+
+    if (eventType === 'match_end') {
+      const live = await fetchOfficialMatchLiveScore(matchId);
+      if (live) {
+        await query(`UPDATE official_matches SET home_score = ?, away_score = ? WHERE id = ?`, [
+          live.home,
+          live.away,
+          matchId,
+        ]);
+      }
+    }
+
     let notificationStats = null;
     try {
       notificationStats = await notifyUsersForOfficialMatchEvent({
