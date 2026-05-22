@@ -985,80 +985,61 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
                     <View key={block.key} style={styles.seasonStandingsTableBlock}>
                       {block.label ? <Text style={styles.seasonGironeTitle}>{block.label}</Text> : null}
                       <View style={styles.seasonTableWrap}>
-                        <View style={styles.seasonTableMain}>
-                          <View style={styles.seasonTableHeader}>
-                            <Text style={[styles.seasonTh, styles.seasonThPos, { textAlign: 'center' }]}>Pos</Text>
-                            <Text style={[styles.seasonTh, { flex: 1 }]}>Squadra</Text>
-                            <Text style={[styles.seasonTh, styles.seasonThStat, { textAlign: 'center' }]}>PG</Text>
-                            <Text style={[styles.seasonTh, styles.seasonThStat, { textAlign: 'center' }]}>GF</Text>
-                            <Text style={[styles.seasonTh, styles.seasonThStat, { textAlign: 'center' }]}>GS</Text>
-                            <Text style={[styles.seasonTh, styles.seasonThStat, { textAlign: 'center' }]}>DR</Text>
-                          </View>
-                          {block.standings.map((r, i) => {
-                            const isWatched = normalizeNameForCompare(r?.team_name) === normalizeNameForCompare(teamName);
-                            const rowTeamId = Number(r?.team_id);
-                            const isLastRow = i === block.standings.length - 1;
-                            return (
-                              <View
-                                key={`${block.key}-st-${i}`}
-                                style={[
-                                  styles.seasonTableRow,
-                                  isWatched && styles.seasonTableRowWatched,
-                                  isLastRow && styles.seasonTableRowLast,
-                                ]}
+                        <View style={styles.seasonTableHeader}>
+                          <Text style={[styles.seasonTh, styles.seasonThPos, { textAlign: 'center' }]}>Pos</Text>
+                          <Text style={[styles.seasonTh, { flex: 1 }]}>Squadra</Text>
+                          <Text style={[styles.seasonTh, styles.seasonThStat, { textAlign: 'center' }]}>PG</Text>
+                          <Text style={[styles.seasonTh, styles.seasonThStat, { textAlign: 'center' }]}>GF</Text>
+                          <Text style={[styles.seasonTh, styles.seasonThStat, { textAlign: 'center' }]}>GS</Text>
+                          <Text style={[styles.seasonTh, styles.seasonThStat, { textAlign: 'center' }]}>DR</Text>
+                          <Text style={[styles.seasonTh, styles.seasonThStat, styles.seasonThPt, { textAlign: 'center' }]}>PT</Text>
+                        </View>
+                        {block.standings.map((r, i) => {
+                          const isWatched = normalizeNameForCompare(r?.team_name) === normalizeNameForCompare(teamName);
+                          const rowTeamId = Number(r?.team_id);
+                          const isLastRow = i === block.standings.length - 1;
+                          return (
+                            <View
+                              key={`${block.key}-st-${i}`}
+                              style={[
+                                styles.seasonTableRow,
+                                isWatched && styles.seasonTableRowWatched,
+                                isLastRow && styles.seasonTableRowLast,
+                              ]}
+                            >
+                              <Text style={[styles.seasonTd, styles.seasonTdPos, { textAlign: 'center' }]}>{r.position}</Text>
+                              <TouchableOpacity
+                                style={[styles.teamCell, styles.seasonTeamCell, { flex: 1 }]}
+                                activeOpacity={0.75}
+                                disabled={!rowTeamId || rowTeamId <= 0}
+                                onPress={() => {
+                                  if (!rowTeamId || rowTeamId <= 0) return;
+                                  navigation.navigate('OfficialTeamDetail', {
+                                    teamId: rowTeamId,
+                                    competitionId,
+                                    teamName: String(r.team_name_display || r.team_name || '').trim() || '-',
+                                  });
+                                }}
                               >
-                                <Text style={[styles.seasonTd, styles.seasonTdPos, { textAlign: 'center' }]}>{r.position}</Text>
-                                <TouchableOpacity
-                                  style={[styles.teamCell, styles.seasonTeamCell, { flex: 1 }]}
-                                  activeOpacity={0.75}
-                                  disabled={!rowTeamId || rowTeamId <= 0}
-                                  onPress={() => {
-                                    if (!rowTeamId || rowTeamId <= 0) return;
-                                    navigation.navigate('OfficialTeamDetail', {
-                                      teamId: rowTeamId,
-                                      competitionId,
-                                      teamName: String(r.team_name_display || r.team_name || '').trim() || '-',
-                                    });
-                                  }}
+                                <TeamRowLogo logoUrl={r.team_logo_url} logoPath={r.team_logo_path} />
+                                <Text
+                                  style={[styles.seasonTd, styles.seasonTdTeamName]}
+                                  numberOfLines={1}
+                                  ellipsizeMode="tail"
                                 >
-                                  <TeamRowLogo logoUrl={r.team_logo_url} logoPath={r.team_logo_path} />
-                                  <Text
-                                    style={[styles.seasonTd, styles.seasonTdTeamName]}
-                                    numberOfLines={1}
-                                    ellipsizeMode="tail"
-                                  >
-                                    {r.team_name_display || r.team_name || '-'}
-                                  </Text>
-                                </TouchableOpacity>
-                                <Text style={[styles.seasonTd, styles.seasonTdStat, { textAlign: 'center' }]}>{r.played}</Text>
-                                <Text style={[styles.seasonTd, styles.seasonTdStat, { textAlign: 'center' }]}>{r.gf ?? 0}</Text>
-                                <Text style={[styles.seasonTd, styles.seasonTdStat, { textAlign: 'center' }]}>{r.gs ?? r.ga ?? 0}</Text>
-                                <Text style={[styles.seasonTd, styles.seasonTdStat, { textAlign: 'center' }]}>{r.goal_diff}</Text>
-                              </View>
-                            );
-                          })}
-                        </View>
-                        <View style={styles.seasonPtStripe}>
-                          <View style={styles.seasonPtStripeHead}>
-                            <Text style={styles.seasonThPt}>PT</Text>
-                          </View>
-                          {block.standings.map((r, i) => {
-                            const isWatched = normalizeNameForCompare(r?.team_name) === normalizeNameForCompare(teamName);
-                            const isLastRow = i === block.standings.length - 1;
-                            return (
-                              <View
-                                key={`${block.key}-pt-${i}`}
-                                style={[
-                                  styles.seasonPtStripeRow,
-                                  isWatched && styles.seasonPtStripeRowWatched,
-                                  isLastRow && styles.seasonPtStripeRowLast,
-                                ]}
-                              >
-                                <Text style={styles.seasonTdPt}>{r.points}</Text>
-                              </View>
-                            );
-                          })}
-                        </View>
+                                  {r.team_name_display || r.team_name || '-'}
+                                </Text>
+                              </TouchableOpacity>
+                              <Text style={[styles.seasonTd, styles.seasonTdStat, { textAlign: 'center' }]}>{r.played}</Text>
+                              <Text style={[styles.seasonTd, styles.seasonTdStat, { textAlign: 'center' }]}>{r.gf ?? 0}</Text>
+                              <Text style={[styles.seasonTd, styles.seasonTdStat, { textAlign: 'center' }]}>{r.gs ?? r.ga ?? 0}</Text>
+                              <Text style={[styles.seasonTd, styles.seasonTdStat, { textAlign: 'center' }]}>{r.goal_diff}</Text>
+                              <Text style={[styles.seasonTd, styles.seasonTdStat, styles.seasonTdPt, { textAlign: 'center' }]}>
+                                {r.points}
+                              </Text>
+                            </View>
+                          );
+                        })}
                       </View>
                     </View>
                   ))}
@@ -1507,65 +1488,31 @@ const styles = StyleSheet.create({
   seasonPickerItemTextActive: { color: '#4f46e5', fontWeight: '700' },
   seasonTableWrap: {
     marginTop: 2,
-    flexDirection: 'row',
-    alignItems: 'stretch',
     borderWidth: 1,
     borderColor: '#e5e7eb',
     borderRadius: 12,
     overflow: 'hidden',
   },
-  seasonTableMain: {
-    flex: 1,
-    minWidth: 0,
-  },
   seasonTableHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingLeft: 4,
-    paddingRight: 2,
+    paddingRight: 4,
     paddingVertical: 8,
-    minHeight: 36,
     backgroundColor: '#f8fafc',
     borderBottomWidth: 1,
     borderBottomColor: '#e5e7eb',
   },
-  seasonTh: { fontSize: 12, fontWeight: '800', color: '#475569' },
-  seasonThPos: { width: 28 },
+  seasonTh: { fontSize: 12, fontWeight: '700', color: '#475569' },
+  seasonThPos: { width: 44 },
   seasonThStat: { width: 28 },
-  seasonPtStripe: {
-    width: 34,
-    backgroundColor: '#eef2ff',
-    borderLeftWidth: 1,
-    borderLeftColor: '#c7d2fe',
-  },
-  seasonPtStripeHead: {
-    minHeight: 36,
-    paddingVertical: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#e0e7ff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#c7d2fe',
-  },
-  seasonThPt: { fontSize: 11, fontWeight: '800', color: '#5b21b6', letterSpacing: 0.4 },
-  seasonPtStripeRow: {
-    minHeight: 42,
-    paddingVertical: 9,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderBottomWidth: 1,
-    borderBottomColor: '#dde3f8',
-  },
-  seasonPtStripeRowWatched: {
-    backgroundColor: 'rgba(79, 70, 229, 0.12)',
-  },
+  seasonThPt: { color: '#334155' },
   seasonTableRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingLeft: 4,
-    paddingRight: 2,
+    paddingRight: 4,
     paddingVertical: 9,
-    minHeight: 42,
     borderBottomWidth: 1,
     borderBottomColor: '#f1f5f9',
   },
@@ -1575,9 +1522,6 @@ const styles = StyleSheet.create({
   seasonTableRowLast: {
     borderBottomWidth: 0,
   },
-  seasonPtStripeRowLast: {
-    borderBottomWidth: 0,
-  },
   teamCell: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1585,11 +1529,11 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   seasonTeamCell: { gap: 6 },
-  seasonTd: { fontSize: 13, fontWeight: '700', color: '#1f2937' },
-  seasonTdPos: { width: 28 },
+  seasonTd: { fontSize: 13, fontWeight: '400', color: '#1f2937' },
+  seasonTdPos: { width: 44, fontWeight: '600' },
   seasonTdStat: { width: 28 },
-  seasonTdPt: { fontSize: 14, fontWeight: '800', color: '#4338ca', textAlign: 'center' },
-  seasonTdTeamName: { flex: 1, minWidth: 0, fontSize: 12.5 },
+  seasonTdPt: { fontWeight: '700' },
+  seasonTdTeamName: { flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: '600' },
   seasonKnockoutCard: {
     marginTop: 12,
     marginHorizontal: -8,
