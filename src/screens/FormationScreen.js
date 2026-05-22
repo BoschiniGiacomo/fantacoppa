@@ -678,7 +678,7 @@ export default function FormationScreen({ route }) {
       return;
     }
 
-    if (hasSaved) {
+    if (hasSaved && hasAllStarters) {
       setConfirmModal({
         title: 'Sovrascrivere formazione?',
         message: 'Hai già una formazione salvata per questa giornata. Vuoi sovrascriverla?',
@@ -1117,7 +1117,7 @@ export default function FormationScreen({ route }) {
                     {incompleteSquad
                       ? 'Rosa incompleta'
                       : showFormationWarning
-                        ? 'Hai cambiato la rosa: completa la formazione'
+                        ? 'Rosa modificata: completa la formazione'
                         : hasSaved
                           ? 'Aggiorna Formazione'
                           : 'Salva Formazione'}

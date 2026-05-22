@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { query } = require('../config/database');
 const { removePlayerFromEditableLineups } = require('../utils/lineupResolver');
+const { reconcileUserBudget } = require('../utils/budgetReconcile');
 const { authenticateToken } = require('../middleware/auth');
 
 // GET /api/squad/:leagueId
@@ -134,11 +135,13 @@ router.get('/:leagueId/bootstrap', authenticateToken, async (req, res) => {
       C: Number(limits.max_centrocampisti || 0),
       A: Number(limits.max_attaccanti || 0),
     };
-    const budget = Number(budgetRows[0]?.budget || 0);
+    let budget = Number(budgetRows[0]?.budget || 0);
     const total_value = (players || []).reduce((sum, p) => {
       if (Number(p?.acquired_as_injury_replacement || 0) === 1) return sum;
       return sum + (Number(p?.rating) || 0);
     }, 0);
+    const reconciled = await reconcileUserBudget(userId, leagueId);
+    if (reconciled.budget != null) budget = reconciled.budget;
 
     const marketLocked = Number(blockedRows[0]?.market_locked || 0) === 1;
     const userBlockedRaw = Number(blockedRows[0]?.user_blocked || 0);
@@ -198,31 +201,54 @@ router.delete('/:leagueId/players/:playerId', authenticateToken, async (req, res
       return res.status(400).json({ message: 'Parametri non validi' });
     }
 
-    const pRows = await query('SELECT rating FROM players WHERE id = ? LIMIT 1', [playerId]);
-    const price = Number(pRows[0]?.rating || 0);
-    const replacementRows = await query(
-      `SELECT 1
-       FROM user_players up
-       JOIN players inj ON inj.id = up.player_id
-       WHERE up.user_id = ?
-         AND up.league_id = ?
-         AND COALESCE(inj.is_injured, 0) = 1
-         AND inj.injury_replacement_player_id = ?
+    const ownedRows = await query(
+      `SELECT 1 FROM user_players
+       WHERE user_id = ? AND league_id = ? AND player_id = ?
        LIMIT 1`,
       [userId, leagueId, playerId]
     );
-    const refund = replacementRows[0] ? 0 : price;
+    if (!ownedRows.length) {
+      const reconciled = await reconcileUserBudget(userId, leagueId);
+      return res.json({
+        message: 'Giocatore già svincolato',
+        already_removed: true,
+        budget: reconciled.budget,
+        total_value: reconciled.total_value,
+        budget_reconciled: !!reconciled.fixed,
+      });
+    }
 
-    await query('DELETE FROM user_players WHERE user_id = ? AND league_id = ? AND player_id = ?', [userId, leagueId, playerId]);
-    await query('UPDATE user_budget SET budget = budget + ? WHERE user_id = ? AND league_id = ?', [refund, userId, leagueId]);
-
+    // 1) Formazione (mentre il giocatore è ancora in rosa)
     const lineupCleanup = await removePlayerFromEditableLineups(userId, leagueId, playerId);
+
+    // 2) Rosa
+    const deleteResult = await query(
+      'DELETE FROM user_players WHERE user_id = ? AND league_id = ? AND player_id = ?',
+      [userId, leagueId, playerId]
+    );
+    const removed = Number(deleteResult?.affectedRows || 0) > 0;
+    if (!removed) {
+      const reconciled = await reconcileUserBudget(userId, leagueId);
+      return res.json({
+        message: 'Giocatore già svincolato',
+        already_removed: true,
+        budget: reconciled.budget,
+        total_value: reconciled.total_value,
+        budget_reconciled: !!reconciled.fixed,
+      });
+    }
+
+    // 3) Crediti: ricalcolo da initial_budget - valore rosa (no doppio rimborso)
+    const reconciled = await reconcileUserBudget(userId, leagueId);
 
     res.json({
       message: 'Giocatore rimosso dalla rosa',
       formation_updated: !!lineupCleanup.updated,
       formation_starter_removed: !!lineupCleanup.starterRemoved,
       formation_matchdays: lineupCleanup.matchdays || [],
+      budget: reconciled.budget,
+      total_value: reconciled.total_value,
+      budget_reconciled: !!reconciled.fixed,
     });
   } catch (error) {
     console.error('Squad remove error:', error);

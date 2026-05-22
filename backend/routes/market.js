@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { query } = require('../config/database');
 const { authenticateToken } = require('../middleware/auth');
+const { reconcileUserBudget } = require('../utils/budgetReconcile');
 
 function toLeagueId(raw) {
   const id = Number(raw);
@@ -196,7 +197,9 @@ router.get('/:leagueId/bootstrap', authenticateToken, async (req, res) => {
     const blockReason = blocked
       ? (Number(flags.market_locked) === 1 ? 'global' : 'user')
       : 'none';
-    const budget = Number(budgetRows[0]?.budget || 0);
+    let budget = Number(budgetRows[0]?.budget || 0);
+    const reconciled = await reconcileUserBudget(userId, leagueId);
+    if (reconciled.budget != null) budget = reconciled.budget;
     const l = limitsRows[0] || {};
     const roleLimits = {
       P: Number(l.max_portieri || 0),
@@ -404,8 +407,13 @@ router.post('/:leagueId/buy', authenticateToken, async (req, res) => {
     if (owned >= (roleLimitMap[p.role] || 0)) return res.status(400).json({ message: 'Limite ruolo raggiunto' });
 
     await query('INSERT INTO user_players (user_id, league_id, player_id) VALUES (?, ?, ?)', [userId, leagueId, playerId]);
-    await query('UPDATE user_budget SET budget = budget - ? WHERE user_id = ? AND league_id = ?', [price, userId, leagueId]);
-    res.json({ message: 'Giocatore acquistato con successo' });
+    const reconciled = await reconcileUserBudget(userId, leagueId);
+    res.json({
+      message: 'Giocatore acquistato con successo',
+      budget: reconciled.budget,
+      total_value: reconciled.total_value,
+      budget_reconciled: !!reconciled.fixed,
+    });
   } catch (error) {
     console.error('Market buy error:', error);
     res.status(500).json({ message: 'Errore acquisto giocatore' });

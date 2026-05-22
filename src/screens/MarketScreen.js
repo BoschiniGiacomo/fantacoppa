@@ -207,6 +207,11 @@ export default function MarketScreen({ route, navigation }) {
     } catch (error) {
       showError(error.response?.data?.message || 'Errore durante l\'acquisto');
       setBuyingPlayer(null);
+      try {
+        await refreshMarketBootstrap();
+      } catch (_) {
+        // ignore
+      }
     }
   };
 
@@ -225,38 +230,52 @@ export default function MarketScreen({ route, navigation }) {
     setConfirmPlayer(player);
   };
 
+  const refreshMarketBootstrap = async () => {
+    invalidateLeagueWarmCache(leagueId);
+    const bootstrapRes = await marketService.getBootstrap(leagueId, {});
+    const data = bootstrapRes?.data || {};
+    applyBootstrapData(data);
+    setMarketBootstrapDefault(leagueId, data);
+    const counts = data?.owned_counts || {};
+    const limits = data?.role_limits || roleLimits;
+    const newCounts = {
+      P: Number(counts.P || 0),
+      D: Number(counts.D || 0),
+      C: Number(counts.C || 0),
+      A: Number(counts.A || 0),
+    };
+    const allFull = ['P', 'D', 'C', 'A'].every((r) => newCounts[r] >= (limits[r] || roleLimits[r]));
+    updateAutoDetect({ squadFull: allFull, squadEmpty: newCounts.P + newCounts.D + newCounts.C + newCounts.A === 0 });
+    return data;
+  };
+
   const confirmRemovePlayer = async () => {
-    if (!confirmPlayer) return;
+    if (!confirmPlayer || removing) return;
     setRemoving(true);
+    const removed = confirmPlayer;
+    let ok = false;
     try {
       const res = await squadService.removePlayer(leagueId, confirmPlayer.id);
       const removeData = res?.data || {};
+      ok = true;
       if (removeData.formation_starter_removed) {
         showToast('Formazione aggiornata: completa i titolari mancanti', 'success');
       }
-      const removed = confirmPlayer;
       setConfirmPlayer(null);
-      setReleaseFeedback(`${removed.first_name} ${removed.last_name} svincolato!`);
-      setTimeout(() => setReleaseFeedback(''), 2000);
-      invalidateLeagueWarmCache(leagueId);
-      const bootstrapRes = await marketService.getBootstrap(leagueId, {});
-      const data = bootstrapRes?.data || {};
-      applyBootstrapData(data);
-      setMarketBootstrapDefault(leagueId, data);
-      const counts = data?.owned_counts || {};
-      const limits = data?.role_limits || roleLimits;
-      const newCounts = {
-        P: Number(counts.P || 0),
-        D: Number(counts.D || 0),
-        C: Number(counts.C || 0),
-        A: Number(counts.A || 0),
-      };
-      const allFull = ['P', 'D', 'C', 'A'].every((r) => newCounts[r] >= (limits[r] || roleLimits[r]));
-      updateAutoDetect({ squadFull: allFull, squadEmpty: newCounts.P + newCounts.D + newCounts.C + newCounts.A === 0 });
+      if (!removeData.already_removed) {
+        setReleaseFeedback(`${removed.first_name} ${removed.last_name} svincolato!`);
+        setTimeout(() => setReleaseFeedback(''), 2000);
+      }
     } catch (error) {
       showError(error.response?.data?.message || 'Errore durante lo svincolo');
     } finally {
       setRemoving(false);
+      try {
+        await refreshMarketBootstrap();
+        if (!ok) setConfirmPlayer(null);
+      } catch (_) {
+        // ignore
+      }
     }
   };
 

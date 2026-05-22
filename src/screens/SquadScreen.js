@@ -142,23 +142,29 @@ export default function SquadScreen({ route, navigation }) {
   };
 
   const confirmRemovePlayer = async () => {
-    if (!confirmPlayer) return;
+    if (!confirmPlayer || removing) return;
     setRemoving(true);
+    const removed = confirmPlayer;
+    let ok = false;
     try {
       const res = await squadService.removePlayer(leagueId, confirmPlayer.id);
       const data = res?.data || {};
+      ok = true;
       if (data.formation_starter_removed) {
         showToast('Formazione aggiornata: completa i titolari mancanti', 'success');
       }
-      setRemoveFeedback(`${confirmPlayer.first_name} ${confirmPlayer.last_name} rimosso`);
-      setTimeout(() => setRemoveFeedback(''), 2000);
+      if (!data.already_removed) {
+        setRemoveFeedback(`${removed.first_name} ${removed.last_name} rimosso`);
+        setTimeout(() => setRemoveFeedback(''), 2000);
+      }
       setConfirmPlayer(null);
-      invalidateLeagueWarmCache(leagueId);
-      loadData();
     } catch (error) {
       showToast(error.response?.data?.message || 'Errore durante la rimozione');
     } finally {
       setRemoving(false);
+      invalidateLeagueWarmCache(leagueId);
+      loadData();
+      if (!ok) setConfirmPlayer(null);
     }
   };
 

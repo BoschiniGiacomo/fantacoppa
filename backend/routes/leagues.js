@@ -9,7 +9,13 @@ const { createClient } = require('@supabase/supabase-js');
 const { triggerCalculatedNotificationForLeagueMatchday } = require('./notifications');
 const { buildAutoLineupFromVotes } = require('../utils/autoLineup');
 const { computeBonusTotal: computeBonusTotalUtil } = require('../utils/bonus');
-const { resolveUserLineup, persistUserLineup } = require('../utils/lineupResolver');
+const {
+  resolveUserLineup,
+  persistUserLineup,
+  titolariIdsToSlots,
+  buildStarterRolesFromModulo,
+  applyInjuryToSlots,
+} = require('../utils/lineupResolver');
 const { scoreResolvedLineup } = require('../utils/lineupScoring');
 const { normalizeVoteRating } = require('../utils/voteRating');
 
@@ -3102,10 +3108,11 @@ router.post('/:id/calculate/:giornata', authenticateToken, async (req, res) => {
     );
     const lineupByUser = {};
     lineupRows.forEach((r) => {
+      const modulo = String(r.modulo || '').trim();
       lineupByUser[Number(r.user_id)] = {
-        titolari: applyInjuryMap(parseIdsArray(r.titolari), injuryMap).slice(0, numeroTitolari),
-        panchina: applyInjuryMap(parseIdsArray(r.panchina), injuryMap),
-        modulo: String(r.modulo || '').trim(),
+        modulo,
+        titolariSlots: titolariIdsToSlots(r.titolari, modulo, numeroTitolari),
+        panchina: parseIdsArray(r.panchina),
       };
     });
 
@@ -3164,6 +3171,8 @@ router.post('/:id/calculate/:giornata', authenticateToken, async (req, res) => {
       const userId = Number(m.user_id);
       try {
         let titolari = [];
+        let titolariSlots = null;
+        let slotRoles = null;
         let panchina = [];
         const currentLineup = lineupByUser[userId];
 
@@ -3179,13 +3188,14 @@ router.post('/:id/calculate/:giornata', authenticateToken, async (req, res) => {
             computeBonusTotal,
           });
           if (generated && generated.titolari.length > 0) {
-            titolari = applyInjuryMap(generated.titolari, injuryMap).slice(0, numeroTitolari);
-            panchina = applyInjuryMap(generated.panchina, injuryMap);
+            titolari = generated.titolari;
+            panchina = generated.panchina || [];
             resolvedModulo = String(generated.modulo || '');
           }
-        } else if (currentLineup && currentLineup.titolari.length > 0) {
-          titolari = currentLineup.titolari.filter((id) => Number.isFinite(id) && id > 0).slice(0, numeroTitolari);
-          panchina = (currentLineup.panchina || []).filter((id) => Number.isFinite(id) && id > 0);
+        } else if (currentLineup && (currentLineup.titolariSlots || []).some((id) => Number(id) > 0)) {
+          titolariSlots = applyInjuryToSlots(currentLineup.titolariSlots, injuryMap);
+          slotRoles = buildStarterRolesFromModulo(currentLineup.modulo, titolariSlots.length);
+          panchina = currentLineup.panchina || [];
           resolvedModulo = String(currentLineup.modulo || '');
         } else {
           const resolved = await resolveUserLineup(leagueId, userId, giornata, numeroTitolari, {
@@ -3198,20 +3208,23 @@ router.post('/:id/calculate/:giornata', authenticateToken, async (req, res) => {
           resolvedModulo = String(resolved.modulo || '');
         }
 
-        titolari = applyInjuryMap(titolari, injuryMap).slice(0, numeroTitolari);
+        if (!titolariSlots) {
+          titolari = applyInjuryMap(titolari, injuryMap).slice(0, numeroTitolari);
+        }
         panchina = applyInjuryMap(panchina, injuryMap);
         if (!Array.isArray(panchina)) panchina = [];
 
-        if (titolari.length > 0) {
+        const lineupToPersist = titolariSlots?.length ? titolariSlots : titolari;
+        if (lineupToPersist.length > 0) {
           await persistUserLineup(leagueId, userId, giornata, {
             modulo: resolvedModulo,
-            titolari,
+            titolari: lineupToPersist,
             panchina,
           });
         }
 
         const scored = scoreResolvedLineup({
-          titolari,
+          ...(titolariSlots ? { titolariSlots, slotRoles } : { titolari }),
           panchina,
           votesByPlayer,
           playersById,
@@ -3223,7 +3236,10 @@ router.post('/:id/calculate/:giornata', authenticateToken, async (req, res) => {
         const punteggio = scored.punteggio;
         const hasRealVotes = scored.hasRealVotes;
         const playerScores = scored.playerScores;
-        if (!hasRealVotes && use6Politico && titolari.length > 0) usersWith6Politico.push(userId);
+        const hasLineupForScore = titolariSlots?.length
+          ? titolariSlots.some((id) => Number(id) > 0)
+          : titolari.length > 0;
+        if (!hasRealVotes && use6Politico && hasLineupForScore) usersWith6Politico.push(userId);
         await query(
           `INSERT INTO matchday_results (league_id, giornata, user_id, punteggio)
            VALUES (?, ?, ?, ?)`,
@@ -3543,16 +3559,18 @@ router.get('/:id/live/:giornata', authenticateToken, async (req, res) => {
     playersMetaRows.forEach((p) => { playersById[Number(p.id)] = p; });
 
     const lineupRows = await query(
-      `SELECT user_id, titolari, panchina
+      `SELECT user_id, titolari, panchina, COALESCE(modulo, '') AS modulo
        FROM user_lineups
        WHERE league_id = ? AND giornata = ?`,
       [leagueId, giornata]
     );
     const lineupByUser = {};
     lineupRows.forEach((r) => {
+      const modulo = String(r.modulo || '').trim();
       lineupByUser[Number(r.user_id)] = {
-        titolari: applyInjuryMap(parseIdsArray(r.titolari), injuryMapLive).slice(0, numeroTitolari),
-        panchina: applyInjuryMap(parseIdsArray(r.panchina), injuryMapLive),
+        modulo,
+        titolariSlots: titolariIdsToSlots(r.titolari, modulo, numeroTitolari),
+        panchina: parseIdsArray(r.panchina),
       };
     });
 
@@ -3561,7 +3579,10 @@ router.get('/:id/live/:giornata', authenticateToken, async (req, res) => {
     for (const m of members) {
       const uid = Number(m.user_id);
       let titolari = [];
+      let titolariSlots = null;
+      let slotRoles = null;
       let panchina = [];
+      const currentLineup = lineupByUser[uid];
       if (autoLineupMode) {
         const generated = await buildAutoLineupFromVotes({
           leagueId,
@@ -3574,9 +3595,10 @@ router.get('/:id/live/:giornata', authenticateToken, async (req, res) => {
         });
         titolari = generated?.titolari || [];
         panchina = generated?.panchina || [];
-      } else if (lineupByUser[uid]?.titolari?.length) {
-        titolari = lineupByUser[uid].titolari;
-        panchina = lineupByUser[uid].panchina || [];
+      } else if (currentLineup && (currentLineup.titolariSlots || []).some((id) => Number(id) > 0)) {
+        titolariSlots = applyInjuryToSlots(currentLineup.titolariSlots, injuryMapLive);
+        slotRoles = buildStarterRolesFromModulo(currentLineup.modulo, titolariSlots.length);
+        panchina = applyInjuryMap(currentLineup.panchina || [], injuryMapLive);
       } else {
         const resolved = await resolveUserLineup(leagueId, uid, giornata, numeroTitolari, {
           recoverPrevious: recoverPreviousLive,
@@ -3587,8 +3609,13 @@ router.get('/:id/live/:giornata', authenticateToken, async (req, res) => {
         panchina = resolved.panchina;
       }
 
+      if (!titolariSlots) {
+        titolari = applyInjuryMap(titolari, injuryMapLive).slice(0, numeroTitolari);
+        panchina = applyInjuryMap(panchina, injuryMapLive);
+      }
+
       const scored = scoreResolvedLineup({
-        titolari,
+        ...(titolariSlots ? { titolariSlots, slotRoles } : { titolari }),
         panchina,
         votesByPlayer,
         playersById,

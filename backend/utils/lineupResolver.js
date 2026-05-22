@@ -179,6 +179,28 @@ function expectedStarterSlotCount(modulo, numeroTitolari) {
   return n;
 }
 
+function buildStarterRolesFromModulo(modulo, slotCount) {
+  const n = Math.max(1, Number(slotCount || 1));
+  const mod = AUTO_MODULES[String(modulo || '').trim()];
+  if (mod) {
+    const [d, c, a] = mod;
+    const roles = ['P', ...Array(d).fill('D'), ...Array(c).fill('C'), ...Array(a).fill('A')];
+    while (roles.length < n) roles.push('C');
+    return roles.slice(0, n);
+  }
+  return Array(n).fill('C');
+}
+
+function applyInjuryToSlots(slots, injuryMap) {
+  const map = injuryMap || {};
+  return (Array.isArray(slots) ? slots : []).map((raw) => {
+    const id = Number(raw) || 0;
+    if (id <= 0) return 0;
+    const mapped = Number(map[id] || id);
+    return Number.isFinite(mapped) && mapped > 0 ? mapped : 0;
+  });
+}
+
 function titolariIdsToSlots(raw, modulo, numeroTitolari) {
   const slotCount = expectedStarterSlotCount(modulo, numeroTitolari);
   let arr = parseLineupSlotIds(raw);
@@ -309,13 +331,17 @@ async function removePlayerFromEditableLineups(userId, leagueId, playerId) {
 
     if (inStarter) starterRemoved = true;
 
-    await query(
-      `UPDATE user_lineups
-       SET titolari = ?, panchina = ?
-       WHERE user_id = ? AND league_id = ? AND giornata = ?`,
-      [JSON.stringify(titSlots), JSON.stringify(panchina), uid, lid, giornata]
-    );
-    matchdays.push(giornata);
+    try {
+      await query(
+        `UPDATE user_lineups
+         SET titolari = ?, panchina = ?
+         WHERE user_id = ? AND league_id = ? AND giornata = ?`,
+        [JSON.stringify(titSlots), JSON.stringify(panchina), uid, lid, giornata]
+      );
+      matchdays.push(giornata);
+    } catch (err) {
+      console.error('removePlayerFromEditableLineups: update failed', { uid, lid, giornata, playerId: pid, err: err?.message || err });
+    }
   }
 
   return {
@@ -354,6 +380,8 @@ module.exports = {
   parseIdsArray,
   parseLineupSlotIds,
   titolariIdsToSlots,
+  buildStarterRolesFromModulo,
+  applyInjuryToSlots,
   expectedStarterSlotCount,
   getEffectiveLeagueId,
   getMatchdayEditAvailability,
