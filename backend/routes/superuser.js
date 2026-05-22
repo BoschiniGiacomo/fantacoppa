@@ -318,6 +318,32 @@ router.delete('/leagues/:id', authenticateToken, requireSuperuser, async (req, r
   }
 });
 
+async function ensureUserBudgetForLeagueMember(userId, leagueId) {
+  const budgetRows = await query(
+    `SELECT id FROM user_budget WHERE user_id = ? AND league_id = ? LIMIT 1`,
+    [userId, leagueId]
+  );
+  if (budgetRows.length) return;
+
+  const leagueRows = await query(
+    `SELECT COALESCE(initial_budget, 100) AS initial_budget FROM leagues WHERE id = ? LIMIT 1`,
+    [leagueId]
+  );
+  const budget = Number(leagueRows[0]?.initial_budget || 100);
+  const countRows = await query(
+    `SELECT COUNT(*)::int AS c FROM league_members WHERE league_id = ?`,
+    [leagueId]
+  );
+  const ordinal = Number(countRows[0]?.c || 1);
+
+  await query(
+    `INSERT INTO user_budget (user_id, league_id, budget, team_name, coach_name, team_logo)
+     VALUES (?, ?, ?, ?, ?, 'default_1')
+     ON CONFLICT (user_id, league_id) DO NOTHING`,
+    [userId, leagueId, budget, `Squadra ${ordinal}`, `Allenatore ${ordinal}`]
+  );
+}
+
 router.post('/leagues/:id/join-as-admin', authenticateToken, requireSuperuser, async (req, res) => {
   try {
     const leagueId = Number(req.params.id);
@@ -333,6 +359,7 @@ router.post('/leagues/:id/join-as-admin', authenticateToken, requireSuperuser, a
         await query(`INSERT INTO league_members (league_id, user_id, role) VALUES (?, ?, 'admin')`, [leagueId, userId]);
       }
     }
+    await ensureUserBudgetForLeagueMember(userId, leagueId);
     return res.json({ success: true });
   } catch (error) {
     return res.status(500).json({ message: 'Errore join admin', error: error.message });

@@ -1159,11 +1159,19 @@ router.put('/:id/team-info', authenticateToken, async (req, res) => {
     if (!teamName || !coachName) {
       return res.status(400).json({ message: 'Nome squadra e nome allenatore sono obbligatori' });
     }
+    const leagueRows = await query(
+      `SELECT COALESCE(initial_budget, 100) AS initial_budget FROM leagues WHERE id = ? LIMIT 1`,
+      [leagueId]
+    );
+    const budget = Number(leagueRows[0]?.initial_budget || 100);
     await query(
-      `UPDATE user_budget
-       SET team_name = ?, coach_name = ?
-       WHERE user_id = ? AND league_id = ?`,
-      [teamName, coachName, userId, leagueId]
+      `INSERT INTO user_budget (user_id, league_id, budget, team_name, coach_name, team_logo)
+       VALUES (?, ?, ?, ?, ?, 'default_1')
+       ON CONFLICT (user_id, league_id)
+       DO UPDATE SET
+         team_name = EXCLUDED.team_name,
+         coach_name = EXCLUDED.coach_name`,
+      [userId, leagueId, budget, teamName, coachName]
     );
     res.json({ message: 'Info squadra aggiornate' });
   } catch (error) {
