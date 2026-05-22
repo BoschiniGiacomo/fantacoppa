@@ -143,13 +143,15 @@ export default function SquadScreen({ route, navigation }) {
 
   const confirmRemovePlayer = async () => {
     if (!confirmPlayer || removing) return;
-    setRemoving(true);
     const removed = confirmPlayer;
-    let ok = false;
+    const removedId = removed.id;
+    setConfirmPlayer(null);
+    setRemoving(true);
+    let success = false;
     try {
-      const res = await squadService.removePlayer(leagueId, confirmPlayer.id);
+      const res = await squadService.removePlayer(leagueId, removedId);
       const data = res?.data || {};
-      ok = true;
+      success = true;
       if (data.formation_starter_removed) {
         showToast('Formazione aggiornata: completa i titolari mancanti', 'success');
       }
@@ -157,14 +159,37 @@ export default function SquadScreen({ route, navigation }) {
         setRemoveFeedback(`${removed.first_name} ${removed.last_name} rimosso`);
         setTimeout(() => setRemoveFeedback(''), 2000);
       }
-      setConfirmPlayer(null);
+      setSquad((prev) => prev.filter((p) => Number(p.id) !== Number(removedId)));
     } catch (error) {
-      showToast(error.response?.data?.message || 'Errore durante la rimozione');
+      const isTimeout = error?.code === 'ECONNABORTED';
+      invalidateLeagueWarmCache(leagueId);
+      let stillThere = true;
+      try {
+        const bootstrapRes = await squadService.getBootstrap(leagueId);
+        const data = bootstrapRes?.data || {};
+        applyBootstrap(data);
+        setSquadBootstrap(leagueId, data);
+        const players = Array.isArray(data.players) ? data.players : (Array.isArray(data.squad) ? data.squad : []);
+        stillThere = players.some((p) => Number(p.id) === Number(removedId));
+      } catch (_) {
+        // ignore
+      }
+      if (!stillThere) {
+        success = true;
+        showToast(`${removed.first_name} ${removed.last_name} rimosso`, 'success');
+      } else {
+        showToast(
+          isTimeout
+            ? 'Operazione lenta: riprova tra qualche secondo'
+            : (error.response?.data?.message || 'Errore durante la rimozione')
+        );
+      }
     } finally {
       setRemoving(false);
-      invalidateLeagueWarmCache(leagueId);
-      loadData();
-      if (!ok) setConfirmPlayer(null);
+      if (success) {
+        invalidateLeagueWarmCache(leagueId);
+        loadData();
+      }
     }
   };
 

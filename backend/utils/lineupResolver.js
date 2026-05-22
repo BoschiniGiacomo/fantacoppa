@@ -268,6 +268,41 @@ async function getMatchdayEditAvailability({ leagueId, effectiveLeagueId, giorna
 }
 
 /**
+ * Metadati giornate in un'unica query (evita N+1 su svincolo).
+ */
+async function loadMatchdayEditMeta(leagueId, effectiveLeagueId) {
+  const rows = await query(
+    `SELECT m.giornata,
+            m.deadline,
+            CASE
+              WHEN m.deadline IS NOT NULL AND m.deadline <= NOW() THEN 1
+              ELSE 0
+            END AS deadline_passed,
+            CASE
+              WHEN COALESCE(l.enable_next_matchday_from_next_day, 1) = 0 THEN 1
+              WHEN m.giornata <= 1 THEN 1
+              WHEN prev.deadline IS NULL THEN 1
+              WHEN NOW() >= (
+                (date_trunc('day', (prev.deadline AT TIME ZONE 'Europe/Rome')) + interval '1 day')
+                AT TIME ZONE 'Europe/Rome'
+              ) THEN 1
+              ELSE 0
+            END AS can_edit
+     FROM matchdays m
+     JOIN leagues l ON l.id = ?
+     LEFT JOIN matchdays prev
+       ON prev.league_id = m.league_id AND prev.giornata = m.giornata - 1
+     WHERE m.league_id = ?`,
+    [leagueId, effectiveLeagueId]
+  );
+  const byGiornata = new Map();
+  (rows || []).forEach((r) => {
+    byGiornata.set(Number(r.giornata), r);
+  });
+  return byGiornata;
+}
+
+/**
  * Rimuove un giocatore venduto dalle formazioni ancora modificabili (deadline futura + canEdit).
  */
 async function removePlayerFromEditableLineups(userId, leagueId, playerId) {
@@ -279,18 +314,20 @@ async function removePlayerFromEditableLineups(userId, leagueId, playerId) {
   }
 
   const effectiveLeagueId = await getEffectiveLeagueId(lid);
-  const leagueRows = await query(
-    `SELECT COALESCE(numero_titolari, 10) AS numero_titolari FROM leagues WHERE id = ? LIMIT 1`,
-    [lid]
-  );
+  const [leagueRows, lineupRows, matchdayMeta] = await Promise.all([
+    query(
+      `SELECT COALESCE(numero_titolari, 10) AS numero_titolari FROM leagues WHERE id = ? LIMIT 1`,
+      [lid]
+    ),
+    query(
+      `SELECT giornata, modulo, titolari, panchina
+       FROM user_lineups
+       WHERE user_id = ? AND league_id = ?`,
+      [uid, lid]
+    ),
+    loadMatchdayEditMeta(lid, effectiveLeagueId),
+  ]);
   const numeroTitolari = Number(leagueRows[0]?.numero_titolari || 10);
-
-  const lineupRows = await query(
-    `SELECT giornata, modulo, titolari, panchina
-     FROM user_lineups
-     WHERE user_id = ? AND league_id = ?`,
-    [uid, lid]
-  );
 
   let starterRemoved = false;
   const matchdays = [];
@@ -299,19 +336,11 @@ async function removePlayerFromEditableLineups(userId, leagueId, playerId) {
     const giornata = Number(row.giornata);
     if (!Number.isFinite(giornata) || giornata <= 0) continue;
 
-    const dRows = await query(
-      `SELECT deadline FROM matchdays WHERE league_id = ? AND giornata = ? LIMIT 1`,
-      [effectiveLeagueId, giornata]
-    );
-    const deadline = dRows[0]?.deadline;
-    if (deadline && new Date(deadline) < new Date()) continue;
-
-    const editAvailability = await getMatchdayEditAvailability({
-      leagueId: lid,
-      effectiveLeagueId,
-      giornata,
-    });
-    if (!editAvailability.canEdit) continue;
+    const meta = matchdayMeta.get(giornata);
+    if (meta) {
+      if (Number(meta.deadline_passed || 0) === 1) continue;
+      if (Number(meta.can_edit || 0) !== 1) continue;
+    }
 
     const modulo = String(row.modulo || '').trim();
     const titSlots = titolariIdsToSlots(row.titolari, modulo, numeroTitolari);

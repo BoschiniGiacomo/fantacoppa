@@ -191,15 +191,28 @@ router.get('/:leagueId/limits', authenticateToken, async (req, res) => {
   }
 });
 
+async function safeReconcileUserBudget(userId, leagueId) {
+  try {
+    return await reconcileUserBudget(userId, leagueId);
+  } catch (err) {
+    console.error('[squad.remove] reconcile failed', { userId, leagueId, err: err?.message || err });
+    return { budget: null, total_value: null, fixed: false };
+  }
+}
+
 // DELETE /api/squad/:leagueId/players/:playerId
 router.delete('/:leagueId/players/:playerId', authenticateToken, async (req, res) => {
+  const leagueId = Number(req.params.leagueId);
+  const playerId = Number(req.params.playerId);
+  const userId = Number(req.user.userId);
+  const startedAt = Date.now();
+
   try {
-    const leagueId = Number(req.params.leagueId);
-    const playerId = Number(req.params.playerId);
-    const userId = Number(req.user.userId);
     if (!Number.isFinite(leagueId) || leagueId <= 0 || !Number.isFinite(playerId) || playerId <= 0) {
       return res.status(400).json({ message: 'Parametri non validi' });
     }
+
+    console.log('[squad.remove] start', { userId, leagueId, playerId });
 
     const ownedRows = await query(
       `SELECT 1 FROM user_players
@@ -208,7 +221,8 @@ router.delete('/:leagueId/players/:playerId', authenticateToken, async (req, res
       [userId, leagueId, playerId]
     );
     if (!ownedRows.length) {
-      const reconciled = await reconcileUserBudget(userId, leagueId);
+      const reconciled = await safeReconcileUserBudget(userId, leagueId);
+      console.log('[squad.remove] already_removed', { userId, leagueId, playerId, ms: Date.now() - startedAt });
       return res.json({
         message: 'Giocatore già svincolato',
         already_removed: true,
@@ -228,7 +242,8 @@ router.delete('/:leagueId/players/:playerId', authenticateToken, async (req, res
     );
     const removed = Number(deleteResult?.affectedRows || 0) > 0;
     if (!removed) {
-      const reconciled = await reconcileUserBudget(userId, leagueId);
+      const reconciled = await safeReconcileUserBudget(userId, leagueId);
+      console.log('[squad.remove] delete_noop', { userId, leagueId, playerId, ms: Date.now() - startedAt });
       return res.json({
         message: 'Giocatore già svincolato',
         already_removed: true,
@@ -239,9 +254,18 @@ router.delete('/:leagueId/players/:playerId', authenticateToken, async (req, res
     }
 
     // 3) Crediti: ricalcolo da initial_budget - valore rosa (no doppio rimborso)
-    const reconciled = await reconcileUserBudget(userId, leagueId);
+    const reconciled = await safeReconcileUserBudget(userId, leagueId);
 
-    res.json({
+    console.log('[squad.remove] ok', {
+      userId,
+      leagueId,
+      playerId,
+      starterRemoved: !!lineupCleanup.starterRemoved,
+      matchdays: lineupCleanup.matchdays?.length || 0,
+      ms: Date.now() - startedAt,
+    });
+
+    return res.json({
       message: 'Giocatore rimosso dalla rosa',
       formation_updated: !!lineupCleanup.updated,
       formation_starter_removed: !!lineupCleanup.starterRemoved,
@@ -251,8 +275,29 @@ router.delete('/:leagueId/players/:playerId', authenticateToken, async (req, res
       budget_reconciled: !!reconciled.fixed,
     });
   } catch (error) {
-    console.error('Squad remove error:', error);
-    res.status(500).json({ message: 'Errore durante la rimozione del giocatore' });
+    console.error('[squad.remove] error', { userId, leagueId, playerId, err: error?.message || error, ms: Date.now() - startedAt });
+    try {
+      const stillOwned = await query(
+        `SELECT 1 FROM user_players
+         WHERE user_id = ? AND league_id = ? AND player_id = ?
+         LIMIT 1`,
+        [userId, leagueId, playerId]
+      );
+      if (!stillOwned.length) {
+        const reconciled = await safeReconcileUserBudget(userId, leagueId);
+        console.log('[squad.remove] recovered_after_error', { userId, leagueId, playerId, ms: Date.now() - startedAt });
+        return res.json({
+          message: 'Giocatore rimosso dalla rosa',
+          recovered_after_error: true,
+          budget: reconciled.budget,
+          total_value: reconciled.total_value,
+          budget_reconciled: !!reconciled.fixed,
+        });
+      }
+    } catch (checkErr) {
+      console.error('[squad.remove] recovery_check_failed', checkErr?.message || checkErr);
+    }
+    return res.status(500).json({ message: 'Errore durante la rimozione del giocatore' });
   }
 });
 

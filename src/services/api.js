@@ -486,7 +486,8 @@ export const marketService = {
 export const squadService = {
   getBootstrap: (leagueId) => api.get(`/squad/${leagueId}/bootstrap`),
   getSquad: (leagueId) => api.get(`/squad/${leagueId}`),
-  removePlayer: (leagueId, playerId) => api.delete(`/squad/${leagueId}/players/${playerId}`),
+  removePlayer: (leagueId, playerId) =>
+    api.delete(`/squad/${leagueId}/players/${playerId}`, { timeout: 60000 }),
   getRoleLimits: (leagueId) => api.get(`/squad/${leagueId}/limits`),
 };
 

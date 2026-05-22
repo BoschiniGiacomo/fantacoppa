@@ -249,32 +249,70 @@ export default function MarketScreen({ route, navigation }) {
     return data;
   };
 
+  const isPlayerStillOwned = (playerId, data) => {
+    const pid = Number(playerId);
+    const list = Array.isArray(data?.players) ? data.players : players;
+    return list.some(
+      (p) => Number(p.id) === pid && (Number(p.directly_owned || 0) === 1 || Number(p.owned || 0) === 1)
+    );
+  };
+
   const confirmRemovePlayer = async () => {
     if (!confirmPlayer || removing) return;
-    setRemoving(true);
     const removed = confirmPlayer;
-    let ok = false;
+    const removedId = removed.id;
+    setConfirmPlayer(null);
+    setRemoving(true);
+    let success = false;
     try {
-      const res = await squadService.removePlayer(leagueId, confirmPlayer.id);
+      const res = await squadService.removePlayer(leagueId, removedId);
       const removeData = res?.data || {};
-      ok = true;
+      success = true;
+      if (typeof removeData.budget === 'number') setBudget(removeData.budget);
       if (removeData.formation_starter_removed) {
         showToast('Formazione aggiornata: completa i titolari mancanti', 'success');
       }
-      setConfirmPlayer(null);
       if (!removeData.already_removed) {
         setReleaseFeedback(`${removed.first_name} ${removed.last_name} svincolato!`);
         setTimeout(() => setReleaseFeedback(''), 2000);
       }
+      setPlayers((prev) =>
+        prev.map((p) =>
+          Number(p.id) === Number(removedId) ? { ...p, owned: false, directly_owned: 0 } : p
+        )
+      );
     } catch (error) {
-      showError(error.response?.data?.message || 'Errore durante lo svincolo');
-    } finally {
-      setRemoving(false);
+      const isTimeout = error?.code === 'ECONNABORTED';
+      let data = null;
       try {
-        await refreshMarketBootstrap();
-        if (!ok) setConfirmPlayer(null);
+        data = await refreshMarketBootstrap();
       } catch (_) {
         // ignore
+      }
+      const stillOwned = isPlayerStillOwned(removedId, data);
+      if (!stillOwned) {
+        success = true;
+        if (!isTimeout) {
+          showToast(`${removed.first_name} ${removed.last_name} svincolato`, 'success');
+        } else {
+          setReleaseFeedback(`${removed.first_name} ${removed.last_name} svincolato!`);
+          setTimeout(() => setReleaseFeedback(''), 2000);
+        }
+      } else {
+        showError(
+          isTimeout
+            ? 'Operazione lenta: riprova tra qualche secondo'
+            : (error.response?.data?.message || 'Errore durante lo svincolo')
+        );
+      }
+    } finally {
+      setRemoving(false);
+      if (success) {
+        try {
+          await refreshMarketBootstrap();
+        } catch (_) {
+          // ignore
+        }
       }
     }
   };
