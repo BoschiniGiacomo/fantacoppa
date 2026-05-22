@@ -672,6 +672,8 @@ export const superuserService = {
   approvePlayerCluster: (clusterId) => api.put(`/superuser/player-clusters/${clusterId}/approve`),
   rejectPlayerCluster: (clusterId) => api.put(`/superuser/player-clusters/${clusterId}/reject`),
   addPlayerToCluster: (clusterId, playerId) => api.post(`/superuser/player-clusters/${clusterId}/players`, { player_id: playerId }),
+  removePlayerFromCluster: (clusterId, playerId) =>
+    api.delete(`/superuser/player-clusters/${encodeURIComponent(Number(clusterId))}/players/${encodeURIComponent(Number(playerId))}`),
   getPlayerClusters: (groupId, status) => {
     const gid = encodeURIComponent(Number(groupId));
     const url = `/superuser/player-clusters/${gid}${status ? `?status=${encodeURIComponent(status)}` : ''}`;

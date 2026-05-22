@@ -1042,6 +1042,57 @@ router.post('/player-clusters/:clusterId/players', authenticateToken, requireSup
   }
 });
 
+router.delete('/player-clusters/:clusterId/players/:playerId', authenticateToken, requireSuperuser, async (req, res) => {
+  try {
+    const clusterId = Number(req.params.clusterId);
+    const playerId = Number(req.params.playerId);
+    if (!clusterId || !playerId) return res.status(400).json({ message: 'Parametri non validi' });
+
+    const clusterRows = await query(
+      `SELECT id, official_group_id, status
+       FROM player_clusters
+       WHERE id = ?
+       LIMIT 1`,
+      [clusterId]
+    );
+    const cluster = clusterRows[0];
+    if (!cluster) return res.status(404).json({ message: 'Cluster non trovato' });
+
+    const memberRows = await query(
+      `SELECT player_id
+       FROM player_cluster_members
+       WHERE cluster_id = ? AND player_id = ?
+       LIMIT 1`,
+      [clusterId, playerId]
+    );
+    if (!memberRows.length) return res.status(404).json({ message: 'Il giocatore non è in questo cluster' });
+
+    await query(`DELETE FROM player_cluster_members WHERE cluster_id = ? AND player_id = ?`, [clusterId, playerId]);
+
+    const countRows = await query(
+      `SELECT COUNT(*)::int AS c FROM player_cluster_members WHERE cluster_id = ?`,
+      [clusterId]
+    );
+    const remaining = Number(countRows[0]?.c || 0);
+    let clusterRejected = false;
+    if (remaining < 2) {
+      await query(`UPDATE player_clusters SET status = 'rejected' WHERE id = ?`, [clusterId]);
+      clusterRejected = true;
+    }
+
+    return res.json({
+      message: 'Giocatore dissociato dal cluster',
+      cluster_id: clusterId,
+      player_id: playerId,
+      remaining_members: remaining,
+      cluster_rejected: clusterRejected,
+    });
+  } catch (error) {
+    console.error('[superuser] DELETE player-clusters player error:', error?.message || error);
+    return res.status(500).json({ message: 'Errore dissociazione giocatore', error: error.message });
+  }
+});
+
 router.get('/players/search/:groupId', authenticateToken, requireSuperuser, async (req, res) => {
   try {
     const groupId = Number(req.params.groupId);
