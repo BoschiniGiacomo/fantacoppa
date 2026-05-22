@@ -153,6 +153,24 @@ export default function FormationScreen({ route }) {
     return regexIds || [];
   };
 
+  const parseSlotIds = (value) => {
+    if (Array.isArray(value)) {
+      return value.map((x) => {
+        const n = Number(x);
+        return Number.isFinite(n) && n > 0 ? n : 0;
+      });
+    }
+    if (typeof value === 'string' && value.trim()) {
+      try {
+        const parsed = JSON.parse(value);
+        if (Array.isArray(parsed)) return parseSlotIds(parsed);
+      } catch (_) {
+        return [];
+      }
+    }
+    return [];
+  };
+
   // --- Moduli disponibili in base al numero titolari ---
   const availableModules = useMemo(() => {
     const movSlots = numeroTitolari - 1; // 1 portiere fisso
@@ -248,6 +266,13 @@ export default function FormationScreen({ route }) {
     return ['P', ...Array(d).fill('D'), ...Array(c).fill('C'), ...Array(a).fill('A')];
   }, []);
 
+  const formationIncomplete = useMemo(() => {
+    if (!hasSaved || !modulo) return false;
+    const roles = buildStarterRoles(modulo);
+    if (!roles.length) return starters.some((p) => !p);
+    return starters.some((p, i) => i < roles.length && !p);
+  }, [hasSaved, modulo, starters, buildStarterRoles]);
+
   // ============================================================
   // LOAD DATA
   // ============================================================
@@ -282,7 +307,7 @@ export default function FormationScreen({ route }) {
       if (saved && saved.modulo) {
         setModulo(saved.modulo);
         // Parse titolari (compat con vecchi formati/stringhe escape)
-        const titIds = parseIdList(saved.titolari);
+        const titIds = parseSlotIds(saved.titolari);
         // Ricostruisci starters con oggetti player
         const mod = ALL_MODULES[saved.modulo];
         if (mod) {
@@ -1050,13 +1075,15 @@ export default function FormationScreen({ route }) {
       {!autoLineup && (() => {
         const saveBlocked = isExpired || !canEdit || saving;
         const incompleteSquad = !squadComplete;
+        const showFormationWarning = formationIncomplete && squadComplete && !saveBlocked;
         const btnDisabled = saveBlocked || incompleteSquad;
         return (
           <View style={s.saveBar}>
             <TouchableOpacity
               style={[
                 s.saveBtn,
-                hasSaved && squadComplete && !btnDisabled && s.saveBtnSaved,
+                showFormationWarning && s.saveBtnFormationWarning,
+                hasSaved && squadComplete && !btnDisabled && !showFormationWarning && s.saveBtnSaved,
                 incompleteSquad && !saveBlocked && s.saveBtnIncomplete,
                 saveBlocked && s.saveBtnDisabled,
               ]}
@@ -1064,26 +1091,36 @@ export default function FormationScreen({ route }) {
               disabled={btnDisabled}
             >
               {saving ? (
-                <ActivityIndicator size="small" color="#fff" />
+                <ActivityIndicator size="small" color={showFormationWarning ? '#5c4a00' : '#fff'} />
               ) : (
                 <>
                   <Ionicons
                     name={
                       incompleteSquad
                         ? 'alert-circle-outline'
-                        : hasSaved
-                          ? 'checkmark-circle-outline'
-                          : 'save-outline'
+                        : showFormationWarning
+                          ? 'warning-outline'
+                          : hasSaved
+                            ? 'checkmark-circle-outline'
+                            : 'save-outline'
                     }
                     size={18}
-                    color={incompleteSquad && !saveBlocked ? '#842029' : '#fff'}
+                    color={incompleteSquad && !saveBlocked ? '#842029' : showFormationWarning ? '#5c4a00' : '#fff'}
                   />
-                  <Text style={[s.saveBtnText, incompleteSquad && !saveBlocked && s.saveBtnTextIncomplete]}>
+                  <Text
+                    style={[
+                      s.saveBtnText,
+                      incompleteSquad && !saveBlocked && s.saveBtnTextIncomplete,
+                      showFormationWarning && s.saveBtnTextFormationWarning,
+                    ]}
+                  >
                     {incompleteSquad
                       ? 'Rosa incompleta'
-                      : hasSaved
-                        ? 'Aggiorna Formazione'
-                        : 'Salva Formazione'}
+                      : showFormationWarning
+                        ? 'Hai cambiato la rosa: completa la formazione'
+                        : hasSaved
+                          ? 'Aggiorna Formazione'
+                          : 'Salva Formazione'}
                   </Text>
                 </>
               )}
@@ -1274,9 +1311,11 @@ const s = StyleSheet.create({
   saveBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#667eea', paddingVertical: 14, borderRadius: 10, gap: 8 },
   saveBtnSaved: { backgroundColor: '#2e7d32' },
   saveBtnIncomplete: { backgroundColor: '#f5c2c7' },
+  saveBtnFormationWarning: { backgroundColor: '#ffc107' },
   saveBtnDisabled: { backgroundColor: '#bbb' },
   saveBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
   saveBtnTextIncomplete: { color: '#842029' },
+  saveBtnTextFormationWarning: { color: '#5c4a00', fontSize: 14 },
 
   // Toast
   toast: { position: 'absolute', top: 60, left: 20, right: 20, borderRadius: 12, paddingVertical: 12, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', gap: 10, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.25, shadowRadius: 8, elevation: 10, zIndex: 999 },

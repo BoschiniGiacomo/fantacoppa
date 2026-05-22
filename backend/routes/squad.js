@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { query } = require('../config/database');
+const { removePlayerFromEditableLineups } = require('../utils/lineupResolver');
 const { authenticateToken } = require('../middleware/auth');
 
 // GET /api/squad/:leagueId
@@ -214,7 +215,15 @@ router.delete('/:leagueId/players/:playerId', authenticateToken, async (req, res
 
     await query('DELETE FROM user_players WHERE user_id = ? AND league_id = ? AND player_id = ?', [userId, leagueId, playerId]);
     await query('UPDATE user_budget SET budget = budget + ? WHERE user_id = ? AND league_id = ?', [refund, userId, leagueId]);
-    res.json({ message: 'Giocatore rimosso dalla rosa' });
+
+    const lineupCleanup = await removePlayerFromEditableLineups(userId, leagueId, playerId);
+
+    res.json({
+      message: 'Giocatore rimosso dalla rosa',
+      formation_updated: !!lineupCleanup.updated,
+      formation_starter_removed: !!lineupCleanup.starterRemoved,
+      formation_matchdays: lineupCleanup.matchdays || [],
+    });
   } catch (error) {
     console.error('Squad remove error:', error);
     res.status(500).json({ message: 'Errore durante la rimozione del giocatore' });

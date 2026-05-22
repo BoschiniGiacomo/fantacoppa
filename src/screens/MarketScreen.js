@@ -229,7 +229,11 @@ export default function MarketScreen({ route, navigation }) {
     if (!confirmPlayer) return;
     setRemoving(true);
     try {
-      await squadService.removePlayer(leagueId, confirmPlayer.id);
+      const res = await squadService.removePlayer(leagueId, confirmPlayer.id);
+      const removeData = res?.data || {};
+      if (removeData.formation_starter_removed) {
+        showToast('Formazione aggiornata: completa i titolari mancanti', 'success');
+      }
       const removed = confirmPlayer;
       setConfirmPlayer(null);
       setReleaseFeedback(`${removed.first_name} ${removed.last_name} svincolato!`);

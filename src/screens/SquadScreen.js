@@ -145,7 +145,11 @@ export default function SquadScreen({ route, navigation }) {
     if (!confirmPlayer) return;
     setRemoving(true);
     try {
-      await squadService.removePlayer(leagueId, confirmPlayer.id);
+      const res = await squadService.removePlayer(leagueId, confirmPlayer.id);
+      const data = res?.data || {};
+      if (data.formation_starter_removed) {
+        showToast('Formazione aggiornata: completa i titolari mancanti', 'success');
+      }
       setRemoveFeedback(`${confirmPlayer.first_name} ${confirmPlayer.last_name} rimosso`);
       setTimeout(() => setRemoveFeedback(''), 2000);
       setConfirmPlayer(null);
