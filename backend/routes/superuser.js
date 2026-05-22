@@ -8,10 +8,49 @@ const { authenticateToken } = require('../middleware/auth');
 const { ensureAppSettingsTable } = require('../utils/appSettingsStore');
 const { ensureLeagueOfficialGironiSchema } = require('../utils/leagueOfficialGironi');
 
+function isMissingDbObjectError(err) {
+  return err && (err.code === '42P01' || err.code === '42703');
+}
+
 let superuserTablesReady = false;
+let playerClusterSchemaReady = false;
+
+async function ensurePlayerClusterSchema() {
+  if (playerClusterSchemaReady) return;
+  await query(`
+    CREATE TABLE IF NOT EXISTS player_clusters (
+      id SERIAL PRIMARY KEY,
+      official_group_id INTEGER NOT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'pending',
+      suggested_by_system SMALLINT NOT NULL DEFAULT 0,
+      created_by INTEGER,
+      approved_by INTEGER,
+      approved_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await query(`
+    CREATE TABLE IF NOT EXISTS player_cluster_members (
+      cluster_id INTEGER NOT NULL,
+      player_id INTEGER NOT NULL,
+      added_by INTEGER,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      PRIMARY KEY (cluster_id, player_id)
+    )
+  `);
+  await query(`ALTER TABLE player_clusters ADD COLUMN IF NOT EXISTS approved_by INTEGER`);
+  await query(`ALTER TABLE player_clusters ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ`);
+  await query(`ALTER TABLE player_clusters ADD COLUMN IF NOT EXISTS suggested_by_system SMALLINT NOT NULL DEFAULT 0`);
+  await query(
+    `CREATE INDEX IF NOT EXISTS idx_player_clusters_group_status ON player_clusters (official_group_id, status)`
+  );
+  playerClusterSchemaReady = true;
+}
+
 async function ensureSuperuserTables() {
   if (superuserTablesReady) return;
   try {
+    await ensurePlayerClusterSchema();
     superuserTablesReady = true;
   } catch (_) {}
 }
@@ -95,6 +134,27 @@ function normalizePlayerRow(row) {
 
 function isValidClusterStatus(status) {
   return status === 'pending' || status === 'approved' || status === 'rejected';
+}
+
+function mapClusterPlayerRow(p) {
+  if (!p || p.id == null) return null;
+  const first = String(p.first_name || '').trim();
+  const last = String(p.last_name || '').trim();
+  return {
+    id: Number(p.id),
+    first_name: p.first_name,
+    last_name: p.last_name,
+    full_name: `${first} ${last}`.trim(),
+    role: p.role || null,
+    league_id: Number(p.league_id || 0),
+    league_name: p.league_name || '',
+  };
+}
+
+function parseClusterPlayersJson(raw) {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw.map(mapClusterPlayerRow).filter(Boolean);
+  return [];
 }
 
 async function loadClusterMeta(clusterId) {
@@ -501,6 +561,7 @@ router.put(
 
 router.get('/player-clusters/suggestions/:groupId', authenticateToken, requireSuperuser, async (req, res) => {
   try {
+    await ensurePlayerClusterSchema();
     const groupId = Number(req.params.groupId);
     if (!groupId || groupId <= 0) return res.json({ suggestions: [] });
 
@@ -511,7 +572,7 @@ router.get('/player-clusters/suggestions/:groupId', authenticateToken, requireSu
 
     // All players in the group's leagues with their league info
     const allPlayers = await query(
-      `SELECT p.id, p.first_name, p.last_name, t.league_id, l.name AS league_name
+      `SELECT p.id, p.first_name, p.last_name, p.role, t.league_id, l.name AS league_name
        FROM players p
        JOIN teams t ON p.team_id = t.id
        JOIN leagues l ON t.league_id = l.id
@@ -757,54 +818,76 @@ router.post('/player-clusters', authenticateToken, requireSuperuser, async (req,
 
 router.get('/player-clusters/:groupId', authenticateToken, requireSuperuser, async (req, res) => {
   try {
+    await ensurePlayerClusterSchema();
     const groupId = Number(req.params.groupId);
-    const status = req.query?.status ? String(req.query.status) : null;
-    if (!groupId) return res.status(400).json({ message: 'Group ID non valido' });
+    const statusRaw = req.query?.status != null ? String(req.query.status).trim() : '';
+    const status = statusRaw && isValidClusterStatus(statusRaw) ? statusRaw : null;
+    if (!Number.isFinite(groupId) || groupId <= 0) {
+      return res.status(400).json({ message: 'Group ID non valido' });
+    }
+
+    const params = [groupId];
+    let statusSql = '';
+    if (status) {
+      statusSql = ' AND pc.status = ?';
+      params.push(status);
+    }
 
     const clustersRows = await query(
-      `SELECT pc.id, pc.status, pc.suggested_by_system, pc.created_at, pc.approved_at,
-              COUNT(pcm.player_id)::int AS players_count
+      `SELECT
+         pc.id,
+         pc.status,
+         pc.suggested_by_system,
+         pc.created_at,
+         pc.approved_at,
+         COUNT(DISTINCT pcm.player_id)::int AS players_count,
+         COALESCE(
+           json_agg(
+             json_build_object(
+               'id', p.id,
+               'first_name', p.first_name,
+               'last_name', p.last_name,
+               'role', p.role,
+               'league_id', t.league_id,
+               'league_name', l.name
+             )
+             ORDER BY l.name NULLS LAST, p.last_name, p.first_name
+           ) FILTER (WHERE p.id IS NOT NULL),
+           '[]'::json
+         ) AS players_json
        FROM player_clusters pc
-       LEFT JOIN player_cluster_members pcm ON pc.id = pcm.cluster_id
-       WHERE pc.official_group_id = ?
-         ${status ? "AND pc.status = ?" : ""}
+       LEFT JOIN player_cluster_members pcm ON pcm.cluster_id = pc.id
+       LEFT JOIN players p ON p.id = pcm.player_id
+       LEFT JOIN teams t ON t.id = p.team_id
+       LEFT JOIN leagues l ON l.id = t.league_id
+       WHERE pc.official_group_id = ?${statusSql}
        GROUP BY pc.id, pc.status, pc.suggested_by_system, pc.created_at, pc.approved_at
-       ORDER BY pc.created_at DESC, pc.id DESC`,
-      status ? [groupId, status] : [groupId]
+       ORDER BY pc.created_at DESC NULLS LAST, pc.id DESC`,
+      params
     );
 
-    const clusters = [];
-    for (const row of (clustersRows || [])) {
-      const players = await query(
-        `SELECT p.id, p.first_name, p.last_name, p.role, t.league_id, l.name AS league_name
-         FROM player_cluster_members pcm
-         JOIN players p ON pcm.player_id = p.id
-         JOIN teams t ON p.team_id = t.id
-         JOIN leagues l ON t.league_id = l.id
-         WHERE pcm.cluster_id = ?
-         ORDER BY l.name, p.last_name, p.first_name`,
-        [row.id]
-      );
-      clusters.push({
+    const clusters = (clustersRows || []).map((row) => {
+      const players = parseClusterPlayersJson(row.players_json);
+      return {
         id: Number(row.id),
         status: row.status,
         suggested_by_system: Number(row.suggested_by_system || 0) === 1,
         created_at: row.created_at || null,
         approved_at: row.approved_at || null,
-        players_count: Number(row.players_count || 0),
-        players: players.map((p) => ({
-          id: Number(p.id),
-          first_name: p.first_name,
-          last_name: p.last_name,
-          full_name: `${p.first_name || ''} ${p.last_name || ''}`.trim(),
-          role: p.role,
-          league_id: Number(p.league_id || 0),
-          league_name: p.league_name || '',
-        })),
-      });
-    }
+        players_count: Number(row.players_count || players.length || 0),
+        players,
+      };
+    });
+
     return res.json({ clusters });
   } catch (error) {
+    console.error('[superuser] GET player-clusters error:', error?.message || error);
+    if (isMissingDbObjectError(error)) {
+      return res.status(500).json({
+        message: 'Tabelle cluster non configurate sul database',
+        error: error.message,
+      });
+    }
     return res.status(500).json({ message: 'Errore caricamento cluster', error: error.message });
   }
 });

@@ -1,10 +1,8 @@
 import api from '../services/api';
 
-const TAG = '[FC-MediaCache]';
-
 /**
- * Solo eventi con egress Supabase → visibili su Render.
- * Hit locale (disk_hit, *_display_resolve local_disk) restano solo in Metro/logcat.
+ * Eventi inviati a Render (POST /public/media-cache-event) per egress Supabase.
+ * Nessun log in Metro: solo download/fallback remoto, non hit locale.
  */
 const RENDER_REPORT_EVENTS = new Set([
   'disk_download_start',
@@ -75,9 +73,7 @@ export function logMediaCache(event, payload = {}) {
   const extra = { ...payload };
   if (uri != null) {
     extra.uriSource = mediaUriSource(uri);
-    extra.uriPrefix = String(uri).slice(0, 48);
     delete extra.uri;
   }
-  console.log(TAG, event, extra);
   reportToRender(event, extra);
 }

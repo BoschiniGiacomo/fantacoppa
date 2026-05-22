@@ -666,7 +666,6 @@ export const superuserService = {
   toggleLeagueHiddenFromDiscovery: (leagueId) => api.put(`/superuser/leagues/${leagueId}/hidden-from-discovery`),
 
   // Player cluster management
-  getPlayerClusterSuggestions: (groupId) => api.get(`/superuser/player-clusters/suggestions/${groupId}`),
   approveSuggestion: (data) => api.post('/superuser/player-clusters/approve-suggestion', data),
   dismissSuggestion: (data) => api.post('/superuser/player-clusters/dismiss-suggestion', data),
   createPlayerCluster: (data) => api.post('/superuser/player-clusters', data),
@@ -674,9 +673,12 @@ export const superuserService = {
   rejectPlayerCluster: (clusterId) => api.put(`/superuser/player-clusters/${clusterId}/reject`),
   addPlayerToCluster: (clusterId, playerId) => api.post(`/superuser/player-clusters/${clusterId}/players`, { player_id: playerId }),
   getPlayerClusters: (groupId, status) => {
-    const url = `/superuser/player-clusters/${groupId}${status ? `?status=${status}` : ''}`;
-    return api.get(url);
+    const gid = encodeURIComponent(Number(groupId));
+    const url = `/superuser/player-clusters/${gid}${status ? `?status=${encodeURIComponent(status)}` : ''}`;
+    return api.get(url, { timeout: 45000 });
   },
+  getPlayerClusterSuggestions: (groupId) =>
+    api.get(`/superuser/player-clusters/suggestions/${encodeURIComponent(Number(groupId))}`, { timeout: 45000 }),
   searchPlayers: (groupId, query, leagueId) => {
     let url = `/superuser/players/search/${groupId}`;
     const params = [];

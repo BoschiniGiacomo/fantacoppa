@@ -200,16 +200,24 @@ export default function SuperUserScreen() {
   };
   
   // Carica cluster per un gruppo
+  const clusterApiErrorMessage = (error, fallback) => {
+    if (error?.response?.data?.message) return String(error.response.data.message);
+    if (error?.code === 'ECONNABORTED') return 'Il server impiega troppo tempo: riprova tra poco.';
+    if (error?.message) return String(error.message);
+    return fallback;
+  };
+
   const loadClusters = async (groupId, status = null) => {
-    if (!isSuperuser || !groupId) return;
+    const gid = Number(groupId);
+    if (!isSuperuser || !Number.isFinite(gid) || gid <= 0) return;
     try {
       setLoadingClusters(true);
-      const response = await superuserService.getPlayerClusters(groupId, status);
+      const response = await superuserService.getPlayerClusters(gid, status);
       const list = Array.isArray(response?.data?.clusters) ? response.data.clusters : [];
       setClusters(list);
     } catch (error) {
       console.error('Error loading clusters:', error);
-      showToast('Impossibile caricare i cluster');
+      showToast(clusterApiErrorMessage(error, 'Impossibile caricare i cluster'));
     } finally {
       setLoadingClusters(false);
     }
@@ -2315,10 +2323,14 @@ export default function SuperUserScreen() {
                 <TouchableOpacity
                   style={[styles.modalButton, styles.modalButtonSecondary]}
                   onPress={async () => {
+                    const gid = Number(selectedGroupForEdit.id);
                     setShowClusterModal(true);
+                    setClusterFilterStatus(null);
                     try {
-                      await loadClusterSuggestions(selectedGroupForEdit.id);
-                      await loadClusters(selectedGroupForEdit.id, null);
+                      await Promise.all([
+                        loadClusterSuggestions(gid),
+                        loadClusters(gid, null),
+                      ]);
                     } catch (error) {
                       console.error('Error in cluster button handler:', error);
                     }
@@ -2474,7 +2486,7 @@ export default function SuperUserScreen() {
                     style={[styles.clusterFilterButton, clusterFilterStatus === 'approved' && styles.clusterFilterButtonActive]}
                     onPress={() => {
                       setClusterFilterStatus('approved');
-                      loadClusters(selectedGroupForEdit.id, 'approved');
+                      loadClusters(Number(selectedGroupForEdit.id), 'approved');
                     }}
                   >
                     <Text style={[styles.clusterFilterText, clusterFilterStatus === 'approved' && styles.clusterFilterTextActive]}>Approvati</Text>
