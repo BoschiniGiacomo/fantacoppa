@@ -329,6 +329,11 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
   const [statsScorers, setStatsScorers] = useState([]);
   const [statsAssistmen, setStatsAssistmen] = useState([]);
   const [statsPresences, setStatsPresences] = useState([]);
+  const [statsLeaderboardExpanded, setStatsLeaderboardExpanded] = useState({
+    scorers: false,
+    assistmen: false,
+    presences: false,
+  });
   const [statsPickerOpen, setStatsPickerOpen] = useState(false);
   const [displayedFavoriteCount, setDisplayedFavoriteCount] = useState(0);
   const favoriteAnim = React.useRef(new Animated.Value(0)).current;
@@ -489,6 +494,56 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
     setStatsPickerOpen(false);
     void loadTeamSeasonStats();
   }, [activeTab, loadTeamSeasonStats]);
+
+  useEffect(() => {
+    setStatsLeaderboardExpanded({ scorers: false, assistmen: false, presences: false });
+  }, [selectedStatsYear]);
+
+  const STATS_LEADERBOARD_PREVIEW = 10;
+
+  const toggleStatsLeaderboard = (tableKey) => {
+    setStatsLeaderboardExpanded((prev) => ({ ...prev, [tableKey]: !prev[tableKey] }));
+  };
+
+  const renderStatsLeaderboardTable = (items, valueLabel, emptyText, tableKey) => {
+    const list = Array.isArray(items) ? items : [];
+    if (list.length === 0) {
+      return <Text style={styles.placeholderText}>{emptyText}</Text>;
+    }
+    const canExpand = list.length > STATS_LEADERBOARD_PREVIEW;
+    const expanded = !!statsLeaderboardExpanded[tableKey];
+    const visible = !canExpand || expanded ? list : list.slice(0, STATS_LEADERBOARD_PREVIEW);
+    return (
+      <>
+        <View style={[styles.statsTableRow, styles.statsTableHeaderRow]}>
+          <Text style={[styles.statsTableCell, styles.statsTablePos, styles.statsTableHeaderCell]}>Pos.</Text>
+          <Text style={[styles.statsTableCell, styles.statsTablePlayer, styles.statsTableHeaderCell]}>Giocatore</Text>
+          <Text style={[styles.statsTableCell, styles.statsTableValue, styles.statsTableHeaderCell]}>{valueLabel}</Text>
+        </View>
+        {visible.map((s, i) => (
+          <View key={`${tableKey}-${i}`} style={styles.statsTableRow}>
+            <Text style={[styles.statsTableCell, styles.statsTablePos]}>{i + 1}</Text>
+            <Text style={[styles.statsTableCell, styles.statsTablePlayer]} numberOfLines={1}>
+              {String(s?.name || '-')}
+            </Text>
+            <Text style={[styles.statsTableCell, styles.statsTableValue]}>{Number(s?.value || 0)}</Text>
+          </View>
+        ))}
+        {canExpand ? (
+          <TouchableOpacity
+            style={styles.statsTableExpandBtn}
+            onPress={() => toggleStatsLeaderboard(tableKey)}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.statsTableExpandText}>
+              {expanded ? 'Mostra meno' : `Mostra tutti (${list.length})`}
+            </Text>
+            <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={16} color="#111827" />
+          </TouchableOpacity>
+        ) : null}
+      </>
+    );
+  };
 
   const team = data?.team || {};
   const favorites = data?.favorites || {};
@@ -1072,74 +1127,21 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
 
                 <View style={styles.statsBlock}>
                   <Text style={styles.statsBlockTitle}>Marcatori</Text>
-                  {(statsScorers || []).length === 0 ? (
-                    <Text style={styles.placeholderText}>Nessun marcatore disponibile.</Text>
-                  ) : (
-                    <>
-                      <View style={[styles.statsTableRow, styles.statsTableHeaderRow]}>
-                        <Text style={[styles.statsTableCell, styles.statsTablePos, styles.statsTableHeaderCell]}>Pos.</Text>
-                        <Text style={[styles.statsTableCell, styles.statsTablePlayer, styles.statsTableHeaderCell]}>Giocatore</Text>
-                        <Text style={[styles.statsTableCell, styles.statsTableValue, styles.statsTableHeaderCell]}>Goal</Text>
-                      </View>
-                      {statsScorers.map((s, i) => (
-                        <View key={`sc-${i}`} style={styles.statsTableRow}>
-                          <Text style={[styles.statsTableCell, styles.statsTablePos]}>{i + 1}</Text>
-                          <Text style={[styles.statsTableCell, styles.statsTablePlayer]} numberOfLines={1}>
-                            {String(s?.name || '-')}
-                          </Text>
-                          <Text style={[styles.statsTableCell, styles.statsTableValue]}>{Number(s?.value || 0)}</Text>
-                        </View>
-                      ))}
-                    </>
-                  )}
+                  {renderStatsLeaderboardTable(statsScorers, 'Goal', 'Nessun marcatore disponibile.', 'scorers')}
                 </View>
 
                 <View style={styles.statsBlock}>
                   <Text style={styles.statsBlockTitle}>Assistman</Text>
-                  {(statsAssistmen || []).length === 0 ? (
-                    <Text style={styles.placeholderText}>Nessun assist disponibile.</Text>
-                  ) : (
-                    <>
-                      <View style={[styles.statsTableRow, styles.statsTableHeaderRow]}>
-                        <Text style={[styles.statsTableCell, styles.statsTablePos, styles.statsTableHeaderCell]}>Pos.</Text>
-                        <Text style={[styles.statsTableCell, styles.statsTablePlayer, styles.statsTableHeaderCell]}>Giocatore</Text>
-                        <Text style={[styles.statsTableCell, styles.statsTableValue, styles.statsTableHeaderCell]}>Assist</Text>
-                      </View>
-                      {statsAssistmen.map((s, i) => (
-                        <View key={`as-${i}`} style={styles.statsTableRow}>
-                          <Text style={[styles.statsTableCell, styles.statsTablePos]}>{i + 1}</Text>
-                          <Text style={[styles.statsTableCell, styles.statsTablePlayer]} numberOfLines={1}>
-                            {String(s?.name || '-')}
-                          </Text>
-                          <Text style={[styles.statsTableCell, styles.statsTableValue]}>{Number(s?.value || 0)}</Text>
-                        </View>
-                      ))}
-                    </>
-                  )}
+                  {renderStatsLeaderboardTable(statsAssistmen, 'Assist', 'Nessun assist disponibile.', 'assistmen')}
                 </View>
 
                 <View style={styles.statsBlock}>
                   <Text style={styles.statsBlockTitle}>Presenze</Text>
-                  
-                  {(statsPresences || []).length === 0 ? (
-                    <Text style={styles.placeholderText}>Nessuna presenza con voto nel periodo selezionato.</Text>
-                  ) : (
-                    <>
-                      <View style={[styles.statsTableRow, styles.statsTableHeaderRow]}>
-                        <Text style={[styles.statsTableCell, styles.statsTablePos, styles.statsTableHeaderCell]}>Pos.</Text>
-                        <Text style={[styles.statsTableCell, styles.statsTablePlayer, styles.statsTableHeaderCell]}>Giocatore</Text>
-                        <Text style={[styles.statsTableCell, styles.statsTableValue, styles.statsTableHeaderCell]}>Pres.</Text>
-                      </View>
-                      {statsPresences.map((s, i) => (
-                        <View key={`pr-${i}`} style={styles.statsTableRow}>
-                          <Text style={[styles.statsTableCell, styles.statsTablePos]}>{i + 1}</Text>
-                          <Text style={[styles.statsTableCell, styles.statsTablePlayer]} numberOfLines={1}>
-                            {String(s?.name || '-')}
-                          </Text>
-                          <Text style={[styles.statsTableCell, styles.statsTableValue]}>{Number(s?.value || 0)}</Text>
-                        </View>
-                      ))}
-                    </>
+                  {renderStatsLeaderboardTable(
+                    statsPresences,
+                    'Pres.',
+                    'Nessuna presenza con voto nel periodo selezionato.',
+                    'presences'
                   )}
                 </View>
               </ScrollView>
@@ -1785,6 +1787,20 @@ const styles = StyleSheet.create({
     width: 46,
     textAlign: 'right',
     fontWeight: '700',
+  },
+  statsTableExpandBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingTop: 10,
+    paddingBottom: 4,
+    marginTop: 2,
+  },
+  statsTableExpandText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#111827',
   },
   placeholderTitle: { fontSize: 17, fontWeight: '800', color: '#222', marginBottom: 6 },
   placeholderText: { fontSize: 14, color: '#64748b' },
