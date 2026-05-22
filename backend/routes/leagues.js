@@ -177,7 +177,17 @@ function decodeCsvBuffer(buffer) {
   return textDecodeBadness(latin1Text) < textDecodeBadness(utf8Text) ? latin1Text : utf8Text;
 }
 
-const CSV_PLAYERS_HEADER = ['Nome', 'Cognome', 'Squadra', 'Ruolo', 'Valutazione', 'Numero'];
+const CSV_PLAYERS_HEADER = ['Nome', 'Cognome', 'Squadra', 'Ruolo', 'Valutazione', 'Numero', 'Anno'];
+
+function parseBirthYearInput(raw) {
+  const s = String(raw ?? '').trim();
+  if (!s) return { value: null };
+  if (!/^\d{4}$/.test(s)) return { error: 'invalid' };
+  const y = Number(s);
+  const maxY = new Date().getFullYear();
+  if (!Number.isFinite(y) || y < 1900 || y > maxY) return { error: 'range' };
+  return { value: y };
+}
 const CSV_TEAMS_HEADER = 'Squadra';
 
 function normalizeCsvDecimalString(value) {
@@ -216,6 +226,7 @@ function mapPlayerCsvRow(row) {
     role: String(row.ruolo || row.role || '').trim().toUpperCase(),
     ratingRaw: String(row.valutazione ?? row.rating ?? '').trim(),
     shirtRaw: String(row.numero ?? row.shirt_number ?? row.numero_maglia ?? '').trim(),
+    yearRaw: String(row.anno ?? row.birth_year ?? row.anno_nascita ?? row.year ?? '').trim(),
   };
 }
 
@@ -223,9 +234,21 @@ function getTeamNameFromCsvRow(row) {
   return String(row.squadra || row.name || row.team_name || '').trim();
 }
 
-async function insertCsvPlayer(teamId, firstName, lastName, role, rating, shirtNumber) {
+async function insertCsvPlayer(teamId, firstName, lastName, role, rating, shirtNumber, birthYear = null) {
   const runInsert = async (sql, params) => query(sql, params);
   const attempts = [
+    [
+      `INSERT INTO players (team_id, first_name, last_name, role, rating, shirt_number, birth_year) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [teamId, firstName, lastName, role, rating, shirtNumber, birthYear],
+    ],
+    [
+      `INSERT INTO players (team_id, first_name, last_name, role, rating, numero_maglia, birth_year) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [teamId, firstName, lastName, role, rating, shirtNumber, birthYear],
+    ],
+    [
+      `INSERT INTO players (team_id, first_name, last_name, role, rating, birth_year) VALUES (?, ?, ?, ?, ?, ?)`,
+      [teamId, firstName, lastName, role, rating, birthYear],
+    ],
     [
       `INSERT INTO players (team_id, first_name, last_name, role, rating, shirt_number) VALUES (?, ?, ?, ?, ?, ?)`,
       [teamId, firstName, lastName, role, rating, shirtNumber],
@@ -1929,7 +1952,8 @@ router.get('/:id/teams/:teamId/players', authenticateToken, async (req, res) => 
               ) AS shirt_number,
               COALESCE(p.is_injured, 0)::int AS is_injured,
               p.injury_replacement_player_id,
-              COALESCE(p.photo_path, '') AS photo_path
+              COALESCE(p.photo_path, '') AS photo_path,
+              p.birth_year
        FROM players p
        JOIN teams t ON t.id = p.team_id
        WHERE p.team_id = ? AND t.league_id = ?
@@ -1956,6 +1980,11 @@ router.post('/:id/teams/:teamId/players', authenticateToken, async (req, res) =>
     const shirtNumber = req.body?.shirt_number === '' || req.body?.shirt_number == null
       ? null
       : Number(req.body.shirt_number);
+    const birthYearParsed = parseBirthYearInput(req.body?.birth_year);
+    if (birthYearParsed.error) {
+      return res.status(400).json({ message: 'Anno di nascita non valido (usa 4 cifre, es. 1998)' });
+    }
+    const birthYear = birthYearParsed.value;
     if (!leagueId || !Number.isFinite(teamId) || !firstName || !lastName || !['P', 'D', 'C', 'A'].includes(role)) {
       return res.status(400).json({ message: 'Parametri non validi' });
     }
@@ -1966,10 +1995,10 @@ router.post('/:id/teams/:teamId/players', authenticateToken, async (req, res) =>
     try {
       try {
         ins = await query(
-          `INSERT INTO players (team_id, first_name, last_name, role, rating, shirt_number, is_injured, injury_replacement_player_id)
-           VALUES (?, ?, ?, ?, ?, ?, 0, NULL)
+          `INSERT INTO players (team_id, first_name, last_name, role, rating, shirt_number, birth_year, is_injured, injury_replacement_player_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 0, NULL)
            RETURNING id`,
-          [teamId, firstName, lastName, role, rating, shirtNumber]
+          [teamId, firstName, lastName, role, rating, shirtNumber, birthYear]
         );
       } catch (_) {
         try {
@@ -2019,13 +2048,18 @@ router.post('/:id/teams/:teamId/players', authenticateToken, async (req, res) =>
         throw insertErr;
       }
     }
+    const newPlayerId = Number(ins.insertId);
+    if (birthYear != null && Number.isFinite(newPlayerId) && newPlayerId > 0) {
+      await query(`UPDATE players SET birth_year = ? WHERE id = ?`, [birthYear, newPlayerId]).catch(() => {});
+    }
     res.status(201).json({
-      id: ins.insertId,
+      id: newPlayerId,
       first_name: firstName,
       last_name: lastName,
       role,
       rating,
       shirt_number: shirtNumber,
+      birth_year: birthYear,
     });
   } catch (error) {
     console.error('Add player to team error:', error);
@@ -2051,6 +2085,14 @@ router.put('/:id/teams/:teamId/players/:playerId', authenticateToken, async (req
     const shirtNumber = req.body?.shirt_number === '' || req.body?.shirt_number == null
       ? null
       : Number(req.body.shirt_number);
+    let birthYear = undefined;
+    if (req.body?.birth_year !== undefined) {
+      const birthYearParsed = parseBirthYearInput(req.body.birth_year);
+      if (birthYearParsed.error) {
+        return res.status(400).json({ message: 'Anno di nascita non valido (usa 4 cifre, es. 1998)' });
+      }
+      birthYear = birthYearParsed.value;
+    }
     if (!leagueId || !Number.isFinite(teamId) || !Number.isFinite(playerId)) {
       return res.status(400).json({ message: 'Parametri non validi' });
     }
@@ -2145,6 +2187,18 @@ router.put('/:id/teams/:teamId/players/:playerId', authenticateToken, async (req
             playerId, teamId, leagueId,
           ]
         );
+      }
+    }
+    if (birthYear !== undefined) {
+      try {
+        await query(`UPDATE players SET birth_year = ? WHERE id = ?`, [birthYear, playerId]);
+      } catch (birthErr) {
+        if (birthErr && birthErr.code === '42703') {
+          return res.status(500).json({
+            message: 'Colonna birth_year non trovata. Esegui la migrazione add_players_birth_year.sql su Supabase',
+          });
+        }
+        throw birthErr;
       }
     }
     res.json({ message: 'Giocatore aggiornato' });
@@ -3865,7 +3919,7 @@ router.get('/:id/csv/template/players', authenticateToken, async (req, res) => {
   if (!leagueId) return res.status(400).json({ message: 'League ID non valido' });
   return sendCsvResponse(res, `players_template_league_${leagueId}.csv`, [
     buildCsvLine(CSV_PLAYERS_HEADER),
-    buildCsvLine(['Mario', 'Rossi', 'Squadra 1', 'C', '10', '7']),
+    buildCsvLine(['Mario', 'Rossi', 'Squadra 1', 'C', '10', '7', '1998']),
   ]);
 });
 
@@ -3901,7 +3955,7 @@ router.get('/:id/csv/export/players', authenticateToken, async (req, res) => {
     try {
       players = await query(
         `SELECT p.first_name, p.last_name, t.name AS team_name, p.role,
-                COALESCE(p.rating, 0) AS rating, p.shirt_number
+                COALESCE(p.rating, 0) AS rating, p.shirt_number, p.birth_year
          FROM players p
          JOIN teams t ON t.id = p.team_id
          WHERE t.league_id = ?
@@ -3911,7 +3965,7 @@ router.get('/:id/csv/export/players', authenticateToken, async (req, res) => {
     } catch (_) {
       players = await query(
         `SELECT p.first_name, p.last_name, t.name AS team_name, p.role,
-                COALESCE(p.rating, 0) AS rating, NULL AS shirt_number
+                COALESCE(p.rating, 0) AS rating, NULL AS shirt_number, NULL AS birth_year
          FROM players p
          JOIN teams t ON t.id = p.team_id
          WHERE t.league_id = ?
@@ -3924,6 +3978,9 @@ router.get('/:id/csv/export/players', authenticateToken, async (req, res) => {
       const shirt = p.shirt_number != null && String(p.shirt_number).trim() !== ''
         ? String(Number(p.shirt_number))
         : '';
+      const year = p.birth_year != null && Number.isFinite(Number(p.birth_year))
+        ? String(Number(p.birth_year))
+        : '';
       lines.push(buildCsvLine([
         p.first_name,
         p.last_name,
@@ -3931,6 +3988,7 @@ router.get('/:id/csv/export/players', authenticateToken, async (req, res) => {
         p.role,
         Number(p.rating || 0),
         shirt,
+        year,
       ]));
     }
     return sendCsvResponse(res, `players_league_${leagueId}.csv`, lines);
@@ -3997,7 +4055,7 @@ router.post('/:id/csv/import', authenticateToken, csvUpload.single('csv_file'), 
     for (let i = 0; i < rows.length; i += 1) {
       const rowNum = i + 2;
       const mapped = mapPlayerCsvRow(rows[i]);
-      const { teamName, firstName, lastName, role, ratingRaw, shirtRaw } = mapped;
+      const { teamName, firstName, lastName, role, ratingRaw, shirtRaw, yearRaw } = mapped;
 
       if (!teamName || !firstName || !lastName || !['P', 'D', 'C', 'A'].includes(role)) {
         skipped += 1;
@@ -4020,9 +4078,25 @@ router.post('/:id/csv/import', authenticateToken, csvUpload.single('csv_file'), 
         }
         continue;
       }
+      if (yearRaw !== '' && !isStrictNumericCsvValue(yearRaw, { integerOnly: true })) {
+        skipped += 1;
+        if (errors.length < 50) {
+          errors.push(`Riga ${rowNum}: anno non valido (${yearRaw})`);
+        }
+        continue;
+      }
+      const birthYearParsed = parseBirthYearInput(yearRaw);
+      if (birthYearParsed.error) {
+        skipped += 1;
+        if (errors.length < 50) {
+          errors.push(`Riga ${rowNum}: anno di nascita non valido (${yearRaw})`);
+        }
+        continue;
+      }
 
       const rating = parseCsvDecimal(ratingRaw);
       const shirtNumber = shirtRaw === '' ? null : Number(shirtRaw);
+      const birthYear = birthYearParsed.value;
 
       let team = await query(
         `SELECT id FROM teams WHERE league_id = ? AND LOWER(name) = LOWER(?) LIMIT 1`,
@@ -4064,24 +4138,31 @@ router.post('/:id/csv/import', authenticateToken, csvUpload.single('csv_file'), 
         const playerId = Number(existingPlayer[0].id);
         try {
           await query(
-            `UPDATE players SET rating = ?, shirt_number = ? WHERE id = ?`,
-            [rating, shirtNumber, playerId]
+            `UPDATE players SET rating = ?, shirt_number = ?, birth_year = ? WHERE id = ?`,
+            [rating, shirtNumber, birthYear, playerId]
           );
         } catch (_) {
           try {
             await query(
-              `UPDATE players SET rating = ?, numero_maglia = ? WHERE id = ?`,
-              [rating, shirtNumber, playerId]
+              `UPDATE players SET rating = ?, numero_maglia = ?, birth_year = ? WHERE id = ?`,
+              [rating, shirtNumber, birthYear, playerId]
             );
           } catch (__) {
-            await query(`UPDATE players SET rating = ? WHERE id = ?`, [rating, playerId]).catch(() => {});
+            try {
+              await query(
+                `UPDATE players SET rating = ?, birth_year = ? WHERE id = ?`,
+                [rating, birthYear, playerId]
+              );
+            } catch (___) {
+              await query(`UPDATE players SET rating = ? WHERE id = ?`, [rating, playerId]).catch(() => {});
+            }
           }
         }
         skipped += 1;
         continue;
       }
 
-      await insertCsvPlayer(teamId, firstName, lastName, role, rating, shirtNumber);
+      await insertCsvPlayer(teamId, firstName, lastName, role, rating, shirtNumber, birthYear);
       playersCreated += 1;
     }
 

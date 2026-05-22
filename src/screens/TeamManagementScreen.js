@@ -96,6 +96,7 @@ export default function TeamManagementScreen({ route, navigation }) {
   const [role, setRole] = useState('P');
   const [rating, setRating] = useState('');
   const [shirtNumber, setShirtNumber] = useState('');
+  const [birthYear, setBirthYear] = useState('');
   const [selectedTeamId, setSelectedTeamId] = useState(null);
   const [isInjured, setIsInjured] = useState(false);
   const [replacementPlayerId, setReplacementPlayerId] = useState(null);
@@ -125,6 +126,7 @@ export default function TeamManagementScreen({ route, navigation }) {
   const lastNameInputRef = useRef(null);
   const ratingInputRef = useRef(null);
   const shirtNumberInputRef = useRef(null);
+  const birthYearInputRef = useRef(null);
   const editModalScrollRef = useRef(null);
   const editFieldYRef = useRef({});
 
@@ -136,6 +138,7 @@ export default function TeamManagementScreen({ route, navigation }) {
     setRole('P');
     setRating('');
     setShirtNumber('');
+    setBirthYear('');
     setSelectedTeamId(null);
     setIsInjured(false);
     setReplacementPlayerId(null);
@@ -518,6 +521,11 @@ export default function TeamManagementScreen({ route, navigation }) {
     setRole(player.role || 'P');
     setRating(ratingValue);
     setShirtNumber(player.shirt_number === null || typeof player.shirt_number === 'undefined' ? '' : String(player.shirt_number));
+    setBirthYear(
+      player.birth_year != null && Number.isFinite(Number(player.birth_year))
+        ? String(Number(player.birth_year))
+        : ''
+    );
     setSelectedTeamId(teamId);
     setIsInjured(Number(player?.is_injured || 0) === 1);
     setReplacementPlayerId(player?.injury_replacement_player_id ? Number(player.injury_replacement_player_id) : null);
@@ -553,6 +561,11 @@ export default function TeamManagementScreen({ route, navigation }) {
       showToast('Se il giocatore è infortunato seleziona un sostituto');
       return;
     }
+    const yearTrim = String(birthYear || '').trim();
+    if (yearTrim && (!/^\d{4}$/.test(yearTrim) || Number(yearTrim) < 1900 || Number(yearTrim) > new Date().getFullYear())) {
+      showToast('Anno di nascita non valido (4 cifre, es. 1998)');
+      return;
+    }
 
     try {
       setSaving(true);
@@ -566,6 +579,7 @@ export default function TeamManagementScreen({ route, navigation }) {
         role: role,
         rating: parseFloat(rating),
         shirt_number: shirtNumber === '' ? null : Number(shirtNumber),
+        birth_year: yearTrim === '' ? null : Number(yearTrim),
         is_injured: isInjured ? 1 : 0,
         injury_replacement_player_id: isInjured ? replacementPlayerId : null,
       };
@@ -1625,9 +1639,32 @@ export default function TeamManagementScreen({ route, navigation }) {
                     keyboardType="number-pad"
                     editable={!isReadOnlyObserver}
                     selectTextOnFocus
+                    returnKeyType="next"
+                    blurOnSubmit={false}
+                    onSubmitEditing={() => birthYearInputRef.current?.focus()}
+                    onFocus={() => scrollToEditField('shirtNumber')}
+                  />
+                </View>
+                <View
+                  style={styles.formGroup}
+                  onLayout={(e) => {
+                    editFieldYRef.current.birthYear = e.nativeEvent.layout.y;
+                  }}
+                >
+                  <Text style={styles.label}>Anno di nascita (opzionale)</Text>
+                  <TextInput
+                    ref={birthYearInputRef}
+                    style={styles.inputLarge}
+                    value={birthYear}
+                    onChangeText={setBirthYear}
+                    placeholder="es. 1998"
+                    keyboardType="number-pad"
+                    maxLength={4}
+                    editable={!isReadOnlyObserver}
+                    selectTextOnFocus
                     returnKeyType="done"
                     onSubmitEditing={handleSavePlayer}
-                    onFocus={() => scrollToEditField('shirtNumber')}
+                    onFocus={() => scrollToEditField('birthYear')}
                   />
                 </View>
                 <View style={styles.formGroup}>
