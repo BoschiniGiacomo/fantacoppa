@@ -3562,17 +3562,43 @@ router.put('/admin/matches/:matchId', authenticateToken, requireSuperuserLevels(
   }
 });
 
-// PUT /admin/matches/:matchId/meta — venue/referee/stage
+// PUT /admin/matches/:matchId/meta — venue/referee/stage/kickoff (kickoff opzionale)
 router.put('/admin/matches/:matchId/meta', authenticateToken, requireSuperuserLevels([1, 2]), async (req, res) => {
   try {
     const matchId = Number(req.params.matchId);
+    if (!matchId) return res.status(400).json({ message: 'ID partita non valido' });
+
     const venue = req.body?.venue != null ? String(req.body.venue).trim() : null;
     const referee = req.body?.referee != null ? String(req.body.referee).trim() : null;
-    const { stageId: matchStageId } = await resolveMatchStageInput(req.body?.match_stage_id);
-    await query(
-      `UPDATE official_matches SET venue = ?, referee = ?, match_stage_id = ? WHERE id = ?`,
-      [venue, referee, matchStageId, matchId]
-    );
+    const updateKickoff = req.body?.kickoff_at !== undefined;
+    const kickoffAt = updateKickoff ? String(req.body.kickoff_at || '').trim() : null;
+    if (updateKickoff && !kickoffAt) {
+      return res.status(400).json({ message: 'Data e ora non validi' });
+    }
+
+    let matchStageId = null;
+    if (req.body?.match_stage_id !== undefined) {
+      const resolved = await resolveMatchStageInput(req.body.match_stage_id);
+      matchStageId = resolved.stageId;
+    } else {
+      const stageRows = await query(
+        `SELECT NULLIF(to_jsonb(m)->>'match_stage_id','')::int AS match_stage_id
+         FROM official_matches m
+         WHERE m.id = ?
+         LIMIT 1`,
+        [matchId]
+      );
+      matchStageId = stageRows[0]?.match_stage_id != null ? Number(stageRows[0].match_stage_id) : null;
+    }
+
+    const sets = ['venue = ?', 'referee = ?', 'match_stage_id = ?'];
+    const params = [venue, referee, matchStageId];
+    if (updateKickoff) {
+      sets.push(`kickoff_at = (?::timestamp AT TIME ZONE 'Europe/Rome')`);
+      params.push(kickoffAt);
+    }
+    params.push(matchId);
+    await query(`UPDATE official_matches SET ${sets.join(', ')} WHERE id = ?`, params);
     return res.json({ ok: true });
   } catch (err) {
     if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);

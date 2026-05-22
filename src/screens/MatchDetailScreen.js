@@ -7,6 +7,7 @@ import {
   Image,
   Keyboard,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -20,7 +21,8 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
-import { adminMatchesService, matchesService } from '../services/api';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import { adminMatchDetailsService, adminMatchesService, matchesService } from '../services/api';
 import { TeamLogoImage } from '../components/StableCachedImage';
 import BonusIcon from '../components/BonusIcon';
 import {
@@ -82,6 +84,32 @@ function formatOverviewKickoffLine(dateStr) {
   const hm = formatHHmm(dateStr);
   const showTime = hm !== '--:--' && (d.getHours() !== 0 || d.getMinutes() !== 0);
   return showTime ? `${dateLabel} ${hm}` : dateLabel;
+}
+
+function parseSqlDateTime(value) {
+  if (!value) return new Date();
+  const d = parseAppDate(value);
+  return !d || Number.isNaN(d.getTime()) ? new Date() : d;
+}
+
+function formatSqlDateTime(dateObj) {
+  const y = dateObj.getFullYear();
+  const m = `${dateObj.getMonth() + 1}`.padStart(2, '0');
+  const d = `${dateObj.getDate()}`.padStart(2, '0');
+  const hh = `${dateObj.getHours()}`.padStart(2, '0');
+  const mm = `${dateObj.getMinutes()}`.padStart(2, '0');
+  const ss = `${dateObj.getSeconds()}`.padStart(2, '0');
+  return `${y}-${m}-${d} ${hh}:${mm}:${ss}`;
+}
+
+function formatOverviewEditorDateTime(sqlDateTime) {
+  const dt = parseSqlDateTime(sqlDateTime);
+  const dd = `${dt.getDate()}`.padStart(2, '0');
+  const mm = `${dt.getMonth() + 1}`.padStart(2, '0');
+  const yyyy = dt.getFullYear();
+  const hh = `${dt.getHours()}`.padStart(2, '0');
+  const min = `${dt.getMinutes()}`.padStart(2, '0');
+  return `${dd}/${mm}/${yyyy} ${hh}:${min}`;
 }
 
 function isEnabledFlag(v) {
@@ -1138,6 +1166,16 @@ export default function MatchDetailScreen({ navigation, route }) {
   const eventWizardScrollRef = useRef(null);
   const [matchEndClock, setMatchEndClock] = useState('');
   const [timingOpen, setTimingOpen] = useState(false);
+  const [showOverviewEditor, setShowOverviewEditor] = useState(false);
+  const [overviewKickoffAt, setOverviewKickoffAt] = useState('');
+  const [overviewKickoffDateObj, setOverviewKickoffDateObj] = useState(new Date());
+  const [overviewKickoffPickerMode, setOverviewKickoffPickerMode] = useState('date');
+  const [showOverviewKickoffPicker, setShowOverviewKickoffPicker] = useState(false);
+  const [overviewVenue, setOverviewVenue] = useState('');
+  const [overviewReferee, setOverviewReferee] = useState('');
+  const [overviewDetailsOptions, setOverviewDetailsOptions] = useState({ venues: [], referees: [] });
+  const [loadingOverviewOptions, setLoadingOverviewOptions] = useState(false);
+  const [savingOverviewMeta, setSavingOverviewMeta] = useState(false);
   const [editorModalTab, setEditorModalTab] = useState('events');
   /** Se true, il campo Minuto negli eventi non segue più il cronometro live. */
   const [eventMinuteDirty, setEventMinuteDirty] = useState(false);
@@ -1584,9 +1622,114 @@ export default function MatchDetailScreen({ navigation, route }) {
       ? insets.bottom + 72
       : activeTab === 'lineup'
         ? Math.max(insets.bottom, 28) + (canManageLive ? 88 : 32)
-        : activeTab === 'standings'
-          ? Math.max(insets.bottom, 28) + 18
-        : undefined;
+        : activeTab === 'overview' && canManageLive
+          ? Math.max(insets.bottom, 28) + 88
+          : activeTab === 'standings'
+            ? Math.max(insets.bottom, 28) + 18
+            : undefined;
+
+  const loadOverviewEditorOptions = useCallback(async () => {
+    try {
+      setLoadingOverviewOptions(true);
+      const res = await adminMatchDetailsService.getAll();
+      setOverviewDetailsOptions({
+        venues: Array.isArray(res?.data?.venues) ? res.data.venues : [],
+        referees: Array.isArray(res?.data?.referees) ? res.data.referees : [],
+      });
+    } catch {
+      setOverviewDetailsOptions({ venues: [], referees: [] });
+    } finally {
+      setLoadingOverviewOptions(false);
+    }
+  }, []);
+
+  const closeOverviewEditor = useCallback(() => {
+    setShowOverviewEditor(false);
+    setShowOverviewKickoffPicker(false);
+  }, []);
+
+  const openOverviewEditor = useCallback(() => {
+    const m = data?.match;
+    if (!m?.id) return;
+    const parsed = parseSqlDateTime(String(m.kickoff_at || ''));
+    setOverviewKickoffDateObj(parsed);
+    setOverviewKickoffAt(formatSqlDateTime(parsed));
+    setOverviewVenue(String(m.venue || '').trim());
+    setOverviewReferee(String(m.referee || '').trim());
+    setShowOverviewEditor(true);
+    void loadOverviewEditorOptions();
+  }, [data?.match, loadOverviewEditorOptions]);
+
+  const onOverviewKickoffChange = useCallback((event, selectedDate) => {
+    if (Platform.OS === 'android') {
+      setShowOverviewKickoffPicker(false);
+      if (event?.type === 'dismissed') return;
+    }
+    if (!selectedDate) return;
+    setOverviewKickoffDateObj((prev) => {
+      const next = new Date(prev);
+      if (overviewKickoffPickerMode === 'date') {
+        next.setFullYear(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate());
+      } else {
+        next.setHours(selectedDate.getHours(), selectedDate.getMinutes(), 0, 0);
+      }
+      setOverviewKickoffAt(formatSqlDateTime(next));
+      return next;
+    });
+  }, [overviewKickoffPickerMode]);
+
+  const overviewVenueOptions = useMemo(() => {
+    const list = Array.isArray(overviewDetailsOptions.venues) ? overviewDetailsOptions.venues : [];
+    const current = String(overviewVenue || '').trim();
+    if (current && !list.some((v) => String(v?.name || '').trim() === current)) {
+      return [{ id: 'current-venue', name: current }, ...list];
+    }
+    return list;
+  }, [overviewDetailsOptions.venues, overviewVenue]);
+
+  const overviewRefereeOptions = useMemo(() => {
+    const list = Array.isArray(overviewDetailsOptions.referees) ? overviewDetailsOptions.referees : [];
+    const current = String(overviewReferee || '').trim();
+    if (current && !list.some((r) => String(r?.name || '').trim() === current)) {
+      return [{ id: 'current-ref', name: current }, ...list];
+    }
+    return list;
+  }, [overviewDetailsOptions.referees, overviewReferee]);
+
+  const saveOverviewMeta = useCallback(async () => {
+    const m = data?.match;
+    if (!m?.id || savingOverviewMeta) return;
+    const kickoffClean = String(overviewKickoffAt || '').trim();
+    if (!kickoffClean) {
+      Alert.alert('Errore', 'Indica data e ora della partita.');
+      return;
+    }
+    try {
+      setSavingOverviewMeta(true);
+      await adminMatchesService.updateMeta(m.id, {
+        kickoff_at: kickoffClean,
+        venue: overviewVenue,
+        referee: overviewReferee,
+      });
+      closeOverviewEditor();
+      await loadDetail({ showLoading: false });
+      Alert.alert('Salvato', 'Dettagli partita aggiornati.');
+    } catch (err) {
+      const body = err?.response?.data;
+      const msg = body?.message || err?.message || 'Salvataggio non riuscito';
+      Alert.alert('Errore', String(msg));
+    } finally {
+      setSavingOverviewMeta(false);
+    }
+  }, [
+    closeOverviewEditor,
+    data?.match,
+    loadDetail,
+    overviewKickoffAt,
+    overviewReferee,
+    overviewVenue,
+    savingOverviewMeta,
+  ]);
 
   const openPlayerStatsFromLineup = (p, displayName, leagueIdRaw) => {
     const pid = p?.id != null ? Number(p.id) : 0;
@@ -2259,7 +2402,7 @@ export default function MatchDetailScreen({ navigation, route }) {
               <Text style={[styles.th, { width: 32, textAlign: 'center' }]}>GF</Text>
               <Text style={[styles.th, { width: 32, textAlign: 'center' }]}>GS</Text>
               <Text style={[styles.th, { width: 32, textAlign: 'center' }]}>DR</Text>
-              <Text style={[styles.th, { width: 32, textAlign: 'center' }]}>PT</Text>
+              <Text style={[styles.th, styles.standingsThPt, { width: 32, textAlign: 'center' }]}>PT</Text>
             </View>
             {block.standings.map((r, i) => (
               <View key={`${block.key}-st-${i}`} style={styles.tableRow}>
@@ -2279,7 +2422,7 @@ export default function MatchDetailScreen({ navigation, route }) {
                 <Text style={[styles.td, { width: 32, textAlign: 'center' }]}>{r.gf ?? 0}</Text>
                 <Text style={[styles.td, { width: 32, textAlign: 'center' }]}>{r.gs ?? r.ga ?? 0}</Text>
                 <Text style={[styles.td, { width: 32, textAlign: 'center' }]}>{r.goal_diff}</Text>
-                <Text style={[styles.td, { width: 32, textAlign: 'center' }]}>{r.points}</Text>
+                <Text style={[styles.td, styles.standingsTdPt, { width: 32, textAlign: 'center' }]}>{r.points}</Text>
               </View>
             ))}
           </View>
@@ -2835,6 +2978,17 @@ export default function MatchDetailScreen({ navigation, route }) {
           </>
         )}
       </ScrollView>
+
+      {activeTab === 'overview' && canManageLive ? (
+        <TouchableOpacity
+          style={[styles.liveFab, { bottom: Math.max(insets.bottom, 12) + 8, right: 16 }]}
+          activeOpacity={0.85}
+          onPress={openOverviewEditor}
+          accessibilityLabel="Modifica dettagli partita"
+        >
+          <MaterialCommunityIcons name="pencil" size={22} color="#fff" />
+        </TouchableOpacity>
+      ) : null}
 
       {activeTab === 'lineup' && canManageLive ? (
         <>
@@ -3917,6 +4071,7 @@ export default function MatchDetailScreen({ navigation, route }) {
               </View>
             </View>
           </Modal>
+
           <Modal
             visible={confirmEndMatchOpen}
             transparent
@@ -4056,6 +4211,112 @@ export default function MatchDetailScreen({ navigation, route }) {
               </View>
             </View>
           </Modal>
+        </>
+      ) : null}
+
+      {canManageLive ? (
+        <>
+          <Modal visible={showOverviewEditor} animationType="slide" transparent onRequestClose={closeOverviewEditor}>
+            <View style={styles.eventModalRoot}>
+              <Pressable style={styles.eventModalBackdrop} onPress={closeOverviewEditor} />
+              <View style={[styles.eventModalSheet, { paddingBottom: Math.max(insets.bottom, 12) + 12 }]}>
+                <View style={styles.eventModalHeader}>
+                  <Text style={styles.eventModalTitle}>Modifica partita</Text>
+                  <TouchableOpacity onPress={closeOverviewEditor} style={styles.eventModalClose} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+                    <Ionicons name="close" size={26} color="#333" />
+                  </TouchableOpacity>
+                </View>
+                <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+                  <Text style={styles.editorLabel}>Data e ora</Text>
+                  <Text style={styles.overviewKickoffPreview}>{formatOverviewEditorDateTime(overviewKickoffAt)}</Text>
+                  <View style={styles.overviewDatetimeRow}>
+                    <TouchableOpacity
+                      style={styles.overviewDatetimeBtn}
+                      onPress={() => {
+                        setOverviewKickoffPickerMode('date');
+                        setShowOverviewKickoffPicker(true);
+                      }}
+                    >
+                      <Ionicons name="calendar-outline" size={16} color="#667eea" />
+                      <Text style={styles.overviewDatetimeBtnText}>Data</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.overviewDatetimeBtn}
+                      onPress={() => {
+                        setOverviewKickoffPickerMode('time');
+                        setShowOverviewKickoffPicker(true);
+                      }}
+                    >
+                      <Ionicons name="time-outline" size={16} color="#667eea" />
+                      <Text style={styles.overviewDatetimeBtnText}>Ora</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  <Text style={styles.editorLabel}>Stadio</Text>
+                  {loadingOverviewOptions ? (
+                    <ActivityIndicator color="#667eea" style={{ marginVertical: 8 }} />
+                  ) : (
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                      <View style={styles.overviewChipRow}>
+                        {overviewVenueOptions.map((v) => (
+                          <TouchableOpacity
+                            key={`ov-venue-${v.id}`}
+                            style={[styles.overviewChip, overviewVenue === v.name && styles.overviewChipActive]}
+                            onPress={() => setOverviewVenue(v.name)}
+                          >
+                            <Text style={[styles.overviewChipText, overviewVenue === v.name && styles.overviewChipTextActive]}>
+                              {v.name}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    </ScrollView>
+                  )}
+
+                  <Text style={styles.editorLabel}>Arbitro</Text>
+                  {loadingOverviewOptions ? null : (
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                      <View style={styles.overviewChipRow}>
+                        <TouchableOpacity
+                          style={[styles.overviewChip, !overviewReferee && styles.overviewChipActive]}
+                          onPress={() => setOverviewReferee('')}
+                        >
+                          <Text style={[styles.overviewChipText, !overviewReferee && styles.overviewChipTextActive]}>-</Text>
+                        </TouchableOpacity>
+                        {overviewRefereeOptions.map((r) => (
+                          <TouchableOpacity
+                            key={`ov-ref-${r.id}`}
+                            style={[styles.overviewChip, overviewReferee === r.name && styles.overviewChipActive]}
+                            onPress={() => setOverviewReferee(r.name)}
+                          >
+                            <Text style={[styles.overviewChipText, overviewReferee === r.name && styles.overviewChipTextActive]}>
+                              {r.name}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    </ScrollView>
+                  )}
+
+                  <TouchableOpacity
+                    style={[styles.primaryBtn, savingOverviewMeta && styles.actionBtnDisabled]}
+                    disabled={savingOverviewMeta}
+                    onPress={() => void saveOverviewMeta()}
+                  >
+                    <Text style={styles.primaryBtnText}>{savingOverviewMeta ? 'Salvataggio...' : 'Salva modifiche'}</Text>
+                  </TouchableOpacity>
+                </ScrollView>
+              </View>
+            </View>
+          </Modal>
+          {showOverviewEditor && showOverviewKickoffPicker ? (
+            <DateTimePicker
+              value={overviewKickoffDateObj}
+              mode={overviewKickoffPickerMode}
+              display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+              onChange={onOverviewKickoffChange}
+            />
+          ) : null}
         </>
       ) : null}
     </View>
@@ -4420,6 +4681,33 @@ const styles = StyleSheet.create({
   lineupPlayerNameTextWithActionAway: { textAlign: 'right', paddingRight: 1 },
   lineupPlayerNameTextCompact: { fontSize: 13 },
   editorLabel: { fontSize: 12, color: '#666', marginBottom: 6, marginTop: 6 },
+  overviewKickoffPreview: { fontSize: 15, fontWeight: '700', color: '#1f2937', marginBottom: 8 },
+  overviewDatetimeRow: { flexDirection: 'row', gap: 10, marginBottom: 12 },
+  overviewDatetimeBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#c7d2fe',
+    backgroundColor: '#eef2ff',
+  },
+  overviewDatetimeBtnText: { color: '#4f46e5', fontWeight: '700', fontSize: 14 },
+  overviewChipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingBottom: 8 },
+  overviewChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    backgroundColor: '#fff',
+  },
+  overviewChipActive: { borderColor: '#667eea', backgroundColor: '#eef2ff' },
+  overviewChipText: { color: '#475569', fontWeight: '600', fontSize: 13 },
+  overviewChipTextActive: { color: '#667eea', fontWeight: '800' },
   matchEndScoreHint: { fontSize: 12, color: '#555', marginTop: 8, lineHeight: 18 },
   phaseMinuteLabelBelow: { marginTop: 16 },
   phaseMinuteHint: { fontSize: 12, color: '#666', marginBottom: 8, lineHeight: 17 },
@@ -4986,6 +5274,8 @@ const styles = StyleSheet.create({
   tableLogo: { width: 36, height: 36 },
   tableLogoFallback: { width: 36, height: 36, borderRadius: 8, backgroundColor: '#eef2ff', alignItems: 'center', justifyContent: 'center' },
   th: { fontWeight: '700', color: '#555', fontSize: 13 },
+  standingsThPt: { fontWeight: '800' },
   td: { color: '#222', fontSize: 14 },
+  standingsTdPt: { fontWeight: '800' },
   tdTeamName: { flex: 1, flexShrink: 1, fontWeight: '600' },
 });
