@@ -622,6 +622,7 @@ export const adminMatchDetailsService = {
   getAll: () => api.get('admin/match-details'),
   createVenue: (name) => api.post('admin/match-details/venues', { name }),
   createReferee: (name) => api.post('admin/match-details/referees', { name }),
+  updateReferee: (id, name) => api.put(`admin/match-details/referees/${id}`, { name }),
   /** `defaults`: preset durata/supplementari/rigori (stessi campi restituiti dal GET stages) */
   createStage: (name, defaults = {}) => api.post('admin/match-details/stages', { name, ...defaults }),
   updateStageTimingDefaults: (stageId, defaults) => api.put(`admin/match-details/stages/${stageId}`, defaults),

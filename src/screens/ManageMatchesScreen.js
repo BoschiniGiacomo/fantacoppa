@@ -153,6 +153,10 @@ export default function ManageMatchesScreen() {
   const [newRefereeName, setNewRefereeName] = useState('');
   const [newStageName, setNewStageName] = useState('');
   const [refereeListOpen, setRefereeListOpen] = useState(false);
+  const [editingRefereeId, setEditingRefereeId] = useState(null);
+  const [refereeEditDraft, setRefereeEditDraft] = useState('');
+  const [refereeEditOriginal, setRefereeEditOriginal] = useState('');
+  const [savingRefereeId, setSavingRefereeId] = useState(null);
   const [standingsTies, setStandingsTies] = useState([]);
   const [tieOrders, setTieOrders] = useState({});
 
@@ -994,10 +998,65 @@ export default function ManageMatchesScreen() {
       if (type === 'venues') await adminMatchDetailsService.removeVenue(id);
       if (type === 'referees') await adminMatchDetailsService.removeReferee(id);
       if (type === 'stages') await adminMatchDetailsService.removeStage(id);
+      if (type === 'referees' && Number(editingRefereeId) === Number(id)) {
+        setEditingRefereeId(null);
+        setRefereeEditDraft('');
+        setRefereeEditOriginal('');
+      }
       await loadMatchDetailsOptions();
       showToast('Valore eliminato', 'success');
     } catch (e) {
       showToast(e?.response?.data?.message || e?.message || 'Eliminazione non riuscita');
+    }
+  };
+
+  const startEditReferee = (ref) => {
+    const id = Number(ref?.id);
+    if (!Number.isFinite(id) || id <= 0) return;
+    if (
+      editingRefereeId != null
+      && editingRefereeId !== id
+      && String(refereeEditDraft || '').trim() !== String(refereeEditOriginal || '').trim()
+    ) {
+      showToast('Salva o annulla la modifica in corso');
+      return;
+    }
+    setEditingRefereeId(id);
+    setRefereeEditDraft(String(ref?.name || ''));
+    setRefereeEditOriginal(String(ref?.name || ''));
+  };
+
+  const cancelEditReferee = () => {
+    setEditingRefereeId(null);
+    setRefereeEditDraft('');
+    setRefereeEditOriginal('');
+  };
+
+  const saveRefereeEdit = async (id) => {
+    const rid = Number(id);
+    const clean = String(refereeEditDraft || '').trim();
+    if (!Number.isFinite(rid) || rid <= 0) return;
+    if (!clean) {
+      showToast('Inserisci un nome valido');
+      return;
+    }
+    if (clean === String(refereeEditOriginal || '').trim()) {
+      cancelEditReferee();
+      return;
+    }
+    setSavingRefereeId(rid);
+    try {
+      await adminMatchDetailsService.updateReferee(rid, clean);
+      if (String(referee || '').trim() === String(refereeEditOriginal || '').trim()) {
+        setReferee(clean);
+      }
+      await loadMatchDetailsOptions();
+      cancelEditReferee();
+      showToast('Arbitro aggiornato', 'success');
+    } catch (e) {
+      showToast(e?.response?.data?.message || e?.message || 'Salvataggio non riuscito');
+    } finally {
+      setSavingRefereeId(null);
     }
   };
 
@@ -1446,27 +1505,71 @@ export default function ManageMatchesScreen() {
                 {(matchDetailsOptions.referees || []).length === 0 ? (
                   <Text style={styles.muted}>Nessun arbitro inserito.</Text>
                 ) : (
-                  (matchDetailsOptions.referees || []).map((r) => (
-                    <TouchableOpacity
-                      key={`manage-ref-${r.id}`}
-                      style={styles.refereeDeleteRow}
-                      onPress={() =>
-                        setConfirmModal({
-                          title: 'Elimina arbitro',
-                          message: `Eliminare "${r.name}"?`,
-                          confirmText: 'Elimina',
-                          destructive: true,
-                          onConfirm: async () => {
-                            setConfirmModal(null);
-                            await removeMatchDetailOption('referees', Number(r.id));
-                          },
-                        })
-                      }
-                    >
-                      <Text style={styles.refereeDeleteName} numberOfLines={1}>{r.name}</Text>
-                      <Text style={styles.refereeDeleteIcon}>✕</Text>
-                    </TouchableOpacity>
-                  ))
+                  (matchDetailsOptions.referees || []).map((r) => {
+                    const rid = Number(r.id);
+                    const isEditing = editingRefereeId === rid;
+                    const isDirty = isEditing && String(refereeEditDraft || '').trim() !== String(refereeEditOriginal || '').trim();
+                    const isSaving = savingRefereeId === rid;
+                    return (
+                      <View key={`manage-ref-${r.id}`} style={styles.refereeDeleteRow}>
+                        {isEditing ? (
+                          <TextInput
+                            style={[styles.refereeDeleteName, styles.refereeEditInput]}
+                            value={refereeEditDraft}
+                            onChangeText={setRefereeEditDraft}
+                            placeholder="Nome arbitro"
+                            autoFocus
+                            editable={!isSaving}
+                          />
+                        ) : (
+                          <Text style={styles.refereeDeleteName} numberOfLines={2}>{r.name}</Text>
+                        )}
+                        <View style={styles.refereeRowActions}>
+                          <TouchableOpacity
+                            style={[styles.refereeIconBtn, isDirty && styles.refereeIconBtnSave]}
+                            disabled={isSaving}
+                            onPress={() => {
+                              if (isEditing && isDirty) {
+                                saveRefereeEdit(rid);
+                              } else if (isEditing) {
+                                cancelEditReferee();
+                              } else {
+                                startEditReferee(r);
+                              }
+                            }}
+                          >
+                            {isSaving ? (
+                              <ActivityIndicator size="small" color={isDirty ? '#fff' : '#667eea'} />
+                            ) : (
+                              <Ionicons
+                                name={isDirty ? 'checkmark' : 'pencil'}
+                                size={18}
+                                color={isDirty ? '#fff' : '#667eea'}
+                              />
+                            )}
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={styles.refereeIconBtnDanger}
+                            disabled={isSaving}
+                            onPress={() =>
+                              setConfirmModal({
+                                title: 'Elimina arbitro',
+                                message: `Eliminare "${r.name}"?`,
+                                confirmText: 'Elimina',
+                                destructive: true,
+                                onConfirm: async () => {
+                                  setConfirmModal(null);
+                                  await removeMatchDetailOption('referees', rid);
+                                },
+                              })
+                            }
+                          >
+                            <Text style={styles.refereeDeleteIcon}>✕</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    );
+                  })
                 )}
               </View>
             ) : null}
@@ -2418,9 +2521,9 @@ const styles = StyleSheet.create({
   refereeList: { gap: 8, paddingVertical: 4 },
   refereeDeleteRow: {
     borderWidth: 1,
-    borderColor: '#f0b7bb',
+    borderColor: '#e2e8f0',
     borderRadius: 12,
-    backgroundColor: '#fff5f6',
+    backgroundColor: '#f8fafc',
     paddingHorizontal: 12,
     paddingVertical: 10,
     flexDirection: 'row',
@@ -2428,7 +2531,42 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 10,
   },
-  refereeDeleteName: { flex: 1, color: '#7f1d1d', fontSize: 13, fontWeight: '700' },
+  refereeDeleteName: { flex: 1, color: '#334155', fontSize: 13, fontWeight: '700' },
+  refereeEditInput: {
+    color: '#0f172a',
+    borderWidth: 1,
+    borderColor: '#c7d2fe',
+    borderRadius: 8,
+    backgroundColor: '#fff',
+    paddingHorizontal: 10,
+    paddingVertical: Platform.OS === 'ios' ? 8 : 6,
+    marginRight: 4,
+  },
+  refereeRowActions: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  refereeIconBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#c7d2fe',
+    backgroundColor: '#eef2ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  refereeIconBtnSave: {
+    backgroundColor: '#667eea',
+    borderColor: '#667eea',
+  },
+  refereeIconBtnDanger: {
+    width: 34,
+    height: 34,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#f0b7bb',
+    backgroundColor: '#fff5f6',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   refereeDeleteIcon: { color: '#b42318', fontSize: 14, fontWeight: '900' },
   primaryBtn: { backgroundColor: '#667eea', borderRadius: 8, alignItems: 'center', paddingVertical: 11, marginTop: 12 },
   primaryBtnDisabled: { opacity: 0.45 },

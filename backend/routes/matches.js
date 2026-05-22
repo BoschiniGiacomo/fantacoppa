@@ -3988,6 +3988,31 @@ router.post('/admin/match-details/referees', authenticateToken, requireSuperuser
     return res.status(500).json({ message: 'Errore creazione referee', error: err.message });
   }
 });
+router.put('/admin/match-details/referees/:id', authenticateToken, requireSuperuserLevels([1]), async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const name = String(req.body?.name || '').trim();
+    if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ message: 'id non valido' });
+    if (!name) return res.status(400).json({ message: 'name mancante' });
+
+    const oldRows = await query(
+      `SELECT name FROM official_match_referees WHERE id = ? LIMIT 1`,
+      [id]
+    );
+    if (!oldRows.length) return res.status(404).json({ message: 'Arbitro non trovato' });
+
+    const oldName = String(oldRows[0]?.name || '').trim();
+    await query(`UPDATE official_match_referees SET name = ? WHERE id = ?`, [name, id]);
+    if (oldName && oldName !== name) {
+      await query(`UPDATE official_matches SET referee = ? WHERE referee = ?`, [name, oldName]);
+    }
+    return res.json({ ok: true, id, name });
+  } catch (err) {
+    if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
+    if (err?.code === '23505') return res.status(409).json({ message: 'Arbitro già presente' });
+    return res.status(500).json({ message: 'Errore aggiornamento referee', error: err.message });
+  }
+});
 router.delete('/admin/match-details/referees/:id', authenticateToken, requireSuperuserLevels([1]), async (req, res) => {
   try {
     const id = Number(req.params.id);
