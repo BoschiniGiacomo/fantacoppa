@@ -1,6 +1,9 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Dimensions,
+  Keyboard,
+  KeyboardAvoidingView,
   Modal,
   Platform,
   RefreshControl,
@@ -157,6 +160,11 @@ export default function ManageMatchesScreen() {
   const [refereeEditDraft, setRefereeEditDraft] = useState('');
   const [refereeEditOriginal, setRefereeEditOriginal] = useState('');
   const [savingRefereeId, setSavingRefereeId] = useState(null);
+  const mainScrollRef = useRef(null);
+  const scrollContentRef = useRef(null);
+  const refereeRowRefs = useRef({});
+  const scrollYRef = useRef(0);
+  const keyboardHeightRef = useRef(Platform.OS === 'ios' ? 320 : 280);
   const [standingsTies, setStandingsTies] = useState([]);
   const [tieOrders, setTieOrders] = useState({});
 
@@ -1010,6 +1018,57 @@ export default function ManageMatchesScreen() {
     }
   };
 
+  const scrollToRefereeEdit = useCallback((refereeId) => {
+    const rid = String(refereeId);
+    const rowRef = refereeRowRefs.current[rid];
+    if (!rowRef || !mainScrollRef.current) return;
+
+    const run = () => {
+      rowRef.measureInWindow((_x, winY, _w, h) => {
+        const kb = keyboardHeightRef.current || 300;
+        const visibleBottom = Dimensions.get('window').height - kb - insets.bottom - 16;
+        const headerTop = insets.top + 96;
+        let nextY = scrollYRef.current;
+        if (winY + h > visibleBottom) {
+          nextY += winY + h - visibleBottom + 36;
+        } else if (winY < headerTop) {
+          nextY -= headerTop - winY + 20;
+        }
+        if (nextY !== scrollYRef.current) {
+          mainScrollRef.current?.scrollTo({ y: Math.max(0, nextY), animated: true });
+        }
+      });
+    };
+
+    requestAnimationFrame(() => {
+      run();
+      setTimeout(run, 100);
+      setTimeout(run, 320);
+    });
+  }, [insets.top, insets.bottom]);
+
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSub = Keyboard.addListener(showEvent, (e) => {
+      keyboardHeightRef.current = Number(e?.endCoordinates?.height || 280);
+      if (editingRefereeId != null) scrollToRefereeEdit(editingRefereeId);
+    });
+    const hideSub = Keyboard.addListener(hideEvent, () => {
+      keyboardHeightRef.current = 0;
+    });
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [editingRefereeId, scrollToRefereeEdit]);
+
+  useEffect(() => {
+    if (editingRefereeId == null) return;
+    if (!refereeListOpen) setRefereeListOpen(true);
+    scrollToRefereeEdit(editingRefereeId);
+  }, [editingRefereeId, refereeListOpen, scrollToRefereeEdit]);
+
   const startEditReferee = (ref) => {
     const id = Number(ref?.id);
     if (!Number.isFinite(id) || id <= 0) return;
@@ -1021,6 +1080,7 @@ export default function ManageMatchesScreen() {
       showToast('Salva o annulla la modifica in corso');
       return;
     }
+    if (!refereeListOpen) setRefereeListOpen(true);
     setEditingRefereeId(id);
     setRefereeEditDraft(String(ref?.name || ''));
     setRefereeEditOriginal(String(ref?.name || ''));
@@ -1173,11 +1233,24 @@ export default function ManageMatchesScreen() {
         )}
       </ScrollView>
 
+      <KeyboardAvoidingView
+        style={styles.contentAvoid}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top + 52 : 0}
+      >
       <ScrollView
+        ref={mainScrollRef}
         style={styles.content}
         contentContainerStyle={{ paddingBottom: 28 }}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        onScroll={(e) => {
+          scrollYRef.current = e.nativeEvent.contentOffset.y;
+        }}
+        scrollEventThrottle={16}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
+        <View ref={scrollContentRef} collapsable={false}>
         {activeTab === 'matches' && (
           <>
             <View style={styles.matchesTopBar}>
@@ -1511,7 +1584,15 @@ export default function ManageMatchesScreen() {
                     const isDirty = isEditing && String(refereeEditDraft || '').trim() !== String(refereeEditOriginal || '').trim();
                     const isSaving = savingRefereeId === rid;
                     return (
-                      <View key={`manage-ref-${r.id}`} style={styles.refereeDeleteRow}>
+                      <View
+                        key={`manage-ref-${r.id}`}
+                        ref={(node) => {
+                          if (node) refereeRowRefs.current[String(rid)] = node;
+                          else delete refereeRowRefs.current[String(rid)];
+                        }}
+                        style={styles.refereeDeleteRow}
+                        collapsable={false}
+                      >
                         {isEditing ? (
                           <TextInput
                             style={[styles.refereeDeleteName, styles.refereeEditInput]}
@@ -1520,6 +1601,7 @@ export default function ManageMatchesScreen() {
                             placeholder="Nome arbitro"
                             autoFocus
                             editable={!isSaving}
+                            onFocus={() => scrollToRefereeEdit(rid)}
                           />
                         ) : (
                           <Text style={styles.refereeDeleteName} numberOfLines={2}>{r.name}</Text>
@@ -1716,7 +1798,9 @@ export default function ManageMatchesScreen() {
             })}
           </View>
         )}
+        </View>
       </ScrollView>
+      </KeyboardAvoidingView>
       <Modal
         visible={showCreateMatchForm}
         transparent
@@ -2356,6 +2440,7 @@ export default function ManageMatchesScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f5f5f5' },
+  contentAvoid: { flex: 1 },
   header: {
     backgroundColor: '#fff',
     borderBottomWidth: 1,
