@@ -75,6 +75,20 @@ function formatClusterPlayerRole(role) {
   return CLUSTER_ROLE_LABEL[code] ? `${CLUSTER_ROLE_LABEL[code]} (${code})` : code;
 }
 
+function formatBirthYear(value) {
+  const y = Number(value);
+  if (!Number.isFinite(y) || y < 1900) return null;
+  return String(y);
+}
+
+function summarizeBirthYears(leagues) {
+  const years = [...new Set(
+    (leagues || []).map((l) => formatBirthYear(l.birth_year)).filter(Boolean)
+  )];
+  if (!years.length) return null;
+  return years.length === 1 ? years[0] : years.join(' / ');
+}
+
 function buildApprovedClustersByPlayer(allClusters) {
   const playersMap = new Map();
   for (const cluster of allClusters) {
@@ -101,6 +115,7 @@ function buildApprovedClustersByPlayer(allClusters) {
           cluster_id: clusterId,
           team_name: player.team_name || '',
           role: player.role || null,
+          birth_year: player.birth_year != null ? Number(player.birth_year) : null,
         });
       }
       if (!playerData.clusters.some((c) => c.id === clusterId)) {
@@ -393,24 +408,85 @@ export default function SuperUserScreen() {
     });
   };
   
-  // Crea cluster da suggerimento
-  const handleApproveSuggestion = async (suggestion, groupId) => {
-    try {
-      const allPlayerIds = [
-        ...(suggestion.existing_leagues || []).map((l) => l.player_id),
-        ...(suggestion.all_new_player_ids || []),
-      ];
-      await superuserService.approveSuggestion({
-        official_group_id: groupId,
-        cluster_id: suggestion.cluster_id || null,
-        player_ids: allPlayerIds,
-      });
-      showToast('Cluster approvato', 'success');
-      await loadClusterSuggestions(groupId);
-      await loadClusters(groupId, clusterFilterStatus);
-    } catch (error) {
-      showToast(error.response?.data?.message || 'Errore approvazione');
+  const showBirthYearPropagationConfirm = ({ birthYear, missingCount, onApplyAll, onAddOnly }) => {
+    const countLabel = missingCount === 1 ? '1 giocatore' : `${missingCount} giocatori`;
+    setConfirmModal({
+      title: 'Anno di nascita del cluster',
+      message:
+        `Nel cluster ci sono ancora ${countLabel} senza anno di nascita. ` +
+        `Quello che stai aggiungendo ha anno ${birthYear}.\n\n` +
+        `Vuoi impostare ${birthYear} come anno di nascita per tutti i giocatori del cluster?`,
+      confirmText: `Applica ${birthYear} a tutti`,
+      secondaryText: 'Aggiungi senza aggiornare',
+      onConfirm: async () => {
+        setConfirmModal(null);
+        await onApplyAll();
+      },
+      onSecondary: async () => {
+        setConfirmModal(null);
+        await onAddOnly();
+      },
+    });
+  };
+
+  const executeApproveSuggestion = async (suggestion, groupId, applyBirthYearToCluster) => {
+    const allPlayerIds = [
+      ...(suggestion.existing_leagues || []).map((l) => l.player_id),
+      ...(suggestion.all_new_player_ids || []),
+    ];
+    const payload = {
+      official_group_id: groupId,
+      cluster_id: suggestion.cluster_id || null,
+      player_ids: allPlayerIds,
+    };
+    if (applyBirthYearToCluster === true || applyBirthYearToCluster === false) {
+      payload.apply_birth_year_to_cluster = applyBirthYearToCluster;
     }
+    const res = await superuserService.approveSuggestion(payload);
+    showToast(res.data?.message || 'Cluster approvato', 'success');
+    await loadClusterSuggestions(groupId);
+    await loadClusters(groupId, clusterFilterStatus);
+  };
+
+  const handleApproveSuggestion = (suggestion, groupId) => {
+    const birthYear = suggestion.birth_year;
+    const missingInCluster = (suggestion.missing_birth_year_in_cluster || []).length;
+    const missingInNew = (suggestion.missing_birth_year_new || []).length;
+    const hasNewWithYear = (suggestion.new_leagues || []).some((l) => l.birth_year === birthYear);
+    const needsPrompt =
+      birthYear != null
+      && hasNewWithYear
+      && (suggestion.cluster_id ? missingInCluster > 0 : missingInCluster + missingInNew > 0);
+
+    const run = async (applyBirthYearToCluster) => {
+      try {
+        await executeApproveSuggestion(suggestion, groupId, applyBirthYearToCluster);
+      } catch (error) {
+        const data = error.response?.data;
+        if (error.response?.status === 409 && data?.code === 'CONFIRM_BIRTH_YEAR_PROPAGATION') {
+          showBirthYearPropagationConfirm({
+            birthYear: data.birth_year,
+            missingCount: data.missing_count,
+            onApplyAll: () => run(true),
+            onAddOnly: () => run(false),
+          });
+          return;
+        }
+        showToast(data?.message || 'Errore approvazione');
+      }
+    };
+
+    if (needsPrompt) {
+      const missingCount = suggestion.cluster_id ? missingInCluster : missingInCluster + missingInNew;
+      showBirthYearPropagationConfirm({
+        birthYear,
+        missingCount,
+        onApplyAll: () => run(true),
+        onAddOnly: () => run(false),
+      });
+      return;
+    }
+    run(undefined);
   };
 
   const handleDismissSuggestion = async (suggestion, groupId) => {
@@ -556,42 +632,84 @@ export default function SuperUserScreen() {
     }
   };
   
+  const executeAddPlayerToCluster = async (clusterId, playerId, applyBirthYearToCluster, afterSuccess) => {
+    const options =
+      applyBirthYearToCluster === true || applyBirthYearToCluster === false
+        ? { apply_birth_year_to_cluster: applyBirthYearToCluster }
+        : {};
+    const res = await superuserService.addPlayerToCluster(clusterId, playerId, options);
+    showToast(res.data?.message || 'Giocatore aggiunto al cluster', 'success');
+    if (afterSuccess) await afterSuccess();
+  };
+
   // Aggiungi giocatore al cluster approvato
-  const handleAddPlayerToApprovedCluster = async (playerToAdd) => {
+  const handleAddPlayerToApprovedCluster = (playerToAdd) => {
     if (!selectedPlayerCluster || !playerToAdd) return;
-    
-    try {
-      // Trova il cluster approvato del giocatore (il primo cluster approvato)
-      const playerCluster = selectedPlayerCluster.clusters && selectedPlayerCluster.clusters.length > 0 
-        ? selectedPlayerCluster.clusters[0] 
+
+    const playerCluster =
+      selectedPlayerCluster.clusters && selectedPlayerCluster.clusters.length > 0
+        ? selectedPlayerCluster.clusters[0]
         : null;
-      
-      if (!playerCluster || !playerCluster.id) {
-        showToast('Cluster non trovato');
-        return;
-      }
-      
-      // Aggiungi il giocatore al cluster
-      await superuserService.addPlayerToCluster(playerCluster.id, playerToAdd.id);
-      
-      showToast('Giocatore aggiunto al cluster', 'success');
-      
+
+    if (!playerCluster?.id) {
+      showToast('Cluster non trovato');
+      return;
+    }
+
+    const playerBirthYear =
+      playerToAdd.birth_year != null && Number.isFinite(Number(playerToAdd.birth_year))
+        ? Number(playerToAdd.birth_year)
+        : null;
+    const missingInCluster = (selectedPlayerCluster.leagues || []).filter(
+      (l) => l.birth_year == null || l.birth_year === ''
+    ).length;
+
+    const afterSuccess = async () => {
       await refreshSelectedPlayerClusterAfterChange(selectedPlayerCluster.name);
-      
-      // Rimuovi il giocatore dalla lista disponibili
-      setAvailablePlayersToAdd(prev => {
-        const updated = prev.filter(p => p.id !== playerToAdd.id);
-        // Se non ci sono più giocatori disponibili, chiudi la sezione e nascondi il pulsante
+      setAvailablePlayersToAdd((prev) => {
+        const updated = prev.filter((p) => p.id !== playerToAdd.id);
         if (updated.length === 0) {
           setShowAddPlayers(false);
           setHasAvailablePlayers(false);
         }
         return updated;
       });
-    } catch (error) {
-      console.error('Error adding player to cluster:', error);
-      showToast(error.response?.data?.message || 'Errore durante l\'aggiunta del giocatore');
+    };
+
+    const run = async (applyBirthYearToCluster) => {
+      try {
+        await executeAddPlayerToCluster(
+          playerCluster.id,
+          playerToAdd.id,
+          applyBirthYearToCluster,
+          afterSuccess
+        );
+      } catch (error) {
+        const data = error.response?.data;
+        if (error.response?.status === 409 && data?.code === 'CONFIRM_BIRTH_YEAR_PROPAGATION') {
+          showBirthYearPropagationConfirm({
+            birthYear: data.birth_year,
+            missingCount: data.missing_count,
+            onApplyAll: () => run(true),
+            onAddOnly: () => run(false),
+          });
+          return;
+        }
+        console.error('Error adding player to cluster:', error);
+        showToast(data?.message || 'Errore durante l\'aggiunta del giocatore');
+      }
+    };
+
+    if (playerBirthYear && missingInCluster > 0) {
+      showBirthYearPropagationConfirm({
+        birthYear: playerBirthYear,
+        missingCount: missingInCluster,
+        onApplyAll: () => run(true),
+        onAddOnly: () => run(false),
+      });
+      return;
     }
+    run(undefined);
   };
   
   // Crea cluster manuale
@@ -618,16 +736,29 @@ export default function SuperUserScreen() {
     }
   };
   
-  // Aggiungi giocatore a cluster esistente
-  const handleAddPlayerToCluster = async (clusterId, playerId, groupId) => {
-    try {
-      await superuserService.addPlayerToCluster(clusterId, playerId);
-      showToast('Giocatore aggiunto al cluster', 'success');
-      await loadClusters(groupId, clusterFilterStatus);
-    } catch (error) {
-      console.error('Error adding player to cluster:', error);
-      showToast(error.response?.data?.message || 'Errore durante l\'aggiunta');
-    }
+  // Aggiungi giocatore a cluster esistente (lista cluster)
+  const handleAddPlayerToCluster = (clusterId, playerId, groupId) => {
+    const run = async (applyBirthYearToCluster) => {
+      try {
+        await executeAddPlayerToCluster(clusterId, playerId, applyBirthYearToCluster, async () => {
+          await loadClusters(groupId, clusterFilterStatus);
+        });
+      } catch (error) {
+        const data = error.response?.data;
+        if (error.response?.status === 409 && data?.code === 'CONFIRM_BIRTH_YEAR_PROPAGATION') {
+          showBirthYearPropagationConfirm({
+            birthYear: data.birth_year,
+            missingCount: data.missing_count,
+            onApplyAll: () => run(true),
+            onAddOnly: () => run(false),
+          });
+          return;
+        }
+        console.error('Error adding player to cluster:', error);
+        showToast(data?.message || 'Errore durante l\'aggiunta');
+      }
+    };
+    run(undefined);
   };
   
   // Carica dati quando cambia tab
@@ -1783,6 +1914,11 @@ export default function SuperUserScreen() {
                   >
                     <View style={styles.playerClusterInfo}>
                       <Text style={styles.playerClusterName}>{item.name}</Text>
+                      {summarizeBirthYears(item.leagues) ? (
+                        <Text style={styles.playerClusterBirthYear}>
+                          Anno {summarizeBirthYears(item.leagues)}
+                        </Text>
+                      ) : null}
                       <Text style={styles.playerClusterLeaguesCount}>
                         {item.leagues.length} {item.leagues.length === 1 ? 'lega' : 'leghe'}
                       </Text>
@@ -2576,7 +2712,10 @@ export default function SuperUserScreen() {
                         <ActivityIndicator size="small" color="#667eea" style={{ padding: 20 }} />
                       ) : filteredSuggestions.length > 0 ? (
                         filteredSuggestions.map((suggestion, index) => (
-                          <View key={index} style={styles.suggestionRow}>
+                          <View
+                            key={`${suggestion.name}-${suggestion.birth_year || 'no-year'}-${index}`}
+                            style={styles.suggestionRow}
+                          >
                             <View style={styles.suggestionInfo}>
                               <Text style={styles.suggestionPlayerName}>{suggestion.name}</Text>
                               <Text style={styles.suggestionLeagueLabel}>
@@ -2589,6 +2728,21 @@ export default function SuperUserScreen() {
                               {suggestion.role_changed && (
                                 <Text style={styles.suggestionRoleWarning}>⚠ Ruolo diverso tra le leghe</Text>
                               )}
+                              {suggestion.birth_year ? (
+                                <Text style={styles.suggestionBirthYearRef}>
+                                  Anno di nascita: {suggestion.birth_year}
+                                </Text>
+                              ) : null}
+                              {(suggestion.missing_birth_year_in_cluster || []).length > 0 ? (
+                                <Text style={styles.suggestionBirthYearWarning}>
+                                  ⚠ In cluster senza anno: {(suggestion.missing_birth_year_in_cluster || []).map((l) => l.league_name).join(', ')}
+                                </Text>
+                              ) : null}
+                              {(suggestion.missing_birth_year_new || []).length > 0 ? (
+                                <Text style={styles.suggestionBirthYearWarning}>
+                                  ⚠ Da associare senza anno: {(suggestion.missing_birth_year_new || []).map((l) => l.league_name).join(', ')}
+                                </Text>
+                              ) : null}
                             </View>
                             <View style={styles.suggestionActions}>
                               <TouchableOpacity
@@ -2791,9 +2945,16 @@ export default function SuperUserScreen() {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>
-                {selectedPlayerCluster?.name || 'Dettagli Giocatore'}
-              </Text>
+              <View style={{ flex: 1, paddingRight: 8 }}>
+                <Text style={styles.modalTitle}>
+                  {selectedPlayerCluster?.name || 'Dettagli Giocatore'}
+                </Text>
+                {selectedPlayerCluster && summarizeBirthYears(selectedPlayerCluster.leagues) ? (
+                  <Text style={styles.modalTitleSub}>
+                    Anno di nascita: {summarizeBirthYears(selectedPlayerCluster.leagues)}
+                  </Text>
+                ) : null}
+              </View>
               <TouchableOpacity
                 onPress={() => {
                   setShowPlayerClusterDetail(false);
@@ -2821,7 +2982,10 @@ export default function SuperUserScreen() {
                         <View key={index} style={styles.availablePlayerItem}>
                           <View style={styles.availablePlayerInfo}>
                             <Text style={styles.availablePlayerName}>{playerFullName}</Text>
-                            <Text style={styles.availablePlayerLeague}>{player.league_name}</Text>
+                            <Text style={styles.availablePlayerLeague}>
+                              {player.league_name}
+                              {formatBirthYear(player.birth_year) ? ` • Anno ${formatBirthYear(player.birth_year)}` : ''}
+                            </Text>
                           </View>
                           <TouchableOpacity
                             style={styles.addToClusterButton}
@@ -2864,6 +3028,9 @@ export default function SuperUserScreen() {
                             </Text>
                             <Text style={styles.clusterLeagueRoleText}>
                               {formatClusterPlayerRole(league.role)}
+                            </Text>
+                            <Text style={styles.clusterLeagueBirthYearText}>
+                              Anno: {formatBirthYear(league.birth_year) || '—'}
                             </Text>
                           </View>
                           <TouchableOpacity
@@ -2941,6 +3108,11 @@ export default function SuperUserScreen() {
               <TouchableOpacity style={styles.confirmBtnCancel} onPress={() => setConfirmModal(null)}>
                 <Text style={styles.confirmBtnCancelText}>Annulla</Text>
               </TouchableOpacity>
+              {confirmModal?.secondaryText ? (
+                <TouchableOpacity style={styles.confirmBtnSecondary} onPress={() => confirmModal?.onSecondary?.()}>
+                  <Text style={styles.confirmBtnSecondaryText}>{confirmModal.secondaryText}</Text>
+                </TouchableOpacity>
+              ) : null}
               <TouchableOpacity style={[styles.confirmBtnAction, confirmModal?.destructive && { backgroundColor: '#e53935' }]} onPress={() => confirmModal?.onConfirm?.()}>
                 <Text style={styles.confirmBtnActionText}>{confirmModal?.confirmText || 'Conferma'}</Text>
               </TouchableOpacity>
@@ -3376,6 +3548,12 @@ const styles = StyleSheet.create({
     color: '#333',
     marginBottom: 4,
   },
+  playerClusterBirthYear: {
+    fontSize: 12,
+    color: '#667eea',
+    fontWeight: '600',
+    marginBottom: 2,
+  },
   playerClusterLeaguesCount: {
     fontSize: 13,
     color: '#666',
@@ -3508,6 +3686,12 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     color: '#333',
+  },
+  modalTitleSub: {
+    fontSize: 13,
+    color: '#667eea',
+    fontWeight: '600',
+    marginTop: 4,
   },
   modalSubtitle: {
     fontSize: 14,
@@ -3660,6 +3844,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: '#333',
+  },
+  clusterLeagueBirthYearText: {
+    fontSize: 12,
+    color: '#555',
+    marginTop: 2,
   },
   clusterLeagueRoleText: {
     fontSize: 12,
@@ -3867,6 +4056,18 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginTop: 2,
   },
+  suggestionBirthYearRef: {
+    fontSize: 11,
+    color: '#667eea',
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  suggestionBirthYearWarning: {
+    fontSize: 11,
+    color: '#b45309',
+    fontWeight: '600',
+    marginTop: 2,
+  },
   suggestionActions: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -4050,11 +4251,13 @@ const styles = StyleSheet.create({
   },
   confirmTitle: { fontSize: 20, fontWeight: 'bold', color: '#333', marginBottom: 8, textAlign: 'center' },
   confirmMessage: { fontSize: 14, color: '#666', textAlign: 'center', lineHeight: 20, marginBottom: 20 },
-  confirmButtons: { flexDirection: 'row', gap: 12, width: '100%' },
-  confirmBtnCancel: { flex: 1, paddingVertical: 12, borderRadius: 8, alignItems: 'center', backgroundColor: '#f0f0f0' },
-  confirmBtnCancelText: { color: '#333', fontSize: 16, fontWeight: '600' },
-  confirmBtnAction: { flex: 1, paddingVertical: 12, borderRadius: 8, alignItems: 'center', backgroundColor: '#667eea' },
-  confirmBtnActionText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  confirmButtons: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, width: '100%' },
+  confirmBtnCancel: { flexGrow: 1, flexBasis: '30%', minWidth: 100, paddingVertical: 12, borderRadius: 8, alignItems: 'center', backgroundColor: '#f0f0f0' },
+  confirmBtnCancelText: { color: '#333', fontSize: 14, fontWeight: '600' },
+  confirmBtnSecondary: { flexGrow: 1, flexBasis: '30%', minWidth: 100, paddingVertical: 12, borderRadius: 8, alignItems: 'center', backgroundColor: '#fff', borderWidth: 1, borderColor: '#667eea' },
+  confirmBtnSecondaryText: { color: '#667eea', fontSize: 13, fontWeight: '600', textAlign: 'center' },
+  confirmBtnAction: { flexGrow: 1, flexBasis: '30%', minWidth: 100, paddingVertical: 12, borderRadius: 8, alignItems: 'center', backgroundColor: '#667eea' },
+  confirmBtnActionText: { color: '#fff', fontSize: 13, fontWeight: '600', textAlign: 'center' },
   appSettingsRoot: {
     flex: 1,
     backgroundColor: '#f4f5fa',

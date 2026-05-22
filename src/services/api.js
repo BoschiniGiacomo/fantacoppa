@@ -673,7 +673,13 @@ export const superuserService = {
   createPlayerCluster: (data) => api.post('/superuser/player-clusters', data),
   approvePlayerCluster: (clusterId) => api.put(`/superuser/player-clusters/${clusterId}/approve`),
   rejectPlayerCluster: (clusterId) => api.put(`/superuser/player-clusters/${clusterId}/reject`),
-  addPlayerToCluster: (clusterId, playerId) => api.post(`/superuser/player-clusters/${clusterId}/players`, { player_id: playerId }),
+  addPlayerToCluster: (clusterId, playerId, options = {}) => {
+    const body = { player_id: playerId };
+    if (options.apply_birth_year_to_cluster === true || options.apply_birth_year_to_cluster === false) {
+      body.apply_birth_year_to_cluster = options.apply_birth_year_to_cluster;
+    }
+    return api.post(`/superuser/player-clusters/${clusterId}/players`, body);
+  },
   removePlayerFromCluster: (clusterId, playerId) =>
     api.delete(`/superuser/player-clusters/${encodeURIComponent(Number(clusterId))}/players/${encodeURIComponent(Number(playerId))}`),
   getPlayerClusters: (groupId, status) => {

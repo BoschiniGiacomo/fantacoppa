@@ -168,6 +168,9 @@ function mapClusterPlayerRow(p) {
     last_name: p.last_name,
     full_name: `${first} ${last}`.trim(),
     role: p.role || null,
+    birth_year: p.birth_year != null && Number.isFinite(Number(p.birth_year))
+      ? Number(p.birth_year)
+      : null,
     league_id: Number(p.league_id || 0),
     league_name: p.league_name || '',
     team_name: p.team_name || '',
@@ -178,6 +181,234 @@ function parseClusterPlayersJson(raw) {
   if (!raw) return [];
   if (Array.isArray(raw)) return raw.map(mapClusterPlayerRow).filter(Boolean);
   return [];
+}
+
+function normalizePlayerBirthYear(player) {
+  const y = Number(player?.birth_year);
+  if (!Number.isFinite(y) || y < 1900) return null;
+  const maxY = new Date().getFullYear();
+  if (y > maxY) return null;
+  return y;
+}
+
+function buildSuggestionLeagueEntry(player) {
+  return {
+    player_id: Number(player.id),
+    league_id: Number(player.league_id),
+    league_name: player.league_name || '-',
+    role: player.role || null,
+    birth_year: normalizePlayerBirthYear(player),
+  };
+}
+
+function buildClusterSuggestion(fullName, players, approvedPlayerMap, rejectedPlayerIds) {
+  const nonRejected = (players || []).filter((p) => !rejectedPlayerIds.has(Number(p.id)));
+  if (nonRejected.length < 2) return null;
+
+  const existingLeagues = [];
+  const newLeagues = [];
+  let clusterId = null;
+  const rolesSet = new Set();
+  const definedYears = new Set();
+
+  for (const p of nonRejected) {
+    const pid = Number(p.id);
+    const birthYear = normalizePlayerBirthYear(p);
+    if (birthYear != null) definedYears.add(birthYear);
+    rolesSet.add(String(p.role || '').trim().toUpperCase());
+    const entry = buildSuggestionLeagueEntry(p);
+    if (approvedPlayerMap.has(pid)) {
+      if (!clusterId) clusterId = approvedPlayerMap.get(pid);
+      existingLeagues.push(entry);
+    } else {
+      newLeagues.push(entry);
+    }
+  }
+
+  if (newLeagues.length === 0) return null;
+
+  const missingInCluster = existingLeagues.filter((l) => l.birth_year == null);
+  const missingInNew = newLeagues.filter((l) => l.birth_year == null);
+
+  return {
+    name: fullName,
+    cluster_id: clusterId,
+    role_changed: rolesSet.size > 1,
+    birth_year: definedYears.size === 1 ? [...definedYears][0] : null,
+    existing_leagues: existingLeagues,
+    new_leagues: newLeagues,
+    all_new_player_ids: newLeagues.map((l) => l.player_id),
+    missing_birth_year_in_cluster: missingInCluster,
+    missing_birth_year_new: missingInNew,
+  };
+}
+
+function pickPrimaryBirthYearBucket(withYearMap, approvedPlayerMap) {
+  let primaryYear = null;
+  let maxCount = 0;
+  for (const [year, list] of withYearMap) {
+    const hasApproved = list.some((p) => approvedPlayerMap.has(Number(p.id)));
+    if (hasApproved) return year;
+    if (list.length > maxCount) {
+      maxCount = list.length;
+      primaryYear = year;
+    }
+  }
+  return primaryYear;
+}
+
+function pushSuggestionsForNameGroup(players, approvedPlayerMap, rejectedPlayerIds, suggestions) {
+  const nonRejected = (players || []).filter((p) => !rejectedPlayerIds.has(Number(p.id)));
+  if (nonRejected.length < 2) return;
+
+  const first = nonRejected[0];
+  const fullName = `${String(first.first_name || '').trim()} ${String(first.last_name || '').trim()}`.trim();
+
+  const withYear = new Map();
+  const withoutYear = [];
+  for (const p of nonRejected) {
+    const y = normalizePlayerBirthYear(p);
+    if (y != null) {
+      if (!withYear.has(y)) withYear.set(y, []);
+      withYear.get(y).push(p);
+    } else {
+      withoutYear.push(p);
+    }
+  }
+
+  if (withYear.size === 0) {
+    const suggestion = buildClusterSuggestion(fullName, nonRejected, approvedPlayerMap, rejectedPlayerIds);
+    if (suggestion) suggestions.push(suggestion);
+    return;
+  }
+
+  const primaryYear = pickPrimaryBirthYearBucket(withYear, approvedPlayerMap);
+  let pushed = false;
+
+  for (const [year, list] of withYear) {
+    const canAttachUnknown = year === primaryYear
+      && (list.length >= 2 || list.some((p) => approvedPlayerMap.has(Number(p.id))));
+    const group = canAttachUnknown ? [...list, ...withoutYear] : [...list];
+    if (group.length < 2) continue;
+    const suggestion = buildClusterSuggestion(fullName, group, approvedPlayerMap, rejectedPlayerIds);
+    if (suggestion) {
+      suggestions.push(suggestion);
+      pushed = true;
+    }
+  }
+
+  const unknownAlreadyUsed = pushed && withoutYear.length > 0
+    && withYear.has(primaryYear)
+    && (withYear.get(primaryYear).length >= 2
+      || withYear.get(primaryYear).some((p) => approvedPlayerMap.has(Number(p.id))));
+
+  if (!unknownAlreadyUsed && withoutYear.length >= 2) {
+    const suggestion = buildClusterSuggestion(fullName, withoutYear, approvedPlayerMap, rejectedPlayerIds);
+    if (suggestion) suggestions.push(suggestion);
+  }
+}
+
+async function assertClusterPlayerBirthYearsCompatible(playerIds, existingClusterId = null) {
+  const ids = [...new Set((playerIds || []).map((v) => Number(v)).filter((v) => v > 0))];
+  if (existingClusterId) {
+    const memberRows = await query(
+      `SELECT p.id
+       FROM player_cluster_members pcm
+       JOIN players p ON p.id = pcm.player_id
+       WHERE pcm.cluster_id = ?`,
+      [existingClusterId]
+    );
+    (memberRows || []).forEach((r) => ids.push(Number(r.id)));
+  }
+  const uniqueIds = [...new Set(ids.filter((v) => v > 0))];
+  if (!uniqueIds.length) return;
+
+  const ph = uniqueIds.map(() => '?').join(', ');
+  const rows = await query(
+    `SELECT id, birth_year FROM players WHERE id IN (${ph})`,
+    uniqueIds
+  );
+  const years = new Set();
+  (rows || []).forEach((r) => {
+    const y = normalizePlayerBirthYear(r);
+    if (y != null) years.add(y);
+  });
+  if (years.size > 1) {
+    const err = new Error('BIRTH_YEAR_MISMATCH');
+    err.years = [...years];
+    throw err;
+  }
+}
+
+function parseApplyBirthYearToClusterFlag(body) {
+  if (body?.apply_birth_year_to_cluster === true) return true;
+  if (body?.apply_birth_year_to_cluster === false) return false;
+  return null;
+}
+
+async function getBirthYearPropagationContext(clusterId, playerIds) {
+  const ids = [...new Set((playerIds || []).map((v) => Number(v)).filter((v) => v > 0))];
+  if (!ids.length) return null;
+
+  const ph = ids.map(() => '?').join(', ');
+  const incomingRows = await query(
+    `SELECT id, birth_year FROM players WHERE id IN (${ph})`,
+    ids
+  );
+  const incomingYears = new Set();
+  (incomingRows || []).forEach((r) => {
+    const y = normalizePlayerBirthYear(r);
+    if (y != null) incomingYears.add(y);
+  });
+  if (incomingYears.size !== 1) return null;
+  const birthYear = [...incomingYears][0];
+
+  if (clusterId) {
+    const memberRows = await query(
+      `SELECT p.id, p.birth_year
+       FROM player_cluster_members pcm
+       JOIN players p ON p.id = pcm.player_id
+       WHERE pcm.cluster_id = ?`,
+      [clusterId]
+    );
+    const memberIds = new Set((memberRows || []).map((r) => Number(r.id)));
+    const missingInCluster = (memberRows || []).filter((r) => normalizePlayerBirthYear(r) == null);
+    if (!missingInCluster.length) return null;
+
+    const hasNewPlayerWithYear = (incomingRows || []).some((r) => {
+      const y = normalizePlayerBirthYear(r);
+      return y === birthYear && !memberIds.has(Number(r.id));
+    });
+    if (!hasNewPlayerWithYear) return null;
+
+    return {
+      birth_year: birthYear,
+      missing_count: missingInCluster.length,
+      cluster_id: clusterId,
+    };
+  }
+
+  const withoutYear = (incomingRows || []).filter((r) => normalizePlayerBirthYear(r) == null);
+  const withYear = (incomingRows || []).filter((r) => normalizePlayerBirthYear(r) === birthYear);
+  if (!withoutYear.length || !withYear.length) return null;
+
+  return {
+    birth_year: birthYear,
+    missing_count: withoutYear.length,
+    cluster_id: null,
+  };
+}
+
+async function propagateBirthYearToClusterMembers(clusterId, birthYear) {
+  if (!clusterId || birthYear == null) return;
+  await query(
+    `UPDATE players p
+     SET birth_year = ?
+     FROM player_cluster_members pcm
+     WHERE pcm.cluster_id = ?
+       AND pcm.player_id = p.id`,
+    [birthYear, clusterId]
+  );
 }
 
 async function loadClusterMeta(clusterId) {
@@ -622,7 +853,7 @@ router.get('/player-clusters/suggestions/:groupId', authenticateToken, requireSu
 
     // All players in the group's leagues with their league info
     const allPlayers = await query(
-      `SELECT p.id, p.first_name, p.last_name, p.role, t.league_id, l.name AS league_name
+      `SELECT p.id, p.first_name, p.last_name, p.role, p.birth_year, t.league_id, l.name AS league_name
        FROM players p
        JOIN teams t ON p.team_id = t.id
        JOIN leagues l ON t.league_id = l.id
@@ -657,42 +888,7 @@ router.get('/player-clusters/suggestions/:groupId', authenticateToken, requireSu
 
     const suggestions = [];
     for (const [, players] of nameGroups) {
-      if (players.length < 2) continue;
-
-      // Skip if ALL players are in a rejected cluster
-      const nonRejected = players.filter((p) => !rejectedPlayerIds.has(Number(p.id)));
-      if (nonRejected.length < 2) continue;
-
-      const existingLeagues = [];
-      const newLeagues = [];
-      let clusterId = null;
-
-      const rolesSet = new Set();
-      for (const p of nonRejected) {
-        const pid = Number(p.id);
-        const role = (p.role || '').trim().toUpperCase();
-        rolesSet.add(role);
-        if (approvedPlayerMap.has(pid)) {
-          if (!clusterId) clusterId = approvedPlayerMap.get(pid);
-          existingLeagues.push({ player_id: pid, league_id: Number(p.league_id), league_name: p.league_name || '-', role });
-        } else {
-          newLeagues.push({ player_id: pid, league_id: Number(p.league_id), league_name: p.league_name || '-', role });
-        }
-      }
-
-      if (newLeagues.length === 0) continue;
-
-      const first = nonRejected[0];
-      const fullName = `${(first.first_name || '').trim()} ${(first.last_name || '').trim()}`.trim();
-
-      suggestions.push({
-        name: fullName,
-        cluster_id: clusterId,
-        role_changed: rolesSet.size > 1,
-        existing_leagues: existingLeagues,
-        new_leagues: newLeagues,
-        all_new_player_ids: newLeagues.map((l) => l.player_id),
-      });
+      pushSuggestionsForNameGroup(players, approvedPlayerMap, rejectedPlayerIds, suggestions);
     }
 
     suggestions.sort((a, b) => a.name.localeCompare(b.name, 'it'));
@@ -713,6 +909,29 @@ router.post('/player-clusters/approve-suggestion', authenticateToken, requireSup
 
     if (!groupId || playerIds.length === 0) return res.status(400).json({ message: 'Dati non validi' });
 
+    try {
+      await assertClusterPlayerBirthYearsCompatible(playerIds, existingClusterId);
+    } catch (compatErr) {
+      if (compatErr?.message === 'BIRTH_YEAR_MISMATCH') {
+        return res.status(400).json({
+          message: 'Anni di nascita diversi: non puoi associare omonimi con anno diverso nello stesso cluster',
+          years: compatErr.years || [],
+        });
+      }
+      throw compatErr;
+    }
+
+    const applyBirthYear = parseApplyBirthYearToClusterFlag(req.body);
+    const propagationCtx = await getBirthYearPropagationContext(existingClusterId, playerIds);
+    if (propagationCtx && applyBirthYear === null) {
+      return res.status(409).json({
+        code: 'CONFIRM_BIRTH_YEAR_PROPAGATION',
+        message: 'Conferma se applicare l\'anno di nascita a tutto il cluster',
+        birth_year: propagationCtx.birth_year,
+        missing_count: propagationCtx.missing_count,
+      });
+    }
+
     if (existingClusterId) {
       for (const pid of playerIds) {
         const already = await query(
@@ -726,7 +945,16 @@ router.post('/player-clusters/approve-suggestion', authenticateToken, requireSup
           );
         }
       }
-      return res.json({ message: 'Giocatori aggiunti al cluster esistente', cluster_id: existingClusterId });
+      if (applyBirthYear === true && propagationCtx) {
+        await propagateBirthYearToClusterMembers(existingClusterId, propagationCtx.birth_year);
+      }
+      return res.json({
+        message: applyBirthYear === true
+          ? 'Giocatori aggiunti e anno di nascita aggiornato su tutto il cluster'
+          : 'Giocatori aggiunti al cluster esistente',
+        cluster_id: existingClusterId,
+        birth_year_applied: applyBirthYear === true,
+      });
     }
 
     let ins;
@@ -758,7 +986,16 @@ router.post('/player-clusters/approve-suggestion', authenticateToken, requireSup
         [clusterId, pid, userId]
       );
     }
-    return res.json({ message: 'Cluster creato e approvato', cluster_id: clusterId });
+    if (applyBirthYear === true && propagationCtx) {
+      await propagateBirthYearToClusterMembers(clusterId, propagationCtx.birth_year);
+    }
+    return res.json({
+      message: applyBirthYear === true
+        ? 'Cluster creato e anno di nascita impostato su tutti i giocatori'
+        : 'Cluster creato e approvato',
+      cluster_id: clusterId,
+      birth_year_applied: applyBirthYear === true,
+    });
   } catch (error) {
     return res.status(500).json({ message: 'Errore approvazione suggerimento', error: error.message });
   }
@@ -899,6 +1136,7 @@ router.get('/player-clusters/:groupId', authenticateToken, requireSuperuser, asy
                'first_name', p.first_name,
                'last_name', p.last_name,
                'role', p.role,
+               'birth_year', p.birth_year,
                'league_id', t.league_id,
                'league_name', l.name,
                'team_name', t.name
@@ -1059,13 +1297,45 @@ router.post('/player-clusters/:clusterId/players', authenticateToken, requireSup
     );
     if (alreadyIn.length > 0) return res.status(400).json({ message: 'Il giocatore è già nel cluster' });
 
+    try {
+      await assertClusterPlayerBirthYearsCompatible([playerId], clusterId);
+    } catch (compatErr) {
+      if (compatErr?.message === 'BIRTH_YEAR_MISMATCH') {
+        return res.status(400).json({
+          message: 'Anni di nascita diversi: non puoi associare omonimi con anno diverso nello stesso cluster',
+          years: compatErr.years || [],
+        });
+      }
+      throw compatErr;
+    }
+
+    const applyBirthYear = parseApplyBirthYearToClusterFlag(req.body);
+    const propagationCtx = await getBirthYearPropagationContext(clusterId, [playerId]);
+    if (propagationCtx && applyBirthYear === null) {
+      return res.status(409).json({
+        code: 'CONFIRM_BIRTH_YEAR_PROPAGATION',
+        message: 'Conferma se applicare l\'anno di nascita a tutto il cluster',
+        birth_year: propagationCtx.birth_year,
+        missing_count: propagationCtx.missing_count,
+      });
+    }
+
     await query(
       `INSERT INTO player_cluster_members (cluster_id, player_id, added_by)
        VALUES (?, ?, ?)`,
       [clusterId, playerId, userId]
     );
 
-    return res.json({ message: 'Giocatore aggiunto al cluster con successo' });
+    if (applyBirthYear === true && propagationCtx) {
+      await propagateBirthYearToClusterMembers(clusterId, propagationCtx.birth_year);
+    }
+
+    return res.json({
+      message: applyBirthYear === true
+        ? 'Giocatore aggiunto e anno di nascita aggiornato su tutto il cluster'
+        : 'Giocatore aggiunto al cluster con successo',
+      birth_year_applied: applyBirthYear === true,
+    });
   } catch (error) {
     return res.status(500).json({ message: 'Errore aggiunta giocatore al cluster', error: error.message });
   }
@@ -1152,6 +1422,7 @@ router.get('/players/search/:groupId', authenticateToken, requireSuperuser, asyn
          p.first_name,
          p.last_name,
          p.role,
+         p.birth_year,
          p.rating,
          p.team_id,
          t.name AS team_name,
