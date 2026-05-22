@@ -320,7 +320,7 @@ router.delete('/leagues/:id', authenticateToken, requireSuperuser, async (req, r
 
 async function ensureUserBudgetForLeagueMember(userId, leagueId) {
   const budgetRows = await query(
-    `SELECT id FROM user_budget WHERE user_id = ? AND league_id = ? LIMIT 1`,
+    `SELECT 1 FROM user_budget WHERE user_id = ? AND league_id = ? LIMIT 1`,
     [userId, leagueId]
   );
   if (budgetRows.length) return;
