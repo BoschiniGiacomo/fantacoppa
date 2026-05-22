@@ -283,11 +283,18 @@ function pushSuggestionsForNameGroup(players, approvedPlayerMap, rejectedPlayerI
   }
 
   const primaryYear = pickPrimaryBirthYearBucket(withYear, approvedPlayerMap);
+  const hasApprovedWithoutYear = withoutYear.some((p) => approvedPlayerMap.has(Number(p.id)));
   let pushed = false;
 
   for (const [year, list] of withYear) {
-    const canAttachUnknown = year === primaryYear
-      && (list.length >= 2 || list.some((p) => approvedPlayerMap.has(Number(p.id))));
+    const hasApprovedInYearList = list.some((p) => approvedPlayerMap.has(Number(p.id)));
+    // Collega i senza anno al bucket principale se: più omonimi con stesso anno, già in cluster con anno,
+    // oppure cluster solo senza anno + almeno un giocatore con anno da associare (es. nuova lega con anno).
+    const canAttachUnknown = year === primaryYear && (
+      list.length >= 2
+      || hasApprovedInYearList
+      || (hasApprovedWithoutYear && list.length >= 1)
+    );
     const group = canAttachUnknown ? [...list, ...withoutYear] : [...list];
     if (group.length < 2) continue;
     const suggestion = buildClusterSuggestion(fullName, group, approvedPlayerMap, rejectedPlayerIds);
@@ -297,10 +304,14 @@ function pushSuggestionsForNameGroup(players, approvedPlayerMap, rejectedPlayerI
     }
   }
 
+  const primaryList = primaryYear != null && withYear.has(primaryYear) ? withYear.get(primaryYear) : [];
   const unknownAlreadyUsed = pushed && withoutYear.length > 0
-    && withYear.has(primaryYear)
-    && (withYear.get(primaryYear).length >= 2
-      || withYear.get(primaryYear).some((p) => approvedPlayerMap.has(Number(p.id))));
+    && primaryYear != null
+    && (
+      primaryList.length >= 2
+      || primaryList.some((p) => approvedPlayerMap.has(Number(p.id)))
+      || hasApprovedWithoutYear
+    );
 
   if (!unknownAlreadyUsed && withoutYear.length >= 2) {
     const suggestion = buildClusterSuggestion(fullName, withoutYear, approvedPlayerMap, rejectedPlayerIds);
