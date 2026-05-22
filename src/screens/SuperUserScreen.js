@@ -62,6 +62,19 @@ function clusterMatchesNameSearch(cluster, query) {
   });
 }
 
+const CLUSTER_ROLE_LABEL = {
+  P: 'Portiere',
+  D: 'Difensore',
+  C: 'Centrocampista',
+  A: 'Attaccante',
+};
+
+function formatClusterPlayerRole(role) {
+  const code = String(role || '').trim().toUpperCase();
+  if (!code) return '—';
+  return CLUSTER_ROLE_LABEL[code] ? `${CLUSTER_ROLE_LABEL[code]} (${code})` : code;
+}
+
 function buildApprovedClustersByPlayer(allClusters) {
   const playersMap = new Map();
   for (const cluster of allClusters) {
@@ -86,6 +99,8 @@ function buildApprovedClustersByPlayer(allClusters) {
           group_id: cluster.group_id,
           player_id: playerId,
           cluster_id: clusterId,
+          team_name: player.team_name || '',
+          role: player.role || null,
         });
       }
       if (!playerData.clusters.some((c) => c.id === clusterId)) {
@@ -352,16 +367,18 @@ export default function SuperUserScreen() {
   const handleRemovePlayerFromClusterLeague = (league) => {
     if (!selectedPlayerCluster || !league?.cluster_id || !league?.player_id) return;
     const leagueLabel = league.name || 'questa lega';
+    const teamLabel = league.team_name || 'squadra sconosciuta';
+    const roleLabel = formatClusterPlayerRole(league.role);
     const playerName = selectedPlayerCluster.name;
     setConfirmModal({
       title: 'Dissocia dal cluster',
-      message: `Vuoi dissociare ${playerName} dalla lega/anno "${leagueLabel}" (${league.group_name || 'gruppo'})?`,
+      message: `Vuoi dissociare ${playerName} da "${leagueLabel}" (${league.group_name || 'gruppo'}) — ${teamLabel}, ${roleLabel}?`,
       confirmText: 'Continua',
       destructive: true,
       onConfirm: () => {
         setConfirmModal({
           title: 'Conferma definitiva',
-          message: `Confermi la dissociazione di ${playerName} da "${leagueLabel}"? Il collegamento nel cluster verrà rimosso.`,
+          message: `Confermi la dissociazione di ${playerName} da "${leagueLabel}" (${teamLabel}, ${roleLabel})? Il collegamento nel cluster verrà rimosso.`,
           confirmText: 'Dissocia',
           destructive: true,
           onConfirm: async () => {
@@ -2845,9 +2862,17 @@ export default function SuperUserScreen() {
                       const isRemoving = removingLeagueKey === removeKey;
                       return (
                         <View key={`${league.cluster_id}-${league.player_id}-${index}`} style={styles.clusterLeagueRow}>
-                          <View style={styles.clusterLeagueRowInfo}>
+                          <View style={styles.clusterLeagueColLeague}>
                             <Text style={styles.groupLeagueName}>{league.name}</Text>
                             <Text style={styles.groupLeagueDetails}>{league.group_name}</Text>
+                          </View>
+                          <View style={styles.clusterLeagueColTeam}>
+                            <Text style={styles.clusterLeagueTeamName} numberOfLines={2}>
+                              {league.team_name || '—'}
+                            </Text>
+                            <Text style={styles.clusterLeagueRoleText}>
+                              {formatClusterPlayerRole(league.role)}
+                            </Text>
                           </View>
                           <TouchableOpacity
                             style={styles.clusterLeagueRemoveBtn}
@@ -3626,9 +3651,28 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     borderRadius: 8,
   },
-  clusterLeagueRowInfo: {
+  clusterLeagueColLeague: {
     flex: 1,
+    minWidth: 0,
     marginRight: 8,
+  },
+  clusterLeagueColTeam: {
+    flex: 1,
+    minWidth: 0,
+    marginRight: 8,
+    paddingLeft: 4,
+    borderLeftWidth: 1,
+    borderLeftColor: '#e8e8e8',
+  },
+  clusterLeagueTeamName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+  },
+  clusterLeagueRoleText: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 2,
   },
   clusterLeagueRemoveBtn: {
     padding: 4,

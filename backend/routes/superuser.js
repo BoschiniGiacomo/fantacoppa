@@ -170,6 +170,7 @@ function mapClusterPlayerRow(p) {
     role: p.role || null,
     league_id: Number(p.league_id || 0),
     league_name: p.league_name || '',
+    team_name: p.team_name || '',
   };
 }
 
@@ -872,7 +873,8 @@ router.get('/player-clusters/:groupId', authenticateToken, requireSuperuser, asy
                'last_name', p.last_name,
                'role', p.role,
                'league_id', t.league_id,
-               'league_name', l.name
+               'league_name', l.name,
+               'team_name', t.name
              )
              ORDER BY l.name NULLS LAST, p.last_name, p.first_name
            ) FILTER (WHERE p.id IS NOT NULL),
