@@ -12,11 +12,15 @@ function isMissingDbObjectError(err) {
   return err && (err.code === '42P01' || err.code === '42703');
 }
 
+function isSchemaInitRaceError(err) {
+  return err && (err.code === '23505' || err.code === '42P07' || err.code === '42701');
+}
+
 let superuserTablesReady = false;
 let playerClusterSchemaReady = false;
+let playerClusterSchemaPromise = null;
 
-async function ensurePlayerClusterSchema() {
-  if (playerClusterSchemaReady) return;
+async function runPlayerClusterSchemaMigration() {
   await query(`
     CREATE TABLE IF NOT EXISTS player_clusters (
       id SERIAL PRIMARY KEY,
@@ -41,10 +45,28 @@ async function ensurePlayerClusterSchema() {
   await query(`ALTER TABLE player_clusters ADD COLUMN IF NOT EXISTS approved_by INTEGER`);
   await query(`ALTER TABLE player_clusters ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ`);
   await query(`ALTER TABLE player_clusters ADD COLUMN IF NOT EXISTS suggested_by_system SMALLINT NOT NULL DEFAULT 0`);
-  await query(
-    `CREATE INDEX IF NOT EXISTS idx_player_clusters_group_status ON player_clusters (official_group_id, status)`
-  );
-  playerClusterSchemaReady = true;
+  try {
+    await query(
+      `CREATE INDEX IF NOT EXISTS idx_player_clusters_group_status ON player_clusters (official_group_id, status)`
+    );
+  } catch (err) {
+    if (!isSchemaInitRaceError(err)) throw err;
+  }
+}
+
+async function ensurePlayerClusterSchema() {
+  if (playerClusterSchemaReady) return;
+  if (!playerClusterSchemaPromise) {
+    playerClusterSchemaPromise = runPlayerClusterSchemaMigration()
+      .then(() => {
+        playerClusterSchemaReady = true;
+      })
+      .catch((err) => {
+        playerClusterSchemaPromise = null;
+        throw err;
+      });
+  }
+  await playerClusterSchemaPromise;
 }
 
 async function ensureSuperuserTables() {
@@ -648,6 +670,7 @@ router.get('/player-clusters/suggestions/:groupId', authenticateToken, requireSu
     suggestions.sort((a, b) => a.name.localeCompare(b.name, 'it'));
     return res.json({ suggestions });
   } catch (error) {
+    console.error('[superuser] GET player-clusters/suggestions error:', error?.message || error);
     return res.status(500).json({ message: 'Errore suggerimenti cluster', error: error.message });
   }
 });

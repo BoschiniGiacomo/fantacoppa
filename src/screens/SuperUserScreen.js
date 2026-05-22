@@ -2326,14 +2326,7 @@ export default function SuperUserScreen() {
                     const gid = Number(selectedGroupForEdit.id);
                     setShowClusterModal(true);
                     setClusterFilterStatus(null);
-                    try {
-                      await Promise.all([
-                        loadClusterSuggestions(gid),
-                        loadClusters(gid, null),
-                      ]);
-                    } catch (error) {
-                      console.error('Error in cluster button handler:', error);
-                    }
+                    await loadClusterSuggestions(gid);
                   }}
                 >
                   <Ionicons name="people" size={18} color="#667eea" />
@@ -2477,7 +2470,7 @@ export default function SuperUserScreen() {
                     style={[styles.clusterFilterButton, clusterFilterStatus === null && styles.clusterFilterButtonActive]}
                     onPress={() => {
                       setClusterFilterStatus(null);
-                      loadClusters(selectedGroupForEdit.id, null);
+                      loadClusterSuggestions(Number(selectedGroupForEdit.id));
                     }}
                   >
                     <Text style={[styles.clusterFilterText, clusterFilterStatus === null && styles.clusterFilterTextActive]}>Suggeriti</Text>
