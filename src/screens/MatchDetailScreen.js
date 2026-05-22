@@ -2255,9 +2255,11 @@ export default function MatchDetailScreen({ navigation, route }) {
             <View style={styles.tableHeader}>
               <Text style={[styles.th, { width: 38, textAlign: 'center' }]}>Pos</Text>
               <Text style={[styles.th, { flex: 1 }]}>Squadra</Text>
-              <Text style={[styles.th, { width: 40, textAlign: 'center' }]}>PG</Text>
-              <Text style={[styles.th, { width: 40, textAlign: 'center' }]}>DR</Text>
-              <Text style={[styles.th, { width: 40, textAlign: 'center' }]}>PT</Text>
+              <Text style={[styles.th, { width: 32, textAlign: 'center' }]}>PG</Text>
+              <Text style={[styles.th, { width: 32, textAlign: 'center' }]}>GF</Text>
+              <Text style={[styles.th, { width: 32, textAlign: 'center' }]}>GS</Text>
+              <Text style={[styles.th, { width: 32, textAlign: 'center' }]}>DR</Text>
+              <Text style={[styles.th, { width: 32, textAlign: 'center' }]}>PT</Text>
             </View>
             {block.standings.map((r, i) => (
               <View key={`${block.key}-st-${i}`} style={styles.tableRow}>
@@ -2273,9 +2275,11 @@ export default function MatchDetailScreen({ navigation, route }) {
                     {r.team_name_display || r.team_name || '-'}
                   </Text>
                 </TouchableOpacity>
-                <Text style={[styles.td, { width: 40, textAlign: 'center' }]}>{r.played}</Text>
-                <Text style={[styles.td, { width: 40, textAlign: 'center' }]}>{r.goal_diff}</Text>
-                <Text style={[styles.td, { width: 40, textAlign: 'center' }]}>{r.points}</Text>
+                <Text style={[styles.td, { width: 32, textAlign: 'center' }]}>{r.played}</Text>
+                <Text style={[styles.td, { width: 32, textAlign: 'center' }]}>{r.gf ?? 0}</Text>
+                <Text style={[styles.td, { width: 32, textAlign: 'center' }]}>{r.gs ?? r.ga ?? 0}</Text>
+                <Text style={[styles.td, { width: 32, textAlign: 'center' }]}>{r.goal_diff}</Text>
+                <Text style={[styles.td, { width: 32, textAlign: 'center' }]}>{r.points}</Text>
               </View>
             ))}
           </View>

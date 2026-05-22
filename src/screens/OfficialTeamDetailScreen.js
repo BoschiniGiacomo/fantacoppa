@@ -988,9 +988,11 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
                         <View style={styles.seasonTableHeader}>
                           <Text style={[styles.seasonTh, { width: 38, textAlign: 'center' }]}>Pos</Text>
                           <Text style={[styles.seasonTh, { flex: 1 }]}>Squadra</Text>
-                          <Text style={[styles.seasonTh, { width: 40, textAlign: 'center' }]}>PG</Text>
-                          <Text style={[styles.seasonTh, { width: 40, textAlign: 'center' }]}>DR</Text>
-                          <Text style={[styles.seasonTh, { width: 40, textAlign: 'center' }]}>PT</Text>
+                          <Text style={[styles.seasonTh, { width: 32, textAlign: 'center' }]}>PG</Text>
+                          <Text style={[styles.seasonTh, { width: 32, textAlign: 'center' }]}>GF</Text>
+                          <Text style={[styles.seasonTh, { width: 32, textAlign: 'center' }]}>GS</Text>
+                          <Text style={[styles.seasonTh, { width: 32, textAlign: 'center' }]}>DR</Text>
+                          <Text style={[styles.seasonTh, { width: 32, textAlign: 'center' }]}>PT</Text>
                         </View>
                         {block.standings.map((r, i) => {
                           const isWatched = normalizeNameForCompare(r?.team_name) === normalizeNameForCompare(teamName);
@@ -1016,9 +1018,11 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
                                   {r.team_name_display || r.team_name || '-'}
                                 </Text>
                               </TouchableOpacity>
-                              <Text style={[styles.seasonTd, { width: 40, textAlign: 'center' }]}>{r.played}</Text>
-                              <Text style={[styles.seasonTd, { width: 40, textAlign: 'center' }]}>{r.goal_diff}</Text>
-                              <Text style={[styles.seasonTd, { width: 40, textAlign: 'center' }]}>{r.points}</Text>
+                              <Text style={[styles.seasonTd, { width: 32, textAlign: 'center' }]}>{r.played}</Text>
+                              <Text style={[styles.seasonTd, { width: 32, textAlign: 'center' }]}>{r.gf ?? 0}</Text>
+                              <Text style={[styles.seasonTd, { width: 32, textAlign: 'center' }]}>{r.gs ?? r.ga ?? 0}</Text>
+                              <Text style={[styles.seasonTd, { width: 32, textAlign: 'center' }]}>{r.goal_diff}</Text>
+                              <Text style={[styles.seasonTd, { width: 32, textAlign: 'center' }]}>{r.points}</Text>
                             </View>
                           );
                         })}

@@ -1067,6 +1067,7 @@ async function computeStandingsFromMatches({ leagueId, groupId, allowedTeamIds =
       team_name: r.team_name,
       played: Number(r.played),
       gf: Number(r.gf),
+      gs: Number(r.ga),
       goal_diff: Number(r.goal_diff),
       points: Number(r.points),
       team_logo_path: lp,
