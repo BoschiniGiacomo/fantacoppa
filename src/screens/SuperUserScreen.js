@@ -372,31 +372,23 @@ export default function SuperUserScreen() {
     const playerName = selectedPlayerCluster.name;
     setConfirmModal({
       title: 'Dissocia dal cluster',
-      message: `Vuoi dissociare ${playerName} da "${leagueLabel}" (${league.group_name || 'gruppo'}) — ${teamLabel}, ${roleLabel}?`,
-      confirmText: 'Continua',
+      message: `Dissociare ${playerName} da "${leagueLabel}" (${league.group_name || 'gruppo'}) — ${teamLabel}, ${roleLabel}?`,
+      confirmText: 'Dissocia',
       destructive: true,
-      onConfirm: () => {
-        setConfirmModal({
-          title: 'Conferma definitiva',
-          message: `Confermi la dissociazione di ${playerName} da "${leagueLabel}" (${teamLabel}, ${roleLabel})? Il collegamento nel cluster verrà rimosso.`,
-          confirmText: 'Dissocia',
-          destructive: true,
-          onConfirm: async () => {
-            setConfirmModal(null);
-            const removeKey = `${league.cluster_id}-${league.player_id}`;
-            setRemovingLeagueKey(removeKey);
-            try {
-              await superuserService.removePlayerFromCluster(league.cluster_id, league.player_id);
-              showToast('Giocatore dissociato dal cluster', 'success');
-              await refreshSelectedPlayerClusterAfterChange(playerName);
-            } catch (error) {
-              console.error('Error removing player from cluster:', error);
-              showToast(error.response?.data?.message || 'Errore durante la dissociazione');
-            } finally {
-              setRemovingLeagueKey(null);
-            }
-          },
-        });
+      onConfirm: async () => {
+        setConfirmModal(null);
+        const removeKey = `${league.cluster_id}-${league.player_id}`;
+        setRemovingLeagueKey(removeKey);
+        try {
+          await superuserService.removePlayerFromCluster(league.cluster_id, league.player_id);
+          showToast('Giocatore dissociato dal cluster', 'success');
+          await refreshSelectedPlayerClusterAfterChange(playerName);
+        } catch (error) {
+          console.error('Error removing player from cluster:', error);
+          showToast(error.response?.data?.message || 'Errore durante la dissociazione');
+        } finally {
+          setRemovingLeagueKey(null);
+        }
       },
     });
   };
