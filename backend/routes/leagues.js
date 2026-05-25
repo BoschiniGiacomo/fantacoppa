@@ -295,35 +295,21 @@ function normalizeLeagueAccessCodeInput(raw) {
   return s || null;
 }
 
-function isLeaguesAccessCodeDuplicateError(err) {
-  if (!err || err.code !== '23505') return false;
-  if (err.constraint === 'leagues_access_code_key') return true;
-  return /\(access_code\)=/i.test(String(err.detail || ''));
+let leaguesAccessCodeUniqueDropped = false;
+async function ensureLeaguesAccessCodeNotGloballyUnique() {
+  if (leaguesAccessCodeUniqueDropped) return;
+  try {
+    await query('ALTER TABLE leagues DROP CONSTRAINT IF EXISTS leagues_access_code_key');
+    leaguesAccessCodeUniqueDropped = true;
+  } catch (err) {
+    console.log('drop leagues_access_code_key skipped:', err?.message || err);
+  }
 }
 
 function isLeaguesPrimaryKeyDuplicateError(err) {
   if (!err || err.code !== '23505') return false;
   if (err.constraint === 'leagues_pkey') return true;
   return /Key \(id\)=/i.test(String(err.detail || ''));
-}
-
-async function assertLeagueAccessCodeAvailable(accessCode) {
-  const code = normalizeLeagueAccessCodeInput(accessCode);
-  if (!code) return code;
-  const rows = await query(
-    `SELECT id
-     FROM leagues
-     WHERE access_code IS NOT NULL
-       AND LOWER(TRIM(access_code)) = LOWER(?)
-     LIMIT 1`,
-    [code]
-  );
-  if (Array.isArray(rows) && rows.length > 0) {
-    const err = new Error('LEAGUE_ACCESS_CODE_TAKEN');
-    err.code = 'LEAGUE_ACCESS_CODE_TAKEN';
-    throw err;
-  }
-  return code;
 }
 
 async function syncLeagueMembersIdSequence() {
@@ -4325,6 +4311,7 @@ router.post('/:id/leave', authenticateToken, async (req, res) => {
 // POST /api/leagues - creazione lega base
 router.post('/', authenticateToken, async (req, res) => {
   try {
+    await ensureLeaguesAccessCodeNotGloballyUnique();
     const userId = Number(req.user.userId);
     const body = req.body || {};
     const pickFirst = (...vals) => vals.find((v) => v !== undefined);
@@ -4381,17 +4368,7 @@ router.post('/', authenticateToken, async (req, res) => {
       }
     }
 
-    let accessCode;
-    try {
-      accessCode = await assertLeagueAccessCodeAvailable(accessCodeRaw);
-    } catch (codeErr) {
-      if (codeErr?.code === 'LEAGUE_ACCESS_CODE_TAKEN') {
-        return res.status(409).json({
-          message: 'Codice di accesso già usato da un\'altra lega. Scegline un altro.',
-        });
-      }
-      throw codeErr;
-    }
+    const accessCode = normalizeLeagueAccessCodeInput(accessCodeRaw);
 
     const insertLeagueParams = [
       String(name).trim(),
@@ -4417,23 +4394,9 @@ router.post('/', authenticateToken, async (req, res) => {
     try {
       insertLeague = await query(insertLeagueSql, insertLeagueParams);
     } catch (insertError) {
-      if (isLeaguesAccessCodeDuplicateError(insertError)) {
-        return res.status(409).json({
-          message: 'Codice di accesso già usato da un\'altra lega. Scegline un altro.',
-        });
-      }
       if (isLeaguesPrimaryKeyDuplicateError(insertError)) {
         await syncLeaguesIdSequence();
-        try {
-          insertLeague = await query(insertLeagueSql, insertLeagueParams);
-        } catch (retryErr) {
-          if (isLeaguesAccessCodeDuplicateError(retryErr)) {
-            return res.status(409).json({
-              message: 'Codice di accesso già usato da un\'altra lega. Scegline un altro.',
-            });
-          }
-          throw retryErr;
-        }
+        insertLeague = await query(insertLeagueSql, insertLeagueParams);
       } else {
         throw insertError;
       }
@@ -4562,11 +4525,6 @@ router.post('/', authenticateToken, async (req, res) => {
     );
   } catch (error) {
     console.error('Create league error:', error);
-    if (error?.code === 'LEAGUE_ACCESS_CODE_TAKEN' || isLeaguesAccessCodeDuplicateError(error)) {
-      return res.status(409).json({
-        message: 'Codice di accesso già usato da un\'altra lega. Scegline un altro.',
-      });
-    }
     res.status(500).json({ message: 'Errore durante la creazione lega' });
   }
 });
