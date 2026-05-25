@@ -176,6 +176,177 @@ async function releaseNotificationSendsByDedupeKeys(keys) {
   }
 }
 
+function lineupMemberKey(leagueId, userId, giornata) {
+  return `${Number(leagueId)}:${Number(userId)}:${Number(giornata)}`;
+}
+
+function calculatedCandidateKey(leagueId, giornata) {
+  return `${Number(leagueId)}:${Number(giornata)}`;
+}
+
+async function batchReserveNotificationSends(entries, chunkSize = 200) {
+  const reservedKeys = new Set();
+  if (!Array.isArray(entries) || entries.length <= 0) return reservedKeys;
+
+  for (let i = 0; i < entries.length; i += chunkSize) {
+    const chunk = entries.slice(i, i + chunkSize);
+    const valuePlaceholders = [];
+    const params = [];
+    for (const entry of chunk) {
+      const userId = Number(entry.userId);
+      const leagueId = Number(entry.leagueId);
+      const giornata = entry.giornata == null ? null : Number(entry.giornata);
+      const type = String(entry.type || '').trim();
+      if (!userId || !leagueId || !type) continue;
+      valuePlaceholders.push('(?, ?, ?, ?, ?, ?::jsonb)');
+      params.push(
+        userId,
+        leagueId,
+        Number.isFinite(giornata) ? giornata : null,
+        type,
+        buildDedupeKey({ userId, leagueId, giornata, type }),
+        JSON.stringify(entry.payloadJson || {})
+      );
+    }
+    if (valuePlaceholders.length <= 0) continue;
+
+    const result = await query(
+      `INSERT INTO push_notification_sends
+         (user_id, league_id, giornata, notification_type, dedupe_key, payload_json)
+       VALUES ${valuePlaceholders.join(', ')}
+       ON CONFLICT (dedupe_key) DO NOTHING
+       RETURNING dedupe_key`,
+      params
+    );
+    const insertRows = Array.isArray(result) ? result : result?.rows;
+    for (const row of insertRows || []) {
+      const key = String(row?.dedupe_key || '').trim();
+      if (key) reservedKeys.add(key);
+    }
+  }
+  return reservedKeys;
+}
+
+async function loadSubmittedLineupKeySet(entries, chunkSize = 400) {
+  const keys = new Set();
+  if (!Array.isArray(entries) || entries.length <= 0) return keys;
+
+  for (let i = 0; i < entries.length; i += chunkSize) {
+    const chunk = entries.slice(i, i + chunkSize);
+    const tuplePlaceholders = chunk.map(() => '(?, ?, ?)').join(', ');
+    const params = [];
+    for (const entry of chunk) {
+      params.push(Number(entry.leagueId), Number(entry.userId), Number(entry.giornata));
+    }
+    const rows = await query(
+      `SELECT league_id, user_id, giornata
+       FROM user_lineups
+       WHERE (league_id, user_id, giornata) IN (${tuplePlaceholders})`,
+      params
+    );
+    for (const row of rows || []) {
+      keys.add(lineupMemberKey(row.league_id, row.user_id, row.giornata));
+    }
+  }
+  return keys;
+}
+
+async function loadFormationReminderMemberRows() {
+  return await query(
+    `WITH near_matchday AS (
+       SELECT DISTINCT ON (md.league_id) md.league_id, md.giornata
+       FROM matchdays md
+       WHERE (md.deadline AT TIME ZONE 'Europe/Rome') > (NOW() AT TIME ZONE 'Europe/Rome')
+         AND ((md.deadline AT TIME ZONE 'Europe/Rome') - INTERVAL '60 minutes') <= (NOW() AT TIME ZONE 'Europe/Rome')
+       ORDER BY md.league_id, md.deadline ASC
+     )
+     SELECT l.id AS league_id, l.name AS league_name, lm.user_id, nm.giornata,
+            COALESCE(ulp.notifications_enabled, 1) AS notifications_enabled
+     FROM leagues l
+     JOIN league_members lm ON lm.league_id = l.id
+     JOIN near_matchday nm ON nm.league_id = COALESCE(NULLIF(l.linked_to_league_id, 0), l.id)
+     LEFT JOIN user_league_prefs ulp ON ulp.user_id = lm.user_id AND ulp.league_id = l.id
+     WHERE COALESCE(l.auto_lineup_mode, 0) = 0`
+  );
+}
+
+async function buildCalculatedSuppressionKeySet(candidates) {
+  const suppressed = new Set();
+  if (!Array.isArray(candidates) || candidates.length <= 0) return suppressed;
+
+  const nowYear = await getCurrentCalendarYearItaly();
+  const leagueIds = [...new Set(candidates.map((c) => Number(c.league_id)).filter((x) => x > 0))];
+  if (leagueIds.length <= 0) return suppressed;
+
+  const leaguePlaceholders = leagueIds.map(() => '?').join(',');
+  const leagueRows = await query(
+    `SELECT id, linked_to_league_id, reference_year
+     FROM leagues
+     WHERE id IN (${leaguePlaceholders})`,
+    leagueIds
+  );
+  const effectiveByLeague = new Map();
+  const refYearByLeague = new Map();
+  for (const row of leagueRows || []) {
+    const leagueId = Number(row.id);
+    const linked = Number(row.linked_to_league_id || 0);
+    const effectiveLeagueId = linked > 0 ? linked : leagueId;
+    effectiveByLeague.set(leagueId, effectiveLeagueId);
+    const refYear = Number(row.reference_year);
+    if (Number.isFinite(refYear)) refYearByLeague.set(leagueId, refYear);
+  }
+
+  const deadlinePairs = new Map();
+  for (const candidate of candidates) {
+    const leagueId = Number(candidate.league_id);
+    const giornata = Number(candidate.giornata);
+    if (!leagueId || !giornata) continue;
+    const effectiveLeagueId = effectiveByLeague.get(leagueId) || leagueId;
+    deadlinePairs.set(`${effectiveLeagueId}:${giornata}`, { effectiveLeagueId, giornata });
+  }
+  const uniquePairs = [...deadlinePairs.values()];
+  if (uniquePairs.length <= 0) return suppressed;
+
+  const pairPlaceholders = uniquePairs.map(() => '(?, ?)').join(', ');
+  const pairParams = [];
+  for (const pair of uniquePairs) {
+    pairParams.push(pair.effectiveLeagueId, pair.giornata);
+  }
+  const deadlineRows = await query(
+    `SELECT league_id, giornata,
+            EXTRACT(YEAR FROM (deadline AT TIME ZONE 'Europe/Rome'))::int AS deadline_year
+     FROM matchdays
+     WHERE (league_id, giornata) IN (${pairPlaceholders})`,
+    pairParams
+  );
+  const deadlineYearByPair = new Map();
+  for (const row of deadlineRows || []) {
+    deadlineYearByPair.set(
+      `${Number(row.league_id)}:${Number(row.giornata)}`,
+      Number(row.deadline_year)
+    );
+  }
+
+  for (const candidate of candidates) {
+    const leagueId = Number(candidate.league_id);
+    const giornata = Number(candidate.giornata);
+    if (!leagueId || !giornata) continue;
+    const effectiveLeagueId = effectiveByLeague.get(leagueId) || leagueId;
+    const deadlineYear = deadlineYearByPair.get(`${effectiveLeagueId}:${giornata}`);
+    if (Number.isFinite(deadlineYear) && deadlineYear < nowYear) {
+      suppressed.add(calculatedCandidateKey(leagueId, giornata));
+      continue;
+    }
+    if (!Number.isFinite(deadlineYear)) {
+      const refYear = refYearByLeague.get(leagueId);
+      if (Number.isFinite(refYear) && refYear < nowYear) {
+        suppressed.add(calculatedCandidateKey(leagueId, giornata));
+      }
+    }
+  }
+  return suppressed;
+}
+
 async function buildCalculatedMatchdayCandidateRows() {
   // Limit a finestra recente per evitare flood al primo run.
   return await query(
@@ -215,13 +386,20 @@ async function sendCalculatedMatchdayNotifications() {
       errors: 0,
     };
   }
-  const allMembers = await query(
+
+  const candidateLeagueIds = [...new Set(candidates.map((c) => Number(c.league_id)).filter((x) => x > 0))];
+  const suppressedKeys = await buildCalculatedSuppressionKeySet(candidates);
+  const leaguePlaceholders = candidateLeagueIds.map(() => '?').join(',');
+  const memberRows = await query(
     `SELECT lm.user_id, lm.league_id, COALESCE(ulp.notifications_enabled, 1) AS notifications_enabled
      FROM league_members lm
-     LEFT JOIN user_league_prefs ulp ON ulp.user_id = lm.user_id AND ulp.league_id = lm.league_id`
+     LEFT JOIN user_league_prefs ulp ON ulp.user_id = lm.user_id AND ulp.league_id = lm.league_id
+     WHERE lm.league_id IN (${leaguePlaceholders})`,
+    candidateLeagueIds
   );
+
   const membersByLeague = new Map();
-  for (const m of allMembers || []) {
+  for (const m of memberRows || []) {
     const lid = Number(m.league_id);
     const uid = Number(m.user_id);
     const enabled = Number(m.notifications_enabled === 0 ? 0 : 1);
@@ -230,19 +408,18 @@ async function sendCalculatedMatchdayNotifications() {
     membersByLeague.get(lid).push(uid);
   }
 
-  const distinctUsers = [...new Set((allMembers || []).map((x) => Number(x.user_id)).filter((x) => x > 0))];
+  const distinctUsers = [...new Set((memberRows || []).map((x) => Number(x.user_id)).filter((x) => x > 0))];
   const tokensByUser = await getActiveTokensByUserIds(distinctUsers);
-  const messages = [];
-  let reserved = 0;
+  const reserveEntries = [];
+  const pendingMessages = [];
   let skippedNoToken = 0;
   let skippedPastCalendarYear = 0;
-  const reservedDedupeKeys = new Set();
 
   for (const c of candidates) {
     const leagueId = Number(c.league_id);
     const giornata = Number(c.giornata);
     if (!leagueId || !giornata) continue;
-    if (await shouldSuppressMatchdayCalculatedPush(leagueId, giornata)) {
+    if (suppressedKeys.has(calculatedCandidateKey(leagueId, giornata))) {
       skippedPastCalendarYear += 1;
       continue;
     }
@@ -253,31 +430,37 @@ async function sendCalculatedMatchdayNotifications() {
         skippedNoToken += 1;
         continue;
       }
-      const reservedOk = await reserveNotificationSend({
+      const dedupeKey = buildDedupeKey({ userId, leagueId, giornata, type: 'matchday_calculated' });
+      reserveEntries.push({
         userId,
         leagueId,
         giornata,
         type: 'matchday_calculated',
         payloadJson: { league_id: leagueId, giornata },
       });
-      if (!reservedOk) continue;
-      reserved += 1;
-      const dedupeKey = buildDedupeKey({ userId, leagueId, giornata, type: 'matchday_calculated' });
-      reservedDedupeKeys.add(dedupeKey);
-      for (const token of tokens) {
-        messages.push({
-          to: token,
-          _dedupe_key: dedupeKey,
-          sound: 'default',
-          title: 'Giornata calcolata',
-          body: `${c.league_name || 'Lega'}: calcolata la ${giornata}a giornata.`,
-          data: {
-            type: 'matchday_calculated',
-            league_id: leagueId,
-            giornata,
-          },
-        });
-      }
+      pendingMessages.push({
+        dedupeKey,
+        tokens,
+        title: 'Giornata calcolata',
+        body: `${c.league_name || 'Lega'}: calcolata la ${giornata}a giornata.`,
+        data: { type: 'matchday_calculated', league_id: leagueId, giornata },
+      });
+    }
+  }
+
+  const reservedDedupeKeys = await batchReserveNotificationSends(reserveEntries);
+  const messages = [];
+  for (const pending of pendingMessages) {
+    if (!reservedDedupeKeys.has(pending.dedupeKey)) continue;
+    for (const token of pending.tokens) {
+      messages.push({
+        to: token,
+        _dedupe_key: pending.dedupeKey,
+        sound: 'default',
+        title: pending.title,
+        body: pending.body,
+        data: pending.data,
+      });
     }
   }
 
@@ -287,7 +470,7 @@ async function sendCalculatedMatchdayNotifications() {
   const releasedFailedReservations = await releaseNotificationSendsByDedupeKeys(failedReserved);
   return {
     candidates: candidates.length,
-    reserved,
+    reserved: reservedDedupeKeys.size,
     skipped_no_token: skippedNoToken,
     skipped_past_calendar_year: skippedPastCalendarYear,
     released_failed_reservations: releasedFailedReservations,
@@ -301,94 +484,97 @@ async function sendFormationDeadlineReminders() {
   // - reminder "dovuto" quando deadline-60m <= NOW()
   // - non inviare storico (deadline deve essere ancora futura)
   // - dedupe DB: una sola notifica per user/lega/giornata
-  const leagueRows = await query(
-    `SELECT l.id AS league_id, l.name AS league_name, COALESCE(l.auto_lineup_mode, 0) AS auto_lineup_mode,
-            l.linked_to_league_id, lm.user_id, COALESCE(ulp.notifications_enabled, 1) AS notifications_enabled
-     FROM leagues l
-     JOIN league_members lm ON lm.league_id = l.id
-     LEFT JOIN user_league_prefs ulp ON ulp.user_id = lm.user_id AND ulp.league_id = l.id
-     WHERE COALESCE(l.auto_lineup_mode, 0) = 0`
-  );
-  if (!Array.isArray(leagueRows) || leagueRows.length <= 0) {
-    return { scanned: 0, candidates: 0, reserved: 0, sent: 0, invalidated: 0, errors: 0 };
+  const memberRows = await loadFormationReminderMemberRows();
+  if (!Array.isArray(memberRows) || memberRows.length <= 0) {
+    return {
+      scanned: 0,
+      candidates: 0,
+      reserved: 0,
+      skipped_no_token: 0,
+      skipped_no_due_deadline: 0,
+      skipped_lineup_already_submitted: 0,
+      skipped_notifications_disabled: 0,
+      sent: 0,
+      invalidated: 0,
+      errors: 0,
+    };
   }
-  const distinctUsers = [...new Set(leagueRows.map((x) => Number(x.user_id)).filter((x) => x > 0))];
-  const tokensByUser = await getActiveTokensByUserIds(distinctUsers);
-  const messages = [];
-  let candidates = 0;
-  let reserved = 0;
-  let skippedNoToken = 0;
-  let skippedNoDueDeadline = 0;
-  let skippedLineupAlreadySubmitted = 0;
-  let skippedNotificationsDisabled = 0;
-  const reservedDedupeKeys = new Set();
 
-  for (const row of leagueRows) {
+  let candidates = 0;
+  let skippedNoToken = 0;
+  let skippedNotificationsDisabled = 0;
+  const eligibleRows = [];
+
+  for (const row of memberRows) {
     const leagueId = Number(row.league_id);
     const userId = Number(row.user_id);
+    const giornata = Number(row.giornata);
     const notificationsEnabled = Number(row.notifications_enabled === 0 ? 0 : 1);
-    if (!leagueId || !userId) continue;
+    if (!leagueId || !userId || !giornata) continue;
     if (notificationsEnabled !== 1) {
       skippedNotificationsDisabled += 1;
       continue;
     }
-    const effectiveLeagueId = Number(row.linked_to_league_id || 0) > 0 ? Number(row.linked_to_league_id) : leagueId;
-    const nearRows = await query(
-      `SELECT giornata, deadline
-       FROM matchdays
-       WHERE league_id = ?
-         AND (deadline AT TIME ZONE 'Europe/Rome') > (NOW() AT TIME ZONE 'Europe/Rome')
-         AND ((deadline AT TIME ZONE 'Europe/Rome') - INTERVAL '60 minutes') <= (NOW() AT TIME ZONE 'Europe/Rome')
-       ORDER BY deadline ASC
-       LIMIT 1`,
-      [effectiveLeagueId]
-    );
-    const target = nearRows[0];
-    if (!target) {
-      skippedNoDueDeadline += 1;
+    candidates += 1;
+    eligibleRows.push({ leagueId, userId, giornata, leagueName: row.league_name });
+  }
+
+  const distinctUsers = [...new Set(eligibleRows.map((x) => x.userId).filter((x) => x > 0))];
+  const tokensByUser = await getActiveTokensByUserIds(distinctUsers);
+  const submittedLineups = await loadSubmittedLineupKeySet(eligibleRows);
+
+  const reserveEntries = [];
+  const pendingMessages = [];
+  let skippedLineupAlreadySubmitted = 0;
+
+  for (const row of eligibleRows) {
+    const memberKey = lineupMemberKey(row.leagueId, row.userId, row.giornata);
+    if (submittedLineups.has(memberKey)) {
+      skippedLineupAlreadySubmitted += 1;
       continue;
     }
-    const giornata = Number(target.giornata);
-    if (!giornata) continue;
-    candidates += 1;
-    const tokens = tokensByUser.get(userId) || [];
+    const tokens = tokensByUser.get(row.userId) || [];
     if (tokens.length <= 0) {
       skippedNoToken += 1;
       continue;
     }
-    const lineupRows = await query(
-      `SELECT 1
-       FROM user_lineups
-       WHERE league_id = ? AND user_id = ? AND giornata = ?
-       LIMIT 1`,
-      [leagueId, userId, giornata]
-    );
-    if (Array.isArray(lineupRows) && lineupRows.length > 0) {
-      skippedLineupAlreadySubmitted += 1;
-      continue;
-    }
-    const reservedOk = await reserveNotificationSend({
-      userId,
-      leagueId,
-      giornata,
+    const dedupeKey = buildDedupeKey({
+      userId: row.userId,
+      leagueId: row.leagueId,
+      giornata: row.giornata,
       type: 'formation_deadline_1h',
-      payloadJson: { league_id: leagueId, giornata },
     });
-    if (!reservedOk) continue;
-    reserved += 1;
-    const dedupeKey = buildDedupeKey({ userId, leagueId, giornata, type: 'formation_deadline_1h' });
-    reservedDedupeKeys.add(dedupeKey);
-    for (const token of tokens) {
+    reserveEntries.push({
+      userId: row.userId,
+      leagueId: row.leagueId,
+      giornata: row.giornata,
+      type: 'formation_deadline_1h',
+      payloadJson: { league_id: row.leagueId, giornata: row.giornata },
+    });
+    pendingMessages.push({
+      dedupeKey,
+      tokens,
+      leagueName: row.leagueName,
+      leagueId: row.leagueId,
+      giornata: row.giornata,
+    });
+  }
+
+  const reservedDedupeKeys = await batchReserveNotificationSends(reserveEntries);
+  const messages = [];
+  for (const pending of pendingMessages) {
+    if (!reservedDedupeKeys.has(pending.dedupeKey)) continue;
+    for (const token of pending.tokens) {
       messages.push({
         to: token,
-        _dedupe_key: dedupeKey,
+        _dedupe_key: pending.dedupeKey,
         sound: 'default',
         title: 'Promemoria formazione',
-        body: `${row.league_name || 'Lega'}: manca circa 1 ora alla scadenza della ${giornata}a giornata.`,
+        body: `${pending.leagueName || 'Lega'}: manca circa 1 ora alla scadenza della ${pending.giornata}a giornata.`,
         data: {
           type: 'formation_deadline',
-          league_id: leagueId,
-          giornata,
+          league_id: pending.leagueId,
+          giornata: pending.giornata,
         },
       });
     }
@@ -399,11 +585,11 @@ async function sendFormationDeadlineReminders() {
   const failedReserved = [...reservedDedupeKeys].filter((k) => !delivered.has(k));
   const releasedFailedReservations = await releaseNotificationSendsByDedupeKeys(failedReserved);
   return {
-    scanned: leagueRows.length,
+    scanned: memberRows.length,
     candidates,
-    reserved,
+    reserved: reservedDedupeKeys.size,
     skipped_no_token: skippedNoToken,
-    skipped_no_due_deadline: skippedNoDueDeadline,
+    skipped_no_due_deadline: 0,
     skipped_lineup_already_submitted: skippedLineupAlreadySubmitted,
     skipped_notifications_disabled: skippedNotificationsDisabled,
     released_failed_reservations: releasedFailedReservations,
@@ -414,12 +600,15 @@ async function sendFormationDeadlineReminders() {
 }
 
 async function runNotificationsCronJob() {
+  const startedAt = Date.now();
   await ensureNotificationsTables();
-  const [calcStats, reminderStats] = await Promise.all([
-    sendCalculatedMatchdayNotifications(),
-    sendFormationDeadlineReminders(),
-  ]);
-  return { calculated: calcStats, formation_reminders: reminderStats };
+  const reminderStats = await sendFormationDeadlineReminders();
+  const calcStats = await sendCalculatedMatchdayNotifications();
+  return {
+    duration_ms: Date.now() - startedAt,
+    calculated: calcStats,
+    formation_reminders: reminderStats,
+  };
 }
 
 async function getEffectiveLeagueIdForNotifications(leagueId) {
@@ -621,8 +810,9 @@ router.post('/run-cron', async (req, res) => {
     if (!provided || provided !== expectedSecret) {
       return res.status(401).json({ message: 'Unauthorized cron trigger' });
     }
+    const startedAt = Date.now();
     const stats = await runNotificationsCronJob();
-    return res.json({ ok: true, stats });
+    return res.json({ ok: true, duration_ms: Date.now() - startedAt, stats });
   } catch (error) {
     return res.status(500).json({ ok: false, message: 'Errore esecuzione cron notifiche', error: error.message });
   }
