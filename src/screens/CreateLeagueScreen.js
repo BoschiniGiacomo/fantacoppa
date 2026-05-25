@@ -571,6 +571,11 @@ export default function CreateLeagueScreen({ navigation }) {
       }
     } catch (error) {
       const status = error?.response?.status;
+      const errorMessage = error.response?.data?.message || error.message || 'Errore durante la creazione della lega';
+      if (status === 409) {
+        showValidationError(errorMessage, 'accessCode');
+        return;
+      }
       // Fallback robusto: alcuni ambienti creano la lega ma rispondono 500
       // in step secondari. Se succede, cerchiamo la lega appena creata e navighiamo.
       if (status === 500) {
@@ -601,7 +606,6 @@ export default function CreateLeagueScreen({ navigation }) {
         }
       }
 
-      const errorMessage = error.response?.data?.message || error.message || 'Errore durante la creazione della lega';
       showToast(errorMessage, 'error');
     } finally {
       setLoading(false);

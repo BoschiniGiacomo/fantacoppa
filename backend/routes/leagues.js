@@ -290,6 +290,42 @@ async function syncLeaguesIdSequence() {
   );
 }
 
+function normalizeLeagueAccessCodeInput(raw) {
+  const s = raw != null ? String(raw).trim() : '';
+  return s || null;
+}
+
+function isLeaguesAccessCodeDuplicateError(err) {
+  if (!err || err.code !== '23505') return false;
+  if (err.constraint === 'leagues_access_code_key') return true;
+  return /\(access_code\)=/i.test(String(err.detail || ''));
+}
+
+function isLeaguesPrimaryKeyDuplicateError(err) {
+  if (!err || err.code !== '23505') return false;
+  if (err.constraint === 'leagues_pkey') return true;
+  return /Key \(id\)=/i.test(String(err.detail || ''));
+}
+
+async function assertLeagueAccessCodeAvailable(accessCode) {
+  const code = normalizeLeagueAccessCodeInput(accessCode);
+  if (!code) return code;
+  const rows = await query(
+    `SELECT id
+     FROM leagues
+     WHERE access_code IS NOT NULL
+       AND LOWER(TRIM(access_code)) = LOWER(?)
+     LIMIT 1`,
+    [code]
+  );
+  if (Array.isArray(rows) && rows.length > 0) {
+    const err = new Error('LEAGUE_ACCESS_CODE_TAKEN');
+    err.code = 'LEAGUE_ACCESS_CODE_TAKEN';
+    throw err;
+  }
+  return code;
+}
+
 async function syncLeagueMembersIdSequence() {
   await query(
     "SELECT setval(pg_get_serial_sequence('league_members','id'), COALESCE((SELECT MAX(id) FROM league_members), 0) + 1, false)"
@@ -4308,7 +4344,7 @@ router.post('/', authenticateToken, async (req, res) => {
       team_logo = 'default_1',
     } = body;
 
-    const accessCode = pickFirst(body.accessCode, access_code);
+    const accessCodeRaw = pickFirst(body.accessCode, access_code);
     const initialBudget = pickFirst(body.initialBudget, initial_budget);
     const defaultDeadlineTime = pickFirst(body.defaultTime, body.default_deadline_time, default_deadline_time);
     const maxPortieri = pickFirst(body.maxPortieri, max_portieri);
@@ -4345,51 +4381,59 @@ router.post('/', authenticateToken, async (req, res) => {
       }
     }
 
+    let accessCode;
+    try {
+      accessCode = await assertLeagueAccessCodeAvailable(accessCodeRaw);
+    } catch (codeErr) {
+      if (codeErr?.code === 'LEAGUE_ACCESS_CODE_TAKEN') {
+        return res.status(409).json({
+          message: 'Codice di accesso già usato da un\'altra lega. Scegline un altro.',
+        });
+      }
+      throw codeErr;
+    }
+
+    const insertLeagueParams = [
+      String(name).trim(),
+      accessCode,
+      userId,
+      Number(initialBudget),
+      String(defaultDeadlineTime),
+      Number(maxPortieri),
+      Number(maxDifensori),
+      Number(maxCentrocampisti),
+      Number(maxAttaccanti),
+      Number(numeroTitolari),
+      Number(autoLineupMode),
+      linkedToLeagueId || null,
+    ];
+    const insertLeagueSql = `
+      INSERT INTO leagues
+        (name, access_code, creator_id, initial_budget, default_deadline_time, max_portieri, max_difensori, max_centrocampisti, max_attaccanti, numero_titolari, auto_lineup_mode, linked_to_league_id, is_hidden_from_discovery, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NOW())
+       RETURNING id`;
+
     let insertLeague;
     try {
-      insertLeague = await query(
-        `INSERT INTO leagues
-          (name, access_code, creator_id, initial_budget, default_deadline_time, max_portieri, max_difensori, max_centrocampisti, max_attaccanti, numero_titolari, auto_lineup_mode, linked_to_league_id, is_hidden_from_discovery, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NOW())
-         RETURNING id`,
-        [
-          String(name).trim(),
-          accessCode ? String(accessCode).trim() : null,
-          userId,
-          Number(initialBudget),
-          String(defaultDeadlineTime),
-          Number(maxPortieri),
-          Number(maxDifensori),
-          Number(maxCentrocampisti),
-          Number(maxAttaccanti),
-          Number(numeroTitolari),
-          Number(autoLineupMode),
-          linkedToLeagueId || null,
-        ]
-      );
+      insertLeague = await query(insertLeagueSql, insertLeagueParams);
     } catch (insertError) {
-      if (insertError && insertError.code === '23505') {
+      if (isLeaguesAccessCodeDuplicateError(insertError)) {
+        return res.status(409).json({
+          message: 'Codice di accesso già usato da un\'altra lega. Scegline un altro.',
+        });
+      }
+      if (isLeaguesPrimaryKeyDuplicateError(insertError)) {
         await syncLeaguesIdSequence();
-        insertLeague = await query(
-          `INSERT INTO leagues
-            (name, access_code, creator_id, initial_budget, default_deadline_time, max_portieri, max_difensori, max_centrocampisti, max_attaccanti, numero_titolari, auto_lineup_mode, linked_to_league_id, is_hidden_from_discovery, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NOW())
-           RETURNING id`,
-          [
-            String(name).trim(),
-            accessCode ? String(accessCode).trim() : null,
-            userId,
-            Number(initialBudget),
-            String(defaultDeadlineTime),
-            Number(maxPortieri),
-            Number(maxDifensori),
-            Number(maxCentrocampisti),
-            Number(maxAttaccanti),
-            Number(numeroTitolari),
-            Number(autoLineupMode),
-            linkedToLeagueId || null,
-          ]
-        );
+        try {
+          insertLeague = await query(insertLeagueSql, insertLeagueParams);
+        } catch (retryErr) {
+          if (isLeaguesAccessCodeDuplicateError(retryErr)) {
+            return res.status(409).json({
+              message: 'Codice di accesso già usato da un\'altra lega. Scegline un altro.',
+            });
+          }
+          throw retryErr;
+        }
       } else {
         throw insertError;
       }
@@ -4518,6 +4562,11 @@ router.post('/', authenticateToken, async (req, res) => {
     );
   } catch (error) {
     console.error('Create league error:', error);
+    if (error?.code === 'LEAGUE_ACCESS_CODE_TAKEN' || isLeaguesAccessCodeDuplicateError(error)) {
+      return res.status(409).json({
+        message: 'Codice di accesso già usato da un\'altra lega. Scegline un altro.',
+      });
+    }
     res.status(500).json({ message: 'Errore durante la creazione lega' });
   }
 });
