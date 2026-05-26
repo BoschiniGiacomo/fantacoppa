@@ -359,33 +359,40 @@ export default function StandingsScreen({ route, navigation }) {
 
                               return (
                                 <View key={p.id || si} style={[styles.miniSlotWrap, ...(slotMarginH !== 0 ? [{ marginHorizontal: slotMarginH }] : []), ...(yOffset !== 0 ? [{ marginTop: yOffset }] : [])]}>
-                                  <View
-                                    style={[
-                                      styles.miniSlot,
-                                      {
-                                        width: slotSize, height: slotSize, borderRadius: slotSize / 2,
-                                        borderColor: roleColor,
-                                        backgroundColor: hasPhoto ? 'transparent' : roleColor,
-                                      },
-                                      hasPhoto && { borderWidth: 0, overflow: 'hidden' },
-                                    ]}
-                                  >
-                                    {hasPhoto ? (
-                                      <>
-                                        <PlayerPhotoImage
-                                          photoPath={vis.photo_path}
-                                          style={{ width: slotSize * 0.90, height: slotSize * 0.90, position: 'absolute', top: -slotSize * 0.11 }}
-                                        />
-                                        <View style={[styles.miniSlotOverlay, { backgroundColor: roleColor }]}>
-                                          <Text style={styles.miniSlotOverlayText}>{midTruncate(vis.last_name)}</Text>
+                                  <View style={[styles.miniSlotOuter, { width: slotSize, height: slotSize }]}>
+                                    <View
+                                      style={[
+                                        styles.miniSlot,
+                                        {
+                                          width: slotSize, height: slotSize, borderRadius: slotSize / 2,
+                                          borderColor: roleColor,
+                                          backgroundColor: hasPhoto ? 'transparent' : roleColor,
+                                        },
+                                        hasPhoto && { borderWidth: 0 },
+                                      ]}
+                                    >
+                                      {hasPhoto ? (
+                                        <View
+                                          style={[
+                                            styles.miniSlotPhotoClip,
+                                            { width: slotSize, height: slotSize, borderRadius: slotSize / 2 },
+                                          ]}
+                                        >
+                                          <PlayerPhotoImage
+                                            photoPath={vis.photo_path}
+                                            style={{ width: slotSize * 0.90, height: slotSize * 0.90, position: 'absolute', top: -slotSize * 0.11 }}
+                                          />
+                                          <View style={[styles.miniSlotOverlay, { backgroundColor: roleColor }]}>
+                                            <Text style={styles.miniSlotOverlayText}>{midTruncate(vis.last_name)}</Text>
+                                          </View>
                                         </View>
-                                      </>
-                                    ) : (
-                                      <>
-                                        <Text style={styles.miniSlotName} numberOfLines={1}>{midTruncate(vis.last_name, 10)}</Text>
-                                        <Text style={styles.miniSlotTeam} numberOfLines={1}>{midTruncate(vis.team_name, 9)}</Text>
-                                      </>
-                                    )}
+                                      ) : (
+                                        <>
+                                          <Text style={styles.miniSlotName} numberOfLines={1}>{midTruncate(vis.last_name, 10)}</Text>
+                                          <Text style={styles.miniSlotTeam} numberOfLines={1}>{midTruncate(vis.team_name, 9)}</Text>
+                                        </>
+                                      )}
+                                    </View>
                                     {bonusItems.length > 0 && (
                                       <View style={[styles.fieldBonusCol, cnt === 1 && { right: -22 }]}>
                                         {bonusItems.map((b, idx) => (
@@ -746,8 +753,10 @@ const styles = StyleSheet.create({
   miniSlotTeam: { color: 'rgba(255,255,255,0.75)', fontSize: 7, textAlign: 'center', marginTop: 1 },
   miniSlotOverlay: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingVertical: 2, alignItems: 'center', borderBottomLeftRadius: 999, borderBottomRightRadius: 999 },
   miniSlotOverlayText: { color: '#fff', fontSize: 9, fontWeight: '700', textAlign: 'center' },
-  miniSlotWrap: { alignItems: 'center' },
-  fieldBonusCol: { position: 'absolute', top: -4, right: -6, flexDirection: 'column', gap: 1, alignItems: 'flex-start' },
+  miniSlotWrap: { alignItems: 'center', overflow: 'visible' },
+  miniSlotOuter: { position: 'relative', overflow: 'visible' },
+  miniSlotPhotoClip: { overflow: 'hidden', justifyContent: 'flex-end' },
+  fieldBonusCol: { position: 'absolute', top: -4, right: -6, flexDirection: 'column', gap: 1, alignItems: 'flex-start', zIndex: 4 },
   fieldBonusChip: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 6, paddingHorizontal: 2, paddingVertical: 1 },
   fieldBonusCount: { color: '#333', fontSize: 9, fontWeight: '700', marginLeft: 1 },
   fieldVotesBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 6, marginTop: -2, paddingHorizontal: 4, paddingVertical: 1 },
