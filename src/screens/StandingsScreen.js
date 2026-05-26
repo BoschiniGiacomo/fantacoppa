@@ -394,7 +394,7 @@ export default function StandingsScreen({ route, navigation }) {
                                       )}
                                     </View>
                                     {bonusItems.length > 0 && (
-                                      <View style={[styles.fieldBonusCol, cnt === 1 && { right: -22 }]}>
+                                      <View style={[styles.fieldBonusCol, cnt === 1 && styles.fieldBonusColGk]}>
                                         {bonusItems.map((b, idx) => (
                                           <View key={idx} style={styles.fieldBonusChip}>
                                             <BonusIcon type={b.type} size={17} />
@@ -756,8 +756,18 @@ const styles = StyleSheet.create({
   miniSlotWrap: { alignItems: 'center', overflow: 'visible' },
   miniSlotOuter: { position: 'relative', overflow: 'visible' },
   miniSlotPhotoClip: { overflow: 'hidden', justifyContent: 'flex-end' },
-  fieldBonusCol: { position: 'absolute', top: -4, right: -6, flexDirection: 'column', gap: 1, alignItems: 'flex-start', zIndex: 4 },
-  fieldBonusChip: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 6, paddingHorizontal: 2, paddingVertical: 1 },
+  fieldBonusCol: {
+    position: 'absolute',
+    top: -4,
+    left: '100%',
+    marginLeft: -10,
+    flexDirection: 'column',
+    gap: 1,
+    alignItems: 'flex-start',
+    zIndex: 4,
+  },
+  fieldBonusColGk: { marginLeft: 6 },
+  fieldBonusChip: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', backgroundColor: '#fff', borderRadius: 6, paddingHorizontal: 2, paddingVertical: 1 },
   fieldBonusCount: { color: '#333', fontSize: 9, fontWeight: '700', marginLeft: 1 },
   fieldVotesBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 6, marginTop: -2, paddingHorizontal: 4, paddingVertical: 1 },
   fieldVoteBase: { fontSize: 9, fontWeight: '600', color: '#333' },
