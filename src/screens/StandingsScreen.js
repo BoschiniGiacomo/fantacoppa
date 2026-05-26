@@ -597,6 +597,35 @@ export default function StandingsScreen({ route, navigation }) {
         )}
       </View>
 
+      {activeTab === 'giornata' && matchdays.length > 0 && (
+        <View style={styles.mdSelectorWrapper}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.mdSelector}
+            contentContainerStyle={styles.mdSelectorContent}
+          >
+            {matchdays.map((md) => (
+              <TouchableOpacity
+                key={md.giornata}
+                style={[styles.mdChip, selectedMatchday === md.giornata && styles.mdChipActive]}
+                onPress={() => {
+                  if (selectedMatchday !== md.giornata) {
+                    scrollToMePendingRef.current = true;
+                    setSearchQuery('');
+                    setSelectedMatchday(md.giornata);
+                  }
+                }}
+              >
+                <Text style={[styles.mdChipText, selectedMatchday === md.giornata && styles.mdChipTextActive]}>
+                  {md.giornata}ª G
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+      )}
+
       <ScrollView
         ref={scrollRef}
         style={styles.scroll}
@@ -621,55 +650,29 @@ export default function StandingsScreen({ route, navigation }) {
               return renderStandingsItem(item, position);
             })
           )
-        ) : (
+        ) : selectedMatchday ? (
           <View>
-            {/* Selettore giornata */}
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.mdSelector} contentContainerStyle={styles.mdSelectorContent}>
-              {matchdays.map((md) => (
-                <TouchableOpacity
-                  key={md.giornata}
-                  style={[styles.mdChip, selectedMatchday === md.giornata && styles.mdChipActive]}
-                  onPress={() => {
-                    if (selectedMatchday !== md.giornata) {
-                      scrollToMePendingRef.current = true;
-                      setSearchQuery('');
-                      setSelectedMatchday(md.giornata);
-                    }
-                  }}
-                >
-                  <Text style={[styles.mdChipText, selectedMatchday === md.giornata && styles.mdChipTextActive]}>
-                    {md.giornata}ª G
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-
-            {/* Risultati */}
-            {selectedMatchday && (
-              <View>
-                <Text style={styles.mdTitle}>{selectedMatchday}ª Giornata</Text>
-                {!matchdayResults || !Array.isArray(matchdayResults) || matchdayResults.length === 0 ? (
-                  <View style={styles.emptyBox}>
-                    <Ionicons name="calendar-outline" size={52} color="#d0d0d0" />
-                    <Text style={styles.emptyTitle}>Nessun risultato</Text>
-                    <Text style={styles.emptySubtext}>Non ci sono ancora voti per questa giornata</Text>
-                  </View>
-                ) : filteredMatchdayResults.length === 0 ? (
-                  <View style={styles.emptyBox}>
-                    <Ionicons name="search-outline" size={52} color="#d0d0d0" />
-                    <Text style={styles.emptyTitle}>Nessuna squadra trovata</Text>
-                    <Text style={styles.emptySubtext}>Prova con nome squadra, allenatore o utente</Text>
-                  </View>
-                ) : (
-                  filteredMatchdayResults.map((item) => {
-                    const position = matchdayResults.findIndex((r) => Number(r.id) === Number(item.id)) + 1;
-                    return renderStandingsItem(item, position);
-                  })
-                )}
+            <Text style={styles.mdTitle}>{selectedMatchday}ª Giornata</Text>
+            {!matchdayResults || !Array.isArray(matchdayResults) || matchdayResults.length === 0 ? (
+              <View style={styles.emptyBox}>
+                <Ionicons name="calendar-outline" size={52} color="#d0d0d0" />
+                <Text style={styles.emptyTitle}>Nessun risultato</Text>
+                <Text style={styles.emptySubtext}>Non ci sono ancora voti per questa giornata</Text>
               </View>
+            ) : filteredMatchdayResults.length === 0 ? (
+              <View style={styles.emptyBox}>
+                <Ionicons name="search-outline" size={52} color="#d0d0d0" />
+                <Text style={styles.emptyTitle}>Nessuna squadra trovata</Text>
+                <Text style={styles.emptySubtext}>Prova con nome squadra, allenatore o utente</Text>
+              </View>
+            ) : (
+              filteredMatchdayResults.map((item) => {
+                const position = matchdayResults.findIndex((r) => Number(r.id) === Number(item.id)) + 1;
+                return renderStandingsItem(item, position);
+              })
             )}
           </View>
-        )}
+        ) : null}
       </ScrollView>
 
       {toastMsg && (
@@ -746,8 +749,14 @@ const styles = StyleSheet.create({
   scrollContent: { paddingTop: 12, paddingHorizontal: 16 },
 
   /* Matchday selector */
-  mdSelector: { marginBottom: 10 },
-  mdSelectorContent: { gap: 6, paddingRight: 16 },
+  mdSelectorWrapper: {
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+    paddingVertical: 8,
+  },
+  mdSelector: { flexGrow: 0 },
+  mdSelectorContent: { gap: 6, paddingHorizontal: 16, paddingRight: 16 },
   mdChip: {
     paddingVertical: 6,
     paddingHorizontal: 14,
