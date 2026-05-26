@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   RefreshControl,
   Image,
+  TextInput,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
@@ -21,6 +22,7 @@ import AppLoadingFullScreenModal from '../components/AppLoadingFullScreenModal';
 import { useAppLoadingMedia } from '../context/AppLoadingMediaContext';
 import { formatVoteRating, normalizeVoteRating } from '../utils/voteRating';
 import { getFormationSlotVisual } from '../utils/formationDisplay';
+import { useAuth } from '../context/AuthContext';
 
 const ROLE_COLORS = { P: '#0d6efd', D: '#198754', C: '#e6a817', A: '#dc3545' };
 
@@ -54,7 +56,11 @@ const formatRating = (v) => formatVoteRating(v);
 export default function LiveScoresScreen({ route, navigation }) {
   const { leagueId, leagueName, giornata: initialGiornata } = route.params || {};
   const insets = useSafeAreaInsets();
+  const { user } = useAuth();
   const { uri: loadingMediaUri, type: loadingMediaType } = useAppLoadingMedia();
+  const scrollRef = useRef(null);
+  const scrollToMePendingRef = useRef(true);
+  const myUserId = Number(user?.id) || 0;
   const [liveData, setLiveData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -64,7 +70,25 @@ export default function LiveScoresScreen({ route, navigation }) {
   const [formations, setFormations] = useState({});
   const [formationViewMode, setFormationViewMode] = useState({});
   const [loadingFormation, setLoadingFormation] = useState({});
+  const [searchQuery, setSearchQuery] = useState('');
   const parseDeadlineDate = (value) => parseAppDate(value);
+
+  const allResults = liveData?.results || [];
+  const filteredResults = useMemo(() => {
+    const results = liveData?.results || [];
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return results;
+    return results.filter((team) => {
+      const haystack = [
+        team.team_name,
+        team.username,
+        team.coach_name,
+      ]
+        .map((s) => String(s || '').toLowerCase())
+        .join(' ');
+      return haystack.includes(q);
+    });
+  }, [liveData?.results, searchQuery]);
 
   const loadLiveData = async (isRefresh = false) => {
     try {
@@ -100,12 +124,23 @@ export default function LiveScoresScreen({ route, navigation }) {
   // Polling every 15 seconds
   useFocusEffect(
     useCallback(() => {
+      scrollToMePendingRef.current = true;
       loadAvailableMatchdays();
       loadLiveData();
       const interval = setInterval(() => loadLiveData(true), 15000);
       return () => clearInterval(interval);
     }, [leagueId, currentGiornata])
   );
+
+  const handleMyTeamCardLayout = useCallback((userId, event) => {
+    if (!scrollToMePendingRef.current || !myUserId || searchQuery.trim()) return;
+    if (Number(userId) !== myUserId) return;
+    scrollToMePendingRef.current = false;
+    const y = event?.nativeEvent?.layout?.y ?? 0;
+    requestAnimationFrame(() => {
+      scrollRef.current?.scrollTo({ y: Math.max(0, y - 20), animated: false });
+    });
+  }, [myUserId, searchQuery]);
 
   const toggleTeam = async (userId) => {
     const willExpand = !expandedTeams[userId];
@@ -167,6 +202,8 @@ export default function LiveScoresScreen({ route, navigation }) {
                 key={m.giornata}
                 onPress={() => {
                   if (!isActive) {
+                    scrollToMePendingRef.current = true;
+                    setSearchQuery('');
                     setCurrentGiornata(m.giornata);
                     setExpandedTeams({});
                     setFormations({});
@@ -215,22 +252,48 @@ export default function LiveScoresScreen({ route, navigation }) {
         </View>
       )}
 
+      <View style={styles.searchContainer}>
+        <Ionicons name="search" size={18} color="#666" style={styles.searchIcon} />
+        <TextInput
+          style={styles.searchInput}
+          placeholder="Cerca squadra, allenatore o utente..."
+          placeholderTextColor="#999"
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          autoCapitalize="none"
+          autoCorrect={false}
+          clearButtonMode="never"
+        />
+        {searchQuery.length > 0 && (
+          <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.searchClearBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Ionicons name="close-circle" size={20} color="#999" />
+          </TouchableOpacity>
+        )}
+      </View>
+
       <ScrollView
+        ref={scrollRef}
         style={styles.content}
         contentContainerStyle={{ paddingBottom: insets.bottom + 20 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadLiveData(true); }} />}
       >
-        {(liveData?.results || []).map((team, index) => {
+        {filteredResults.map((team) => {
+          const position = allResults.findIndex((r) => Number(r.user_id) === Number(team.user_id)) + 1;
           const isExpanded = !!expandedTeams[team.user_id];
+          const isMe = myUserId > 0 && Number(team.user_id) === myUserId;
           return (
-            <View key={team.user_id} style={styles.teamCard}>
+            <View
+              key={team.user_id}
+              style={[styles.teamCard, isMe && styles.myTeamCard]}
+              onLayout={(e) => handleMyTeamCardLayout(team.user_id, e)}
+            >
               <TouchableOpacity
-                style={styles.teamHeader}
+                style={[styles.teamHeader, isMe && styles.myTeamHeader]}
                 onPress={() => toggleTeam(team.user_id)}
                 activeOpacity={0.7}
               >
                 <View style={styles.teamPos}>
-                  <Text style={styles.teamPosText}>{index + 1}</Text>
+                  <Text style={styles.teamPosText}>{position}</Text>
                 </View>
                 {(() => {
                   const tLogo = team.team_logo && team.team_logo.trim() !== '' ? team.team_logo : 'default_1';
@@ -243,8 +306,17 @@ export default function LiveScoresScreen({ route, navigation }) {
                   );
                 })()}
                 <View style={styles.teamInfo}>
-                  <Text style={styles.teamName} numberOfLines={1}>{team.team_name || team.username}</Text>
-                  <Text style={styles.teamUser}>{team.username}</Text>
+                  <View style={styles.teamNameRow}>
+                    <Text style={styles.teamName} numberOfLines={1}>{team.team_name || team.username}</Text>
+                    {isMe && (
+                      <View style={styles.meBadge}>
+                        <Text style={styles.meBadgeText}>Tu</Text>
+                      </View>
+                    )}
+                  </View>
+                  {!!team.coach_name && (
+                    <Text style={styles.teamUser} numberOfLines={1}>{team.coach_name}</Text>
+                  )}
                 </View>
                 <Text style={styles.teamScore}>{team.punteggio}</Text>
                 <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={18} color="#999" />
@@ -474,10 +546,18 @@ export default function LiveScoresScreen({ route, navigation }) {
           );
         })}
 
-        {(!liveData?.results || liveData.results.length === 0) && (
+        {allResults.length === 0 && (
           <View style={styles.emptyContainer}>
             <Ionicons name="football-outline" size={48} color="#ccc" />
             <Text style={styles.emptyText}>Nessun dato disponibile</Text>
+          </View>
+        )}
+
+        {allResults.length > 0 && filteredResults.length === 0 && (
+          <View style={styles.emptyContainer}>
+            <Ionicons name="search-outline" size={48} color="#ccc" />
+            <Text style={styles.emptyText}>Nessuna squadra trovata</Text>
+            <Text style={styles.emptySubtext}>Prova con nome squadra, allenatore o utente</Text>
           </View>
         )}
       </ScrollView>
@@ -598,6 +678,30 @@ const styles = StyleSheet.create({
     color: '#856404',
     fontWeight: '500',
   },
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    marginHorizontal: 12,
+    marginTop: 10,
+    marginBottom: 4,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  searchIcon: {
+    marginRight: 8,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 15,
+    paddingVertical: 10,
+    color: '#333',
+  },
+  searchClearBtn: {
+    marginLeft: 4,
+  },
   content: {
     flex: 1,
     padding: 12,
@@ -612,6 +716,13 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.08,
     shadowRadius: 3,
     elevation: 2,
+  },
+  myTeamCard: {
+    borderWidth: 1.5,
+    borderColor: '#667eea',
+  },
+  myTeamHeader: {
+    backgroundColor: '#f0f3ff',
   },
   teamHeader: {
     flexDirection: 'row',
@@ -648,10 +759,28 @@ const styles = StyleSheet.create({
   teamInfo: {
     flex: 1,
   },
+  teamNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    minWidth: 0,
+  },
   teamName: {
+    flexShrink: 1,
     fontSize: 15,
     fontWeight: '700',
     color: '#333',
+  },
+  meBadge: {
+    backgroundColor: '#667eea',
+    borderRadius: 5,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+  },
+  meBadgeText: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#fff',
   },
   teamUser: {
     fontSize: 11,
@@ -745,6 +874,13 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#999',
     marginTop: 12,
+  },
+  emptySubtext: {
+    fontSize: 13,
+    color: '#bbb',
+    marginTop: 6,
+    textAlign: 'center',
+    paddingHorizontal: 24,
   },
 
   /* Formation box */

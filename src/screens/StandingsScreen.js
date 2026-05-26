@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   Image,
   Dimensions,
+  TextInput,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -48,6 +49,19 @@ const midTruncate = (str, max = 8) => {
   const head = max - tail - 2;
   return str.slice(0, head) + '..' + str.slice(-tail);
 };
+
+function matchesStandingsSearch(item, query) {
+  const q = String(query || '').trim().toLowerCase();
+  if (!q) return true;
+  const haystack = [
+    item?.team_name,
+    item?.username,
+    item?.coach_name,
+  ]
+    .map((s) => String(s || '').toLowerCase())
+    .join(' ');
+  return haystack.includes(q);
+}
 
 /** Messaggio sotto la classifica “per giornata” quando non ci sono titolari da mostrare (evita “nessuna formazione inviata” fuorviante). */
 function getStandingsEmptyFormationCopy(formationData, league, selectedMatchday) {
@@ -93,6 +107,19 @@ export default function StandingsScreen({ route, navigation }) {
   const [loadingFormations, setLoadingFormations] = useState({});
   const [formationViewMode, setFormationViewMode] = useState({});
   const [toastMsg, setToastMsg] = useState(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const scrollRef = useRef(null);
+  const scrollToMePendingRef = useRef(true);
+  const myUserId = Number(user?.id) || 0;
+
+  const filteredStandings = useMemo(
+    () => standings.filter((item) => matchesStandingsSearch(item, searchQuery)),
+    [standings, searchQuery]
+  );
+  const filteredMatchdayResults = useMemo(
+    () => matchdayResults.filter((item) => matchesStandingsSearch(item, searchQuery)),
+    [matchdayResults, searchQuery]
+  );
 
   const showToast = (text, type = 'error') => {
     setToastMsg({ text, type });
@@ -101,6 +128,8 @@ export default function StandingsScreen({ route, navigation }) {
 
   useFocusEffect(
     useCallback(() => {
+      scrollToMePendingRef.current = true;
+      setSearchQuery('');
       setActiveTab('generale');
       loadData();
     }, [leagueId])
@@ -108,6 +137,8 @@ export default function StandingsScreen({ route, navigation }) {
 
   useEffect(() => {
     if (activeTab === 'giornata' && selectedMatchday) {
+      scrollToMePendingRef.current = true;
+      setSearchQuery('');
       loadMatchdayResults();
       setExpandedFormations({});
       setFormations({});
@@ -115,6 +146,23 @@ export default function StandingsScreen({ route, navigation }) {
       setFormationViewMode({});
     }
   }, [activeTab, selectedMatchday]);
+
+  const handleMyCardLayout = useCallback((userId, event) => {
+    if (!scrollToMePendingRef.current || !myUserId || searchQuery.trim()) return;
+    if (Number(userId) !== myUserId) return;
+    scrollToMePendingRef.current = false;
+    const y = event?.nativeEvent?.layout?.y ?? 0;
+    requestAnimationFrame(() => {
+      scrollRef.current?.scrollTo({ y: Math.max(0, y - 20), animated: false });
+    });
+  }, [myUserId, searchQuery]);
+
+  const handleTabChange = (tab) => {
+    if (tab === activeTab) return;
+    scrollToMePendingRef.current = true;
+    setSearchQuery('');
+    setActiveTab(tab);
+  };
 
   const loadData = async () => {
     const warmL = peekLeagueDetail(leagueId);
@@ -229,7 +277,11 @@ export default function StandingsScreen({ route, navigation }) {
     const isLoadingFormation = loadingFormations[item?.id];
 
     return (
-      <View key={item?.id || position} style={[styles.card, isMe && styles.myCard]}>
+      <View
+        key={item?.id || position}
+        style={[styles.card, isMe && styles.myCard]}
+        onLayout={isMe ? (e) => handleMyCardLayout(item?.id, e) : undefined}
+      >
         <TouchableOpacity
           onPress={() => { if (activeTab === 'giornata') toggleFormation(item?.id); }}
           activeOpacity={activeTab === 'giornata' ? 0.7 : 1}
@@ -249,7 +301,9 @@ export default function StandingsScreen({ route, navigation }) {
                   <View style={styles.meBadge}><Text style={styles.meBadgeText}>Tu</Text></View>
                 )}
               </View>
-              <Text style={styles.cardUsername}>{item?.username || 'N/A'}</Text>
+              {!!item?.coach_name && (
+                <Text style={styles.cardCoach} numberOfLines={1}>{item.coach_name}</Text>
+              )}
             </View>
 
             {/* Punteggi */}
@@ -511,21 +565,40 @@ export default function StandingsScreen({ route, navigation }) {
       <View style={styles.tabBar}>
         <TouchableOpacity
           style={[styles.tab, activeTab === 'generale' && styles.tabActive]}
-          onPress={() => setActiveTab('generale')}
+          onPress={() => handleTabChange('generale')}
         >
           <Ionicons name="trophy" size={16} color={activeTab === 'generale' ? '#667eea' : '#999'} />
           <Text style={[styles.tabLabel, activeTab === 'generale' && styles.tabLabelActive]}>Generale</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.tab, activeTab === 'giornata' && styles.tabActive]}
-          onPress={() => setActiveTab('giornata')}
+          onPress={() => handleTabChange('giornata')}
         >
           <Ionicons name="calendar" size={16} color={activeTab === 'giornata' ? '#667eea' : '#999'} />
           <Text style={[styles.tabLabel, activeTab === 'giornata' && styles.tabLabelActive]}>Per Giornata</Text>
         </TouchableOpacity>
       </View>
 
+      <View style={styles.searchContainer}>
+        <Ionicons name="search" size={18} color="#666" style={styles.searchIcon} />
+        <TextInput
+          style={styles.searchInput}
+          placeholder="Cerca squadra, allenatore o utente..."
+          placeholderTextColor="#999"
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+        {searchQuery.length > 0 && (
+          <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.searchClearBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Ionicons name="close-circle" size={20} color="#999" />
+          </TouchableOpacity>
+        )}
+      </View>
+
       <ScrollView
+        ref={scrollRef}
         style={styles.scroll}
         contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 80 }]}
       >
@@ -536,8 +609,17 @@ export default function StandingsScreen({ route, navigation }) {
               <Text style={styles.emptyTitle}>Nessuna classifica</Text>
               <Text style={styles.emptySubtext}>Non ci sono ancora dati disponibili</Text>
             </View>
+          ) : filteredStandings.length === 0 ? (
+            <View style={styles.emptyBox}>
+              <Ionicons name="search-outline" size={52} color="#d0d0d0" />
+              <Text style={styles.emptyTitle}>Nessuna squadra trovata</Text>
+              <Text style={styles.emptySubtext}>Prova con nome squadra, allenatore o utente</Text>
+            </View>
           ) : (
-            standings.map((item, index) => renderStandingsItem(item, index + 1))
+            filteredStandings.map((item) => {
+              const position = standings.findIndex((r) => Number(r.id) === Number(item.id)) + 1;
+              return renderStandingsItem(item, position);
+            })
           )
         ) : (
           <View>
@@ -547,7 +629,13 @@ export default function StandingsScreen({ route, navigation }) {
                 <TouchableOpacity
                   key={md.giornata}
                   style={[styles.mdChip, selectedMatchday === md.giornata && styles.mdChipActive]}
-                  onPress={() => setSelectedMatchday(md.giornata)}
+                  onPress={() => {
+                    if (selectedMatchday !== md.giornata) {
+                      scrollToMePendingRef.current = true;
+                      setSearchQuery('');
+                      setSelectedMatchday(md.giornata);
+                    }
+                  }}
                 >
                   <Text style={[styles.mdChipText, selectedMatchday === md.giornata && styles.mdChipTextActive]}>
                     {md.giornata}ª G
@@ -566,8 +654,17 @@ export default function StandingsScreen({ route, navigation }) {
                     <Text style={styles.emptyTitle}>Nessun risultato</Text>
                     <Text style={styles.emptySubtext}>Non ci sono ancora voti per questa giornata</Text>
                   </View>
+                ) : filteredMatchdayResults.length === 0 ? (
+                  <View style={styles.emptyBox}>
+                    <Ionicons name="search-outline" size={52} color="#d0d0d0" />
+                    <Text style={styles.emptyTitle}>Nessuna squadra trovata</Text>
+                    <Text style={styles.emptySubtext}>Prova con nome squadra, allenatore o utente</Text>
+                  </View>
                 ) : (
-                  matchdayResults.map((item, index) => renderStandingsItem(item, index + 1))
+                  filteredMatchdayResults.map((item) => {
+                    const position = matchdayResults.findIndex((r) => Number(r.id) === Number(item.id)) + 1;
+                    return renderStandingsItem(item, position);
+                  })
                 )}
               </View>
             )}
@@ -622,6 +719,27 @@ const styles = StyleSheet.create({
   tabActive: { borderBottomColor: '#667eea' },
   tabLabel: { fontSize: 13, fontWeight: '500', color: '#999' },
   tabLabelActive: { color: '#667eea', fontWeight: '700' },
+
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    marginHorizontal: 16,
+    marginTop: 10,
+    marginBottom: 4,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  searchIcon: { marginRight: 8 },
+  searchInput: {
+    flex: 1,
+    fontSize: 15,
+    paddingVertical: 10,
+    color: '#333',
+  },
+  searchClearBtn: { marginLeft: 4 },
 
   /* Scroll */
   scroll: { flex: 1 },
@@ -680,7 +798,7 @@ const styles = StyleSheet.create({
   cardTeamName: { fontSize: 14, fontWeight: '700', color: '#2c3e50', flexShrink: 1 },
   meBadge: { backgroundColor: '#667eea', borderRadius: 5, paddingHorizontal: 5, paddingVertical: 1 },
   meBadgeText: { fontSize: 9, fontWeight: '700', color: '#fff' },
-  cardUsername: { fontSize: 12, color: '#999', marginTop: 1 },
+  cardCoach: { fontSize: 12, color: '#999', marginTop: 1 },
   cardScores: { alignItems: 'center', minWidth: 44, marginLeft: 4 },
   scoreMain: { fontSize: 17, fontWeight: '700', color: '#667eea' },
   scoreLabel: { fontSize: 10, color: '#aaa', marginTop: 1 },
