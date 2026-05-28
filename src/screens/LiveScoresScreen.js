@@ -23,6 +23,7 @@ import { useAppLoadingMedia } from '../context/AppLoadingMediaContext';
 import { formatVoteRating, normalizeVoteRating } from '../utils/voteRating';
 import { getFormationSlotVisual } from '../utils/formationDisplay';
 import { useAuth } from '../context/AuthContext';
+import { buildCompetitionRankMap, toFiniteNumber } from '../utils/standingsRanking';
 
 const ROLE_COLORS = { P: '#0d6efd', D: '#198754', C: '#e6a817', A: '#dc3545' };
 
@@ -89,6 +90,14 @@ export default function LiveScoresScreen({ route, navigation }) {
       return haystack.includes(q);
     });
   }, [liveData?.results, searchQuery]);
+  const rankByUserId = useMemo(
+    () =>
+      buildCompetitionRankMap(allResults, {
+        getId: (team) => team?.user_id,
+        getScore: (team) => toFiniteNumber(team?.punteggio),
+      }),
+    [allResults]
+  );
 
   const loadLiveData = async (isRefresh = false) => {
     try {
@@ -278,7 +287,7 @@ export default function LiveScoresScreen({ route, navigation }) {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadLiveData(true); }} />}
       >
         {filteredResults.map((team) => {
-          const position = allResults.findIndex((r) => Number(r.user_id) === Number(team.user_id)) + 1;
+          const position = rankByUserId.get(String(team.user_id)) || 0;
           const isExpanded = !!expandedTeams[team.user_id];
           const isMe = myUserId > 0 && Number(team.user_id) === myUserId;
           return (

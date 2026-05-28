@@ -414,7 +414,7 @@ export default function LeagueScreen({ route, navigation }) {
                   </View>
                 ) : (
                   <View style={styles.posCircle}>
-                    <Text style={styles.posNum}>{index + 1}</Text>
+                    <Text style={styles.posNum}>{Number(team?.position || (index + 1))}</Text>
                   </View>
                 )}
                 {tLogo.startsWith('default_') ? (

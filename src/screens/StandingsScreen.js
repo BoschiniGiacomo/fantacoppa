@@ -27,6 +27,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import BonusIcon from '../components/BonusIcon';
 import { formatVoteRating } from '../utils/voteRating';
 import { getFormationSlotVisual } from '../utils/formationDisplay';
+import { buildCompetitionRankMap, toFiniteNumber } from '../utils/standingsRanking';
 
 const ROLE_COLORS = { P: '#0d6efd', D: '#198754', C: '#e6a817', A: '#dc3545' };
 
@@ -61,6 +62,31 @@ function matchesStandingsSearch(item, query) {
     .map((s) => String(s || '').toLowerCase())
     .join(' ');
   return haystack.includes(q);
+}
+
+function pickDefaultMatchday(matchdays, matchdayStatuses = []) {
+  const mdList = Array.isArray(matchdays) ? matchdays : [];
+  if (mdList.length <= 0) return null;
+
+  const statusList = Array.isArray(matchdayStatuses) ? matchdayStatuses : [];
+  if (statusList.length <= 0) {
+    return Number(mdList[mdList.length - 1]?.giornata || null);
+  }
+
+  const sortedStatuses = [...statusList].sort(
+    (a, b) => Number(a?.giornata || 0) - Number(b?.giornata || 0)
+  );
+  const withCalculated = sortedStatuses.filter((s) => Number(s?.is_calculated || 0) === 1);
+  if (withCalculated.length > 0) {
+    return Number(withCalculated[withCalculated.length - 1]?.giornata || null);
+  }
+
+  const withVotes = sortedStatuses.filter((s) => Number(s?.has_votes || 0) === 1);
+  if (withVotes.length > 0) {
+    return Number(withVotes[withVotes.length - 1]?.giornata || null);
+  }
+
+  return Number(mdList[mdList.length - 1]?.giornata || null);
 }
 
 /** Messaggio sotto la classifica “per giornata” quando non ci sono titolari da mostrare (evita “nessuna formazione inviata” fuorviante). */
@@ -120,6 +146,22 @@ export default function StandingsScreen({ route, navigation }) {
     () => matchdayResults.filter((item) => matchesStandingsSearch(item, searchQuery)),
     [matchdayResults, searchQuery]
   );
+  const generalRankById = useMemo(
+    () =>
+      buildCompetitionRankMap(standings, {
+        getId: (item) => item?.id,
+        getScore: (item) => toFiniteNumber(item?.punteggio),
+      }),
+    [standings]
+  );
+  const matchdayRankById = useMemo(
+    () =>
+      buildCompetitionRankMap(matchdayResults, {
+        getId: (item) => item?.id,
+        getScore: (item) => toFiniteNumber(item?.punteggio),
+      }),
+    [matchdayResults]
+  );
 
   const showToast = (text, type = 'error') => {
     setToastMsg({ text, type });
@@ -178,7 +220,7 @@ export default function StandingsScreen({ route, navigation }) {
       else setStandings([]);
       setMatchdays(Array.isArray(warmMd) ? warmMd : []);
       const mdArr = Array.isArray(warmMd) ? warmMd : [];
-      if (mdArr.length > 0) {
+      if (mdArr.length > 0 && !selectedMatchday) {
         setSelectedMatchday(mdArr[mdArr.length - 1].giornata);
       }
       setLoading(false);
@@ -187,10 +229,11 @@ export default function StandingsScreen({ route, navigation }) {
     }
 
     try {
-      const [leagueRes, standingsRes, matchdaysRes] = await Promise.all([
+      const [leagueRes, standingsRes, matchdaysRes, statusRes] = await Promise.all([
         leagueService.getById(leagueId),
         leagueService.getStandingsFull(leagueId),
         formationService.getMatchdays(leagueId),
+        leagueService.getMatchdayStatus(leagueId).catch(() => ({ data: [] })),
       ]);
       const leagueData = Array.isArray(leagueRes.data) ? leagueRes.data[0] : leagueRes.data;
       setLeague(leagueData);
@@ -206,10 +249,8 @@ export default function StandingsScreen({ route, navigation }) {
       const mdList = Array.isArray(matchdaysData) ? matchdaysData : [];
       setMatchdays(mdList);
       setFormationMatchdays(leagueId, mdList);
-
-      if (mdList.length > 0) {
-        setSelectedMatchday(mdList[mdList.length - 1].giornata);
-      }
+      const defaultMatchday = pickDefaultMatchday(mdList, statusRes?.data || []);
+      if (defaultMatchday) setSelectedMatchday(defaultMatchday);
     } catch (error) {
       console.error('Error loading standings:', error);
       if (!hasWarm) showToast('Impossibile caricare la classifica');
@@ -646,7 +687,7 @@ export default function StandingsScreen({ route, navigation }) {
             </View>
           ) : (
             filteredStandings.map((item) => {
-              const position = standings.findIndex((r) => Number(r.id) === Number(item.id)) + 1;
+              const position = generalRankById.get(String(item.id)) || 0;
               return renderStandingsItem(item, position);
             })
           )
@@ -667,7 +708,7 @@ export default function StandingsScreen({ route, navigation }) {
               </View>
             ) : (
               filteredMatchdayResults.map((item) => {
-                const position = matchdayResults.findIndex((r) => Number(r.id) === Number(item.id)) + 1;
+                const position = matchdayRankById.get(String(item.id)) || 0;
                 return renderStandingsItem(item, position);
               })
             )}

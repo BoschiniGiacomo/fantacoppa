@@ -1066,13 +1066,24 @@ router.get('/:id/dashboard-data', authenticateToken, async (req, res) => {
       );
     }
 
-    const topStandings = standingsFull.slice(0, 5);
-    const userIdx = standingsFull.findIndex((r) => Number(r.id) === userId);
+    let lastScore = null;
+    let currentPosition = 0;
+    const standingsWithPosition = (standingsFull || []).map((row, idx) => {
+      const score = Number(row?.punteggio || 0);
+      if (idx === 0 || score !== lastScore) {
+        currentPosition = idx + 1;
+        lastScore = score;
+      }
+      return { ...row, position: currentPosition };
+    });
+
+    const topStandings = standingsWithPosition.slice(0, 5);
+    const userIdx = standingsWithPosition.findIndex((r) => Number(r.id) === userId);
     const userStats = userIdx >= 0
       ? {
-          position: userIdx + 1,
-          totalPoints: Number(Number(standingsFull[userIdx].punteggio || 0).toFixed(1)),
-          avgPoints: Number(Number(standingsFull[userIdx].media_punti || 0).toFixed(2)),
+          position: Number(standingsWithPosition[userIdx].position || 0),
+          totalPoints: Number(Number(standingsWithPosition[userIdx].punteggio || 0).toFixed(1)),
+          avgPoints: Number(Number(standingsWithPosition[userIdx].media_punti || 0).toFixed(2)),
         }
       : null;
 
