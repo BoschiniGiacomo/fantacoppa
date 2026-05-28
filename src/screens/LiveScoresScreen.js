@@ -52,6 +52,33 @@ const midTruncate = (str, max = 8) => {
   return str.slice(0, head) + '..' + str.slice(-tail);
 };
 
+function normalizeSurname(value) {
+  return String(value || '').trim().toLocaleLowerCase('it-IT');
+}
+
+function buildSurnameCountMap(players) {
+  const map = new Map();
+  for (const p of Array.isArray(players) ? players : []) {
+    const key = normalizeSurname(p?.last_name);
+    if (!key) continue;
+    map.set(key, (map.get(key) || 0) + 1);
+  }
+  return map;
+}
+
+function getFieldPlayerLabel(player, surnameCountMap) {
+  const lastName = String(player?.last_name || '').trim();
+  if (!lastName) return '';
+  const surnameKey = normalizeSurname(lastName);
+  const sameSurnameCount = Number(surnameCountMap?.get(surnameKey) || 0);
+  const sameSurnameInLeague = player?.same_surname_in_league === true;
+  if (sameSurnameCount <= 1 && !sameSurnameInLeague) return midTruncate(lastName, 10);
+
+  const firstInitial = String(player?.first_name || '').trim().charAt(0).toUpperCase();
+  const composed = firstInitial ? `${firstInitial}. ${lastName}` : lastName;
+  return midTruncate(composed, 12);
+}
+
 const formatRating = (v) => formatVoteRating(v);
 
 export default function LiveScoresScreen({ route, navigation }) {
@@ -370,6 +397,7 @@ export default function LiveScoresScreen({ route, navigation }) {
                         const parts = ALL_MODULES[fData.modulo];
                         const [d, c, a] = parts;
                         const players = fData.formation;
+                        const surnameCountMap = buildSurnameCountMap(players);
                         const rows = [
                           { role: 'A', slots: players.slice(1 + d + c, 1 + d + c + a) },
                           { role: 'C', slots: players.slice(1 + d, 1 + d + c) },
@@ -394,6 +422,7 @@ export default function LiveScoresScreen({ route, navigation }) {
                                   {row.slots.map((p, si) => {
                                     if (!p) return <View key={si} style={{ width: slotSize, height: slotSize }} />;
                                     const vis = getFormationSlotVisual(p);
+                                    const fieldLabel = getFieldPlayerLabel(vis, surnameCountMap);
                                     const roleColor = ROLE_COLORS[vis.role] || '#999';
                                     const hasPhoto = !!vis.photo_path;
                                     const hasVote = normalizeVoteRating(p.rating || 0) > 0 || Number(p.final_rating || 0) > 0;
@@ -450,12 +479,12 @@ export default function LiveScoresScreen({ route, navigation }) {
                                                   style={{ width: slotSize * 0.90, height: slotSize * 0.90, position: 'absolute', top: -slotSize * 0.11 }}
                                                 />
                                                 <View style={[styles.miniSlotOverlay, { backgroundColor: roleColor }]}>
-                                                  <Text style={styles.miniSlotOverlayText}>{midTruncate(vis.last_name)}</Text>
+                                                  <Text style={styles.miniSlotOverlayText}>{fieldLabel}</Text>
                                                 </View>
                                               </View>
                                             ) : (
                                               <>
-                                                <Text style={styles.miniSlotName} numberOfLines={1}>{midTruncate(vis.last_name, 10)}</Text>
+                                                <Text style={styles.miniSlotName} numberOfLines={1}>{fieldLabel}</Text>
                                                 <Text style={styles.miniSlotTeam} numberOfLines={1}>{midTruncate(vis.team_name, 9)}</Text>
                                               </>
                                             )}

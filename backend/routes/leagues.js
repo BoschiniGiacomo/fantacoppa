@@ -2678,7 +2678,7 @@ router.get('/:id/standings/matchday/:giornata/formation/:userId', authenticateTo
         [effectiveLeagueId, giornata]
       ).catch(() => []),
       query(
-        `SELECT p.id, p.role, p.team_id
+        `SELECT p.id, p.role, p.team_id, p.last_name
          FROM players p
          WHERE p.team_id IN (SELECT id FROM teams WHERE league_id = ?)`,
         [effectiveLeagueId]
@@ -2688,6 +2688,12 @@ router.get('/:id/standings/matchday/:giornata/formation/:userId', authenticateTo
     pRows.forEach((p) => { byId[Number(p.id)] = p; });
     const playersById = {};
     rosterMetaRows.forEach((p) => { playersById[Number(p.id)] = p; });
+    const leagueSurnameCounts = {};
+    (rosterMetaRows || []).forEach((p) => {
+      const surname = String(p?.last_name || '').trim().toLocaleLowerCase('it-IT');
+      if (!surname) return;
+      leagueSurnameCounts[surname] = Number(leagueSurnameCounts[surname] || 0) + 1;
+    });
     const scoreMap = Object.fromEntries(scoreRows.map((s) => [Number(s.player_id), s]));
     const votesByPlayer = Object.fromEntries(vRows.map((v) => [Number(v.player_id), v]));
 
@@ -2733,6 +2739,8 @@ router.get('/:id/standings/matchday/:giornata/formation/:userId', authenticateTo
       const subId = slot.substitute_id ? Number(slot.substitute_id) : null;
       const subP = subId ? byId[subId] : null;
       const visual = subP || p;
+      const visualSurnameKey = String(visual?.last_name || '').trim().toLocaleLowerCase('it-IT');
+      const sameSurnameInLeague = !!(visualSurnameKey && Number(leagueSurnameCounts[visualSurnameKey] || 0) > 1);
       // Voto reale mostrato: del sub entrato se sostituito, altrimenti del titolare (S.V. = 0, aiuto 4.5 solo nel fantavoto).
       const rating = subId
         ? normalizeVoteRating(slot.rating ?? 0)
@@ -2765,6 +2773,7 @@ router.get('/:id/standings/matchday/:giornata/formation/:userId', authenticateTo
         substitute_id: subId || null,
         substitute_first_name: subP?.first_name || null,
         substitute_last_name: subP?.last_name || null,
+        same_surname_in_league: sameSurnameInLeague,
         pending_team_vote: !!slot.pending_team_vote,
         sv_fallback_score: Number(slot.sv_fallback_score || 0),
       };
