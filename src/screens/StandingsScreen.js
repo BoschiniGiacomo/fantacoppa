@@ -28,6 +28,7 @@ import BonusIcon from '../components/BonusIcon';
 import { formatVoteRating } from '../utils/voteRating';
 import { getFormationSlotVisual } from '../utils/formationDisplay';
 import { buildCompetitionRankMap, toFiniteNumber } from '../utils/standingsRanking';
+import { buildFieldSurnameCountMap, getFieldPlayerLabel } from '../utils/fieldPlayerLabel';
 
 const ROLE_COLORS = { P: '#0d6efd', D: '#198754', C: '#e6a817', A: '#dc3545' };
 
@@ -50,33 +51,6 @@ const midTruncate = (str, max = 8) => {
   const head = max - tail - 2;
   return str.slice(0, head) + '..' + str.slice(-tail);
 };
-
-function normalizeSurname(value) {
-  return String(value || '').trim().toLocaleLowerCase('it-IT');
-}
-
-function buildSurnameCountMap(players) {
-  const map = new Map();
-  for (const p of Array.isArray(players) ? players : []) {
-    const key = normalizeSurname(p?.last_name);
-    if (!key) continue;
-    map.set(key, (map.get(key) || 0) + 1);
-  }
-  return map;
-}
-
-function getFieldPlayerLabel(player, surnameCountMap) {
-  const lastName = String(player?.last_name || '').trim();
-  if (!lastName) return '';
-  const surnameKey = normalizeSurname(lastName);
-  const sameSurnameCount = Number(surnameCountMap?.get(surnameKey) || 0);
-  const sameSurnameInLeague = player?.same_surname_in_league === true;
-  if (sameSurnameCount <= 1 && !sameSurnameInLeague) return midTruncate(lastName, 10);
-
-  const firstInitial = String(player?.first_name || '').trim().charAt(0).toUpperCase();
-  const composed = firstInitial ? `${firstInitial}. ${lastName}` : lastName;
-  return midTruncate(composed, 12);
-}
 
 function matchesStandingsSearch(item, query) {
   const q = String(query || '').trim().toLowerCase();
@@ -155,6 +129,7 @@ export default function StandingsScreen({ route, navigation }) {
   const [matchdays, setMatchdays] = useState([]);
   const [selectedMatchday, setSelectedMatchday] = useState(null);
   const [matchdayResults, setMatchdayResults] = useState([]);
+  const [loadingMatchdayResults, setLoadingMatchdayResults] = useState(false);
   const [expandedFormations, setExpandedFormations] = useState({});
   const [formations, setFormations] = useState({});
   const [loadingFormations, setLoadingFormations] = useState({});
@@ -288,6 +263,7 @@ export default function StandingsScreen({ route, navigation }) {
   };
 
   const loadMatchdayResults = async () => {
+    setLoadingMatchdayResults(true);
     try {
       const resultsRes = await leagueService.getMatchdayResults(leagueId, selectedMatchday);
       const resultsData = resultsRes.data;
@@ -299,6 +275,8 @@ export default function StandingsScreen({ route, navigation }) {
     } catch (error) {
       console.error('Error loading matchday results:', error);
       setMatchdayResults([]);
+    } finally {
+      setLoadingMatchdayResults(false);
     }
   };
 
@@ -426,7 +404,10 @@ export default function StandingsScreen({ route, navigation }) {
                   const parts = ALL_MODULES[formationData.modulo];
                   const [d, c, a] = parts;
                   const players = formationData.formation;
-                  const surnameCountMap = buildSurnameCountMap(players);
+                  const surnameCountMap = buildFieldSurnameCountMap(
+                    [{ slots: players }],
+                    (row) => row.slots
+                  );
                   const rows = [
                     { role: 'A', slots: players.slice(1 + d + c, 1 + d + c + a) },
                     { role: 'C', slots: players.slice(1 + d, 1 + d + c) },
@@ -451,7 +432,7 @@ export default function StandingsScreen({ route, navigation }) {
                             {row.slots.map((p, si) => {
                               if (!p) return <View key={si} style={{ width: slotSize, height: slotSize }} />;
                               const vis = getFormationSlotVisual(p);
-                              const fieldLabel = getFieldPlayerLabel(vis, surnameCountMap);
+                              const fieldLabel = getFieldPlayerLabel(vis, surnameCountMap, midTruncate);
                               const roleColor = ROLE_COLORS[vis.role] || '#999';
                               const hasPhoto = !!vis.photo_path;
 
@@ -725,7 +706,12 @@ export default function StandingsScreen({ route, navigation }) {
         ) : selectedMatchday ? (
           <View>
             <Text style={styles.mdTitle}>{selectedMatchday}ª Giornata</Text>
-            {!matchdayResults || !Array.isArray(matchdayResults) || matchdayResults.length === 0 ? (
+            {loadingMatchdayResults ? (
+              <View style={styles.matchdayLoadingBox}>
+                <ActivityIndicator size="small" color="#667eea" />
+                <Text style={styles.matchdayLoadingText}>Caricamento risultati...</Text>
+              </View>
+            ) : !matchdayResults || !Array.isArray(matchdayResults) || matchdayResults.length === 0 ? (
               <View style={styles.emptyBox}>
                 <Ionicons name="calendar-outline" size={52} color="#d0d0d0" />
                 <Text style={styles.emptyTitle}>Nessun risultato</Text>
@@ -926,6 +912,18 @@ const styles = StyleSheet.create({
   voteBase: { fontSize: 13, fontWeight: '600', color: '#333' },
   voteSep: { fontSize: 12, color: '#ccc', marginHorizontal: 2 },
   voteFinal: { fontSize: 13, fontWeight: '700', color: '#2e7d32' },
+
+  matchdayLoadingBox: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 28,
+    gap: 8,
+  },
+  matchdayLoadingText: {
+    fontSize: 13,
+    color: '#777',
+    fontWeight: '500',
+  },
   noFormation: { fontSize: 13, color: '#999', fontStyle: 'italic', textAlign: 'center', paddingVertical: 14 },
   recoveredFormationNote: {
     marginTop: 8,

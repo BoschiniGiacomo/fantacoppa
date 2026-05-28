@@ -23,6 +23,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { parseAppDate } from '../utils/dateTime';
 import { syncSubmittedFormationOnboarding } from '../utils/formationSubmission';
+import { buildFieldSurnameCountMap, getFieldPlayerLabel } from '../utils/fieldPlayerLabel';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 
@@ -61,33 +62,6 @@ const midTruncate = (str, max = 9) => {
   const tail = 3;
   const head = max - tail - 3; // 3 = "..."
   return str.slice(0, head) + '...' + str.slice(-tail);
-};
-
-const normalizeSurname = (value) => String(value || '').trim().toLocaleLowerCase('it-IT');
-
-const buildFieldSurnameCountMap = (rows) => {
-  const map = new Map();
-  for (const row of Array.isArray(rows) ? rows : []) {
-    for (const p of Array.isArray(row?.slots) ? row.slots : []) {
-      if (!p) continue;
-      const key = normalizeSurname(p.last_name);
-      if (!key) continue;
-      map.set(key, (map.get(key) || 0) + 1);
-    }
-  }
-  return map;
-};
-
-const getFieldPlayerLabel = (player, surnameCountMap) => {
-  const lastName = String(player?.last_name || '').trim();
-  if (!lastName) return '';
-  const key = normalizeSurname(lastName);
-  const sameSurnameInField = Number(surnameCountMap?.get(key) || 0) > 1;
-  const sameSurnameInLeague = player?.same_surname_in_league === true;
-  if (!sameSurnameInField && !sameSurnameInLeague) return midTruncate(lastName, 10);
-  const firstInitial = String(player?.first_name || '').trim().charAt(0).toUpperCase();
-  const composed = firstInitial ? `${firstInitial}. ${lastName}` : lastName;
-  return midTruncate(composed, 12);
 };
 
 // ============================================================
@@ -774,7 +748,7 @@ export default function FormationScreen({ route }) {
     fieldRows.push({ role: 'D', slots: starters.slice(idx, idx + moduleParts.d), startIdx: idx });
     fieldRows.push({ role: 'P', slots: [starters[0]], startIdx: 0 });
   }
-  const fieldSurnameCountMap = buildFieldSurnameCountMap(fieldRows);
+  const fieldSurnameCountMap = buildFieldSurnameCountMap(fieldRows, (row) => row.slots);
 
   // ============================================================
   // MAIN RENDER
@@ -941,7 +915,7 @@ export default function FormationScreen({ route }) {
 
                           if (player) {
                             const hasPhoto = !!player.photo_path;
-                            const fieldLabel = getFieldPlayerLabel(player, fieldSurnameCountMap);
+                            const fieldLabel = getFieldPlayerLabel(player, fieldSurnameCountMap, midTruncate);
                             return (
                               <TouchableOpacity
                                 key={globalIdx}

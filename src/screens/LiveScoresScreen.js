@@ -24,6 +24,7 @@ import { formatVoteRating, normalizeVoteRating } from '../utils/voteRating';
 import { getFormationSlotVisual } from '../utils/formationDisplay';
 import { useAuth } from '../context/AuthContext';
 import { buildCompetitionRankMap, toFiniteNumber } from '../utils/standingsRanking';
+import { buildFieldSurnameCountMap, getFieldPlayerLabel } from '../utils/fieldPlayerLabel';
 
 const ROLE_COLORS = { P: '#0d6efd', D: '#198754', C: '#e6a817', A: '#dc3545' };
 
@@ -51,33 +52,6 @@ const midTruncate = (str, max = 8) => {
   const head = max - tail - 2;
   return str.slice(0, head) + '..' + str.slice(-tail);
 };
-
-function normalizeSurname(value) {
-  return String(value || '').trim().toLocaleLowerCase('it-IT');
-}
-
-function buildSurnameCountMap(players) {
-  const map = new Map();
-  for (const p of Array.isArray(players) ? players : []) {
-    const key = normalizeSurname(p?.last_name);
-    if (!key) continue;
-    map.set(key, (map.get(key) || 0) + 1);
-  }
-  return map;
-}
-
-function getFieldPlayerLabel(player, surnameCountMap) {
-  const lastName = String(player?.last_name || '').trim();
-  if (!lastName) return '';
-  const surnameKey = normalizeSurname(lastName);
-  const sameSurnameCount = Number(surnameCountMap?.get(surnameKey) || 0);
-  const sameSurnameInLeague = player?.same_surname_in_league === true;
-  if (sameSurnameCount <= 1 && !sameSurnameInLeague) return midTruncate(lastName, 10);
-
-  const firstInitial = String(player?.first_name || '').trim().charAt(0).toUpperCase();
-  const composed = firstInitial ? `${firstInitial}. ${lastName}` : lastName;
-  return midTruncate(composed, 12);
-}
 
 const formatRating = (v) => formatVoteRating(v);
 
@@ -397,7 +371,10 @@ export default function LiveScoresScreen({ route, navigation }) {
                         const parts = ALL_MODULES[fData.modulo];
                         const [d, c, a] = parts;
                         const players = fData.formation;
-                        const surnameCountMap = buildSurnameCountMap(players);
+                        const surnameCountMap = buildFieldSurnameCountMap(
+                          [{ slots: players }],
+                          (row) => row.slots
+                        );
                         const rows = [
                           { role: 'A', slots: players.slice(1 + d + c, 1 + d + c + a) },
                           { role: 'C', slots: players.slice(1 + d, 1 + d + c) },
@@ -422,7 +399,7 @@ export default function LiveScoresScreen({ route, navigation }) {
                                   {row.slots.map((p, si) => {
                                     if (!p) return <View key={si} style={{ width: slotSize, height: slotSize }} />;
                                     const vis = getFormationSlotVisual(p);
-                                    const fieldLabel = getFieldPlayerLabel(vis, surnameCountMap);
+                                    const fieldLabel = getFieldPlayerLabel(vis, surnameCountMap, midTruncate);
                                     const roleColor = ROLE_COLORS[vis.role] || '#999';
                                     const hasPhoto = !!vis.photo_path;
                                     const hasVote = normalizeVoteRating(p.rating || 0) > 0 || Number(p.final_rating || 0) > 0;
