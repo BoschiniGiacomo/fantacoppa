@@ -478,15 +478,17 @@ export default function LiveScoresScreen({ route, navigation }) {
                                                   photoPath={vis.photo_path}
                                                   style={{ width: slotSize * 0.90, height: slotSize * 0.90, position: 'absolute', top: -slotSize * 0.11 }}
                                                 />
-                                                <View style={[styles.miniSlotOverlay, { backgroundColor: roleColor }]}>
-                                                  <Text style={styles.miniSlotOverlayText}>{fieldLabel}</Text>
-                                                </View>
                                               </View>
                                             ) : (
                                               <>
                                                 <Text style={styles.miniSlotName} numberOfLines={1}>{fieldLabel}</Text>
                                                 <Text style={styles.miniSlotTeam} numberOfLines={1}>{midTruncate(vis.team_name, 9)}</Text>
                                               </>
+                                            )}
+                                            {hasPhoto && (
+                                              <View style={[styles.miniSlotNameBadge, { backgroundColor: roleColor }]}>
+                                                <Text style={styles.miniSlotNameBadgeText} numberOfLines={1}>{fieldLabel}</Text>
+                                              </View>
                                             )}
                                           </View>
                                           {bonusItems.length > 0 && (
@@ -961,6 +963,22 @@ const styles = StyleSheet.create({
   miniSlotWrap: { alignItems: 'center', overflow: 'visible' },
   miniSlotOuter: { position: 'relative', overflow: 'visible' },
   miniSlotPhotoClip: { overflow: 'hidden', justifyContent: 'flex-end' },
+  miniSlotNameBadge: {
+    position: 'absolute',
+    left: 4,
+    right: 4,
+    bottom: +1,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 7,
+    alignItems: 'center',
+  },
+  miniSlotNameBadgeText: {
+    color: '#fff',
+    fontSize: 9,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
   fieldBonusCol: {
     position: 'absolute',
     top: -4,

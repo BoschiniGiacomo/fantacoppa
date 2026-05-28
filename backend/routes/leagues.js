@@ -2478,6 +2478,9 @@ router.get('/:id/standings/matchday/:giornata/formation/:userId', authenticateTo
     if (!leagueId || !Number.isFinite(giornata) || !Number.isFinite(targetUserId)) {
       return res.status(400).json({ message: 'Parametri non validi' });
     }
+    const surnameDebugEnabled =
+      String(req.query?.debug_surnames || '').trim() === '1' ||
+      String(process.env.DEBUG_SURNAME_DISAMBIG || '').trim() === '1';
 
     const [bonusSettings, injuryMap, recoverRows, calcRows, lineRows] = await Promise.all([
       getLeagueBonusSettings(leagueId),
@@ -2696,6 +2699,22 @@ router.get('/:id/standings/matchday/:giornata/formation/:userId', authenticateTo
       if (!surname) return;
       leagueSurnameCounts[surname] = Number(leagueSurnameCounts[surname] || 0) + 1;
     });
+    if (surnameDebugEnabled) {
+      const duplicateSurnames = Object.entries(leagueSurnameCounts)
+        .filter(([, count]) => Number(count) > 1)
+        .sort((a, b) => Number(b[1]) - Number(a[1]))
+        .slice(0, 30);
+      console.log('[surname-disambig] scope', {
+        leagueId,
+        effectiveLeagueId,
+        leagueScopeIds,
+        targetUserId,
+        giornata,
+        rosterPlayers: Array.isArray(rosterMetaRows) ? rosterMetaRows.length : 0,
+        duplicateSurnameCount: duplicateSurnames.length,
+        duplicateSurnames,
+      });
+    }
     const scoreMap = Object.fromEntries(scoreRows.map((s) => [Number(s.player_id), s]));
     const votesByPlayer = Object.fromEntries(vRows.map((v) => [Number(v.player_id), v]));
 
@@ -2743,6 +2762,22 @@ router.get('/:id/standings/matchday/:giornata/formation/:userId', authenticateTo
       const visual = subP || p;
       const visualSurnameKey = String(visual?.last_name || '').trim().toLocaleLowerCase('it-IT');
       const sameSurnameInLeague = !!(visualSurnameKey && Number(leagueSurnameCounts[visualSurnameKey] || 0) > 1);
+      if (surnameDebugEnabled) {
+        console.log('[surname-disambig] player', {
+          leagueId,
+          giornata,
+          targetUserId,
+          titolare_id: Number(p.id),
+          titolare_last_name: String(p.last_name || ''),
+          visual_id: Number(visual?.id || p.id),
+          visual_last_name: String(visual?.last_name || ''),
+          visual_first_name: String(visual?.first_name || ''),
+          visual_surname_key: visualSurnameKey,
+          visual_surname_count_in_league: Number(leagueSurnameCounts[visualSurnameKey] || 0),
+          same_surname_in_league: sameSurnameInLeague,
+          substitute_id: subId || null,
+        });
+      }
       // Voto reale mostrato: del sub entrato se sostituito, altrimenti del titolare (S.V. = 0, aiuto 4.5 solo nel fantavoto).
       const rating = subId
         ? normalizeVoteRating(slot.rating ?? 0)
