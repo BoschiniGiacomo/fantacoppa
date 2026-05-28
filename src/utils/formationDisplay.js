@@ -21,5 +21,6 @@ export function getFormationSlotVisual(player) {
     role: player.role || '',
     wasSubstituted: !!player.substitute_id,
     titolare_last_name: player.titolare_last_name || null,
+    same_surname_in_league: player.same_surname_in_league === true,
   };
 }

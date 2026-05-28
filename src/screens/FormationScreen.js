@@ -63,6 +63,33 @@ const midTruncate = (str, max = 9) => {
   return str.slice(0, head) + '...' + str.slice(-tail);
 };
 
+const normalizeSurname = (value) => String(value || '').trim().toLocaleLowerCase('it-IT');
+
+const buildFieldSurnameCountMap = (rows) => {
+  const map = new Map();
+  for (const row of Array.isArray(rows) ? rows : []) {
+    for (const p of Array.isArray(row?.slots) ? row.slots : []) {
+      if (!p) continue;
+      const key = normalizeSurname(p.last_name);
+      if (!key) continue;
+      map.set(key, (map.get(key) || 0) + 1);
+    }
+  }
+  return map;
+};
+
+const getFieldPlayerLabel = (player, surnameCountMap) => {
+  const lastName = String(player?.last_name || '').trim();
+  if (!lastName) return '';
+  const key = normalizeSurname(lastName);
+  const sameSurnameInField = Number(surnameCountMap?.get(key) || 0) > 1;
+  const sameSurnameInLeague = player?.same_surname_in_league === true;
+  if (!sameSurnameInField && !sameSurnameInLeague) return midTruncate(lastName, 10);
+  const firstInitial = String(player?.first_name || '').trim().charAt(0).toUpperCase();
+  const composed = firstInitial ? `${firstInitial}. ${lastName}` : lastName;
+  return midTruncate(composed, 12);
+};
+
 // ============================================================
 export default function FormationScreen({ route }) {
   const { user } = useAuth();
@@ -745,6 +772,7 @@ export default function FormationScreen({ route }) {
     fieldRows.push({ role: 'D', slots: starters.slice(idx, idx + moduleParts.d), startIdx: idx });
     fieldRows.push({ role: 'P', slots: [starters[0]], startIdx: 0 });
   }
+  const fieldSurnameCountMap = buildFieldSurnameCountMap(fieldRows);
 
   // ============================================================
   // MAIN RENDER
@@ -911,6 +939,7 @@ export default function FormationScreen({ route }) {
 
                           if (player) {
                             const hasPhoto = !!player.photo_path;
+                            const fieldLabel = getFieldPlayerLabel(player, fieldSurnameCountMap);
                             return (
                               <TouchableOpacity
                                 key={globalIdx}
@@ -918,24 +947,26 @@ export default function FormationScreen({ route }) {
                                   s.playerSlot,
                                   { borderColor: roleColor, backgroundColor: hasPhoto ? 'transparent' : roleColor },
                                   dynSlot,
-                                  hasPhoto && { borderWidth: 0, overflow: 'hidden' },
+                                  hasPhoto && { borderWidth: 0 },
                                 ]}
                                 onPress={() => !isExpired && canEdit && removeStarter(globalIdx)}
                                 disabled={isExpired || !canEdit}
                               >
                                 {hasPhoto ? (
                                   <>
-                                    <PlayerPhotoImage
-                                      photoPath={player.photo_path}
-                                      style={{ width: slotSize * 0.90, height: slotSize * 0.90, position: 'absolute', top: -slotSize * 0.11 }}
-                                    />
-                                    <View style={[s.fieldPhotoOverlay, { backgroundColor: roleColor }]}>
-                                      <Text style={s.fieldPhotoOverlayText}>{midTruncate(player.last_name, truncLen)}</Text>
+                                    <View style={[s.fieldPhotoClip, { width: slotSize, height: slotSize, borderRadius: slotSize / 2 }]}>
+                                      <PlayerPhotoImage
+                                        photoPath={player.photo_path}
+                                        style={{ width: slotSize * 0.90, height: slotSize * 0.90, position: 'absolute', top: -slotSize * 0.11 }}
+                                      />
+                                    </View>
+                                    <View style={[s.fieldPhotoNameBadge, { backgroundColor: roleColor }]}>
+                                      <Text style={s.fieldPhotoNameBadgeText} numberOfLines={1}>{fieldLabel}</Text>
                                     </View>
                                   </>
                                 ) : (
                                   <>
-                                    <Text style={[s.playerSlotName, { fontSize }]} numberOfLines={1}>{midTruncate(player.last_name, truncLen)}</Text>
+                                    <Text style={[s.playerSlotName, { fontSize }]} numberOfLines={1}>{fieldLabel}</Text>
                                     <Text style={[s.playerSlotTeam, { fontSize: teamFontSize }]} numberOfLines={1}>{midTruncate(player.team_name, truncLen)}</Text>
                                   </>
                                 )}
@@ -1278,8 +1309,18 @@ const s = StyleSheet.create({
   playerSlot: { borderWidth: 2, justifyContent: 'center', alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 3, elevation: 4 },
   playerSlotName: { color: '#fff', fontWeight: '700', textAlign: 'center', paddingHorizontal: 2 },
   playerSlotTeam: { color: 'rgba(255,255,255,0.75)', marginTop: 1, textAlign: 'center' },
-  fieldPhotoOverlay: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingVertical: 2, alignItems: 'center', borderBottomLeftRadius: 999, borderBottomRightRadius: 999 },
-  fieldPhotoOverlayText: { color: '#fff', fontSize: 9, fontWeight: '700', textAlign: 'center' },
+  fieldPhotoClip: { overflow: 'hidden', justifyContent: 'flex-end' },
+  fieldPhotoNameBadge: {
+    position: 'absolute',
+    left: 4,
+    right: 4,
+    bottom: -2,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 7,
+    alignItems: 'center',
+  },
+  fieldPhotoNameBadgeText: { color: '#fff', fontSize: 9, fontWeight: '700', textAlign: 'center' },
   emptySlot: { borderWidth: 2, borderStyle: 'dashed', justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.15)' },
   emptySlotLabel: { fontWeight: '700', marginTop: 1 },
 

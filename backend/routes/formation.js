@@ -410,7 +410,9 @@ router.get('/:leagueId/:giornata', authenticateToken, async (req, res) => {
       ? { modulo: row.modulo, titolari: row.titolari, panchina: row.panchina }
       : null;
 
-    // Phase 3: formationPlayers + editAvailability in parallel
+    // Phase 3: formationPlayers + surname disambiguation + editAvailability in parallel
+    const leagueScopeIds = [...new Set([Number(leagueId), Number(effectiveLeagueId)].filter((x) => Number.isFinite(x) && x > 0))];
+    const leagueScopePlaceholders = leagueScopeIds.map(() => '?').join(',');
     const formationPlayersPromise = (async () => {
       if (!row) return [];
       const ids = [...parseIdsArray(row.titolari), ...parseIdsArray(row.panchina)];
@@ -427,16 +429,49 @@ router.get('/:leagueId/:giornata', authenticateToken, async (req, res) => {
         );
       } catch (_) { return []; }
     })();
+    const leagueSurnameCountsPromise = (async () => {
+      if (leagueScopeIds.length <= 0) return {};
+      try {
+        const rows = await query(
+          `SELECT LOWER(TRIM(COALESCE(p.last_name, ''))) AS surname_key, COUNT(*)::int AS c
+           FROM players p
+           JOIN teams t ON t.id = p.team_id
+           WHERE t.league_id IN (${leagueScopePlaceholders})
+             AND TRIM(COALESCE(p.last_name, '')) <> ''
+           GROUP BY LOWER(TRIM(COALESCE(p.last_name, '')))
+           HAVING COUNT(*) > 1`,
+          leagueScopeIds
+        );
+        const out = {};
+        (rows || []).forEach((r) => {
+          const key = String(r.surname_key || '').trim();
+          if (!key) return;
+          out[key] = Number(r.c || 0);
+        });
+        return out;
+      } catch (_) {
+        return {};
+      }
+    })();
 
-    const [formationPlayers, editAvailability] = await Promise.all([
+    const [formationPlayers, leagueSurnameCounts, editAvailability] = await Promise.all([
       formationPlayersPromise,
+      leagueSurnameCountsPromise,
       getMatchdayEditAvailability({ leagueId, effectiveLeagueId, giornata }),
     ]);
+    const formationPlayersWithSurnameDisambig = (formationPlayers || []).map((p) => {
+      const surnameKey = String(p?.last_name || '').trim().toLocaleLowerCase('it-IT');
+      const sameSurnameInLeague = !!(surnameKey && Number(leagueSurnameCounts[surnameKey] || 0) > 1);
+      return {
+        ...p,
+        same_surname_in_league: sameSurnameInLeague,
+      };
+    });
 
     console.log(`[PERF][GET /formation/:id/:g] leagueId=${leagueId} g=${giornata} TOTAL=${Date.now() - t0}ms`);
     res.json({
       formation,
-      formation_players: formationPlayers,
+      formation_players: formationPlayersWithSurnameDisambig,
       formation_recovered: formationRecovered,
       deadline,
       isExpired,
