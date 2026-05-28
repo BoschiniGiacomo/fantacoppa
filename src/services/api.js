@@ -232,7 +232,8 @@ export const leagueService = {
   getStandings: (leagueId, limit = 5) => api.get(`/leagues/${leagueId}/standings?limit=${limit}`),
   getStandingsFull: (leagueId) => api.get(`/leagues/${leagueId}/standings/full`),
   getMatchdayResults: (leagueId, giornata) => api.get(`/leagues/${leagueId}/standings/matchday/${giornata}`),
-  getMatchdayFormation: (leagueId, giornata, userId) => api.get(`/leagues/${leagueId}/standings/matchday/${giornata}/formation/${userId}`),
+  getMatchdayFormation: (leagueId, giornata, userId) =>
+    api.get(`/leagues/${leagueId}/standings/matchday/${giornata}/formation/${userId}?debug_surnames=1`),
   getUserStats: (leagueId) => api.get(`/leagues/${leagueId}/user-stats`),
   updatePrefs: (leagueId, prefs) => api.post(`/leagues/${leagueId}/prefs`, prefs),
   updateTeamInfo: (leagueId, teamName, coachName) => api.put(`/leagues/${leagueId}/team-info`, { team_name: teamName, coach_name: coachName }),
