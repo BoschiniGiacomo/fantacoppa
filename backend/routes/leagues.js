@@ -962,7 +962,9 @@ router.get('/:id/dashboard-data', authenticateToken, async (req, res) => {
          LEFT JOIN user_budget ub ON ub.user_id = mr.user_id AND ub.league_id = mr.league_id
          WHERE mr.league_id = ?
          GROUP BY mr.user_id, u.username, ub.team_name, ub.team_logo
-         ORDER BY punteggio DESC, media_punti DESC`,
+         ORDER BY punteggio DESC,
+                  LOWER(COALESCE(ub.team_name, u.username)) ASC,
+                  LOWER(u.username) ASC`,
         [leagueId]
       ),
       query(
@@ -1435,7 +1437,9 @@ router.get('/:id/standings', authenticateToken, async (req, res) => {
          LEFT JOIN user_budget ub ON ub.user_id = mr.user_id AND ub.league_id = mr.league_id
          WHERE mr.league_id = ?
          GROUP BY mr.user_id, u.username, ub.team_name
-         ORDER BY punteggio DESC, media_punti DESC
+         ORDER BY punteggio DESC,
+                  LOWER(COALESCE(ub.team_name, u.username)) ASC,
+                  LOWER(u.username) ASC
          LIMIT ?`,
         [leagueId, limit]
       );
@@ -2403,7 +2407,9 @@ router.get('/:id/standings/full', authenticateToken, async (req, res) => {
          LEFT JOIN user_budget ub ON ub.user_id = mr.user_id AND ub.league_id = mr.league_id
          WHERE mr.league_id = ?
          GROUP BY mr.user_id, u.username, ub.team_name, ub.coach_name, ub.team_logo
-         ORDER BY punteggio DESC, media_punti DESC`,
+         ORDER BY punteggio DESC,
+                  LOWER(COALESCE(ub.team_name, u.username)) ASC,
+                  LOWER(u.username) ASC`,
         [leagueId]
       );
       return res.json(rows);
@@ -2795,7 +2801,9 @@ router.get('/:id/standings/matchday/:giornata', authenticateToken, async (req, r
          JOIN users u ON u.id = mr.user_id
          LEFT JOIN user_budget ub ON ub.user_id = mr.user_id AND ub.league_id = mr.league_id
          WHERE mr.league_id = ? AND mr.giornata = ?
-         ORDER BY mr.punteggio DESC`,
+         ORDER BY mr.punteggio DESC,
+                  LOWER(COALESCE(ub.team_name, u.username)) ASC,
+                  LOWER(u.username) ASC`,
         [leagueId, giornata]
       );
       return res.json(rows);
@@ -3557,7 +3565,9 @@ router.get('/:id/live/:giornata', authenticateToken, async (req, res) => {
            JOIN users u ON u.id = mr.user_id
            LEFT JOIN user_budget ub ON ub.user_id = mr.user_id AND ub.league_id = mr.league_id
            WHERE mr.league_id = ? AND mr.giornata = ?
-           ORDER BY mr.punteggio DESC`,
+           ORDER BY mr.punteggio DESC,
+                    LOWER(COALESCE(ub.team_name, u.username)) ASC,
+                    LOWER(u.username) ASC`,
           [leagueId, giornata]
         );
         let psRows = [];
@@ -3735,7 +3745,13 @@ router.get('/:id/live/:giornata', authenticateToken, async (req, res) => {
       team_logo: m.team_logo || 'default_1',
       punteggio: Number((sums[Number(m.user_id)] || 0).toFixed(2)),
       players: (playersByUser[Number(m.user_id)] || []).sort((a, b) => b.total_score - a.total_score),
-    })).sort((a, b) => b.punteggio - a.punteggio);
+    })).sort((a, b) => {
+      const scoreDiff = Number(b.punteggio || 0) - Number(a.punteggio || 0);
+      if (scoreDiff !== 0) return scoreDiff;
+      const nameA = String(a.team_name || a.username || '').toLocaleLowerCase('it-IT');
+      const nameB = String(b.team_name || b.username || '').toLocaleLowerCase('it-IT');
+      return nameA.localeCompare(nameB, 'it');
+    });
 
     res.json({
       results,
