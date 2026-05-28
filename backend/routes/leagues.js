@@ -2649,7 +2649,9 @@ router.get('/:id/standings/matchday/:giornata/formation/:userId', authenticateTo
     }
 
     const effectiveLeagueId = await getEffectiveLeagueId(leagueId);
+    const leagueScopeIds = [...new Set([Number(leagueId), Number(effectiveLeagueId)].filter((x) => Number.isFinite(x) && x > 0))];
     const inParams = playerIds.map(() => '?').join(',');
+    const leagueScopeParams = leagueScopeIds.map(() => '?').join(',');
     const [pRows, scoreRows, vRows, rosterMetaRows] = await Promise.all([
       query(
         `SELECT p.id, p.first_name, p.last_name, p.role,
@@ -2680,8 +2682,8 @@ router.get('/:id/standings/matchday/:giornata/formation/:userId', authenticateTo
       query(
         `SELECT p.id, p.role, p.team_id, p.last_name
          FROM players p
-         WHERE p.team_id IN (SELECT id FROM teams WHERE league_id = ?)`,
-        [effectiveLeagueId]
+         WHERE p.team_id IN (SELECT id FROM teams WHERE league_id IN (${leagueScopeParams}))`,
+        leagueScopeIds
       ),
     ]);
     const byId = {};
