@@ -325,9 +325,11 @@ export default function FormationScreen({ route }) {
       const formationPlayers = Array.isArray(data.formation_players) ? data.formation_players : [];
       formationPlayers.forEach((p) => {
         if (!p || !p.id) return;
-        if (!playersMap[p.id]) {
-          playersMap[p.id] = p;
-        }
+        // Merge API formation metadata (e.g. same_surname_in_league)
+        // even when the player is already present in squad payload.
+        playersMap[p.id] = playersMap[p.id]
+          ? { ...playersMap[p.id], ...p }
+          : p;
       });
 
       const saved = data.formation;
