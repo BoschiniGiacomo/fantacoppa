@@ -163,6 +163,7 @@ async function buildFallbackLineupFromRoster(leagueId, userId, numeroTitolari) {
 
 async function getInjuryReplacementMap(leagueId) {
   try {
+    const effectiveLeagueId = await getEffectiveLeagueId(leagueId);
     const rows = await query(
       `SELECT p.id AS injured_id, p.injury_replacement_player_id
        FROM players p
@@ -170,7 +171,7 @@ async function getInjuryReplacementMap(leagueId) {
        WHERE t.league_id = ?
          AND COALESCE(p.is_injured, 0) = 1
          AND p.injury_replacement_player_id IS NOT NULL`,
-      [leagueId]
+      [effectiveLeagueId]
     );
     const map = {};
     rows.forEach((r) => {

@@ -218,6 +218,7 @@ function applyInjuryMap(ids, injuryMap) {
 
 async function getInjuryReplacementMap(leagueId) {
   try {
+    const sourceLeagueId = await getEffectiveLeagueId(leagueId);
     const rows = await query(
       `SELECT p.id AS injured_id, p.injury_replacement_player_id
        FROM players p
@@ -225,7 +226,7 @@ async function getInjuryReplacementMap(leagueId) {
        WHERE t.league_id = ?
          AND COALESCE(p.is_injured, 0) = 1
          AND p.injury_replacement_player_id IS NOT NULL`,
-      [leagueId]
+      [sourceLeagueId]
     );
     const map = {};
     (rows || []).forEach((r) => {

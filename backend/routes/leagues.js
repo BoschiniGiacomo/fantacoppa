@@ -15,8 +15,8 @@ const {
   titolariIdsToSlots,
   buildStarterRolesFromModulo,
   applyInjuryToSlots,
-  propagateInjuryReplacementsToLineups,
 } = require('../utils/lineupResolver');
+const { applyInjuryReplacementAcrossLeagues } = require('../utils/injuryPropagation');
 const { scoreResolvedLineup } = require('../utils/lineupScoring');
 const { normalizeVoteRating } = require('../utils/voteRating');
 
@@ -437,6 +437,7 @@ function applyInjuryToLineup(ids, injuryMap) {
 
 async function getInjuryReplacementMap(leagueId) {
   try {
+    const sourceLeagueId = await getEffectiveLeagueId(leagueId);
     const rows = await query(
       `SELECT p.id AS injured_id, p.injury_replacement_player_id
        FROM players p
@@ -444,7 +445,7 @@ async function getInjuryReplacementMap(leagueId) {
        WHERE t.league_id = ?
          AND COALESCE(p.is_injured, 0) = 1
          AND p.injury_replacement_player_id IS NOT NULL`,
-      [leagueId]
+      [sourceLeagueId]
     );
     const map = {};
     rows.forEach((r) => {
@@ -2240,18 +2241,23 @@ router.put('/:id/teams/:teamId/players/:playerId', authenticateToken, async (req
       }
     }
 
-    let lineupPropagation = { updatedLineups: 0, matchdays: [] };
-    const shouldPropagateLineups =
+    let cascadeResult = null;
+    const shouldPropagateInjury =
       (Number.isFinite(isInjured) && isInjured === 1 && injuryReplacementPlayerId != null)
       || injuryReplacementPlayerId != null;
-    if (shouldPropagateLineups) {
-      lineupPropagation = await propagateInjuryReplacementsToLineups(leagueId);
+    if (shouldPropagateInjury) {
+      cascadeResult = await applyInjuryReplacementAcrossLeagues(
+        leagueId,
+        playerId,
+        injuryReplacementPlayerId
+      );
     }
 
     res.json({
       message: 'Giocatore aggiornato',
-      lineups_updated: lineupPropagation.updatedLineups,
-      lineup_matchdays: lineupPropagation.matchdays,
+      lineups_updated: cascadeResult?.lineups_updated ?? 0,
+      lineup_matchdays: cascadeResult?.lineup_matchdays ?? [],
+      leagues_updated: cascadeResult?.linked_leagues ?? [],
     });
   } catch (error) {
     console.error('Update player error:', error);
@@ -2292,6 +2298,7 @@ router.get('/:id/players/options', authenticateToken, async (req, res) => {
   try {
     const leagueId = toValidLeagueId(req.params.id);
     if (!leagueId) return res.status(400).json({ message: 'League ID non valido' });
+    const sourceLeagueId = await getEffectiveLeagueId(leagueId);
     const rows = await query(
       `SELECT p.id, p.first_name, p.last_name, p.role, t.id AS team_id, t.name AS team_name,
               COALESCE(p.is_injured, 0)::int AS is_injured,
@@ -2300,7 +2307,7 @@ router.get('/:id/players/options', authenticateToken, async (req, res) => {
        JOIN teams t ON t.id = p.team_id
        WHERE t.league_id = ?
        ORDER BY p.last_name ASC, p.first_name ASC`,
-      [leagueId]
+      [sourceLeagueId]
     );
     res.json(rows);
   } catch (error) {
@@ -2331,13 +2338,15 @@ router.post('/:id/injuries/:playerId/apply-replacement', authenticateToken, asyn
       return res.status(403).json({ message: 'Solo gli amministratori possono applicare la sostituzione infortunio' });
     }
 
+    const sourceLeagueId = await getEffectiveLeagueId(leagueId);
+
     const targetRows = await query(
       `SELECT p.id
        FROM players p
        JOIN teams t ON t.id = p.team_id
        WHERE p.id = ? AND t.league_id = ?
        LIMIT 1`,
-      [playerId, leagueId]
+      [playerId, sourceLeagueId]
     );
     if (!targetRows[0]) return res.status(404).json({ message: 'Giocatore infortunato non trovato in lega' });
 
@@ -2347,61 +2356,24 @@ router.post('/:id/injuries/:playerId/apply-replacement', authenticateToken, asyn
        JOIN teams t ON t.id = p.team_id
        WHERE p.id = ? AND t.league_id = ?
        LIMIT 1`,
-      [replacementPlayerId, leagueId]
+      [replacementPlayerId, sourceLeagueId]
     );
     if (!replacementRows[0]) return res.status(400).json({ message: 'Sostituto non trovato in lega' });
 
-    await query(
-      `UPDATE players
-       SET is_injured = 1,
-           injury_replacement_player_id = ?
-       WHERE id = ?`,
-      [replacementPlayerId, playerId]
+    const cascadeResult = await applyInjuryReplacementAcrossLeagues(
+      leagueId,
+      playerId,
+      replacementPlayerId
     );
-
-    const statsRows = await query(
-      `SELECT
-          COUNT(DISTINCT up.user_id)::int AS affected_owners,
-          COUNT(DISTINCT CASE WHEN rep.user_id IS NOT NULL THEN up.user_id END)::int AS already_had_replacement
-       FROM user_players up
-       LEFT JOIN user_players rep
-         ON rep.league_id = up.league_id
-        AND rep.user_id = up.user_id
-        AND rep.player_id = ?
-       WHERE up.league_id = ? AND up.player_id = ?`,
-      [replacementPlayerId, leagueId, playerId]
-    );
-
-    const insertResult = await query(
-      `INSERT INTO user_players (user_id, league_id, player_id)
-       SELECT DISTINCT up.user_id, ?, ?
-       FROM user_players up
-       WHERE up.league_id = ? AND up.player_id = ?
-         AND NOT EXISTS (
-           SELECT 1
-           FROM user_players existing
-           WHERE existing.league_id = up.league_id
-             AND existing.user_id = up.user_id
-             AND existing.player_id = ?
-         )
-       ON CONFLICT (user_id, league_id, player_id) DO NOTHING
-       RETURNING user_id`,
-      [leagueId, replacementPlayerId, leagueId, playerId, replacementPlayerId]
-    );
-
-    const addedCount = Number(insertResult?.affectedRows ?? insertResult?.rows?.length ?? 0);
-    const alreadyOwnedCount = Number(statsRows[0]?.already_had_replacement || 0);
-    const affectedOwners = Number(statsRows[0]?.affected_owners || 0);
-
-    const lineupPropagation = await propagateInjuryReplacementsToLineups(leagueId);
 
     res.json({
       message: 'Sostituzione infortunio applicata',
-      affected_owners: affectedOwners,
-      replacements_added: addedCount,
-      already_had_replacement: alreadyOwnedCount,
-      lineups_updated: lineupPropagation.updatedLineups,
-      lineup_matchdays: lineupPropagation.matchdays,
+      affected_owners: cascadeResult.affected_owners,
+      replacements_added: cascadeResult.replacements_added,
+      already_had_replacement: cascadeResult.already_had_replacement,
+      lineups_updated: cascadeResult.lineups_updated,
+      lineup_matchdays: cascadeResult.lineup_matchdays,
+      leagues_updated: cascadeResult.linked_leagues,
     });
   } catch (error) {
     console.error('Apply injury replacement error:', error);
