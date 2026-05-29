@@ -131,15 +131,23 @@ export default function InjuryManagementScreen({ route, navigation }) {
         selectedReplacement.id
       );
       const data = res?.data || {};
+      const lineupsUpdated = Number(data.lineups_updated || 0);
+      const lineupsPart = lineupsUpdated > 0 ? `, ${lineupsUpdated} formazioni aggiornate` : '';
       showToast(
-        `Applicato: +${Number(data.replacements_added || 0)} squadre, già presente in ${Number(data.already_had_replacement || 0)}`,
+        `Applicato: +${Number(data.replacements_added || 0)} rose, già presente in ${Number(data.already_had_replacement || 0)}${lineupsPart}`,
         'success'
       );
       setSelectedInjured(null);
       setSelectedReplacement(null);
       await loadPlayers(true);
     } catch (error) {
-      showToast(error?.response?.data?.message || 'Errore salvataggio infortunio');
+      const isTimeout = error?.code === 'ECONNABORTED';
+      if (isTimeout) {
+        showToast('Operazione lenta: attendi e ricarica la pagina per verificare se è andata a buon fine');
+      } else {
+        showToast(error?.response?.data?.message || 'Errore salvataggio infortunio');
+      }
+      await loadPlayers(true);
     } finally {
       setSaving(false);
     }
@@ -295,6 +303,18 @@ export default function InjuryManagementScreen({ route, navigation }) {
         </View>
       </ScrollView>
 
+      {saving && (
+        <View style={styles.savingOverlay}>
+          <View style={styles.savingCard}>
+            <ActivityIndicator size="large" color="#667eea" />
+            <Text style={styles.savingTitle}>Applicazione in corso</Text>
+            <Text style={styles.savingHint}>
+              Aggiornamento rose e formazioni. Con molte squadre può richiedere fino a un minuto: attendi il messaggio di conferma.
+            </Text>
+          </View>
+        </View>
+      )}
+
       <Modal visible={!!pickerType} transparent animationType="fade" onRequestClose={() => setPickerType(null)}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
@@ -410,6 +430,36 @@ export default function InjuryManagementScreen({ route, navigation }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f7f8fc' },
+  savingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(45, 53, 82, 0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 20,
+    paddingHorizontal: 24,
+  },
+  savingCard: {
+    width: '100%',
+    maxWidth: 320,
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 22,
+    alignItems: 'center',
+  },
+  savingTitle: {
+    marginTop: 14,
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#2d3552',
+    textAlign: 'center',
+  },
+  savingHint: {
+    marginTop: 8,
+    fontSize: 13,
+    lineHeight: 19,
+    color: '#6f7695',
+    textAlign: 'center',
+  },
   header: {
     height: 56,
     flexDirection: 'row',

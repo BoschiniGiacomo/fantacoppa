@@ -2359,42 +2359,45 @@ router.post('/:id/injuries/:playerId/apply-replacement', authenticateToken, asyn
       [replacementPlayerId, playerId]
     );
 
-    const ownersRows = await query(
-      `SELECT DISTINCT up.user_id
+    const statsRows = await query(
+      `SELECT
+          COUNT(DISTINCT up.user_id)::int AS affected_owners,
+          COUNT(DISTINCT CASE WHEN rep.user_id IS NOT NULL THEN up.user_id END)::int AS already_had_replacement
        FROM user_players up
+       LEFT JOIN user_players rep
+         ON rep.league_id = up.league_id
+        AND rep.user_id = up.user_id
+        AND rep.player_id = ?
        WHERE up.league_id = ? AND up.player_id = ?`,
-      [leagueId, playerId]
+      [replacementPlayerId, leagueId, playerId]
     );
 
-    let addedCount = 0;
-    let alreadyOwnedCount = 0;
-    for (const owner of ownersRows) {
-      const ownerUserId = Number(owner.user_id);
-      const hasReplacementRows = await query(
-        `SELECT 1
-         FROM user_players
-         WHERE league_id = ? AND user_id = ? AND player_id = ?
-         LIMIT 1`,
-        [leagueId, ownerUserId, replacementPlayerId]
-      );
-      if (hasReplacementRows[0]) {
-        alreadyOwnedCount += 1;
-        continue;
-      }
-      await query(
-        `INSERT INTO user_players (user_id, league_id, player_id)
-         VALUES (?, ?, ?)
-         ON CONFLICT (user_id, league_id, player_id) DO NOTHING`,
-        [ownerUserId, leagueId, replacementPlayerId]
-      );
-      addedCount += 1;
-    }
+    const insertResult = await query(
+      `INSERT INTO user_players (user_id, league_id, player_id)
+       SELECT DISTINCT up.user_id, ?, ?
+       FROM user_players up
+       WHERE up.league_id = ? AND up.player_id = ?
+         AND NOT EXISTS (
+           SELECT 1
+           FROM user_players existing
+           WHERE existing.league_id = up.league_id
+             AND existing.user_id = up.user_id
+             AND existing.player_id = ?
+         )
+       ON CONFLICT (user_id, league_id, player_id) DO NOTHING
+       RETURNING user_id`,
+      [leagueId, replacementPlayerId, leagueId, playerId, replacementPlayerId]
+    );
+
+    const addedCount = Number(insertResult?.affectedRows ?? insertResult?.rows?.length ?? 0);
+    const alreadyOwnedCount = Number(statsRows[0]?.already_had_replacement || 0);
+    const affectedOwners = Number(statsRows[0]?.affected_owners || 0);
 
     const lineupPropagation = await propagateInjuryReplacementsToLineups(leagueId);
 
     res.json({
       message: 'Sostituzione infortunio applicata',
-      affected_owners: ownersRows.length,
+      affected_owners: affectedOwners,
       replacements_added: addedCount,
       already_had_replacement: alreadyOwnedCount,
       lineups_updated: lineupPropagation.updatedLineups,

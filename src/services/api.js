@@ -412,9 +412,11 @@ export const leagueService = {
     return api.get(`/leagues/${leagueId}/players/options`);
   },
   applyInjuryReplacement: async (leagueId, playerId, replacementPlayerId) => {
-    return api.post(`/leagues/${leagueId}/injuries/${playerId}/apply-replacement`, {
-      replacement_player_id: replacementPlayerId,
-    });
+    return api.post(
+      `/leagues/${leagueId}/injuries/${playerId}/apply-replacement`,
+      { replacement_player_id: replacementPlayerId },
+      { timeout: 120000 }
+    );
   },
   deletePlayer: async (leagueId, teamId, playerId) => {
     return api.delete(`/leagues/${leagueId}/teams/${teamId}/players/${playerId}`);

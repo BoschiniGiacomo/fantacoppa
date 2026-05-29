@@ -245,6 +245,15 @@ async function getInjuryReplacementMap(leagueId) {
   }
 }
 
+async function runInParallelChunks(items, chunkSize, worker) {
+  const list = Array.isArray(items) ? items : [];
+  const size = Math.max(1, Number(chunkSize) || 1);
+  for (let i = 0; i < list.length; i += size) {
+    const chunk = list.slice(i, i + size);
+    await Promise.all(chunk.map((item) => worker(item)));
+  }
+}
+
 /**
  * Sostituisce gli infortunati nelle formazioni salvate con deadline ancora futura.
  */
@@ -255,35 +264,38 @@ async function propagateInjuryReplacementsToLineups(leagueId) {
   }
 
   const injuryMap = await getInjuryReplacementMap(lid);
-  if (!injuryMap || Object.keys(injuryMap).length === 0) {
+  const injuredIds = new Set(
+    Object.keys(injuryMap || {})
+      .map((k) => Number(k))
+      .filter((id) => Number.isFinite(id) && id > 0)
+  );
+  if (injuredIds.size === 0) {
     return { updatedLineups: 0, matchdays: [] };
   }
 
   const effectiveLeagueId = await getEffectiveLeagueId(lid);
-  const [lineupRows, matchdayMeta] = await Promise.all([
-    query(
-      `SELECT user_id, giornata, modulo, titolari, panchina
-       FROM user_lineups
-       WHERE league_id = ?`,
-      [lid]
-    ),
-    loadMatchdayEditMeta(lid, effectiveLeagueId),
-  ]);
+  const lineupRows = await query(
+    `SELECT ul.user_id, ul.giornata, ul.modulo, ul.titolari, ul.panchina
+     FROM user_lineups ul
+     JOIN matchdays m
+       ON m.league_id = ? AND m.giornata = ul.giornata
+     WHERE ul.league_id = ?
+       AND (m.deadline IS NULL OR m.deadline > NOW())`,
+    [effectiveLeagueId, lid]
+  );
 
-  let updatedLineups = 0;
-  const matchdaysSet = new Set();
+  const pendingUpdates = [];
 
   for (const row of lineupRows || []) {
     const giornata = Number(row.giornata);
     if (!Number.isFinite(giornata) || giornata <= 0) continue;
 
-    const meta = matchdayMeta.get(giornata);
-    if (meta && Number(meta.deadline_passed || 0) === 1) continue;
-
-    const patchedTitolari = applyInjuryMap(parseIdsArray(row.titolari), injuryMap);
-    const patchedPanchina = applyInjuryMap(parseIdsArray(row.panchina), injuryMap);
     const rowTitRaw = parseIdsArray(row.titolari);
     const rowBenRaw = parseIdsArray(row.panchina);
+    if (![...rowTitRaw, ...rowBenRaw].some((id) => injuredIds.has(id))) continue;
+
+    const patchedTitolari = applyInjuryMap(rowTitRaw, injuryMap);
+    const patchedPanchina = applyInjuryMap(rowBenRaw, injuryMap);
     const changed =
       patchedTitolari.length !== rowTitRaw.length
       || patchedPanchina.length !== rowBenRaw.length
@@ -291,30 +303,35 @@ async function propagateInjuryReplacementsToLineups(leagueId) {
       || patchedPanchina.some((id, i) => id !== rowBenRaw[i]);
     if (!changed) continue;
 
+    pendingUpdates.push({
+      userId: Number(row.user_id),
+      giornata,
+      titolari: JSON.stringify(patchedTitolari),
+      panchina: JSON.stringify(patchedPanchina),
+    });
+  }
+
+  let updatedLineups = 0;
+  const matchdaysSet = new Set();
+  await runInParallelChunks(pendingUpdates, 40, async (item) => {
     try {
       await query(
         `UPDATE user_lineups
          SET titolari = ?, panchina = ?
          WHERE user_id = ? AND league_id = ? AND giornata = ?`,
-        [
-          JSON.stringify(patchedTitolari),
-          JSON.stringify(patchedPanchina),
-          Number(row.user_id),
-          lid,
-          giornata,
-        ]
+        [item.titolari, item.panchina, item.userId, lid, item.giornata]
       );
       updatedLineups += 1;
-      matchdaysSet.add(giornata);
+      matchdaysSet.add(item.giornata);
     } catch (err) {
       console.error('propagateInjuryReplacementsToLineups: update failed', {
         leagueId: lid,
-        userId: row.user_id,
-        giornata,
+        userId: item.userId,
+        giornata: item.giornata,
         err: err?.message || err,
       });
     }
-  }
+  });
 
   return {
     updatedLineups,
