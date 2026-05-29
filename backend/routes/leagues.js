@@ -15,6 +15,7 @@ const {
   titolariIdsToSlots,
   buildStarterRolesFromModulo,
   applyInjuryToSlots,
+  propagateInjuryReplacementsToLineups,
 } = require('../utils/lineupResolver');
 const { scoreResolvedLineup } = require('../utils/lineupScoring');
 const { normalizeVoteRating } = require('../utils/voteRating');
@@ -2238,7 +2239,20 @@ router.put('/:id/teams/:teamId/players/:playerId', authenticateToken, async (req
         throw birthErr;
       }
     }
-    res.json({ message: 'Giocatore aggiornato' });
+
+    let lineupPropagation = { updatedLineups: 0, matchdays: [] };
+    const shouldPropagateLineups =
+      (Number.isFinite(isInjured) && isInjured === 1 && injuryReplacementPlayerId != null)
+      || injuryReplacementPlayerId != null;
+    if (shouldPropagateLineups) {
+      lineupPropagation = await propagateInjuryReplacementsToLineups(leagueId);
+    }
+
+    res.json({
+      message: 'Giocatore aggiornato',
+      lineups_updated: lineupPropagation.updatedLineups,
+      lineup_matchdays: lineupPropagation.matchdays,
+    });
   } catch (error) {
     console.error('Update player error:', error);
     const msg = String(error?.message || '').toLowerCase();
@@ -2376,11 +2390,15 @@ router.post('/:id/injuries/:playerId/apply-replacement', authenticateToken, asyn
       addedCount += 1;
     }
 
+    const lineupPropagation = await propagateInjuryReplacementsToLineups(leagueId);
+
     res.json({
       message: 'Sostituzione infortunio applicata',
       affected_owners: ownersRows.length,
       replacements_added: addedCount,
       already_had_replacement: alreadyOwnedCount,
+      lineups_updated: lineupPropagation.updatedLineups,
+      lineup_matchdays: lineupPropagation.matchdays,
     });
   } catch (error) {
     console.error('Apply injury replacement error:', error);

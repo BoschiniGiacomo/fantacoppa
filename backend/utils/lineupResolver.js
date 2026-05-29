@@ -201,6 +201,127 @@ function applyInjuryToSlots(slots, injuryMap) {
   });
 }
 
+function applyInjuryMap(ids, injuryMap) {
+  if (!Array.isArray(ids) || ids.length === 0) return [];
+  const out = [];
+  const used = new Set();
+  ids.forEach((rawId) => {
+    const id = Number(rawId);
+    if (!Number.isFinite(id) || id <= 0) return;
+    const mapped = Number(injuryMap[id] || id);
+    if (!Number.isFinite(mapped) || mapped <= 0 || used.has(mapped)) return;
+    used.add(mapped);
+    out.push(mapped);
+  });
+  return out;
+}
+
+async function getInjuryReplacementMap(leagueId) {
+  try {
+    const rows = await query(
+      `SELECT p.id AS injured_id, p.injury_replacement_player_id
+       FROM players p
+       JOIN teams t ON t.id = p.team_id
+       WHERE t.league_id = ?
+         AND COALESCE(p.is_injured, 0) = 1
+         AND p.injury_replacement_player_id IS NOT NULL`,
+      [leagueId]
+    );
+    const map = {};
+    (rows || []).forEach((r) => {
+      const injuredId = Number(r.injured_id);
+      const replacementId = Number(r.injury_replacement_player_id);
+      if (
+        Number.isFinite(injuredId) && injuredId > 0
+        && Number.isFinite(replacementId) && replacementId > 0
+        && replacementId !== injuredId
+      ) {
+        map[injuredId] = replacementId;
+      }
+    });
+    return map;
+  } catch (_) {
+    return {};
+  }
+}
+
+/**
+ * Sostituisce gli infortunati nelle formazioni salvate con deadline ancora futura.
+ */
+async function propagateInjuryReplacementsToLineups(leagueId) {
+  const lid = Number(leagueId);
+  if (!Number.isFinite(lid) || lid <= 0) {
+    return { updatedLineups: 0, matchdays: [] };
+  }
+
+  const injuryMap = await getInjuryReplacementMap(lid);
+  if (!injuryMap || Object.keys(injuryMap).length === 0) {
+    return { updatedLineups: 0, matchdays: [] };
+  }
+
+  const effectiveLeagueId = await getEffectiveLeagueId(lid);
+  const [lineupRows, matchdayMeta] = await Promise.all([
+    query(
+      `SELECT user_id, giornata, modulo, titolari, panchina
+       FROM user_lineups
+       WHERE league_id = ?`,
+      [lid]
+    ),
+    loadMatchdayEditMeta(lid, effectiveLeagueId),
+  ]);
+
+  let updatedLineups = 0;
+  const matchdaysSet = new Set();
+
+  for (const row of lineupRows || []) {
+    const giornata = Number(row.giornata);
+    if (!Number.isFinite(giornata) || giornata <= 0) continue;
+
+    const meta = matchdayMeta.get(giornata);
+    if (meta && Number(meta.deadline_passed || 0) === 1) continue;
+
+    const patchedTitolari = applyInjuryMap(parseIdsArray(row.titolari), injuryMap);
+    const patchedPanchina = applyInjuryMap(parseIdsArray(row.panchina), injuryMap);
+    const rowTitRaw = parseIdsArray(row.titolari);
+    const rowBenRaw = parseIdsArray(row.panchina);
+    const changed =
+      patchedTitolari.length !== rowTitRaw.length
+      || patchedPanchina.length !== rowBenRaw.length
+      || patchedTitolari.some((id, i) => id !== rowTitRaw[i])
+      || patchedPanchina.some((id, i) => id !== rowBenRaw[i]);
+    if (!changed) continue;
+
+    try {
+      await query(
+        `UPDATE user_lineups
+         SET titolari = ?, panchina = ?
+         WHERE user_id = ? AND league_id = ? AND giornata = ?`,
+        [
+          JSON.stringify(patchedTitolari),
+          JSON.stringify(patchedPanchina),
+          Number(row.user_id),
+          lid,
+          giornata,
+        ]
+      );
+      updatedLineups += 1;
+      matchdaysSet.add(giornata);
+    } catch (err) {
+      console.error('propagateInjuryReplacementsToLineups: update failed', {
+        leagueId: lid,
+        userId: row.user_id,
+        giornata,
+        err: err?.message || err,
+      });
+    }
+  }
+
+  return {
+    updatedLineups,
+    matchdays: [...matchdaysSet].sort((a, b) => a - b),
+  };
+}
+
 function titolariIdsToSlots(raw, modulo, numeroTitolari) {
   const slotCount = expectedStarterSlotCount(modulo, numeroTitolari);
   let arr = parseLineupSlotIds(raw);
@@ -411,6 +532,9 @@ module.exports = {
   titolariIdsToSlots,
   buildStarterRolesFromModulo,
   applyInjuryToSlots,
+  applyInjuryMap,
+  getInjuryReplacementMap,
+  propagateInjuryReplacementsToLineups,
   expectedStarterSlotCount,
   getEffectiveLeagueId,
   getMatchdayEditAvailability,
