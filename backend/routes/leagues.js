@@ -3523,57 +3523,24 @@ router.get('/:id/live/:giornata', authenticateToken, async (req, res) => {
 
     let isCalculated = false;
     let calculatedAt = null;
+    let calculatedResults = null;
     try {
-      const existRows = await query(
-        `SELECT COUNT(*)::int AS c
-         FROM matchday_results
-         WHERE league_id = ? AND giornata = ?`,
-        [leagueId, giornata]
-      );
-      isCalculated = Number(existRows[0]?.c || 0) > 0;
-      const cRows = await query(
-        `SELECT MAX(
-            COALESCE(
-              NULLIF(to_jsonb(mr)->>'created_at', '')::timestamptz,
-              NULLIF(to_jsonb(mr)->>'calculated_at', '')::timestamptz
-            )
-          ) AS calc_at
+      const calcRows = await query(
+        `SELECT mr.user_id, mr.punteggio, u.username,
+                COALESCE(ub.team_name, u.username) AS team_name,
+                COALESCE(ub.coach_name, '') AS coach_name,
+                COALESCE(ub.team_logo, 'default_1') AS team_logo
          FROM matchday_results mr
-         WHERE mr.league_id = ? AND mr.giornata = ?`,
+         JOIN users u ON u.id = mr.user_id
+         LEFT JOIN user_budget ub ON ub.user_id = mr.user_id AND ub.league_id = mr.league_id
+         WHERE mr.league_id = ? AND mr.giornata = ?
+         ORDER BY mr.punteggio DESC,
+                  LOWER(COALESCE(ub.team_name, u.username)) ASC,
+                  LOWER(u.username) ASC`,
         [leagueId, giornata]
       );
-      calculatedAt = cRows[0]?.calc_at || null;
-    } catch (_) {
-      try {
-        const existRows = await query(
-          `SELECT COUNT(*)::int AS c
-           FROM matchday_results
-           WHERE league_id = ? AND giornata = ?`,
-          [leagueId, giornata]
-        );
-        isCalculated = Number(existRows[0]?.c || 0) > 0;
-      } catch (_) {
-        isCalculated = false;
-      }
-      calculatedAt = null;
-    }
-
-    if (isCalculated) {
-      try {
-        const calcRows = await query(
-          `SELECT mr.user_id, mr.punteggio, u.username,
-                  COALESCE(ub.team_name, u.username) AS team_name,
-                  COALESCE(ub.coach_name, '') AS coach_name,
-                  COALESCE(ub.team_logo, 'default_1') AS team_logo
-           FROM matchday_results mr
-           JOIN users u ON u.id = mr.user_id
-           LEFT JOIN user_budget ub ON ub.user_id = mr.user_id AND ub.league_id = mr.league_id
-           WHERE mr.league_id = ? AND mr.giornata = ?
-           ORDER BY mr.punteggio DESC,
-                    LOWER(COALESCE(ub.team_name, u.username)) ASC,
-                    LOWER(u.username) ASC`,
-          [leagueId, giornata]
-        );
+      if (calcRows.length > 0) {
+        isCalculated = true;
         let psRows = [];
         try {
           psRows = await query(
@@ -3585,6 +3552,22 @@ router.get('/:id/live/:giornata', authenticateToken, async (req, res) => {
           );
         } catch (_) {
           psRows = [];
+        }
+        try {
+          const cRows = await query(
+            `SELECT MAX(
+                COALESCE(
+                  NULLIF(to_jsonb(mr)->>'created_at', '')::timestamptz,
+                  NULLIF(to_jsonb(mr)->>'calculated_at', '')::timestamptz
+                )
+              ) AS calc_at
+             FROM matchday_results mr
+             WHERE mr.league_id = ? AND mr.giornata = ?`,
+            [leagueId, giornata]
+          );
+          calculatedAt = cRows[0]?.calc_at || null;
+        } catch (_) {
+          calculatedAt = null;
         }
         const byUser = {};
         psRows.forEach((r) => {
@@ -3599,7 +3582,7 @@ router.get('/:id/live/:giornata', authenticateToken, async (req, res) => {
             total_score: Number(r.total_score || 0),
           });
         });
-        const calculatedResults = calcRows.map((r) => ({
+        calculatedResults = calcRows.map((r) => ({
           user_id: Number(r.user_id),
           username: r.username,
           team_name: r.team_name,
@@ -3608,14 +3591,34 @@ router.get('/:id/live/:giornata', authenticateToken, async (req, res) => {
           punteggio: Number(Number(r.punteggio || 0).toFixed(2)),
           players: byUser[Number(r.user_id)] || [],
         }));
-        return res.json({
-          results: calculatedResults,
-          is_calculated: true,
-          calculated_at: calculatedAt,
-        });
-      } catch (_) {
-        // Se fallisce la lettura risultati calcolati, usa fallback live on-the-fly.
       }
+    } catch (calcErr) {
+      console.warn('[LIVE] calculated path failed, fallback to on-the-fly', {
+        leagueId,
+        giornata,
+        err: calcErr?.message || calcErr,
+      });
+    }
+
+    if (isCalculated && calculatedResults && calculatedResults.length > 0) {
+      console.log('[LIVE] using calculated results', {
+        leagueId,
+        giornata,
+        teams: calculatedResults.length,
+      });
+      return res.json({
+        results: calculatedResults,
+        is_calculated: true,
+        calculated_at: calculatedAt,
+      });
+    }
+
+    if (isCalculated && (!calculatedResults || calculatedResults.length === 0)) {
+      console.warn('[LIVE] matchday marked calculated but no joinable rows, fallback to on-the-fly', {
+        leagueId,
+        giornata,
+      });
+      isCalculated = false;
     }
 
     let ratings = [];
@@ -3663,83 +3666,128 @@ router.get('/:id/live/:giornata', authenticateToken, async (req, res) => {
     playersMetaRows.forEach((p) => { playersById[Number(p.id)] = p; });
 
     const lineupRows = await query(
-      `SELECT user_id, titolari, panchina, COALESCE(modulo, '') AS modulo
+      `SELECT user_id, giornata, titolari, panchina, COALESCE(modulo, '') AS modulo
        FROM user_lineups
-       WHERE league_id = ? AND giornata = ?`,
+       WHERE league_id = ? AND giornata <= ?
+       ORDER BY user_id ASC, giornata DESC`,
       [leagueId, giornata]
     );
     const lineupByUser = {};
+    const lineupsByUserAll = {};
     lineupRows.forEach((r) => {
-      const modulo = String(r.modulo || '').trim();
-      lineupByUser[Number(r.user_id)] = {
-        modulo,
-        titolariSlots: titolariIdsToSlots(r.titolari, modulo, numeroTitolari),
-        panchina: parseIdsArray(r.panchina),
-      };
+      const uid = Number(r.user_id);
+      if (!lineupsByUserAll[uid]) lineupsByUserAll[uid] = [];
+      lineupsByUserAll[uid].push(r);
+      if (Number(r.giornata) === giornata) {
+        const modulo = String(r.modulo || '').trim();
+        lineupByUser[uid] = {
+          modulo,
+          titolariSlots: titolariIdsToSlots(r.titolari, modulo, numeroTitolari),
+          panchina: parseIdsArray(r.panchina),
+        };
+      }
     });
 
+    const resolveLineupFromCache = (uid) => {
+      const rows = lineupsByUserAll[uid] || [];
+      for (const row of rows) {
+        if (Number(row.giornata) > giornata) continue;
+        const titolari = applyInjuryToLineup(parseIdsArray(row.titolari), injuryMapLive).slice(0, numeroTitolari);
+        if (titolari.length > 0) {
+          return {
+            titolari,
+            panchina: applyInjuryMap(parseIdsArray(row.panchina), injuryMapLive),
+            modulo: String(row.modulo || '').trim(),
+          };
+        }
+        if (Number(row.giornata) === giornata) break;
+      }
+      if (recoverPreviousLive) {
+        for (const row of rows) {
+          if (Number(row.giornata) >= giornata) continue;
+          const titolari = applyInjuryToLineup(parseIdsArray(row.titolari), injuryMapLive).slice(0, numeroTitolari);
+          if (titolari.length > 0) {
+            return {
+              titolari,
+              panchina: applyInjuryMap(parseIdsArray(row.panchina), injuryMapLive),
+              modulo: String(row.modulo || '').trim(),
+            };
+          }
+        }
+      }
+      return { titolari: [], panchina: [], modulo: '' };
+    };
+
+    const scoringStartedAt = Date.now();
     const sums = {};
     const playersByUser = {};
-    for (const m of members) {
+    await Promise.all(members.map(async (m) => {
       const uid = Number(m.user_id);
-      let titolari = [];
-      let titolariSlots = null;
-      let slotRoles = null;
-      let panchina = [];
-      const currentLineup = lineupByUser[uid];
-      if (autoLineupMode) {
-        const generated = await buildAutoLineupFromVotes({
-          leagueId,
-          userId: uid,
-          numeroTitolari,
+      try {
+        let titolari = [];
+        let titolariSlots = null;
+        let slotRoles = null;
+        let panchina = [];
+        const currentLineup = lineupByUser[uid];
+        if (autoLineupMode) {
+          const generated = await buildAutoLineupFromVotes({
+            leagueId,
+            userId: uid,
+            numeroTitolari,
+            votesByPlayer,
+            bonusSettings: bonus,
+            use6Politico: false,
+            computeBonusTotal,
+          });
+          titolari = generated?.titolari || [];
+          panchina = generated?.panchina || [];
+        } else if (currentLineup && (currentLineup.titolariSlots || []).some((id) => Number(id) > 0)) {
+          titolariSlots = applyInjuryToSlots(currentLineup.titolariSlots, injuryMapLive);
+          slotRoles = buildStarterRolesFromModulo(currentLineup.modulo, titolariSlots.length);
+          panchina = applyInjuryMap(currentLineup.panchina || [], injuryMapLive);
+        } else {
+          const resolved = resolveLineupFromCache(uid);
+          titolari = resolved.titolari;
+          panchina = resolved.panchina;
+        }
+
+        if (!titolariSlots) {
+          titolari = applyInjuryMap(titolari, injuryMapLive).slice(0, numeroTitolari);
+          panchina = applyInjuryMap(panchina, injuryMapLive);
+        }
+
+        const scored = scoreResolvedLineup({
+          ...(titolariSlots ? { titolariSlots, slotRoles } : { titolari }),
+          panchina,
           votesByPlayer,
-          bonusSettings: bonus,
+          playersById,
+          enableSvFallbackVote: false,
           use6Politico: false,
+          bonusSettings: bonus,
           computeBonusTotal,
         });
-        titolari = generated?.titolari || [];
-        panchina = generated?.panchina || [];
-      } else if (currentLineup && (currentLineup.titolariSlots || []).some((id) => Number(id) > 0)) {
-        titolariSlots = applyInjuryToSlots(currentLineup.titolariSlots, injuryMapLive);
-        slotRoles = buildStarterRolesFromModulo(currentLineup.modulo, titolariSlots.length);
-        panchina = applyInjuryMap(currentLineup.panchina || [], injuryMapLive);
-      } else {
-        const resolved = await resolveUserLineup(leagueId, uid, giornata, numeroTitolari, {
-          recoverPrevious: recoverPreviousLive,
-          injuryMap: injuryMapLive,
-          applyInjury: applyInjuryToLineup,
+        sums[uid] = scored.punteggio;
+        playersByUser[uid] = scored.playerScores
+          .map((ps) => ({
+            player_id: ps.player_id,
+            player_name: ps.player_name,
+            player_role: ps.player_role,
+            rating: ps.rating,
+            bonus_total: ps.bonus_total,
+            total_score: ps.total_score,
+          }))
+          .sort((a, b) => b.total_score - a.total_score);
+      } catch (memberErr) {
+        console.error('[LIVE] member scoring failed', {
+          leagueId,
+          giornata,
+          userId: uid,
+          err: memberErr?.message || memberErr,
         });
-        titolari = resolved.titolari;
-        panchina = resolved.panchina;
+        sums[uid] = 0;
+        playersByUser[uid] = [];
       }
-
-      if (!titolariSlots) {
-        titolari = applyInjuryMap(titolari, injuryMapLive).slice(0, numeroTitolari);
-        panchina = applyInjuryMap(panchina, injuryMapLive);
-      }
-
-      const scored = scoreResolvedLineup({
-        ...(titolariSlots ? { titolariSlots, slotRoles } : { titolari }),
-        panchina,
-        votesByPlayer,
-        playersById,
-        enableSvFallbackVote: false,
-        use6Politico: false,
-        bonusSettings: bonus,
-        computeBonusTotal,
-      });
-      sums[uid] = scored.punteggio;
-      playersByUser[uid] = scored.playerScores
-        .map((ps) => ({
-          player_id: ps.player_id,
-          player_name: ps.player_name,
-          player_role: ps.player_role,
-          rating: ps.rating,
-          bonus_total: ps.bonus_total,
-          total_score: ps.total_score,
-        }))
-        .sort((a, b) => b.total_score - a.total_score);
-    }
+    }));
 
     const results = members.map((m) => ({
       user_id: Number(m.user_id),
@@ -3757,13 +3805,30 @@ router.get('/:id/live/:giornata', authenticateToken, async (req, res) => {
       return nameA.localeCompare(nameB, 'it');
     });
 
+    console.log('[LIVE] on-the-fly response', {
+      leagueId,
+      effectiveLeagueId,
+      giornata,
+      members: members.length,
+      ratings: ratings.length,
+      lineups: lineupRows.length,
+      injuryMapSize: Object.keys(injuryMapLive || {}).length,
+      results: results.length,
+      scoringMs: Date.now() - scoringStartedAt,
+    });
+
     res.json({
       results,
       is_calculated: isCalculated,
       calculated_at: calculatedAt,
     });
   } catch (error) {
-    console.error('Live scores error:', error);
+    console.error('[LIVE] live scores error:', {
+      leagueId: req.params.id,
+      giornata: req.params.giornata,
+      err: error?.message || error,
+      stack: error?.stack,
+    });
     res.status(500).json({ message: 'Errore caricamento live scores' });
   }
 });

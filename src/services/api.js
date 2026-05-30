@@ -130,7 +130,9 @@ api.interceptors.response.use(
       const path = String(originalConfig?.url || '');
       error.message = path.includes('forgot-password')
         ? 'Il server impiega troppo tempo: riprova tra qualche secondo.'
-        : 'Timeout API: verifica che backend e rete siano raggiungibili.';
+        : path.includes('/live/')
+          ? 'Calcolo live in corso: attendi qualche secondo e riprova.'
+          : 'Timeout API: verifica che backend e rete siano raggiungibili.';
     } else if (error.message === 'Network Error') {
       error.message = 'Impossibile contattare il server. Controlla la connessione e riprova.';
     }
@@ -452,7 +454,7 @@ export const leagueService = {
     return api.delete(`/leagues/${leagueId}/calculate/${giornata}`);
   },
   getLiveScores: async (leagueId, giornata) => {
-    return api.get(`/leagues/${leagueId}/live/${giornata}`);
+    return api.get(`/leagues/${leagueId}/live/${giornata}`, { timeout: 120000 });
   },
   getMatchdayStatus: async (leagueId) => {
     return api.get(`/leagues/${leagueId}/matchday-status`);

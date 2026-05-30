@@ -100,13 +100,33 @@ export default function LiveScoresScreen({ route, navigation }) {
     [allResults]
   );
 
+  const [loadError, setLoadError] = useState(null);
+
   const loadLiveData = async (isRefresh = false) => {
     try {
       if (!isRefresh) setLoading(true);
+      setLoadError(null);
       const res = await leagueService.getLiveScores(leagueId, currentGiornata);
-      setLiveData(res.data);
+      const payload = res?.data || {};
+      const count = Array.isArray(payload.results) ? payload.results.length : 0;
+      console.log('[LiveScores]', {
+        leagueId,
+        giornata: currentGiornata,
+        results: count,
+        is_calculated: payload.is_calculated,
+      });
+      setLiveData(payload);
     } catch (error) {
-      console.error('Error loading live scores:', error);
+      const msg = error?.response?.data?.message || error?.message || 'Errore caricamento live';
+      console.error('[LiveScores] load failed', {
+        leagueId,
+        giornata: currentGiornata,
+        status: error?.response?.status,
+        code: error?.code,
+        message: msg,
+      });
+      setLoadError(msg);
+      setLiveData({ results: [], is_calculated: false });
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -566,7 +586,12 @@ export default function LiveScoresScreen({ route, navigation }) {
         {allResults.length === 0 && (
           <View style={styles.emptyContainer}>
             <Ionicons name="football-outline" size={48} color="#ccc" />
-            <Text style={styles.emptyText}>Nessun dato disponibile</Text>
+            <Text style={styles.emptyText}>
+              {loadError ? 'Errore caricamento live' : 'Nessun dato disponibile'}
+            </Text>
+            {!!loadError && (
+              <Text style={styles.emptySubtext}>{loadError}</Text>
+            )}
           </View>
         )}
 
