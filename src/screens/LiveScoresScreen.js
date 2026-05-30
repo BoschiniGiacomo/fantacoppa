@@ -108,23 +108,9 @@ export default function LiveScoresScreen({ route, navigation }) {
       setLoadError(null);
       const res = await leagueService.getLiveScores(leagueId, currentGiornata);
       const payload = res?.data || {};
-      const count = Array.isArray(payload.results) ? payload.results.length : 0;
-      console.log('[LiveScores]', {
-        leagueId,
-        giornata: currentGiornata,
-        results: count,
-        is_calculated: payload.is_calculated,
-      });
       setLiveData(payload);
     } catch (error) {
       const msg = error?.response?.data?.message || error?.message || 'Errore caricamento live';
-      console.error('[LiveScores] load failed', {
-        leagueId,
-        giornata: currentGiornata,
-        status: error?.response?.status,
-        code: error?.code,
-        message: msg,
-      });
       setLoadError(msg);
       setLiveData({ results: [], is_calculated: false });
     } finally {

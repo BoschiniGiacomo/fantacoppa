@@ -2,6 +2,20 @@ const express = require('express');
 const router = express.Router();
 const { query } = require('../config/database');
 const { authenticateToken } = require('../middleware/auth');
+const { computeSquadValue, computeLeagueSquadValuesByUser } = require('../utils/budgetReconcile');
+
+async function getInitialBudget(leagueId) {
+  const rows = await query(
+    `SELECT COALESCE(initial_budget, 100) AS initial_budget
+     FROM leagues WHERE id = ? LIMIT 1`,
+    [leagueId]
+  );
+  return Number(rows[0]?.initial_budget || 100);
+}
+
+function budgetFromSquadValue(initialBudget, totalValue) {
+  return Number((initialBudget - totalValue).toFixed(2));
+}
 
 // GET /api/teams/:leagueId
 router.get('/:leagueId', authenticateToken, async (req, res) => {
@@ -11,17 +25,32 @@ router.get('/:leagueId', authenticateToken, async (req, res) => {
       return res.status(400).json({ message: 'League ID non valido' });
     }
 
-    const rows = await query(
-      `SELECT u.id, u.username,
-              ub.team_name, ub.coach_name, ub.team_logo, ub.budget
-       FROM league_members lm
-       JOIN users u ON u.id = lm.user_id
-       LEFT JOIN user_budget ub ON ub.user_id = lm.user_id AND ub.league_id = lm.league_id
-       WHERE lm.league_id = ?
-       ORDER BY u.username ASC`,
-      [leagueId]
-    );
-    res.json(rows);
+    const [initialBudget, squadValuesByUser, rows] = await Promise.all([
+      getInitialBudget(leagueId),
+      computeLeagueSquadValuesByUser(leagueId),
+      query(
+        `SELECT u.id, u.username,
+                ub.team_name, ub.coach_name, ub.team_logo, ub.budget
+         FROM league_members lm
+         JOIN users u ON u.id = lm.user_id
+         LEFT JOIN user_budget ub ON ub.user_id = lm.user_id AND ub.league_id = lm.league_id
+         WHERE lm.league_id = ?
+         ORDER BY u.username ASC`,
+        [leagueId]
+      ),
+    ]);
+
+    const teams = rows.map((row) => {
+      const uid = Number(row.id);
+      const totalValue = squadValuesByUser[uid] || 0;
+      return {
+        ...row,
+        budget: budgetFromSquadValue(initialBudget, totalValue),
+        total_value: Number(totalValue.toFixed(2)),
+      };
+    });
+
+    res.json(teams);
   } catch (error) {
     console.error('Get teams list error:', error);
     res.status(500).json({ message: 'Errore caricamento squadre' });
@@ -91,8 +120,14 @@ router.get('/:leagueId/:userId', authenticateToken, async (req, res) => {
     ]);
     if (teamRows.length < 1) return res.status(404).json({ message: 'Squadra non trovata' });
 
+    const initialBudget = await getInitialBudget(leagueId);
+    const totalValue = await computeSquadValue(userId, leagueId);
+    const computedBudget = budgetFromSquadValue(initialBudget, totalValue);
+
     res.json({
       ...teamRows[0],
+      budget: computedBudget,
+      total_value: Number(totalValue.toFixed(2)),
       players,
       results,
     });

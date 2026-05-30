@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { query } = require('../config/database');
 const { authenticateToken } = require('../middleware/auth');
-const { reconcileUserBudget } = require('../utils/budgetReconcile');
+const { reconcileUserBudget, injuryReplacementExclusionSql } = require('../utils/budgetReconcile');
 
 function toLeagueId(raw) {
   const id = Number(raw);
@@ -171,25 +171,13 @@ router.get('/:leagueId/bootstrap', authenticateToken, async (req, res) => {
         [leagueId]
       ),
       query(
-        `WITH effective_owned AS (
-           SELECT up.player_id
-           FROM user_players up
-           JOIN players p ON p.id = up.player_id
-           WHERE up.user_id = ? AND up.league_id = ?
-             AND COALESCE(p.is_injured, 0) = 0
-           UNION
-           SELECT inj.injury_replacement_player_id AS player_id
-           FROM user_players up
-           JOIN players inj ON inj.id = up.player_id
-           WHERE up.user_id = ? AND up.league_id = ?
-             AND COALESCE(inj.is_injured, 0) = 1
-             AND inj.injury_replacement_player_id IS NOT NULL
-         )
-         SELECT p.role, COUNT(*)::int AS c
-         FROM effective_owned eo
-         JOIN players p ON p.id = eo.player_id
+        `SELECT p.role, COUNT(*)::int AS c
+         FROM user_players up
+         JOIN players p ON p.id = up.player_id
+         WHERE up.user_id = ? AND up.league_id = ?
+           AND ${injuryReplacementExclusionSql('up')}
          GROUP BY p.role`,
-        [userId, leagueId, userId, leagueId]
+        [userId, leagueId]
       ),
     ]);
 
@@ -400,7 +388,7 @@ router.post('/:leagueId/buy', authenticateToken, async (req, res) => {
        FROM user_players up
        JOIN players p ON p.id = up.player_id
        WHERE up.user_id = ? AND up.league_id = ? AND p.role = ?
-         AND COALESCE(p.is_injured, 0) = 0`,
+         AND ${injuryReplacementExclusionSql('up')}`,
       [userId, leagueId, p.role]
     );
     const owned = Number(countRows[0]?.c || 0);

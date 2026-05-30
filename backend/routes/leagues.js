@@ -3593,19 +3593,10 @@ router.get('/:id/live/:giornata', authenticateToken, async (req, res) => {
         }));
       }
     } catch (calcErr) {
-      console.warn('[LIVE] calculated path failed, fallback to on-the-fly', {
-        leagueId,
-        giornata,
-        err: calcErr?.message || calcErr,
-      });
+      // fallback to on-the-fly
     }
 
     if (isCalculated && calculatedResults && calculatedResults.length > 0) {
-      console.log('[LIVE] using calculated results', {
-        leagueId,
-        giornata,
-        teams: calculatedResults.length,
-      });
       return res.json({
         results: calculatedResults,
         is_calculated: true,
@@ -3614,10 +3605,6 @@ router.get('/:id/live/:giornata', authenticateToken, async (req, res) => {
     }
 
     if (isCalculated && (!calculatedResults || calculatedResults.length === 0)) {
-      console.warn('[LIVE] matchday marked calculated but no joinable rows, fallback to on-the-fly', {
-        leagueId,
-        giornata,
-      });
       isCalculated = false;
     }
 
@@ -3718,7 +3705,6 @@ router.get('/:id/live/:giornata', authenticateToken, async (req, res) => {
       return { titolari: [], panchina: [], modulo: '' };
     };
 
-    const scoringStartedAt = Date.now();
     const sums = {};
     const playersByUser = {};
     await Promise.all(members.map(async (m) => {
@@ -3778,12 +3764,6 @@ router.get('/:id/live/:giornata', authenticateToken, async (req, res) => {
           }))
           .sort((a, b) => b.total_score - a.total_score);
       } catch (memberErr) {
-        console.error('[LIVE] member scoring failed', {
-          leagueId,
-          giornata,
-          userId: uid,
-          err: memberErr?.message || memberErr,
-        });
         sums[uid] = 0;
         playersByUser[uid] = [];
       }
@@ -3805,30 +3785,13 @@ router.get('/:id/live/:giornata', authenticateToken, async (req, res) => {
       return nameA.localeCompare(nameB, 'it');
     });
 
-    console.log('[LIVE] on-the-fly response', {
-      leagueId,
-      effectiveLeagueId,
-      giornata,
-      members: members.length,
-      ratings: ratings.length,
-      lineups: lineupRows.length,
-      injuryMapSize: Object.keys(injuryMapLive || {}).length,
-      results: results.length,
-      scoringMs: Date.now() - scoringStartedAt,
-    });
-
     res.json({
       results,
       is_calculated: isCalculated,
       calculated_at: calculatedAt,
     });
   } catch (error) {
-    console.error('[LIVE] live scores error:', {
-      leagueId: req.params.id,
-      giornata: req.params.giornata,
-      err: error?.message || error,
-      stack: error?.stack,
-    });
+    console.error('Live scores error:', error);
     res.status(500).json({ message: 'Errore caricamento live scores' });
   }
 });

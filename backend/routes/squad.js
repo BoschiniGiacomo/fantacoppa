@@ -136,12 +136,9 @@ router.get('/:leagueId/bootstrap', authenticateToken, async (req, res) => {
       A: Number(limits.max_attaccanti || 0),
     };
     let budget = Number(budgetRows[0]?.budget || 0);
-    const total_value = (players || []).reduce((sum, p) => {
-      if (Number(p?.acquired_as_injury_replacement || 0) === 1) return sum;
-      return sum + (Number(p?.rating) || 0);
-    }, 0);
     const reconciled = await reconcileUserBudget(userId, leagueId);
     if (reconciled.budget != null) budget = reconciled.budget;
+    const total_value = Number(reconciled.total_value ?? 0);
 
     const marketLocked = Number(blockedRows[0]?.market_locked || 0) === 1;
     const userBlockedRaw = Number(blockedRows[0]?.user_blocked || 0);

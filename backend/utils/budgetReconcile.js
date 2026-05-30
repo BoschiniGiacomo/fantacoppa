@@ -1,17 +1,54 @@
 const { query } = require('../config/database');
 
 /**
- * Valore rosa = somma rating dei giocatori in user_players (i sostituti infortunio non sono in tabella).
+ * SQL: esclude i giocatori in rosa solo come sostituto d'infortunio (gratuiti, a costo zero).
+ * @param {string} upAlias alias tabella user_players del giocatore valutato
+ */
+function injuryReplacementExclusionSql(upAlias = 'up') {
+  return `NOT EXISTS (
+    SELECT 1
+    FROM user_players up_inj
+    JOIN players inj ON inj.id = up_inj.player_id
+    WHERE up_inj.user_id = ${upAlias}.user_id
+      AND up_inj.league_id = ${upAlias}.league_id
+      AND COALESCE(inj.is_injured, 0) = 1
+      AND inj.injury_replacement_player_id = ${upAlias}.player_id
+  )`;
+}
+
+/**
+ * Valore rosa = somma rating in user_players, esclusi i sostituti d'infortunio.
  */
 async function computeSquadValue(userId, leagueId) {
   const rows = await query(
     `SELECT COALESCE(SUM(p.rating), 0) AS total_value
      FROM user_players up
      JOIN players p ON p.id = up.player_id
-     WHERE up.user_id = ? AND up.league_id = ?`,
+     WHERE up.user_id = ? AND up.league_id = ?
+       AND ${injuryReplacementExclusionSql('up')}`,
     [userId, leagueId]
   );
   return Number(rows[0]?.total_value || 0);
+}
+
+/**
+ * Valore rosa per tutti i membri di una lega (es. lista squadre).
+ */
+async function computeLeagueSquadValuesByUser(leagueId) {
+  const rows = await query(
+    `SELECT up.user_id, COALESCE(SUM(p.rating), 0)::float AS total_value
+     FROM user_players up
+     JOIN players p ON p.id = up.player_id
+     WHERE up.league_id = ?
+       AND ${injuryReplacementExclusionSql('up')}
+     GROUP BY up.user_id`,
+    [leagueId]
+  );
+  const byUser = {};
+  (rows || []).forEach((r) => {
+    byUser[Number(r.user_id)] = Number(r.total_value || 0);
+  });
+  return byUser;
 }
 
 /**
@@ -70,6 +107,8 @@ async function reconcileUserBudget(userId, leagueId) {
 }
 
 module.exports = {
+  injuryReplacementExclusionSql,
   computeSquadValue,
+  computeLeagueSquadValuesByUser,
   reconcileUserBudget,
 };
