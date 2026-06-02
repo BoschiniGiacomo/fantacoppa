@@ -736,7 +736,7 @@ export default function SettingsScreen({ route, navigation }) {
         const notified = res.data?.notifications_sent === true;
         showToast(
           notified
-            ? 'Ricalcolo completato con successo. Notifica inviata agli utenti attivi.',
+            ? 'Ricalcolo completato con successo. Notifica inviata agli utenti attivi.'
             : 'Ricalcolo completato con successo.',
           'success'
         );
