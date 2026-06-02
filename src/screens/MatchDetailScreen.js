@@ -1059,6 +1059,7 @@ function buildHeroScorerBlocks(liveEvents, match) {
   for (const ev of sorted) {
     if (isRegularGoalEventType(ev.event_type) && !goalEventHasScorer(ev)) continue;
     const shortName = formatHeroPlayerShortName(ev?.payload?.player_name);
+    const scorerId = Number(ev?.payload?.player_id || 0);
     const isOg = ev.event_type === 'own_goal';
     const minLab = minuteLabelForHeroScorer(ev, match);
 
@@ -1069,7 +1070,9 @@ function buildHeroScorerBlocks(liveEvents, match) {
       creditsHome = ev.team_side === 'away';
     }
     const map = creditsHome ? homeMap : awayMap;
-    const key = `${shortName}\0${isOg ? 'og' : 'g'}`;
+    // Usa player_id quando disponibile per evitare di unire omonimi con stesso shortName.
+    const keyIdentity = scorerId > 0 ? `id:${scorerId}` : `name:${shortName}`;
+    const key = `${keyIdentity}\0${isOg ? 'og' : 'g'}`;
     if (!map.has(key)) {
       map.set(key, { shortName, isOg, minutes: [] });
     }

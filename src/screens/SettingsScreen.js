@@ -1835,6 +1835,10 @@ export default function SettingsScreen({ route, navigation }) {
                             setConfirmModal(null);
                             doCalculate(true, true);
                           },
+                          onCancel: () => {
+                            setConfirmModal(null);
+                            doCalculate(true, false);
+                          },
                           destructive: false,
                         });
                       }}
@@ -2030,7 +2034,7 @@ export default function SettingsScreen({ route, navigation }) {
             <View style={styles.confirmButtons}>
               <TouchableOpacity
                 style={styles.confirmBtnCancel}
-                onPress={() => setConfirmModal(null)}
+                onPress={() => confirmModal?.onCancel?.() || setConfirmModal(null)}
               >
                 <Text style={styles.confirmBtnCancelText}>{confirmModal?.cancelText || 'Annulla'}</Text>
               </TouchableOpacity>
