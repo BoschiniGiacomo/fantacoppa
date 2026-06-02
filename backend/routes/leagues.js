@@ -3270,7 +3270,8 @@ router.post('/:id/calculate/:giornata', authenticateToken, async (req, res) => {
 
     const voteRows = await query(
       `SELECT player_id, rating, goals, assists, yellow_cards, red_cards,
-              goals_conceded, own_goals, penalty_missed, penalty_saved, clean_sheet
+              goals_conceded, own_goals, penalty_missed, penalty_saved, clean_sheet,
+              pallone_fuori, briso, no_divisa
        FROM player_ratings
        WHERE league_id = ? AND giornata = ?`,
       [effectiveLeagueId, giornata]
@@ -3700,6 +3701,7 @@ router.get('/:id/live/:giornata', authenticateToken, async (req, res) => {
       ratings = await query(
         `SELECT up.user_id, pr.player_id, pr.rating, pr.goals, pr.assists, pr.yellow_cards, pr.red_cards,
                 pr.goals_conceded, pr.own_goals, pr.penalty_missed, pr.penalty_saved, pr.clean_sheet,
+                pr.pallone_fuori, pr.briso, pr.no_divisa,
                 p.role AS player_role, CONCAT(COALESCE(p.first_name, ''), ' ', COALESCE(p.last_name, '')) AS player_name
          FROM player_ratings pr
          JOIN user_players up ON up.player_id = pr.player_id AND up.league_id = ?
