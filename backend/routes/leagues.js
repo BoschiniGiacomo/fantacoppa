@@ -673,9 +673,21 @@ async function invalidateCalculatedForLeagueGiornata(leagueId, giornata) {
     `DELETE FROM matchday_results WHERE league_id IN (${inPh}) AND giornata::numeric = ?::numeric`,
     `DELETE FROM push_notification_sends WHERE league_id IN (${inPh}) AND giornata::numeric = ?::numeric AND notification_type = 'matchday_calculated'`,
   ];
+  console.log('[VOTES->INVALIDATE] start', { leagueId, giornata: g, linkedLeagueIds: leagueIds });
   for (const sql of optionalStatements) {
     try {
-      await query(sql, params);
+      const result = await query(sql, params);
+      const affected = Number(result?.affectedRows ?? result?.rowCount ?? result?.rows?.length ?? 0);
+      console.log('[VOTES->INVALIDATE] deleted', {
+        leagueId,
+        giornata: g,
+        table: sql.includes('matchday_player_scores')
+          ? 'matchday_player_scores'
+          : sql.includes('matchday_results')
+            ? 'matchday_results'
+            : 'push_notification_sends',
+        affected,
+      });
     } catch (_) {
       // tabelle opzionali
     }
@@ -3112,6 +3124,12 @@ router.post('/:id/votes/:giornata', authenticateToken, async (req, res) => {
     }
 
     const entries = Object.entries(ratings);
+    console.log('[VOTES] save start', {
+      leagueId,
+      giornata,
+      entries: entries.length,
+      userId: Number(req.user?.userId || 0),
+    });
     for (const [playerIdRaw, v] of entries) {
       const playerId = Number(playerIdRaw);
       if (!Number.isFinite(playerId) || playerId <= 0) continue;
@@ -3160,6 +3178,12 @@ router.post('/:id/votes/:giornata', authenticateToken, async (req, res) => {
       );
     }
     await invalidateCalculatedForLeagueGiornata(leagueId, giornata);
+    console.log('[VOTES] save done', {
+      leagueId,
+      giornata,
+      entries: entries.length,
+      invalidatedCalculated: true,
+    });
     res.json({ message: 'Voti salvati con successo', recalculation_invalidated: true });
   } catch (error) {
     console.error('Save votes error:', error);
@@ -3547,6 +3571,7 @@ router.get('/:id/live/:giornata', authenticateToken, async (req, res) => {
       [leagueId]
     );
 
+    console.log('[LIVE] request', { leagueId, giornata });
     let isCalculated = false;
     let calculatedAt = null;
     let calculatedResults = null;
@@ -3611,6 +3636,13 @@ router.get('/:id/live/:giornata', authenticateToken, async (req, res) => {
           scoreByUser[uid] = Number((Number(scoreByUser[uid] || 0) + Number(r.total_score || 0)).toFixed(2));
         });
         const hasPlayerScores = psRows.length > 0;
+        console.log('[LIVE] calculated source', {
+          leagueId,
+          giornata,
+          calcRows: calcRows.length,
+          playerScoreRows: psRows.length,
+          hasPlayerScores,
+        });
         calculatedResults = calcRows.map((r) => {
           const uid = Number(r.user_id);
           const recalculatedScore = hasPlayerScores ? Number(scoreByUser[uid] || 0) : Number(r.punteggio || 0);
@@ -3631,12 +3663,26 @@ router.get('/:id/live/:giornata', authenticateToken, async (req, res) => {
           const nameB = String(b.team_name || b.username || '').toLocaleLowerCase('it-IT');
           return nameA.localeCompare(nameB, 'it');
         });
+        if (calculatedResults.length > 0) {
+          const top = calculatedResults.slice(0, 3).map((x) => ({
+            user_id: x.user_id,
+            team_name: x.team_name,
+            punteggio: x.punteggio,
+            players: (x.players || []).length,
+          }));
+          console.log('[LIVE] calculated top3', { leagueId, giornata, top });
+        }
       }
     } catch (calcErr) {
-      // fallback to on-the-fly
+      console.warn('[LIVE] calculated path error', {
+        leagueId,
+        giornata,
+        err: calcErr?.message || calcErr,
+      });
     }
 
     if (isCalculated && calculatedResults && calculatedResults.length > 0) {
+      console.log('[LIVE] response mode', { leagueId, giornata, mode: 'calculated', teams: calculatedResults.length });
       return res.json({
         results: calculatedResults,
         is_calculated: true,
@@ -3645,6 +3691,7 @@ router.get('/:id/live/:giornata', authenticateToken, async (req, res) => {
     }
 
     if (isCalculated && (!calculatedResults || calculatedResults.length === 0)) {
+      console.warn('[LIVE] calculated without rows, fallback on-the-fly', { leagueId, giornata });
       isCalculated = false;
     }
 
@@ -3823,6 +3870,16 @@ router.get('/:id/live/:giornata', authenticateToken, async (req, res) => {
       const nameA = String(a.team_name || a.username || '').toLocaleLowerCase('it-IT');
       const nameB = String(b.team_name || b.username || '').toLocaleLowerCase('it-IT');
       return nameA.localeCompare(nameB, 'it');
+    });
+
+    console.log('[LIVE] response mode', {
+      leagueId,
+      giornata,
+      mode: 'on-the-fly',
+      members: members.length,
+      results: results.length,
+      ratings: ratings.length,
+      lineupRows: lineupRows.length,
     });
 
     res.json({
