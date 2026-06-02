@@ -709,11 +709,17 @@ export default function SettingsScreen({ route, navigation }) {
     doCalculate(false);
   };
 
-  const doCalculate = async (force) => {
+  const doCalculate = async (force, notifyOnRecalculate = false) => {
     try {
       setCalculating(true);
       setShowRecalcModal(false);
-      const res = await leagueService.calculateMatchday(leagueId, selectedCalcMatchday, use6Politico, force);
+      const res = await leagueService.calculateMatchday(
+        leagueId,
+        selectedCalcMatchday,
+        use6Politico,
+        force,
+        notifyOnRecalculate
+      );
       if (res.data?.already_calculated && !force) {
         setShowRecalcModal(true);
         return;
@@ -1807,7 +1813,20 @@ export default function SettingsScreen({ route, navigation }) {
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={[styles.modalConfirmBtnCalc, calculating && { opacity: 0.6 }]}
-                      onPress={() => doCalculate(true)}
+                      onPress={() => {
+                        setShowRecalcModal(false);
+                        setConfirmModal({
+                          title: 'Notificare il ricalcolo?',
+                          message: 'Vuoi inviare una notifica push agli utenti con notifiche attive?',
+                          confirmText: 'Si',
+                          cancelText: 'No',
+                          onConfirm: () => {
+                            setConfirmModal(null);
+                            doCalculate(true, true);
+                          },
+                          destructive: false,
+                        });
+                      }}
                       disabled={calculating || isReadOnlyObserver}
                     >
                       {calculating ? <ActivityIndicator color="#fff" size="small" /> : (
@@ -2002,7 +2021,7 @@ export default function SettingsScreen({ route, navigation }) {
                 style={styles.confirmBtnCancel}
                 onPress={() => setConfirmModal(null)}
               >
-                <Text style={styles.confirmBtnCancelText}>Annulla</Text>
+                <Text style={styles.confirmBtnCancelText}>{confirmModal?.cancelText || 'Annulla'}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.confirmBtnAction, confirmModal?.destructive && { backgroundColor: '#e53935' }]}
