@@ -732,6 +732,17 @@ export default function SettingsScreen({ route, navigation }) {
       }
       setCalcFeedback(feedback);
       setTimeout(() => setCalcFeedback(''), 4000);
+      if (res.data?.recalculated) {
+        const notified = res.data?.notifications_sent === true;
+        showToast(
+          notified
+            ? 'Ricalcolo completato con successo. Notifica inviata agli utenti attivi.',
+            : 'Ricalcolo completato con successo.',
+          'success'
+        );
+      } else {
+        showToast('Calcolo giornata completato con successo.', 'success');
+      }
       if (warnings.length > 0) {
         showToast('Calcolo completato con alcuni avvisi. Controlla i punteggi in classifica.', 'success');
       }
