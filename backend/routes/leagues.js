@@ -657,6 +657,31 @@ async function deleteAllDataForLeagueGiornata(leagueId, giornata, extraSeedLeagu
   }
 }
 
+/**
+ * Dopo modifica voti, invalida eventuali risultati già calcolati
+ * per evitare classifica/somme stale.
+ */
+async function invalidateCalculatedForLeagueGiornata(leagueId, giornata) {
+  const g = Number(giornata);
+  if (!Number.isFinite(g) || g <= 0) return;
+  const leagueIds = await getLeagueIdsForMatchdayDataCleanup(leagueId, null);
+  if (!leagueIds.length) return;
+  const inPh = leagueIds.map(() => '?').join(', ');
+  const params = [...leagueIds, g];
+  const optionalStatements = [
+    `DELETE FROM matchday_player_scores WHERE league_id IN (${inPh}) AND giornata::numeric = ?::numeric`,
+    `DELETE FROM matchday_results WHERE league_id IN (${inPh}) AND giornata::numeric = ?::numeric`,
+    `DELETE FROM push_notification_sends WHERE league_id IN (${inPh}) AND giornata::numeric = ?::numeric AND notification_type = 'matchday_calculated'`,
+  ];
+  for (const sql of optionalStatements) {
+    try {
+      await query(sql, params);
+    } catch (_) {
+      // tabelle opzionali
+    }
+  }
+}
+
 let joinRequestsTableReady = false;
 async function ensureJoinRequestsTable() {
   if (joinRequestsTableReady) return true;
@@ -3134,7 +3159,8 @@ router.post('/:id/votes/:giornata', authenticateToken, async (req, res) => {
         ]
       );
     }
-    res.json({ message: 'Voti salvati con successo' });
+    await invalidateCalculatedForLeagueGiornata(leagueId, giornata);
+    res.json({ message: 'Voti salvati con successo', recalculation_invalidated: true });
   } catch (error) {
     console.error('Save votes error:', error);
     res.status(500).json({ message: 'Errore salvataggio voti' });
@@ -3570,6 +3596,7 @@ router.get('/:id/live/:giornata', authenticateToken, async (req, res) => {
           calculatedAt = null;
         }
         const byUser = {};
+        const scoreByUser = {};
         psRows.forEach((r) => {
           const uid = Number(r.user_id);
           if (!byUser[uid]) byUser[uid] = [];
@@ -3581,16 +3608,29 @@ router.get('/:id/live/:giornata', authenticateToken, async (req, res) => {
             bonus_total: Number(r.bonus_total || 0),
             total_score: Number(r.total_score || 0),
           });
+          scoreByUser[uid] = Number((Number(scoreByUser[uid] || 0) + Number(r.total_score || 0)).toFixed(2));
         });
-        calculatedResults = calcRows.map((r) => ({
-          user_id: Number(r.user_id),
-          username: r.username,
-          team_name: r.team_name,
-          coach_name: r.coach_name,
-          team_logo: r.team_logo,
-          punteggio: Number(Number(r.punteggio || 0).toFixed(2)),
-          players: byUser[Number(r.user_id)] || [],
-        }));
+        const hasPlayerScores = psRows.length > 0;
+        calculatedResults = calcRows.map((r) => {
+          const uid = Number(r.user_id);
+          const recalculatedScore = hasPlayerScores ? Number(scoreByUser[uid] || 0) : Number(r.punteggio || 0);
+          return {
+            user_id: uid,
+            username: r.username,
+            team_name: r.team_name,
+            coach_name: r.coach_name,
+            team_logo: r.team_logo,
+            // Se i player scores esistono, la classifica live deve seguire il dettaglio aggiornato.
+            punteggio: Number(recalculatedScore.toFixed(2)),
+            players: byUser[uid] || [],
+          };
+        }).sort((a, b) => {
+          const scoreDiff = Number(b.punteggio || 0) - Number(a.punteggio || 0);
+          if (scoreDiff !== 0) return scoreDiff;
+          const nameA = String(a.team_name || a.username || '').toLocaleLowerCase('it-IT');
+          const nameB = String(b.team_name || b.username || '').toLocaleLowerCase('it-IT');
+          return nameA.localeCompare(nameB, 'it');
+        });
       }
     } catch (calcErr) {
       // fallback to on-the-fly
