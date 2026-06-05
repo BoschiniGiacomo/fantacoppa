@@ -3300,8 +3300,7 @@ router.post('/:id/calculate/:giornata', authenticateToken, async (req, res) => {
     const details = [];
     const calcWarnings = [];
     const usersWith6Politico = [];
-    let canWritePlayerScores = true;
-    for (const m of members) {
+    const memberOutcomes = await Promise.all(members.map(async (m) => {
       const userId = Number(m.user_id);
       try {
         let titolari = [];
@@ -3373,71 +3372,90 @@ router.post('/:id/calculate/:giornata', authenticateToken, async (req, res) => {
         const hasLineupForScore = titolariSlots?.length
           ? titolariSlots.some((id) => Number(id) > 0)
           : titolari.length > 0;
-        if (!hasRealVotes && use6Politico && hasLineupForScore) usersWith6Politico.push(userId);
+
         await query(
           `INSERT INTO matchday_results (league_id, giornata, user_id, punteggio)
            VALUES (?, ?, ?, ?)`,
           [leagueId, giornata, userId, punteggio]
         );
-        if (canWritePlayerScores) {
-          try {
-            for (const ps of playerScores) {
-              await query(
-                `INSERT INTO matchday_player_scores (
-                   league_id, giornata, user_id, player_id, player_name, player_role,
-                   rating, goals, assists, yellow_cards, red_cards, goals_conceded,
-                   own_goals, penalty_missed, penalty_saved, clean_sheet,
-                   pallone_fuori, briso, no_divisa,
-                   bonus_total, total_score
-                 )
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                 ON CONFLICT (league_id, giornata, user_id, player_id)
-                 DO UPDATE SET
-                   player_name = EXCLUDED.player_name,
-                   player_role = EXCLUDED.player_role,
-                   rating = EXCLUDED.rating,
-                   goals = EXCLUDED.goals,
-                   assists = EXCLUDED.assists,
-                   yellow_cards = EXCLUDED.yellow_cards,
-                   red_cards = EXCLUDED.red_cards,
-                   goals_conceded = EXCLUDED.goals_conceded,
-                   own_goals = EXCLUDED.own_goals,
-                   penalty_missed = EXCLUDED.penalty_missed,
-                   penalty_saved = EXCLUDED.penalty_saved,
-                   clean_sheet = EXCLUDED.clean_sheet,
-                   pallone_fuori = EXCLUDED.pallone_fuori,
-                   briso = EXCLUDED.briso,
-                   no_divisa = EXCLUDED.no_divisa,
-                   bonus_total = EXCLUDED.bonus_total,
-                   total_score = EXCLUDED.total_score`,
-                [
-                  leagueId, giornata, userId, ps.player_id, ps.player_name, ps.player_role,
-                  ps.rating, ps.goals, ps.assists, ps.yellow_cards, ps.red_cards, ps.goals_conceded,
-                  ps.own_goals, ps.penalty_missed, ps.penalty_saved, ps.clean_sheet,
-                  ps.pallone_fuori, ps.briso, ps.no_divisa,
-                  ps.bonus_total, ps.total_score,
-                ]
-              );
-            }
-          } catch (scoreErr) {
-            canWritePlayerScores = false;
-            calcWarnings.push({
-              user_id: userId,
-              code: 'player_scores_write',
-              message: 'Punteggio salvato; dettaglio giocatori non aggiornato.',
-            });
-            console.error('matchday_player_scores write error:', scoreErr?.message || scoreErr);
-          }
+
+        let playerScoresWarning = null;
+        try {
+          await Promise.all((playerScores || []).map((ps) => query(
+            `INSERT INTO matchday_player_scores (
+               league_id, giornata, user_id, player_id, player_name, player_role,
+               rating, goals, assists, yellow_cards, red_cards, goals_conceded,
+               own_goals, penalty_missed, penalty_saved, clean_sheet,
+               pallone_fuori, briso, no_divisa,
+               bonus_total, total_score
+             )
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT (league_id, giornata, user_id, player_id)
+             DO UPDATE SET
+               player_name = EXCLUDED.player_name,
+               player_role = EXCLUDED.player_role,
+               rating = EXCLUDED.rating,
+               goals = EXCLUDED.goals,
+               assists = EXCLUDED.assists,
+               yellow_cards = EXCLUDED.yellow_cards,
+               red_cards = EXCLUDED.red_cards,
+               goals_conceded = EXCLUDED.goals_conceded,
+               own_goals = EXCLUDED.own_goals,
+               penalty_missed = EXCLUDED.penalty_missed,
+               penalty_saved = EXCLUDED.penalty_saved,
+               clean_sheet = EXCLUDED.clean_sheet,
+               pallone_fuori = EXCLUDED.pallone_fuori,
+               briso = EXCLUDED.briso,
+               no_divisa = EXCLUDED.no_divisa,
+               bonus_total = EXCLUDED.bonus_total,
+               total_score = EXCLUDED.total_score`,
+            [
+              leagueId, giornata, userId, ps.player_id, ps.player_name, ps.player_role,
+              ps.rating, ps.goals, ps.assists, ps.yellow_cards, ps.red_cards, ps.goals_conceded,
+              ps.own_goals, ps.penalty_missed, ps.penalty_saved, ps.clean_sheet,
+              ps.pallone_fuori, ps.briso, ps.no_divisa,
+              ps.bonus_total, ps.total_score,
+            ]
+          )));
+        } catch (scoreErr) {
+          playerScoresWarning = {
+            user_id: userId,
+            code: 'player_scores_write',
+            message: 'Punteggio salvato; dettaglio giocatori non aggiornato.',
+          };
+          console.error('matchday_player_scores write error:', scoreErr?.message || scoreErr);
         }
-        details.push({ user_id: userId, punteggio, players: playerScores });
+
+        return {
+          ok: true,
+          user_id: userId,
+          punteggio,
+          players: playerScores,
+          use6PoliticoFlag: !hasRealVotes && use6Politico && hasLineupForScore,
+          warning: playerScoresWarning,
+        };
       } catch (userErr) {
         console.error(`Calculate matchday user ${userId} error:`, userErr);
-        calcWarnings.push({
-          user_id: userId,
-          code: 'user_calc_failed',
-          message: userErr?.message || 'Errore calcolo utente',
-        });
+        return {
+          ok: false,
+          warning: {
+            user_id: userId,
+            code: 'user_calc_failed',
+            message: userErr?.message || 'Errore calcolo utente',
+          },
+        };
       }
+    }));
+
+    for (const outcome of memberOutcomes) {
+      if (outcome.warning) calcWarnings.push(outcome.warning);
+      if (!outcome.ok) continue;
+      if (outcome.use6PoliticoFlag) usersWith6Politico.push(outcome.user_id);
+      details.push({
+        user_id: outcome.user_id,
+        punteggio: outcome.punteggio,
+        players: outcome.players,
+      });
     }
 
     if (details.length < 1) {

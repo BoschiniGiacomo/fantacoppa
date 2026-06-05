@@ -731,6 +731,38 @@ export default function SettingsScreen({ route, navigation }) {
     doCalculate(false);
   };
 
+  const waitForMatchdayCalculated = async (targetGiornata, attempts = 40, intervalMs = 2000) => {
+    for (let i = 0; i < attempts; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+      try {
+        const statusRes = await leagueService.getMatchdayStatus(leagueId);
+        const row = (statusRes?.data || []).find((m) => Number(m.giornata) === Number(targetGiornata));
+        if (row && Number(row.is_calculated) === 1) return true;
+      } catch (_) {
+        /* retry */
+      }
+    }
+    return false;
+  };
+
+  const finishCalculateSuccess = async (recalculated = false) => {
+    setCalcResult({ recalculated, success: true });
+    const feedback = recalculated ? 'Giornata ricalcolata!' : 'Giornata calcolata!';
+    setCalcFeedback(feedback);
+    setTimeout(() => setCalcFeedback(''), 4000);
+    showToast(
+      recalculated
+        ? 'Ricalcolo completato con successo.'
+        : 'Calcolo giornata completato con successo.',
+      'success'
+    );
+    try {
+      await loadMatchdayStatus();
+    } catch (reloadErr) {
+      console.error('Error reloading matchday status after calc:', reloadErr);
+    }
+  };
+
   const doCalculate = async (force, notifyUsers = null) => {
     try {
       setCalculating(true);
@@ -781,8 +813,19 @@ export default function SettingsScreen({ route, navigation }) {
       }
     } catch (error) {
       console.error('Error calculating matchday:', error);
-      const isTimeout = error?.code === 'ECONNABORTED' || String(error?.message || '').includes('timeout');
-      if (isTimeout) {
+      const msg = String(error?.message || '');
+      const isLikelyStillRunning = error?.code === 'ECONNABORTED'
+        || msg.includes('timeout')
+        || msg.includes('Calcolo giornata in corso')
+        || msg === 'Network Error'
+        || msg.includes('Impossibile contattare il server');
+      if (isLikelyStillRunning) {
+        showToast('Calcolo ancora in corso sul server, attendo conferma...', 'success');
+        const completed = await waitForMatchdayCalculated(selectedCalcMatchday);
+        if (completed) {
+          await finishCalculateSuccess(!!force);
+          return;
+        }
         showToast('Il calcolo potrebbe essere ancora in corso. Controlla la classifica tra qualche secondo.');
       } else {
         showToast(error.response?.data?.message || 'Impossibile calcolare la giornata');
