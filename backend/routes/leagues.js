@@ -6,7 +6,10 @@ const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
 const { createClient } = require('@supabase/supabase-js');
-const { triggerCalculatedNotificationForLeagueMatchday } = require('./notifications');
+const {
+  triggerCalculatedNotificationForLeagueMatchday,
+  suppressCalculatedNotificationsForLeagueMatchday,
+} = require('./notifications');
 const { buildAutoLineupFromVotes } = require('../utils/autoLineup');
 const { computeBonusTotal: computeBonusTotalUtil } = require('../utils/bonus');
 const {
@@ -3458,6 +3461,12 @@ router.post('/:id/calculate/:giornata', authenticateToken, async (req, res) => {
         notificationStats = await triggerCalculatedNotificationForLeagueMatchday(leagueId, giornata);
       } catch (_notifyErr) {
         /* push opzionale: fallimento non blocca calcolo */
+      }
+    } else {
+      try {
+        await suppressCalculatedNotificationsForLeagueMatchday(leagueId, giornata);
+      } catch (_suppressErr) {
+        /* soppressione opzionale: evita reinvio dal cron */
       }
     }
 

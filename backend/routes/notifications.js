@@ -680,6 +680,38 @@ async function shouldSuppressMatchdayCalculatedPush(leagueId, giornata) {
   return false;
 }
 
+/**
+ * Marca la giornata come "notifica già gestita" senza inviare push.
+ * Il cron non reinvierà: push_notification_sends usa dedupe_key univoco per utente/lega/giornata.
+ */
+async function suppressCalculatedNotificationsForLeagueMatchday(leagueId, giornata) {
+  const lid = Number(leagueId);
+  const g = Number(giornata);
+  if (!lid || !g) return { suppressed: 0 };
+
+  await ensureNotificationsTables();
+  const memberRows = await query(
+    `SELECT lm.user_id
+     FROM league_members lm
+     LEFT JOIN user_league_prefs ulp ON ulp.user_id = lm.user_id AND ulp.league_id = lm.league_id
+     WHERE lm.league_id = ?
+       AND COALESCE(ulp.notifications_enabled, 1) = 1`,
+    [lid]
+  );
+  const entries = (memberRows || [])
+    .map((row) => ({
+      userId: Number(row.user_id),
+      leagueId: lid,
+      giornata: g,
+      type: 'matchday_calculated',
+      payloadJson: { suppressed: true, reason: 'admin_opt_out' },
+    }))
+    .filter((entry) => entry.userId > 0);
+
+  const reservedKeys = await batchReserveNotificationSends(entries);
+  return { suppressed: reservedKeys.size };
+}
+
 async function triggerCalculatedNotificationForLeagueMatchday(leagueId, giornata) {
   const lid = Number(leagueId);
   const g = Number(giornata);
@@ -821,3 +853,4 @@ router.post('/run-cron', async (req, res) => {
 module.exports = router;
 module.exports.runNotificationsCronJob = runNotificationsCronJob;
 module.exports.triggerCalculatedNotificationForLeagueMatchday = triggerCalculatedNotificationForLeagueMatchday;
+module.exports.suppressCalculatedNotificationsForLeagueMatchday = suppressCalculatedNotificationsForLeagueMatchday;
