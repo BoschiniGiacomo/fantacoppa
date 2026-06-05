@@ -3445,7 +3445,14 @@ router.post('/:id/calculate/:giornata', authenticateToken, async (req, res) => {
     }
 
     let notificationStats = null;
-    const shouldNotify = !alreadyCalculated || notifyOnRecalculate;
+    const notifyUsersReq = req.body?.notify_users;
+    const shouldNotify = force
+      ? notifyOnRecalculate
+      : (notifyUsersReq === true || notifyUsersReq === 1
+          ? true
+          : notifyUsersReq === false || notifyUsersReq === 0
+            ? false
+            : !alreadyCalculated);
     if (shouldNotify) {
       try {
         notificationStats = await triggerCalculatedNotificationForLeagueMatchday(leagueId, giornata);
@@ -3457,8 +3464,8 @@ router.post('/:id/calculate/:giornata', authenticateToken, async (req, res) => {
     return res.json({
       success: true,
       already_calculated: false,
-      recalculated: alreadyCalculated && force,
-      notifications_sent: shouldNotify,
+      recalculated: !!force,
+      notifications_sent: Number(notificationStats?.sent || 0) > 0,
       use_6_politico: use6Politico,
       users_with_6_politico: usersWith6Politico,
       processed_users: details.length,

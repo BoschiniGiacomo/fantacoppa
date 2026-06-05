@@ -443,10 +443,16 @@ export const leagueService = {
     return api.get(`/leagues/${leagueId}/bonus-settings`);
   },
   // Matchday calculation
-  calculateMatchday: async (leagueId, giornata, use6Politico = false, force = false, notifyOnRecalculate = false) => {
+  calculateMatchday: async (leagueId, giornata, use6Politico = false, force = false, notifyUsers = null) => {
+    const body = { use_6_politico: use6Politico, force: !!force };
+    if (force) {
+      body.notify_on_recalculate = !!notifyUsers;
+    } else if (notifyUsers !== null && notifyUsers !== undefined) {
+      body.notify_users = !!notifyUsers;
+    }
     return api.post(
       `/leagues/${leagueId}/calculate/${giornata}`,
-      { use_6_politico: use6Politico, force, notify_on_recalculate: notifyOnRecalculate },
+      body,
       { timeout: 120000 }
     );
   },

@@ -699,6 +699,24 @@ export default function SettingsScreen({ route, navigation }) {
     }
   };
 
+  const askNotifyThenCalculate = (force) => {
+    setConfirmModal({
+      title: force ? 'Notificare il ricalcolo?' : 'Notificare il calcolo?',
+      message: 'Vuoi inviare una notifica push agli utenti con notifiche attive?',
+      confirmText: 'Si',
+      cancelText: 'No',
+      onConfirm: () => {
+        setConfirmModal(null);
+        doCalculate(force, true);
+      },
+      onCancel: () => {
+        setConfirmModal(null);
+        doCalculate(force, false);
+      },
+      destructive: false,
+    });
+  };
+
   const handleCalculateMatchday = async () => {
     if (!selectedCalcMatchday) return;
     const matchday = matchdayStatuses.find(m => m.giornata === selectedCalcMatchday);
@@ -706,10 +724,14 @@ export default function SettingsScreen({ route, navigation }) {
       setShowRecalcModal(true);
       return;
     }
+    if (matchday?.has_votes) {
+      askNotifyThenCalculate(false);
+      return;
+    }
     doCalculate(false);
   };
 
-  const doCalculate = async (force, notifyOnRecalculate = false) => {
+  const doCalculate = async (force, notifyUsers = null) => {
     try {
       setCalculating(true);
       setShowRecalcModal(false);
@@ -718,7 +740,7 @@ export default function SettingsScreen({ route, navigation }) {
         selectedCalcMatchday,
         use6Politico,
         force,
-        notifyOnRecalculate
+        notifyUsers
       );
       if (res.data?.already_calculated && !force) {
         setShowRecalcModal(true);
@@ -732,8 +754,8 @@ export default function SettingsScreen({ route, navigation }) {
       }
       setCalcFeedback(feedback);
       setTimeout(() => setCalcFeedback(''), 4000);
+      const notified = res.data?.notifications_sent === true;
       if (res.data?.recalculated) {
-        const notified = res.data?.notifications_sent === true;
         showToast(
           notified
             ? 'Ricalcolo completato con successo. Notifica inviata agli utenti attivi.'
@@ -741,7 +763,12 @@ export default function SettingsScreen({ route, navigation }) {
           'success'
         );
       } else {
-        showToast('Calcolo giornata completato con successo.', 'success');
+        showToast(
+          notified
+            ? 'Calcolo giornata completato con successo. Notifica inviata agli utenti attivi.'
+            : 'Calcolo giornata completato con successo.',
+          'success'
+        );
       }
       if (warnings.length > 0) {
         showToast('Calcolo completato con alcuni avvisi. Controlla i punteggi in classifica.', 'success');
@@ -1826,21 +1853,7 @@ export default function SettingsScreen({ route, navigation }) {
                       style={[styles.modalConfirmBtnCalc, calculating && { opacity: 0.6 }]}
                       onPress={() => {
                         setShowRecalcModal(false);
-                        setConfirmModal({
-                          title: 'Notificare il ricalcolo?',
-                          message: 'Vuoi inviare una notifica push agli utenti con notifiche attive?',
-                          confirmText: 'Si',
-                          cancelText: 'No',
-                          onConfirm: () => {
-                            setConfirmModal(null);
-                            doCalculate(true, true);
-                          },
-                          onCancel: () => {
-                            setConfirmModal(null);
-                            doCalculate(true, false);
-                          },
-                          destructive: false,
-                        });
+                        askNotifyThenCalculate(true);
                       }}
                       disabled={calculating || isReadOnlyObserver}
                     >
