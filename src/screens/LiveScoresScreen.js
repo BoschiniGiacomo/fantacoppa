@@ -256,7 +256,12 @@ export default function LiveScoresScreen({ route, navigation }) {
         <View style={styles.calcBanner}>
           <Ionicons name="checkmark-circle" size={16} color="#198754" />
           <Text style={styles.calcBannerText}>
-            {currentGiornata}ª Giornata già calcolata il {new Date(liveData.calculated_at).toLocaleDateString('it-IT')}
+            {(() => {
+              const calcDate = parseDeadlineDate(liveData.calculated_at);
+              return calcDate
+                ? `${currentGiornata}ª Giornata già calcolata il ${calcDate.toLocaleDateString('it-IT')}`
+                : `${currentGiornata}ª Giornata già calcolata`;
+            })()}
           </Text>
         </View>
       )}

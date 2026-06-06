@@ -434,6 +434,30 @@ async function deleteUserFantasyLeagueParticipationData(leagueId, userId) {
 
 const computeBonusTotal = computeBonusTotalUtil;
 
+let matchdayResultsCalculatedAtReady = false;
+
+async function ensureMatchdayResultsCalculatedAtColumn() {
+  if (matchdayResultsCalculatedAtReady) return;
+  try {
+    await query(
+      `ALTER TABLE matchday_results
+       ADD COLUMN IF NOT EXISTS calculated_at TIMESTAMPTZ`
+    );
+  } catch (_) {
+    /* colonna opzionale */
+  }
+  matchdayResultsCalculatedAtReady = true;
+}
+
+function matchdayCalculatedAtExpr(tableAlias = 'mr') {
+  const a = tableAlias;
+  return `COALESCE(
+    ${a}.calculated_at,
+    NULLIF(to_jsonb(${a})->>'calculated_at', '')::timestamptz,
+    NULLIF(to_jsonb(${a})->>'created_at', '')::timestamptz
+  )`;
+}
+
 function applyInjuryToLineup(ids, injuryMap) {
   return applyInjuryMap(ids, injuryMap);
 }
@@ -2870,12 +2894,7 @@ router.get('/:id/matchday-status', authenticateToken, async (req, res) => {
                 WHERE mr.league_id = ? AND mr.giornata = m.giornata
               ) THEN 1 ELSE 0 END AS is_calculated,
               (
-                SELECT MAX(
-                  COALESCE(
-                    NULLIF(to_jsonb(mr2)->>'created_at', '')::timestamptz,
-                    NULLIF(to_jsonb(mr2)->>'calculated_at', '')::timestamptz
-                  )
-                )
+                SELECT MAX(${matchdayCalculatedAtExpr('mr2')})
                 FROM matchday_results mr2
                 WHERE mr2.league_id = ? AND mr2.giornata = m.giornata
               ) AS calculated_at
@@ -2898,12 +2917,7 @@ router.get('/:id/matchday-status', authenticateToken, async (req, res) => {
                   WHERE mr.league_id = ? AND mr.giornata = g.giornata
                 ) THEN 1 ELSE 0 END AS is_calculated,
                 (
-                  SELECT MAX(
-                    COALESCE(
-                      NULLIF(to_jsonb(mr2)->>'created_at', '')::timestamptz,
-                      NULLIF(to_jsonb(mr2)->>'calculated_at', '')::timestamptz
-                    )
-                  )
+                  SELECT MAX(${matchdayCalculatedAtExpr('mr2')})
                   FROM matchday_results mr2
                   WHERE mr2.league_id = ? AND mr2.giornata = g.giornata
                 ) AS calculated_at
@@ -3297,6 +3311,15 @@ router.post('/:id/calculate/:giornata', authenticateToken, async (req, res) => {
       }
     }
 
+    await ensureMatchdayResultsCalculatedAtColumn();
+    let calculatedAtStamp = null;
+    try {
+      const tsRows = await query('SELECT NOW() AS ts');
+      calculatedAtStamp = tsRows[0]?.ts ?? new Date();
+    } catch (_) {
+      calculatedAtStamp = new Date();
+    }
+
     const details = [];
     const calcWarnings = [];
     const usersWith6Politico = [];
@@ -3374,9 +3397,9 @@ router.post('/:id/calculate/:giornata', authenticateToken, async (req, res) => {
           : titolari.length > 0;
 
         await query(
-          `INSERT INTO matchday_results (league_id, giornata, user_id, punteggio)
-           VALUES (?, ?, ?, ?)`,
-          [leagueId, giornata, userId, punteggio]
+          `INSERT INTO matchday_results (league_id, giornata, user_id, punteggio, calculated_at)
+           VALUES (?, ?, ?, ?, ?)`,
+          [leagueId, giornata, userId, punteggio, calculatedAtStamp]
         );
 
         let playerScoresWarning = null;
@@ -3621,13 +3644,9 @@ router.get('/:id/live/:giornata', authenticateToken, async (req, res) => {
           psRows = [];
         }
         try {
+          await ensureMatchdayResultsCalculatedAtColumn();
           const cRows = await query(
-            `SELECT MAX(
-                COALESCE(
-                  NULLIF(to_jsonb(mr)->>'created_at', '')::timestamptz,
-                  NULLIF(to_jsonb(mr)->>'calculated_at', '')::timestamptz
-                )
-              ) AS calc_at
+            `SELECT MAX(${matchdayCalculatedAtExpr('mr')}) AS calc_at
              FROM matchday_results mr
              WHERE mr.league_id = ? AND mr.giornata = ?`,
             [leagueId, giornata]
