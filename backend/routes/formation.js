@@ -428,7 +428,9 @@ router.get('/:leagueId/:giornata', authenticateToken, async (req, res) => {
       const placeholders = uniqueIds.map(() => '?').join(',');
       try {
         return await query(
-          `SELECT p.id, p.first_name, p.last_name, p.role, t.name AS team_name
+          `SELECT p.id, p.first_name, p.last_name, p.role,
+                  COALESCE(p.photo_path, '') AS photo_path,
+                  t.name AS team_name
            FROM players p
            LEFT JOIN teams t ON t.id = p.team_id
            WHERE p.id IN (${placeholders})`,
