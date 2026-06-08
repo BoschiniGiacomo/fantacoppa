@@ -2,6 +2,7 @@ const { query } = require('../config/database');
 const {
   getEffectiveLeagueId,
   propagateInjuryReplacementsToLineups,
+  revertInjuryReplacementsInLineups,
 } = require('./lineupResolver');
 
 /**
@@ -143,8 +144,49 @@ async function applyInjuryReplacementAcrossLeagues(sourceLeagueId, injuredPlayer
   };
 }
 
+/**
+ * Rimuove l'infortunio e ripristina l'id originale in tutte le formazioni salvate con il sostituto.
+ */
+async function revertInjuryReplacementAcrossLeagues(sourceLeagueId, injuredPlayerId, replacementPlayerId) {
+  const injuredId = Number(injuredPlayerId);
+  const replacementId = Number(replacementPlayerId);
+  if (!Number.isFinite(injuredId) || injuredId <= 0 || !Number.isFinite(replacementId) || replacementId <= 0) {
+    return {
+      linked_leagues: [],
+      lineups_updated: 0,
+      lineup_matchdays: [],
+      per_league: [],
+    };
+  }
+
+  const linkedLeagueIds = await resolveLinkedLeagueIds(sourceLeagueId);
+  const perLeague = [];
+  let totalLineupsUpdated = 0;
+  const allMatchdays = new Set();
+
+  for (const leagueId of linkedLeagueIds) {
+    const lineups = await revertInjuryReplacementsInLineups(leagueId, injuredId, replacementId);
+    totalLineupsUpdated += lineups.updatedLineups;
+    (lineups.matchdays || []).forEach((g) => allMatchdays.add(g));
+    perLeague.push({
+      league_id: leagueId,
+      injured_player_id: injuredId,
+      replacement_player_id: replacementId,
+      lineups_updated: lineups.updatedLineups,
+    });
+  }
+
+  return {
+    linked_leagues: linkedLeagueIds,
+    lineups_updated: totalLineupsUpdated,
+    lineup_matchdays: [...allMatchdays].sort((a, b) => a - b),
+    per_league: perLeague,
+  };
+}
+
 module.exports = {
   resolveLinkedLeagueIds,
   applyInjuryReplacementToRoster,
   applyInjuryReplacementAcrossLeagues,
+  revertInjuryReplacementAcrossLeagues,
 };

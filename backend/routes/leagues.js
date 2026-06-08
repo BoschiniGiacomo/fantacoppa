@@ -19,7 +19,10 @@ const {
   buildStarterRolesFromModulo,
   applyInjuryToSlots,
 } = require('../utils/lineupResolver');
-const { applyInjuryReplacementAcrossLeagues } = require('../utils/injuryPropagation');
+const {
+  applyInjuryReplacementAcrossLeagues,
+  revertInjuryReplacementAcrossLeagues,
+} = require('../utils/injuryPropagation');
 const { scoreResolvedLineup } = require('../utils/lineupScoring');
 const { normalizeVoteRating } = require('../utils/voteRating');
 
@@ -2210,6 +2213,17 @@ router.put('/:id/teams/:teamId/players/:playerId', authenticateToken, async (req
         return res.status(400).json({ message: 'Il sostituto deve appartenere alla stessa lega' });
       }
     }
+
+    const prevInjuryRows = await query(
+      `SELECT COALESCE(p.is_injured, 0)::int AS is_injured, p.injury_replacement_player_id
+       FROM players p
+       JOIN teams t ON t.id = p.team_id
+       WHERE p.id = ? AND t.league_id = ?
+       LIMIT 1`,
+      [playerId, leagueId]
+    );
+    const prevReplacementId = Number(prevInjuryRows[0]?.injury_replacement_player_id || 0);
+
     try {
       await query(
         `UPDATE players p
@@ -2295,6 +2309,7 @@ router.put('/:id/teams/:teamId/players/:playerId', authenticateToken, async (req
     }
 
     let cascadeResult = null;
+    let revertResult = null;
     const shouldPropagateInjury =
       (Number.isFinite(isInjured) && isInjured === 1 && injuryReplacementPlayerId != null)
       || injuryReplacementPlayerId != null;
@@ -2306,11 +2321,23 @@ router.put('/:id/teams/:teamId/players/:playerId', authenticateToken, async (req
       );
     }
 
+    const shouldRevertInjury =
+      Number.isFinite(prevReplacementId) && prevReplacementId > 0
+      && Number.isFinite(isInjured) && isInjured === 0;
+    if (shouldRevertInjury) {
+      revertResult = await revertInjuryReplacementAcrossLeagues(
+        leagueId,
+        playerId,
+        prevReplacementId
+      );
+    }
+
     res.json({
       message: 'Giocatore aggiornato',
-      lineups_updated: cascadeResult?.lineups_updated ?? 0,
-      lineup_matchdays: cascadeResult?.lineup_matchdays ?? [],
-      leagues_updated: cascadeResult?.linked_leagues ?? [],
+      lineups_updated: cascadeResult?.lineups_updated ?? revertResult?.lineups_updated ?? 0,
+      lineup_matchdays: cascadeResult?.lineup_matchdays ?? revertResult?.lineup_matchdays ?? [],
+      leagues_updated: cascadeResult?.linked_leagues ?? revertResult?.linked_leagues ?? [],
+      lineups_reverted: revertResult?.lineups_updated ?? 0,
     });
   } catch (error) {
     console.error('Update player error:', error);
