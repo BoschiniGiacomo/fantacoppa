@@ -18,6 +18,7 @@ const {
   titolariIdsToSlots,
   buildStarterRolesFromModulo,
   applyInjuryToSlots,
+  canMutateLineupForInjury,
 } = require('../utils/lineupResolver');
 const {
   applyInjuryReplacementAcrossLeagues,
@@ -2579,8 +2580,10 @@ router.get('/:id/standings/matchday/:giornata/formation/:userId', authenticateTo
     const enableSvFallbackVote = Number(recoverRows[0]?.enable_sv_fallback_vote ?? 0) === 1;
     const numeroTitolari = Math.max(1, Number(recoverRows[0]?.numero_titolari || 10));
     const isCalculated = Number(calcRows[0]?.c || 0) > 0;
-    let playerIds = applyInjuryMap(parseIdsArray(lineRows[0]?.titolari), injuryMap).slice(0, numeroTitolari);
-    let panchina = applyInjuryMap(parseIdsArray(lineRows[0]?.panchina), injuryMap);
+    const canApplyInjurySwap = await canMutateLineupForInjury(leagueId, giornata);
+    const injuryMapForLineup = canApplyInjurySwap ? injuryMap : {};
+    let playerIds = applyInjuryMap(parseIdsArray(lineRows[0]?.titolari), injuryMapForLineup).slice(0, numeroTitolari);
+    let panchina = applyInjuryMap(parseIdsArray(lineRows[0]?.panchina), injuryMapForLineup);
     let modulo = lineRows[0]?.modulo || '';
     const hasDirectLineupForMatchday = !!lineRows[0] && playerIds.length > 0;
     let formationRecovered = false;
@@ -2608,8 +2611,8 @@ router.get('/:id/standings/matchday/:giornata/formation/:userId', authenticateTo
         computeBonusTotal,
       });
       if (generated && generated.titolari.length > 0) {
-        playerIds = applyInjuryMap(generated.titolari, injuryMap).slice(0, numeroTitolari);
-        panchina = applyInjuryMap(generated.panchina, injuryMap);
+        playerIds = applyInjuryMap(generated.titolari, injuryMapForLineup).slice(0, numeroTitolari);
+        panchina = applyInjuryMap(generated.panchina, injuryMapForLineup);
         modulo = generated.modulo || modulo;
         formationRecovered = true;
         formationRecoveryKind = 'auto_matchday_votes';
@@ -2617,7 +2620,7 @@ router.get('/:id/standings/matchday/:giornata/formation/:userId', authenticateTo
     } else if (playerIds.length < 1) {
       const resolved = await resolveUserLineup(leagueId, targetUserId, giornata, numeroTitolari, {
         recoverPrevious,
-        injuryMap,
+        injuryMap: injuryMapForLineup,
         applyInjury: applyInjuryToLineup,
       });
       playerIds = resolved.titolari;

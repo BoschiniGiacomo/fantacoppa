@@ -279,6 +279,25 @@ function isLineupEditableForInjurySwap(meta, calculatedGiornate, giornata) {
   return true;
 }
 
+async function canMutateLineupForInjury(leagueId, giornata) {
+  const lid = Number(leagueId);
+  const g = Number(giornata);
+  if (!Number.isFinite(lid) || lid <= 0 || !Number.isFinite(g) || g <= 0) return false;
+  const effectiveLeagueId = await getEffectiveLeagueId(lid);
+  const [matchdayMeta, calcRows] = await Promise.all([
+    loadMatchdayEditMeta(lid, effectiveLeagueId),
+    query(
+      `SELECT COUNT(*)::int AS c
+       FROM matchday_results
+       WHERE league_id = ? AND giornata = ?`,
+      [lid, g]
+    ).catch(() => [{ c: 0 }]),
+  ]);
+  const calculatedGiornate = new Set();
+  if (Number(calcRows[0]?.c || 0) > 0) calculatedGiornate.add(g);
+  return isLineupEditableForInjurySwap(matchdayMeta.get(g), calculatedGiornate, g);
+}
+
 /**
  * Sostituisce gli infortunati solo nelle formazioni ancora modificabili
  * (stesse regole di scadenza/can_edit del salvataggio formazione).
@@ -371,6 +390,13 @@ async function propagateInjuryReplacementsToLineups(leagueId) {
         err: err?.message || err,
       });
     }
+  });
+
+  console.log('[INJURY][propagate-lineups]', {
+    leagueId: lid,
+    scanned: (lineupRows || []).length,
+    updated: updatedLineups,
+    matchdays: [...matchdaysSet].sort((a, b) => a - b),
   });
 
   return {
@@ -668,6 +694,8 @@ module.exports = {
   getInjuryReplacementMap,
   propagateInjuryReplacementsToLineups,
   revertInjuryReplacementsInLineups,
+  isLineupEditableForInjurySwap,
+  canMutateLineupForInjury,
   expectedStarterSlotCount,
   getEffectiveLeagueId,
   getMatchdayEditAvailability,

@@ -54,15 +54,15 @@ async function applyInjuryReplacementToRoster(leagueId, injuredPlayerId, replace
 
   const insertResult = await query(
     `INSERT INTO user_players (user_id, league_id, player_id)
-     SELECT DISTINCT up.user_id, ?, ?
+     SELECT DISTINCT up.user_id, ?::integer, ?::integer
      FROM user_players up
-     WHERE up.league_id = ? AND up.player_id = ?
+     WHERE up.league_id = ?::integer AND up.player_id = ?::integer
        AND NOT EXISTS (
          SELECT 1
          FROM user_players existing
          WHERE existing.league_id = up.league_id
            AND existing.user_id = up.user_id
-           AND existing.player_id = ?
+           AND existing.player_id = ?::integer
        )
      ON CONFLICT (user_id, league_id, player_id) DO NOTHING
      RETURNING user_id`,
@@ -113,8 +113,25 @@ async function applyInjuryReplacementAcrossLeagues(sourceLeagueId, injuredPlayer
   const allMatchdays = new Set();
 
   for (const leagueId of linkedLeagueIds) {
-    const roster = await applyInjuryReplacementToRoster(leagueId, injuredId, replacementId);
+    let roster = { replacementsAdded: 0, alreadyHadReplacement: 0, affectedOwners: 0 };
+    try {
+      roster = await applyInjuryReplacementToRoster(leagueId, injuredId, replacementId);
+    } catch (rosterErr) {
+      console.error('[INJURY][roster] insert failed', {
+        leagueId,
+        injuredId,
+        replacementId,
+        err: rosterErr?.message || rosterErr,
+      });
+    }
     const lineups = await propagateInjuryReplacementsToLineups(leagueId);
+    console.log('[INJURY][propagate]', {
+      leagueId,
+      injuredId,
+      replacementId,
+      lineups_updated: lineups.updatedLineups,
+      matchdays: lineups.matchdays,
+    });
 
     totalReplacementsAdded += roster.replacementsAdded;
     totalAlreadyHadReplacement += roster.alreadyHadReplacement;

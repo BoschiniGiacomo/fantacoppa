@@ -4,7 +4,11 @@ const { query } = require('../config/database');
 const { authenticateToken } = require('../middleware/auth');
 const { buildAutoLineupFromVotes } = require('../utils/autoLineup');
 const { computeBonusTotal } = require('../utils/bonus');
-const { resolveUserLineup, persistUserLineup } = require('../utils/lineupResolver');
+const {
+  resolveUserLineup,
+  persistUserLineup,
+  canMutateLineupForInjury,
+} = require('../utils/lineupResolver');
 
 const AUTO_MODULES = {
   '1-1-1': [1, 1, 1],
@@ -311,6 +315,8 @@ router.get('/:leagueId/:giornata', authenticateToken, async (req, res) => {
     const recoverPrevious = Number(leagueRows[0]?.recover_previous_lineup_if_missing ?? 1) === 1;
     const autoLineupMode = Number(leagueRows[0]?.auto_lineup_mode || 0) === 1;
     const numeroTitolari = Number(leagueRows[0]?.numero_titolari || 10);
+    const canApplyInjurySwap = await canMutateLineupForInjury(leagueId, giornata);
+    const injuryMapForLineup = canApplyInjurySwap ? injuryMap : {};
 
     if (autoLineupMode) {
       const [bonusRows, voteRows] = await Promise.all([
@@ -349,8 +355,8 @@ router.get('/:leagueId/:giornata', authenticateToken, async (req, res) => {
         computeBonusTotal,
       });
       if (generated && generated.titolari.length > 0) {
-        const tit = applyInjuryMap(generated.titolari, injuryMap).slice(0, numeroTitolari);
-        const ben = applyInjuryMap(generated.panchina, injuryMap);
+        const tit = applyInjuryMap(generated.titolari, injuryMapForLineup).slice(0, numeroTitolari);
+        const ben = applyInjuryMap(generated.panchina, injuryMapForLineup);
         row = {
           modulo: generated.modulo || '',
           titolari: JSON.stringify(tit),
@@ -361,8 +367,8 @@ router.get('/:leagueId/:giornata', authenticateToken, async (req, res) => {
     } else if (!row && isExpired && !isCalculated && recoverPrevious) {
       const resolved = await resolveUserLineup(leagueId, userId, giornata, numeroTitolari, {
         recoverPrevious: true,
-        injuryMap,
-        applyInjury: (ids, map) => applyInjuryMap(ids, map),
+        injuryMap: {},
+        applyInjury: (ids) => (Array.isArray(ids) ? ids : []),
       });
       if (resolved.titolari.length > 0) {
         row = {
@@ -377,9 +383,9 @@ router.get('/:leagueId/:giornata', authenticateToken, async (req, res) => {
       }
     }
 
-    if (row && !isCalculated && !autoLineupMode) {
-      const patchedTitolari = applyInjuryMap(parseIdsArray(row.titolari), injuryMap);
-      const patchedPanchina = applyInjuryMap(parseIdsArray(row.panchina), injuryMap);
+    if (row && canApplyInjurySwap && !autoLineupMode) {
+      const patchedTitolari = applyInjuryMap(parseIdsArray(row.titolari), injuryMapForLineup);
+      const patchedPanchina = applyInjuryMap(parseIdsArray(row.panchina), injuryMapForLineup);
       const rowTitRaw = parseIdsArray(row.titolari);
       const rowBenRaw = parseIdsArray(row.panchina);
       const changed =
