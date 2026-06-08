@@ -392,13 +392,6 @@ async function propagateInjuryReplacementsToLineups(leagueId) {
     }
   });
 
-  console.log('[INJURY][propagate-lineups]', {
-    leagueId: lid,
-    scanned: (lineupRows || []).length,
-    updated: updatedLineups,
-    matchdays: [...matchdaysSet].sort((a, b) => a - b),
-  });
-
   return {
     updatedLineups,
     matchdays: [...matchdaysSet].sort((a, b) => a - b),

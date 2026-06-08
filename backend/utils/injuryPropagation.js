@@ -125,13 +125,6 @@ async function applyInjuryReplacementAcrossLeagues(sourceLeagueId, injuredPlayer
       });
     }
     const lineups = await propagateInjuryReplacementsToLineups(leagueId);
-    console.log('[INJURY][propagate]', {
-      leagueId,
-      injuredId,
-      replacementId,
-      lineups_updated: lineups.updatedLineups,
-      matchdays: lineups.matchdays,
-    });
 
     totalReplacementsAdded += roster.replacementsAdded;
     totalAlreadyHadReplacement += roster.alreadyHadReplacement;
