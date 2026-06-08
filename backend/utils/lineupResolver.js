@@ -255,8 +255,19 @@ async function runInParallelChunks(items, chunkSize, worker) {
   }
 }
 
+function isLineupEditableForInjurySwap(meta, calculatedGiornate, giornata) {
+  const g = Number(giornata);
+  if (!Number.isFinite(g) || g <= 0) return false;
+  if (calculatedGiornate.has(g)) return false;
+  if (!meta) return false;
+  if (Number(meta.deadline_passed || 0) === 1) return false;
+  if (Number(meta.can_edit || 0) !== 1) return false;
+  return true;
+}
+
 /**
- * Sostituisce gli infortunati nelle formazioni salvate con deadline ancora futura.
+ * Sostituisce gli infortunati solo nelle formazioni ancora modificabili
+ * (stesse regole di scadenza/can_edit del salvataggio formazione).
  */
 async function propagateInjuryReplacementsToLineups(leagueId) {
   const lid = Number(leagueId);
@@ -275,14 +286,25 @@ async function propagateInjuryReplacementsToLineups(leagueId) {
   }
 
   const effectiveLeagueId = await getEffectiveLeagueId(lid);
-  const lineupRows = await query(
-    `SELECT ul.user_id, ul.giornata, ul.modulo, ul.titolari, ul.panchina
-     FROM user_lineups ul
-     JOIN matchdays m
-       ON m.league_id = ? AND m.giornata = ul.giornata
-     WHERE ul.league_id = ?
-       AND (m.deadline IS NULL OR m.deadline > NOW())`,
-    [effectiveLeagueId, lid]
+  const [lineupRows, matchdayMeta, calculatedRows] = await Promise.all([
+    query(
+      `SELECT user_id, giornata, modulo, titolari, panchina
+       FROM user_lineups
+       WHERE league_id = ?`,
+      [lid]
+    ),
+    loadMatchdayEditMeta(lid, effectiveLeagueId),
+    query(
+      `SELECT DISTINCT giornata
+       FROM matchday_results
+       WHERE league_id = ?`,
+      [lid]
+    ).catch(() => []),
+  ]);
+  const calculatedGiornate = new Set(
+    (calculatedRows || [])
+      .map((r) => Number(r.giornata))
+      .filter((g) => Number.isFinite(g) && g > 0)
   );
 
   const pendingUpdates = [];
@@ -290,6 +312,9 @@ async function propagateInjuryReplacementsToLineups(leagueId) {
   for (const row of lineupRows || []) {
     const giornata = Number(row.giornata);
     if (!Number.isFinite(giornata) || giornata <= 0) continue;
+
+    const meta = matchdayMeta.get(giornata);
+    if (!isLineupEditableForInjurySwap(meta, calculatedGiornate, giornata)) continue;
 
     const rowTitRaw = parseIdsArray(row.titolari);
     const rowBenRaw = parseIdsArray(row.panchina);
