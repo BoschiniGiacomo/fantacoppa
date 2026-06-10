@@ -50,6 +50,20 @@ async function ensureNotificationsTables() {
 }
 
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
+const EXPO_CHUNK_SIZE = 100;
+const EXPO_MAX_PARALLEL_CHUNKS = 8;
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function splitExpoMessageChunks(messages, chunkSize = EXPO_CHUNK_SIZE) {
+  const chunks = [];
+  for (let i = 0; i < messages.length; i += chunkSize) {
+    chunks.push(messages.slice(i, i + chunkSize));
+  }
+  return chunks;
+}
 
 function getCronSecretFromRequest(req) {
   const hdr = String(req.headers['x-cron-secret'] || '').trim();
@@ -94,51 +108,109 @@ async function markTokenInactive(token) {
   }
 }
 
-async function sendExpoMessages(messages) {
-  if (!Array.isArray(messages) || messages.length <= 0) {
-    return { sent: 0, invalidated: 0, errors: 0, deliveredDedupeKeys: [] };
-  }
+async function sendExpoMessageChunk(chunk) {
+  const failed = [];
   let sent = 0;
   let invalidated = 0;
-  let errors = 0;
   const deliveredDedupeKeys = new Set();
-  const chunkSize = 100;
-  for (let i = 0; i < messages.length; i += chunkSize) {
-    const chunk = messages.slice(i, i + chunkSize);
-    const payloadChunk = chunk.map(({ _dedupe_key, ...payload }) => payload);
-    try {
-      const resp = await fetch(EXPO_PUSH_URL, {
-        method: 'POST',
-        headers: {
-          Accept: 'application/json',
-          'Accept-Encoding': 'gzip, deflate',
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payloadChunk),
-      });
-      const data = await resp.json().catch(() => ({}));
-      const results = Array.isArray(data?.data) ? data.data : [];
-      for (let j = 0; j < chunk.length; j += 1) {
-        const r = results[j] || {};
-        const msg = chunk[j];
-        if (r.status === 'ok') {
-          sent += 1;
-          const key = String(msg?._dedupe_key || '').trim();
-          if (key) deliveredDedupeKeys.add(key);
-          continue;
-        }
-        errors += 1;
-        const expoErr = String(r?.details?.error || r?.message || '');
-        if (/DeviceNotRegistered/i.test(expoErr)) {
-          await markTokenInactive(msg?.to);
-          invalidated += 1;
-        }
+  if (!Array.isArray(chunk) || chunk.length <= 0) {
+    return { sent, invalidated, deliveredDedupeKeys, failed };
+  }
+
+  const payloadChunk = chunk.map(({ _dedupe_key, ...payload }) => payload);
+  try {
+    const resp = await fetch(EXPO_PUSH_URL, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Accept-Encoding': 'gzip, deflate',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payloadChunk),
+    });
+    if (!resp.ok) {
+      return { sent: 0, invalidated: 0, deliveredDedupeKeys, failed: [...chunk] };
+    }
+    const data = await resp.json().catch(() => ({}));
+    const results = Array.isArray(data?.data) ? data.data : [];
+    for (let j = 0; j < chunk.length; j += 1) {
+      const r = results[j] || {};
+      const msg = chunk[j];
+      if (r.status === 'ok') {
+        sent += 1;
+        const key = String(msg?._dedupe_key || '').trim();
+        if (key) deliveredDedupeKeys.add(key);
+        continue;
       }
-    } catch (_) {
-      errors += chunk.length;
+      failed.push(msg);
+      const expoErr = String(r?.details?.error || r?.message || '');
+      if (/DeviceNotRegistered/i.test(expoErr)) {
+        await markTokenInactive(msg?.to);
+        invalidated += 1;
+      }
+    }
+  } catch (_) {
+    return { sent: 0, invalidated: 0, deliveredDedupeKeys, failed: [...chunk] };
+  }
+  return { sent, invalidated, deliveredDedupeKeys, failed };
+}
+
+async function sendExpoMessageChunksParallel(chunks, parallelLimit = EXPO_MAX_PARALLEL_CHUNKS) {
+  const merged = {
+    sent: 0,
+    invalidated: 0,
+    deliveredDedupeKeys: new Set(),
+    failed: [],
+  };
+  if (!Array.isArray(chunks) || chunks.length <= 0) return merged;
+
+  const limit = Math.max(1, Number(parallelLimit) || EXPO_MAX_PARALLEL_CHUNKS);
+  for (let i = 0; i < chunks.length; i += limit) {
+    const batch = chunks.slice(i, i + limit);
+    const batchResults = await Promise.all(batch.map((chunk) => sendExpoMessageChunk(chunk)));
+    for (const result of batchResults) {
+      merged.sent += result.sent;
+      merged.invalidated += result.invalidated;
+      for (const key of result.deliveredDedupeKeys) merged.deliveredDedupeKeys.add(key);
+      merged.failed.push(...result.failed);
     }
   }
-  return { sent, invalidated, errors, deliveredDedupeKeys: [...deliveredDedupeKeys] };
+  return merged;
+}
+
+async function sendExpoMessages(messages, options = {}) {
+  if (!Array.isArray(messages) || messages.length <= 0) {
+    return { sent: 0, invalidated: 0, errors: 0, deliveredDedupeKeys: [], push_chunks: 0 };
+  }
+
+  const maxAttempts = Math.max(1, Number(options.maxAttempts) || 1);
+  const retryDelayMs = Math.max(0, Number(options.retryDelayMs) || 500);
+  const parallelChunks = Math.max(1, Number(options.parallelChunks) || EXPO_MAX_PARALLEL_CHUNKS);
+
+  let pending = messages.slice();
+  let sent = 0;
+  let invalidated = 0;
+  const deliveredDedupeKeys = new Set();
+  let pushChunks = 0;
+
+  for (let attempt = 1; attempt <= maxAttempts && pending.length > 0; attempt += 1) {
+    if (attempt > 1) await sleep(retryDelayMs);
+    const chunks = splitExpoMessageChunks(pending);
+    pushChunks += chunks.length;
+    const result = await sendExpoMessageChunksParallel(chunks, parallelChunks);
+    sent += result.sent;
+    invalidated += result.invalidated;
+    for (const key of result.deliveredDedupeKeys) deliveredDedupeKeys.add(key);
+    pending = result.failed;
+  }
+
+  return {
+    sent,
+    invalidated,
+    errors: pending.length,
+    deliveredDedupeKeys: [...deliveredDedupeKeys],
+    push_chunks: pushChunks,
+  };
 }
 
 function buildDedupeKey({ userId, leagueId, giornata, type }) {
@@ -160,19 +232,24 @@ async function reserveNotificationSend({ userId, leagueId, giornata, type, paylo
   return !!(Array.isArray(insertRows) && insertRows[0] && insertRows[0].id);
 }
 
-async function releaseNotificationSendsByDedupeKeys(keys) {
+async function releaseNotificationSendsByDedupeKeys(keys, chunkSize = 300) {
   const list = [...new Set((keys || []).map((x) => String(x || '').trim()).filter(Boolean))];
   if (list.length <= 0) return 0;
-  const placeholders = list.map(() => '?').join(',');
+  let released = 0;
   try {
-    await query(
-      `DELETE FROM push_notification_sends
-       WHERE dedupe_key IN (${placeholders})`,
-      list
-    );
-    return list.length;
+    for (let i = 0; i < list.length; i += chunkSize) {
+      const chunk = list.slice(i, i + chunkSize);
+      const placeholders = chunk.map(() => '?').join(',');
+      await query(
+        `DELETE FROM push_notification_sends
+         WHERE dedupe_key IN (${placeholders})`,
+        chunk
+      );
+      released += chunk.length;
+    }
+    return released;
   } catch (_) {
-    return 0;
+    return released;
   }
 }
 
@@ -464,7 +541,7 @@ async function sendCalculatedMatchdayNotifications() {
     }
   }
 
-  const pushStats = await sendExpoMessages(messages);
+  const pushStats = await sendExpoMessages(messages, { maxAttempts: 2, retryDelayMs: 400 });
   const delivered = new Set((pushStats.deliveredDedupeKeys || []).map((x) => String(x || '').trim()).filter(Boolean));
   const failedReserved = [...reservedDedupeKeys].filter((k) => !delivered.has(k));
   const releasedFailedReservations = await releaseNotificationSendsByDedupeKeys(failedReserved);
@@ -520,8 +597,10 @@ async function sendFormationDeadlineReminders() {
   }
 
   const distinctUsers = [...new Set(eligibleRows.map((x) => x.userId).filter((x) => x > 0))];
-  const tokensByUser = await getActiveTokensByUserIds(distinctUsers);
-  const submittedLineups = await loadSubmittedLineupKeySet(eligibleRows);
+  const [tokensByUser, submittedLineups] = await Promise.all([
+    getActiveTokensByUserIds(distinctUsers),
+    loadSubmittedLineupKeySet(eligibleRows),
+  ]);
 
   const reserveEntries = [];
   const pendingMessages = [];
@@ -580,7 +659,11 @@ async function sendFormationDeadlineReminders() {
     }
   }
 
-  const pushStats = await sendExpoMessages(messages);
+  const pushStats = await sendExpoMessages(messages, {
+    maxAttempts: 3,
+    retryDelayMs: 600,
+    parallelChunks: EXPO_MAX_PARALLEL_CHUNKS,
+  });
   const delivered = new Set((pushStats.deliveredDedupeKeys || []).map((x) => String(x || '').trim()).filter(Boolean));
   const failedReserved = [...reservedDedupeKeys].filter((k) => !delivered.has(k));
   const releasedFailedReservations = await releaseNotificationSendsByDedupeKeys(failedReserved);
@@ -596,6 +679,8 @@ async function sendFormationDeadlineReminders() {
     sent: pushStats.sent,
     invalidated: pushStats.invalidated,
     errors: pushStats.errors,
+    push_messages: messages.length,
+    push_chunks: pushStats.push_chunks,
   };
 }
 
@@ -785,7 +870,7 @@ async function triggerCalculatedNotificationForLeagueMatchday(leagueId, giornata
       });
     }
   }
-  const pushStats = await sendExpoMessages(messages);
+  const pushStats = await sendExpoMessages(messages, { maxAttempts: 2, retryDelayMs: 400 });
   const delivered = new Set((pushStats.deliveredDedupeKeys || []).map((x) => String(x || '').trim()).filter(Boolean));
   const failedReserved = [...reservedDedupeKeys].filter((k) => !delivered.has(k));
   const releasedFailedReservations = await releaseNotificationSendsByDedupeKeys(failedReserved);
