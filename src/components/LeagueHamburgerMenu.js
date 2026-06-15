@@ -122,6 +122,13 @@ export default function LeagueHamburgerMenu({ leagueId, navigation, isAdmin, use
       screen: 'InsertVotes',
       params: { leagueId },
     }] : []),
+    ...(isAdmin ? [{
+      id: 'statistics',
+      label: 'Statistiche',
+      icon: 'stats-chart-outline',
+      screen: 'LeagueStatistics',
+      params: { leagueId },
+    }] : []),
     {
       id: 'dashboard',
       label: 'Home',

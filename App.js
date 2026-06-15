@@ -48,6 +48,7 @@ import InjuryManagementScreen from './src/screens/InjuryManagementScreen';
 import TeamPlayersScreen from './src/screens/TeamPlayersScreen';
 import CalendarManagementScreen from './src/screens/CalendarManagementScreen';
 import InsertVotesScreen from './src/screens/InsertVotesScreen';
+import LeagueStatisticsScreen from './src/screens/LeagueStatisticsScreen';
 import LiveScoresScreen from './src/screens/LiveScoresScreen';
 import UpdateRequiredScreen from './src/screens/UpdateRequiredScreen';
 
@@ -120,6 +121,7 @@ const CalendarScreenWrapped = withLeagueWrapper(CalendarScreen);
 const StandingsScreenWrapped = withLeagueWrapper(StandingsScreen);
 const TeamDetailScreenWrapped = withLeagueWrapper(TeamDetailScreen);
 const InsertVotesScreenWrapped = withLeagueWrapper(InsertVotesScreen);
+const LeagueStatisticsScreenWrapped = withLeagueWrapper(LeagueStatisticsScreen);
 const FormationScreenWrapped = withLeagueWrapper(FormationScreen);
 
 // Tab Navigator per le schermate principali
@@ -298,6 +300,11 @@ function AppNavigator() {
                 <Stack.Screen 
                   name="InsertVotes"
                   component={InsertVotesScreenWrapped}
+                  options={{ headerShown: false }}
+                />
+                <Stack.Screen
+                  name="LeagueStatistics"
+                  component={LeagueStatisticsScreenWrapped}
                   options={{ headerShown: false }}
                 />
                 <Stack.Screen 

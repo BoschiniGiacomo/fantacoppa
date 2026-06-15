@@ -2509,6 +2509,181 @@ router.get('/:id/standings/full', authenticateToken, async (req, res) => {
   }
 });
 
+const LEAGUE_STATS_BONUS_SCORE_SQL = `
+  pr.rating
+  + CASE WHEN COALESCE(bs.enable_goal, 0) = 1 THEN COALESCE(bs.bonus_goal, 0) * COALESCE(pr.goals, 0) ELSE 0 END
+  + CASE WHEN COALESCE(bs.enable_assist, 0) = 1 THEN COALESCE(bs.bonus_assist, 0) * COALESCE(pr.assists, 0) ELSE 0 END
+  + CASE WHEN COALESCE(bs.enable_yellow_card, 0) = 1 THEN COALESCE(bs.malus_yellow_card, 0) * COALESCE(pr.yellow_cards, 0) ELSE 0 END
+  + CASE WHEN COALESCE(bs.enable_red_card, 0) = 1 THEN COALESCE(bs.malus_red_card, 0) * COALESCE(pr.red_cards, 0) ELSE 0 END
+  + CASE WHEN COALESCE(bs.enable_goals_conceded, 0) = 1 THEN COALESCE(bs.malus_goals_conceded, 0) * COALESCE(pr.goals_conceded, 0) ELSE 0 END
+  + CASE WHEN COALESCE(bs.enable_own_goal, 0) = 1 THEN COALESCE(bs.malus_own_goal, 0) * COALESCE(pr.own_goals, 0) ELSE 0 END
+  + CASE WHEN COALESCE(bs.enable_penalty_missed, 0) = 1 THEN COALESCE(bs.malus_penalty_missed, 0) * COALESCE(pr.penalty_missed, 0) ELSE 0 END
+  + CASE WHEN COALESCE(bs.enable_penalty_saved, 0) = 1 THEN COALESCE(bs.bonus_penalty_saved, 0) * COALESCE(pr.penalty_saved, 0) ELSE 0 END
+  + CASE WHEN COALESCE(bs.enable_clean_sheet, 0) = 1 THEN COALESCE(bs.bonus_clean_sheet, 0) * COALESCE(pr.clean_sheet, 0) ELSE 0 END
+`;
+
+function mapLeagueStatsPlayerRow(r) {
+  return {
+    player_id: Number(r.player_id || r.id || 0),
+    first_name: r.first_name || '',
+    last_name: r.last_name || '',
+    role: r.role || '',
+    team_name: r.team_name || '',
+    photo_path: r.photo_path || '',
+    purchase_count: Number(r.purchase_count || 0),
+    giornata: Number(r.giornata || 0) || null,
+    fantavoto: Number(Number(r.fantavoto || 0).toFixed(2)),
+  };
+}
+
+function mapLeagueStatsTeamRow(r) {
+  return {
+    user_id: Number(r.user_id || 0),
+    team_name: r.team_name || '',
+    team_logo: r.team_logo || 'default_1',
+    giornata: Number(r.giornata || 0),
+    total_fantavoto: Number(Number(r.total_fantavoto || 0).toFixed(2)),
+  };
+}
+
+// GET /api/leagues/:id/statistics - statistiche lega (solo admin)
+router.get('/:id/statistics', authenticateToken, async (req, res) => {
+  try {
+    const leagueId = toValidLeagueId(req.params.id);
+    const actorId = Number(req.user.userId);
+    if (!leagueId) return res.status(400).json({ message: 'League ID non valido' });
+
+    const roleRows = await query(
+      `SELECT role FROM league_members WHERE league_id = ? AND user_id = ? LIMIT 1`,
+      [leagueId, actorId]
+    );
+    const isAdmin = !!roleRows[0] && String(roleRows[0].role) === 'admin';
+    if (!isAdmin) {
+      return res.status(403).json({ message: 'Solo gli amministratori possono vedere le statistiche della lega' });
+    }
+
+    const effectiveLeagueId = await getEffectiveLeagueId(leagueId);
+
+    const [
+      mostPurchasedRows,
+      leastPurchasedRows,
+      bestTeamRows,
+      worstTeamRows,
+      topFantavotoRows,
+      bottomFantavotoRows,
+    ] = await Promise.all([
+      query(
+        `SELECT p.id AS player_id, p.first_name, p.last_name, p.role,
+                COALESCE(p.photo_path, '') AS photo_path,
+                COALESCE(t.name, '') AS team_name,
+                COUNT(up.user_id)::int AS purchase_count
+         FROM players p
+         JOIN teams t ON t.id = p.team_id AND t.league_id = ?
+         LEFT JOIN user_players up ON up.player_id = p.id AND up.league_id = ?
+         GROUP BY p.id, p.first_name, p.last_name, p.role, p.photo_path, t.name
+         ORDER BY purchase_count DESC, p.last_name ASC, p.first_name ASC
+         LIMIT 5`,
+        [effectiveLeagueId, leagueId]
+      ),
+      query(
+        `SELECT p.id AS player_id, p.first_name, p.last_name, p.role,
+                COALESCE(p.photo_path, '') AS photo_path,
+                COALESCE(t.name, '') AS team_name,
+                COUNT(up.user_id)::int AS purchase_count
+         FROM players p
+         JOIN teams t ON t.id = p.team_id AND t.league_id = ?
+         LEFT JOIN user_players up ON up.player_id = p.id AND up.league_id = ?
+         GROUP BY p.id, p.first_name, p.last_name, p.role, p.photo_path, t.name
+         ORDER BY purchase_count ASC, p.last_name ASC, p.first_name ASC
+         LIMIT 5`,
+        [effectiveLeagueId, leagueId]
+      ),
+      query(
+        `WITH team_giornata AS (
+           SELECT mps.giornata, mps.user_id,
+                  SUM(mps.total_score)::float AS total_fantavoto
+           FROM matchday_player_scores mps
+           WHERE mps.league_id = ?
+           GROUP BY mps.giornata, mps.user_id
+           HAVING COUNT(*) > 0
+         )
+         SELECT tg.giornata, tg.user_id, tg.total_fantavoto,
+                COALESCE(ub.team_name, u.username) AS team_name,
+                COALESCE(ub.team_logo, 'default_1') AS team_logo
+         FROM team_giornata tg
+         JOIN users u ON u.id = tg.user_id
+         LEFT JOIN user_budget ub ON ub.user_id = tg.user_id AND ub.league_id = ?
+         ORDER BY tg.total_fantavoto DESC, tg.giornata ASC, LOWER(COALESCE(ub.team_name, u.username)) ASC
+         LIMIT 1`,
+        [leagueId, leagueId]
+      ).catch(() => []),
+      query(
+        `WITH team_giornata AS (
+           SELECT mps.giornata, mps.user_id,
+                  SUM(mps.total_score)::float AS total_fantavoto
+           FROM matchday_player_scores mps
+           WHERE mps.league_id = ?
+           GROUP BY mps.giornata, mps.user_id
+           HAVING COUNT(*) > 0
+         )
+         SELECT tg.giornata, tg.user_id, tg.total_fantavoto,
+                COALESCE(ub.team_name, u.username) AS team_name,
+                COALESCE(ub.team_logo, 'default_1') AS team_logo
+         FROM team_giornata tg
+         JOIN users u ON u.id = tg.user_id
+         LEFT JOIN user_budget ub ON ub.user_id = tg.user_id AND ub.league_id = ?
+         ORDER BY tg.total_fantavoto ASC, tg.giornata ASC, LOWER(COALESCE(ub.team_name, u.username)) ASC
+         LIMIT 1`,
+        [leagueId, leagueId]
+      ).catch(() => []),
+      query(
+        `SELECT pr.giornata, pr.player_id,
+                p.first_name, p.last_name, p.role,
+                COALESCE(p.photo_path, '') AS photo_path,
+                COALESCE(t.name, '') AS team_name,
+                (${LEAGUE_STATS_BONUS_SCORE_SQL})::float AS fantavoto
+         FROM player_ratings pr
+         JOIN players p ON p.id = pr.player_id
+         LEFT JOIN teams t ON t.id = p.team_id
+         LEFT JOIN league_bonus_settings bs ON bs.league_id = ?
+         WHERE pr.league_id = ?
+           AND pr.rating > 0
+         ORDER BY fantavoto DESC, pr.giornata ASC, p.last_name ASC
+         LIMIT 5`,
+        [leagueId, effectiveLeagueId]
+      ).catch(() => []),
+      query(
+        `SELECT pr.giornata, pr.player_id,
+                p.first_name, p.last_name, p.role,
+                COALESCE(p.photo_path, '') AS photo_path,
+                COALESCE(t.name, '') AS team_name,
+                (${LEAGUE_STATS_BONUS_SCORE_SQL})::float AS fantavoto
+         FROM player_ratings pr
+         JOIN players p ON p.id = pr.player_id
+         LEFT JOIN teams t ON t.id = p.team_id
+         LEFT JOIN league_bonus_settings bs ON bs.league_id = ?
+         WHERE pr.league_id = ?
+           AND pr.rating > 0
+         ORDER BY fantavoto ASC, pr.giornata ASC, p.last_name ASC
+         LIMIT 5`,
+        [leagueId, effectiveLeagueId]
+      ).catch(() => []),
+    ]);
+
+    return res.json({
+      most_purchased: (mostPurchasedRows || []).map(mapLeagueStatsPlayerRow),
+      least_purchased: (leastPurchasedRows || []).map(mapLeagueStatsPlayerRow),
+      best_team_matchday: bestTeamRows[0] ? mapLeagueStatsTeamRow(bestTeamRows[0]) : null,
+      worst_team_matchday: worstTeamRows[0] ? mapLeagueStatsTeamRow(worstTeamRows[0]) : null,
+      top_fantavoti: (topFantavotoRows || []).map(mapLeagueStatsPlayerRow),
+      bottom_fantavoti: (bottomFantavotoRows || []).map(mapLeagueStatsPlayerRow),
+    });
+  } catch (error) {
+    console.error('League statistics error:', error);
+    return res.status(500).json({ message: 'Errore caricamento statistiche lega' });
+  }
+});
+
 // GET /api/leagues/:id/user-stats - placeholder minimo
 router.get('/:id/user-stats', authenticateToken, async (req, res) => {
   try {
