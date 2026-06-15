@@ -115,10 +115,12 @@ function RankedListSection({
   onClearFilters,
   renderRow,
 }) {
+  const [filtersExpanded, setFiltersExpanded] = useState(false);
   const showSearch = limit === 'all';
   const hasItems = Array.isArray(items) && items.length > 0;
   const hasActiveFilters = (selectedRoles?.length || 0) > 0 || (selectedTeamIds?.length || 0) > 0;
   const hasSearch = showSearch && String(searchQuery || '').trim().length > 0;
+  const activeFilterCount = (selectedRoles?.length || 0) + (selectedTeamIds?.length || 0);
 
   return (
     <StatSection
@@ -145,17 +147,40 @@ function RankedListSection({
             </TouchableOpacity>
           );
         })}
+        <TouchableOpacity
+          style={[
+            styles.filterToggleBtn,
+            filtersExpanded && { backgroundColor: `${accentColor}18`, borderColor: accentColor },
+            !filtersExpanded && hasActiveFilters && { borderColor: accentColor },
+          ]}
+          onPress={() => setFiltersExpanded((v) => !v)}
+          activeOpacity={0.75}
+          accessibilityLabel="Filtri ruolo e squadra"
+        >
+          <Ionicons
+            name={filtersExpanded ? 'filter' : 'filter-outline'}
+            size={17}
+            color={filtersExpanded || hasActiveFilters ? accentColor : '#888'}
+          />
+          {hasActiveFilters ? (
+            <View style={[styles.filterBadge, { backgroundColor: accentColor }]}>
+              <Text style={styles.filterBadgeText}>{activeFilterCount > 9 ? '9+' : activeFilterCount}</Text>
+            </View>
+          ) : null}
+        </TouchableOpacity>
       </View>
 
-      <RankingFiltersBar
-        accentColor={accentColor}
-        officialTeams={officialTeams}
-        selectedRoles={selectedRoles}
-        selectedTeamIds={selectedTeamIds}
-        onToggleRole={onToggleRole}
-        onToggleTeam={onToggleTeam}
-        onClearFilters={onClearFilters}
-      />
+      {filtersExpanded ? (
+        <RankingFiltersBar
+          accentColor={accentColor}
+          officialTeams={officialTeams}
+          selectedRoles={selectedRoles}
+          selectedTeamIds={selectedTeamIds}
+          onToggleRole={onToggleRole}
+          onToggleTeam={onToggleTeam}
+          onClearFilters={onClearFilters}
+        />
+      ) : null}
 
       {showSearch ? (
         <View style={styles.searchBar}>
@@ -810,6 +835,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 6,
     marginBottom: 2,
+    alignItems: 'stretch',
   },
   limitChip: {
     flex: 1,
@@ -819,6 +845,36 @@ const styles = StyleSheet.create({
     borderColor: '#e8e8e8',
     backgroundColor: '#fafafa',
     alignItems: 'center',
+    justifyContent: 'center',
+  },
+  filterToggleBtn: {
+    width: 40,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e8e8e8',
+    backgroundColor: '#fafafa',
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  filterBadge: {
+    position: 'absolute',
+    top: -5,
+    right: -5,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    paddingHorizontal: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: '#fff',
+  },
+  filterBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#fff',
+    lineHeight: 11,
   },
   limitChipText: {
     fontSize: 12,

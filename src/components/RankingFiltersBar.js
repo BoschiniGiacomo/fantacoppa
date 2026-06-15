@@ -107,6 +107,10 @@ const styles = StyleSheet.create({
   wrap: {
     gap: 8,
     marginBottom: 4,
+    marginTop: 2,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#f0f0f0',
   },
   rowHeader: {
     flexDirection: 'row',
