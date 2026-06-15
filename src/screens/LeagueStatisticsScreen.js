@@ -73,6 +73,23 @@ function matchesRankingFilters(player, selectedRoles, selectedTeamIds) {
   return true;
 }
 
+function sortBestPurchaseRows(rows, useCreditRatio) {
+  const list = [...(rows || [])];
+  list.sort((a, b) => {
+    if (useCreditRatio) {
+      const byRatio = Number(b.value_ratio || 0) - Number(a.value_ratio || 0);
+      if (byRatio !== 0) return byRatio;
+      return Number(b.total_fantavoto_sum || 0) - Number(a.total_fantavoto_sum || 0);
+    }
+    const bySum = Number(b.total_fantavoto_sum || 0) - Number(a.total_fantavoto_sum || 0);
+    if (bySum !== 0) return bySum;
+    const last = String(a.last_name || '').localeCompare(String(b.last_name || ''));
+    if (last !== 0) return last;
+    return String(a.first_name || '').localeCompare(String(b.first_name || ''));
+  });
+  return list;
+}
+
 function StatSection({ title, subtitle, icon, accentColor, children, emptyText, hasListContent, formationSection }) {
   const hasContent = hasListContent != null ? hasListContent : React.Children.count(children) > 0;
   return (
@@ -113,6 +130,7 @@ function RankedListSection({
   onToggleRole,
   onToggleTeam,
   onClearFilters,
+  extraControls,
   renderRow,
 }) {
   const [filtersExpanded, setFiltersExpanded] = useState(false);
@@ -169,6 +187,10 @@ function RankedListSection({
           ) : null}
         </TouchableOpacity>
       </View>
+
+      {extraControls ? (
+        <View style={styles.extraControlsWrap}>{extraControls}</View>
+      ) : null}
 
       {filtersExpanded ? (
         <RankingFiltersBar
@@ -350,6 +372,7 @@ export default function LeagueStatisticsScreen({ route }) {
   const [sectionSearch, setSectionSearch] = useState({});
   const [sectionRoleFilters, setSectionRoleFilters] = useState({});
   const [sectionTeamFilters, setSectionTeamFilters] = useState({});
+  const [bestPurchasesUseCreditRatio, setBestPurchasesUseCreditRatio] = useState(false);
 
   const officialTeams = useMemo(() => {
     const fromStats = stats?.official_teams;
@@ -442,8 +465,14 @@ export default function LeagueStatisticsScreen({ route }) {
     const teams = sectionTeamFilters[sectionKey] || [];
     const needsFull = limit === 'all' || roles.length > 0 || teams.length > 0;
 
+    const applyBestPurchaseSort = (items) => (
+      sectionKey === 'best_purchases'
+        ? sortBestPurchaseRows(items, bestPurchasesUseCreditRatio)
+        : items
+    );
+
     if (!needsFull) {
-      const preview = stats?.[statKey] || [];
+      const preview = applyBestPurchaseSort(stats?.[statKey] || []);
       return limit === '5' ? preview.slice(0, 5) : preview.slice(0, 10);
     }
 
@@ -451,6 +480,7 @@ export default function LeagueStatisticsScreen({ route }) {
     if (!pool) return [];
 
     let filtered = pool.filter((p) => matchesRankingFilters(p, roles, teams));
+    filtered = applyBestPurchaseSort(filtered);
     if (limit === 'all') {
       const q = sectionSearch[sectionKey] || '';
       filtered = filtered.filter((p) => matchesRankingSearch(p, q));
@@ -458,7 +488,7 @@ export default function LeagueStatisticsScreen({ route }) {
     }
     const n = limit === '5' ? 5 : 10;
     return filtered.slice(0, n);
-  }, [sectionLimits, sectionRoleFilters, sectionTeamFilters, stats, allRankings, sectionSearch]);
+  }, [sectionLimits, sectionRoleFilters, sectionTeamFilters, stats, allRankings, sectionSearch, bestPurchasesUseCreditRatio]);
 
   const mostPurchasedItems = useMemo(
     () => getSectionItems('most_purchased', 'most_purchased'),
@@ -523,6 +553,7 @@ export default function LeagueStatisticsScreen({ route }) {
         setSectionSearch({});
         setSectionRoleFilters({});
         setSectionTeamFilters({});
+        setBestPurchasesUseCreditRatio(false);
       } else {
         setAllRankings({});
       }
@@ -586,7 +617,9 @@ export default function LeagueStatisticsScreen({ route }) {
 
         <RankedListSection
           title="Migliori acquisti"
-          subtitle="Somma fantavoti in lega ÷ √costo d'acquisto"
+          subtitle={bestPurchasesUseCreditRatio
+            ? "Somma fantavoti in lega/√costo d'acquisto"
+            : 'Classifica per somma fantavoti in lega'}
           icon="trending-up-outline"
           accentColor="#667eea"
           emptyText="Servono acquisti in lega e voti inseriti per calcolare il rapporto."
@@ -596,13 +629,31 @@ export default function LeagueStatisticsScreen({ route }) {
           searchQuery={sectionSearch.best_purchases || ''}
           onSearchChange={(text) => setSectionSearch((prev) => ({ ...prev, best_purchases: text }))}
           {...getSectionFilterProps('best_purchases', 'best_purchases')}
+          extraControls={(
+            <TouchableOpacity
+              style={styles.bestPurchaseOptionRow}
+              onPress={() => setBestPurchasesUseCreditRatio((v) => !v)}
+              activeOpacity={0.75}
+            >
+              <Ionicons
+                name={bestPurchasesUseCreditRatio ? 'checkbox' : 'square-outline'}
+                size={22}
+                color={bestPurchasesUseCreditRatio ? '#667eea' : '#bbb'}
+              />
+              <Text style={styles.bestPurchaseOptionLabel}>Rapporto ai crediti</Text>
+            </TouchableOpacity>
+          )}
           renderRow={(player, index) => (
             <PlayerRow
               key={`buy-${player.player_id}-${index}`}
               rank={index + 1}
               player={player}
-              valueLabel={Number(player.value_ratio || 0).toFixed(2)}
-              valueHint={`${formatVoteRating(player.total_fantavoto_sum)} / ${formatVoteRating(player.cost)}`}
+              valueLabel={bestPurchasesUseCreditRatio
+                ? Number(player.value_ratio || 0).toFixed(2)
+                : formatVoteRating(player.total_fantavoto_sum)}
+              valueHint={bestPurchasesUseCreditRatio
+                ? `${formatVoteRating(player.total_fantavoto_sum)} / ${formatVoteRating(player.cost)}`
+                : `Costo ${formatVoteRating(player.cost)}`}
               valueColor="#667eea"
             />
           )}
@@ -904,6 +955,21 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     color: '#888',
+  },
+  extraControlsWrap: {
+    marginTop: 2,
+    marginBottom: 2,
+  },
+  bestPurchaseOptionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 4,
+  },
+  bestPurchaseOptionLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#555',
   },
   searchBar: {
     flexDirection: 'row',

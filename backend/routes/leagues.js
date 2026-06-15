@@ -2747,7 +2747,7 @@ async function fetchLeagueStatRanking(type, leagueId, effectiveLeagueId, limit =
          JOIN player_totals pt ON pt.player_id = p.id
          WHERE p.rating > 0
            AND pt.total_fantavoto_sum > 0
-         ORDER BY value_ratio DESC, pt.total_fantavoto_sum DESC, p.last_name ASC, p.first_name ASC
+         ORDER BY pt.total_fantavoto_sum DESC, p.last_name ASC, p.first_name ASC
          ${limitSql}`,
         [leagueId, leagueId, leagueId, effectiveLeagueId, effectiveLeagueId]
       ).catch(() => []);
