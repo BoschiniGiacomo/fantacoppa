@@ -2638,14 +2638,15 @@ function sqlLimitClause(limit) {
   return `LIMIT ${Math.floor(n)}`;
 }
 
-async function assertLeagueStatisticsAdmin(leagueId, actorId) {
+async function assertLeagueStatisticsAccess(leagueId, actorId) {
   const roleRows = await query(
     `SELECT role FROM league_members WHERE league_id = ? AND user_id = ? LIMIT 1`,
     [leagueId, actorId]
   );
-  const isAdmin = !!roleRows[0] && String(roleRows[0].role) === 'admin';
-  if (!isAdmin) {
-    const err = new Error('Solo gli amministratori possono vedere le statistiche della lega');
+  const role = String(roleRows[0]?.role || '');
+  const canView = role === 'admin' || role === 'pagellatore';
+  if (!canView) {
+    const err = new Error('Solo amministratori e pagellatori possono vedere le statistiche della lega');
     err.status = 403;
     throw err;
   }
@@ -2762,7 +2763,7 @@ function mapLeagueStatRankingRows(type, rows) {
   return (rows || []).map(mapLeagueStatsPlayerRow);
 }
 
-// GET /api/leagues/:id/statistics/ranking/:type - classifica completa (lazy, solo admin)
+// GET /api/leagues/:id/statistics/ranking/:type - classifica completa (lazy, admin/pagellatore)
 router.get('/:id/statistics/ranking/:type', authenticateToken, async (req, res) => {
   try {
     const leagueId = toValidLeagueId(req.params.id);
@@ -2773,7 +2774,7 @@ router.get('/:id/statistics/ranking/:type', authenticateToken, async (req, res) 
       return res.status(400).json({ message: 'Tipo classifica non valido' });
     }
 
-    await assertLeagueStatisticsAdmin(leagueId, actorId);
+    await assertLeagueStatisticsAccess(leagueId, actorId);
     const effectiveLeagueId = await getEffectiveLeagueId(leagueId);
     const rows = await fetchLeagueStatRanking(type, leagueId, effectiveLeagueId, null);
     if (rows == null) return res.status(400).json({ message: 'Tipo classifica non valido' });
@@ -2791,14 +2792,14 @@ router.get('/:id/statistics/ranking/:type', authenticateToken, async (req, res) 
   }
 });
 
-// GET /api/leagues/:id/statistics - statistiche lega (solo admin)
+// GET /api/leagues/:id/statistics - statistiche lega (admin e pagellatore)
 router.get('/:id/statistics', authenticateToken, async (req, res) => {
   try {
     const leagueId = toValidLeagueId(req.params.id);
     const actorId = Number(req.user.userId);
     if (!leagueId) return res.status(400).json({ message: 'League ID non valido' });
 
-    await assertLeagueStatisticsAdmin(leagueId, actorId);
+    await assertLeagueStatisticsAccess(leagueId, actorId);
     const effectiveLeagueId = await getEffectiveLeagueId(leagueId);
     const previewLimit = 10;
 

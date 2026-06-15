@@ -122,7 +122,7 @@ export default function LeagueHamburgerMenu({ leagueId, navigation, isAdmin, use
       screen: 'InsertVotes',
       params: { leagueId },
     }] : []),
-    ...(isAdmin ? [{
+    ...((isAdmin || userRole === 'pagellatore') ? [{
       id: 'statistics',
       label: 'Statistiche',
       icon: 'stats-chart-outline',
