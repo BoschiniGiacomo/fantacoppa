@@ -73,10 +73,10 @@ function matchesRankingFilters(player, selectedRoles, selectedTeamIds) {
   return true;
 }
 
-function StatSection({ title, subtitle, icon, accentColor, children, emptyText, hasListContent }) {
+function StatSection({ title, subtitle, icon, accentColor, children, emptyText, hasListContent, formationSection }) {
   const hasContent = hasListContent != null ? hasListContent : React.Children.count(children) > 0;
   return (
-    <View style={styles.section}>
+    <View style={[styles.section, formationSection && styles.sectionFormation]}>
       <View style={styles.sectionHeader}>
         <View style={[styles.sectionIconWrap, { backgroundColor: `${accentColor}18` }]}>
           <Ionicons name={icon} size={20} color={accentColor} />
@@ -86,7 +86,7 @@ function StatSection({ title, subtitle, icon, accentColor, children, emptyText, 
           {subtitle ? <Text style={styles.sectionSubtitle}>{subtitle}</Text> : null}
         </View>
       </View>
-      <View style={styles.sectionBody}>
+      <View style={[styles.sectionBody, formationSection && styles.sectionBodyFormation]}>
         {hasContent ? children : (
           <Text style={styles.emptyText}>{emptyText}</Text>
         )}
@@ -232,9 +232,21 @@ function RankedListSection({
 function PlayerRow({ rank, player, valueLabel, valueColor = '#667eea', valueHint }) {
   const role = String(player?.role || '').trim().toUpperCase();
   const roleColor = ROLE_COLORS[role] || '#6c757d';
+  const rankDigits = String(rank).length;
   return (
     <View style={styles.playerRow}>
-      <Text style={styles.rankBadge}>{rank}</Text>
+      <Text
+        style={[
+          styles.rankBadge,
+          rankDigits >= 3 && styles.rankBadgeThreeDigits,
+          rankDigits === 2 && styles.rankBadgeTwoDigits,
+        ]}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.85}
+      >
+        {rank}
+      </Text>
       {player?.photo_path ? (
         <View style={styles.playerPhotoCol}>
           <PlayerPhotoImage photoPath={player.photo_path} style={styles.playerPhotoBadge} />
@@ -569,6 +581,30 @@ export default function LeagueStatisticsScreen({ route }) {
         ) : null}
 
         <RankedListSection
+          title="Migliori acquisti"
+          subtitle="Somma fantavoti in lega ÷ √costo d'acquisto"
+          icon="trending-up-outline"
+          accentColor="#667eea"
+          emptyText="Servono acquisti in lega e voti inseriti per calcolare il rapporto."
+          items={bestPurchasesItems}
+          limit={sectionLimits.best_purchases}
+          onLimitChange={(lim) => handleLimitChange('best_purchases', 'best_purchases', lim)}
+          searchQuery={sectionSearch.best_purchases || ''}
+          onSearchChange={(text) => setSectionSearch((prev) => ({ ...prev, best_purchases: text }))}
+          {...getSectionFilterProps('best_purchases', 'best_purchases')}
+          renderRow={(player, index) => (
+            <PlayerRow
+              key={`buy-${player.player_id}-${index}`}
+              rank={index + 1}
+              player={player}
+              valueLabel={Number(player.value_ratio || 0).toFixed(2)}
+              valueHint={`${formatVoteRating(player.total_fantavoto_sum)} / ${formatVoteRating(player.cost)}`}
+              valueColor="#667eea"
+            />
+          )}
+        />
+
+        <RankedListSection
           title="Più acquistati"
           subtitle="Giocatori con più proprietari in lega"
           icon="bag-outline"
@@ -620,48 +656,6 @@ export default function LeagueStatisticsScreen({ route }) {
           />
         ) : null}
 
-        <StatSection
-          title="Miglior giornata di squadra"
-          subtitle="Somma fantavoto titolari · tocca per la formazione"
-          icon="trophy-outline"
-          accentColor="#2e7d32"
-          emptyText="Calcola almeno una giornata per vedere questo dato."
-        >
-          {stats?.best_team_matchday ? (
-            <TeamHighlightCard
-              item={stats.best_team_matchday}
-              variant="best"
-              expanded={!!expandedTeamCards.best}
-              onPress={() => toggleTeamFormation('best', stats.best_team_matchday)}
-              formationData={teamFormations.best}
-              loadingFormation={!!loadingTeamFormations.best}
-              viewMode={teamFormationViewMode.best || 'field'}
-              onViewModeChange={(mode) => setTeamFormationViewMode((prev) => ({ ...prev, best: mode }))}
-            />
-          ) : null}
-        </StatSection>
-
-        <StatSection
-          title="Peggior giornata di squadra"
-          subtitle="Somma fantavoto titolari · tocca per la formazione"
-          icon="sad-outline"
-          accentColor="#c62828"
-          emptyText="Nessuna giornata con punteggio valido (escluse le formazioni a 0)."
-        >
-          {stats?.worst_team_matchday ? (
-            <TeamHighlightCard
-              item={stats.worst_team_matchday}
-              variant="worst"
-              expanded={!!expandedTeamCards.worst}
-              onPress={() => toggleTeamFormation('worst', stats.worst_team_matchday)}
-              formationData={teamFormations.worst}
-              loadingFormation={!!loadingTeamFormations.worst}
-              viewMode={teamFormationViewMode.worst || 'field'}
-              onViewModeChange={(mode) => setTeamFormationViewMode((prev) => ({ ...prev, worst: mode }))}
-            />
-          ) : null}
-        </StatSection>
-
         <RankedListSection
           title="Fantavoti più alti"
           subtitle="Migliori prestazioni singole per giornata"
@@ -708,29 +702,49 @@ export default function LeagueStatisticsScreen({ route }) {
           )}
         />
 
-        <RankedListSection
-          title="Migliori acquisti"
-          subtitle="Somma fantavoti in lega ÷ √costo d'acquisto"
-          icon="trending-up-outline"
-          accentColor="#667eea"
-          emptyText="Servono acquisti in lega e voti inseriti per calcolare il rapporto."
-          items={bestPurchasesItems}
-          limit={sectionLimits.best_purchases}
-          onLimitChange={(lim) => handleLimitChange('best_purchases', 'best_purchases', lim)}
-          searchQuery={sectionSearch.best_purchases || ''}
-          onSearchChange={(text) => setSectionSearch((prev) => ({ ...prev, best_purchases: text }))}
-          {...getSectionFilterProps('best_purchases', 'best_purchases')}
-          renderRow={(player, index) => (
-            <PlayerRow
-              key={`buy-${player.player_id}-${index}`}
-              rank={index + 1}
-              player={player}
-              valueLabel={Number(player.value_ratio || 0).toFixed(2)}
-              valueHint={`${formatVoteRating(player.total_fantavoto_sum)} / ${formatVoteRating(player.cost)}`}
-              valueColor="#667eea"
+        <StatSection
+          title="Miglior giornata di squadra"
+          subtitle="Somma fantavoto titolari · tocca per la formazione"
+          icon="trophy-outline"
+          accentColor="#2e7d32"
+          emptyText="Calcola almeno una giornata per vedere questo dato."
+          formationSection
+        >
+          {stats?.best_team_matchday ? (
+            <TeamHighlightCard
+              item={stats.best_team_matchday}
+              variant="best"
+              expanded={!!expandedTeamCards.best}
+              onPress={() => toggleTeamFormation('best', stats.best_team_matchday)}
+              formationData={teamFormations.best}
+              loadingFormation={!!loadingTeamFormations.best}
+              viewMode={teamFormationViewMode.best || 'field'}
+              onViewModeChange={(mode) => setTeamFormationViewMode((prev) => ({ ...prev, best: mode }))}
             />
-          )}
-        />
+          ) : null}
+        </StatSection>
+
+        <StatSection
+          title="Peggior giornata di squadra"
+          subtitle="Somma fantavoto titolari · tocca per la formazione"
+          icon="sad-outline"
+          accentColor="#c62828"
+          emptyText="Nessuna giornata con punteggio valido (escluse le formazioni a 0)."
+          formationSection
+        >
+          {stats?.worst_team_matchday ? (
+            <TeamHighlightCard
+              item={stats.worst_team_matchday}
+              variant="worst"
+              expanded={!!expandedTeamCards.worst}
+              onPress={() => toggleTeamFormation('worst', stats.worst_team_matchday)}
+              formationData={teamFormations.worst}
+              loadingFormation={!!loadingTeamFormations.worst}
+              viewMode={teamFormationViewMode.worst || 'field'}
+              onViewModeChange={(mode) => setTeamFormationViewMode((prev) => ({ ...prev, worst: mode }))}
+            />
+          ) : null}
+        </StatSection>
       </ScrollView>
     </View>
   );
@@ -798,6 +812,9 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 2,
   },
+  sectionFormation: {
+    overflow: 'visible',
+  },
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -830,6 +847,9 @@ const styles = StyleSheet.create({
   sectionBody: {
     padding: 10,
     gap: 8,
+  },
+  sectionBodyFormation: {
+    overflow: 'visible',
   },
   limitBar: {
     flexDirection: 'row',
@@ -931,11 +951,19 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   rankBadge: {
-    width: 22,
+    minWidth: 20,
+    flexShrink: 0,
     textAlign: 'center',
     fontSize: 13,
     fontWeight: '700',
     color: '#999',
+  },
+  rankBadgeTwoDigits: {
+    minWidth: 26,
+  },
+  rankBadgeThreeDigits: {
+    minWidth: 34,
+    fontSize: 12,
   },
   playerPhotoCol: {
     width: 56,
@@ -1056,8 +1084,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#fafafa',
     borderRadius: 8,
     padding: 10,
-    marginTop: 8,
-    borderWidth: 1,
-    borderColor: '#f0f0f0',
+    marginTop: 10,
+    marginHorizontal: -6,
+    borderTopWidth: 1,
+    borderTopColor: '#f0f0f0',
   },
 });

@@ -306,7 +306,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     position: 'relative',
     overflow: 'hidden',
-    marginHorizontal: -4,
+    marginHorizontal: -10,
   },
   miniFieldCenter: {
     position: 'absolute',
