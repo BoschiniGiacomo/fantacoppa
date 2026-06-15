@@ -2612,42 +2612,30 @@ router.get('/:id/statistics', authenticateToken, async (req, res) => {
         [leagueId, leagueId, effectiveLeagueId]
       ),
       query(
-        `WITH team_giornata AS (
-           SELECT mps.giornata, mps.user_id,
-                  SUM(mps.total_score)::float AS total_fantavoto
-           FROM matchday_player_scores mps
-           WHERE mps.league_id = ?
-           GROUP BY mps.giornata, mps.user_id
-           HAVING COUNT(*) > 0
-         )
-         SELECT tg.giornata, tg.user_id, tg.total_fantavoto,
+        `SELECT mr.giornata, mr.user_id, mr.punteggio::float AS total_fantavoto,
                 COALESCE(ub.team_name, u.username) AS team_name,
                 COALESCE(ub.team_logo, 'default_1') AS team_logo
-         FROM team_giornata tg
-         JOIN users u ON u.id = tg.user_id
-         LEFT JOIN user_budget ub ON ub.user_id = tg.user_id AND ub.league_id = ?
-         ORDER BY tg.total_fantavoto DESC, tg.giornata ASC, LOWER(COALESCE(ub.team_name, u.username)) ASC
+         FROM matchday_results mr
+         JOIN users u ON u.id = mr.user_id
+         LEFT JOIN user_budget ub ON ub.user_id = mr.user_id AND ub.league_id = mr.league_id
+         WHERE mr.league_id = ?
+         ORDER BY mr.punteggio DESC, mr.giornata ASC,
+                  LOWER(COALESCE(ub.team_name, u.username)) ASC
          LIMIT 1`,
-        [leagueId, leagueId]
+        [leagueId]
       ).catch(() => []),
       query(
-        `WITH team_giornata AS (
-           SELECT mps.giornata, mps.user_id,
-                  SUM(mps.total_score)::float AS total_fantavoto
-           FROM matchday_player_scores mps
-           WHERE mps.league_id = ?
-           GROUP BY mps.giornata, mps.user_id
-           HAVING COUNT(*) > 0
-         )
-         SELECT tg.giornata, tg.user_id, tg.total_fantavoto,
+        `SELECT mr.giornata, mr.user_id, mr.punteggio::float AS total_fantavoto,
                 COALESCE(ub.team_name, u.username) AS team_name,
                 COALESCE(ub.team_logo, 'default_1') AS team_logo
-         FROM team_giornata tg
-         JOIN users u ON u.id = tg.user_id
-         LEFT JOIN user_budget ub ON ub.user_id = tg.user_id AND ub.league_id = ?
-         ORDER BY tg.total_fantavoto ASC, tg.giornata ASC, LOWER(COALESCE(ub.team_name, u.username)) ASC
+         FROM matchday_results mr
+         JOIN users u ON u.id = mr.user_id
+         LEFT JOIN user_budget ub ON ub.user_id = mr.user_id AND ub.league_id = mr.league_id
+         WHERE mr.league_id = ?
+         ORDER BY mr.punteggio ASC, mr.giornata ASC,
+                  LOWER(COALESCE(ub.team_name, u.username)) ASC
          LIMIT 1`,
-        [leagueId, leagueId]
+        [leagueId]
       ).catch(() => []),
       query(
         `SELECT pr.giornata, pr.player_id,
