@@ -6,11 +6,13 @@ import {
   StyleSheet,
   ActivityIndicator,
   RefreshControl,
+  TouchableOpacity,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { leagueService } from '../services/api';
 import { FantasyTeamLogoImage, PlayerPhotoImage } from '../components/StableCachedImage';
+import MatchdayFormationPanel from '../components/MatchdayFormationPanel';
 import { formatVoteRating } from '../utils/voteRating';
 
 const ROLE_COLORS = { P: '#0d6efd', D: '#198754', C: '#e6a817', A: '#dc3545' };
@@ -81,23 +83,51 @@ function PlayerRow({ rank, player, valueLabel, valueColor = '#667eea', valueHint
   );
 }
 
-function TeamHighlightCard({ item, variant }) {
+function TeamHighlightCard({
+  item,
+  variant,
+  expanded,
+  onPress,
+  formationData,
+  loadingFormation,
+  viewMode,
+  onViewModeChange,
+}) {
   if (!item) return null;
   const isBest = variant === 'best';
   const accent = isBest ? '#2e7d32' : '#c62828';
   return (
-    <View style={[styles.teamHighlight, { borderColor: `${accent}55` }]}>
-      <View style={[styles.teamHighlightAccent, { backgroundColor: accent }]} />
-      <FantasyTeamLogoImage teamLogo={item.team_logo} style={styles.teamLogo} />
-      <View style={styles.teamHighlightBody}>
-        <Text style={styles.teamHighlightName} numberOfLines={1}>{item.team_name}</Text>
-        <Text style={styles.teamHighlightMeta}>
-          {item.giornata}ª giornata · somma titolari
-        </Text>
-      </View>
-      <Text style={[styles.teamHighlightScore, { color: accent }]}>
-        {formatVoteRating(item.total_fantavoto)}
-      </Text>
+    <View>
+      <TouchableOpacity
+        style={[styles.teamHighlight, { borderColor: `${accent}55` }]}
+        onPress={onPress}
+        activeOpacity={0.75}
+      >
+        <View style={[styles.teamHighlightAccent, { backgroundColor: accent }]} />
+        <FantasyTeamLogoImage teamLogo={item.team_logo} style={styles.teamLogo} />
+        <View style={styles.teamHighlightBody}>
+          <Text style={styles.teamHighlightName} numberOfLines={1}>{item.team_name}</Text>
+          <Text style={styles.teamHighlightMeta}>
+            {item.giornata}ª giornata · somma titolari
+          </Text>
+        </View>
+        <View style={styles.teamHighlightRight}>
+          <Text style={[styles.teamHighlightScore, { color: accent }]}>
+            {formatVoteRating(item.total_fantavoto)}
+          </Text>
+          <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={18} color="#bbb" />
+        </View>
+      </TouchableOpacity>
+      {expanded ? (
+        <View style={styles.formationBox}>
+          <MatchdayFormationPanel
+            formationData={formationData}
+            loading={loadingFormation}
+            viewMode={viewMode}
+            onViewModeChange={onViewModeChange}
+          />
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -110,6 +140,31 @@ export default function LeagueStatisticsScreen({ route }) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
+  const [expandedTeamCards, setExpandedTeamCards] = useState({});
+  const [teamFormations, setTeamFormations] = useState({});
+  const [loadingTeamFormations, setLoadingTeamFormations] = useState({});
+  const [teamFormationViewMode, setTeamFormationViewMode] = useState({});
+
+  const toggleTeamFormation = useCallback(async (cardKey, item) => {
+    if (!item?.user_id || !item?.giornata) return;
+    const isExpanded = !!expandedTeamCards[cardKey];
+    if (isExpanded) {
+      setExpandedTeamCards((prev) => ({ ...prev, [cardKey]: false }));
+      return;
+    }
+    setExpandedTeamCards((prev) => ({ ...prev, [cardKey]: true }));
+    if (teamFormations[cardKey]) return;
+
+    setLoadingTeamFormations((prev) => ({ ...prev, [cardKey]: true }));
+    try {
+      const res = await leagueService.getMatchdayFormation(leagueId, item.giornata, item.user_id);
+      setTeamFormations((prev) => ({ ...prev, [cardKey]: res.data }));
+    } catch (_) {
+      setTeamFormations((prev) => ({ ...prev, [cardKey]: null }));
+    } finally {
+      setLoadingTeamFormations((prev) => ({ ...prev, [cardKey]: false }));
+    }
+  }, [expandedTeamCards, leagueId, teamFormations]);
 
   const loadData = useCallback(async (isRefresh = false) => {
     try {
@@ -122,6 +177,11 @@ export default function LeagueStatisticsScreen({ route }) {
       const leagueData = Array.isArray(leagueRes.data) ? leagueRes.data[0] : leagueRes.data;
       setLeague(leagueData);
       setStats(statsRes.data || null);
+      if (!isRefresh) {
+        setExpandedTeamCards({});
+        setTeamFormations({});
+        setLoadingTeamFormations({});
+      }
     } catch (err) {
       const msg = err?.response?.data?.message || 'Impossibile caricare le statistiche';
       setError(msg);
@@ -220,25 +280,43 @@ export default function LeagueStatisticsScreen({ route }) {
 
         <StatSection
           title="Miglior giornata di squadra"
-          subtitle="Somma fantavoto titolari in una singola giornata"
+          subtitle="Somma fantavoto titolari · tocca per la formazione"
           icon="trophy-outline"
           accentColor="#2e7d32"
           emptyText="Calcola almeno una giornata per vedere questo dato."
         >
           {stats?.best_team_matchday ? (
-            <TeamHighlightCard item={stats.best_team_matchday} variant="best" />
+            <TeamHighlightCard
+              item={stats.best_team_matchday}
+              variant="best"
+              expanded={!!expandedTeamCards.best}
+              onPress={() => toggleTeamFormation('best', stats.best_team_matchday)}
+              formationData={teamFormations.best}
+              loadingFormation={!!loadingTeamFormations.best}
+              viewMode={teamFormationViewMode.best || 'field'}
+              onViewModeChange={(mode) => setTeamFormationViewMode((prev) => ({ ...prev, best: mode }))}
+            />
           ) : null}
         </StatSection>
 
         <StatSection
           title="Peggior giornata di squadra"
-          subtitle="Somma fantavoto titolari in una singola giornata"
+          subtitle="Somma fantavoto titolari · tocca per la formazione"
           icon="sad-outline"
           accentColor="#c62828"
           emptyText="Nessuna giornata con punteggio valido (escluse le formazioni a 0)."
         >
           {stats?.worst_team_matchday ? (
-            <TeamHighlightCard item={stats.worst_team_matchday} variant="worst" />
+            <TeamHighlightCard
+              item={stats.worst_team_matchday}
+              variant="worst"
+              expanded={!!expandedTeamCards.worst}
+              onPress={() => toggleTeamFormation('worst', stats.worst_team_matchday)}
+              formationData={teamFormations.worst}
+              loadingFormation={!!loadingTeamFormations.worst}
+              viewMode={teamFormationViewMode.worst || 'field'}
+              onViewModeChange={(mode) => setTeamFormationViewMode((prev) => ({ ...prev, worst: mode }))}
+            />
           ) : null}
         </StatSection>
 
@@ -514,6 +592,10 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
+  teamHighlightRight: {
+    alignItems: 'flex-end',
+    gap: 4,
+  },
   teamHighlightName: {
     fontSize: 15,
     fontWeight: '700',
@@ -527,5 +609,13 @@ const styles = StyleSheet.create({
   teamHighlightScore: {
     fontSize: 22,
     fontWeight: '800',
+  },
+  formationBox: {
+    backgroundColor: '#fafafa',
+    borderRadius: 8,
+    padding: 10,
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: '#f0f0f0',
   },
 });
