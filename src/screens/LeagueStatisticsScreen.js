@@ -262,13 +262,17 @@ function PlayerRow({ rank, player, valueLabel, valueColor = '#667eea', valueHint
         </View>
       )}
       <View style={styles.playerInfo}>
-        <Text style={styles.playerName} numberOfLines={1}>{playerLabel(player)}</Text>
+        <Text style={styles.playerName} numberOfLines={2} ellipsizeMode="tail">
+          {playerLabel(player)}
+        </Text>
         {player?.team_name ? (
-          <Text style={styles.playerTeam} numberOfLines={1}>{player.team_name}</Text>
+          <Text style={styles.playerTeam} numberOfLines={1} ellipsizeMode="tail">{player.team_name}</Text>
         ) : null}
       </View>
       <View style={styles.valueWrap}>
-        <Text style={[styles.valueText, { color: valueColor }]}>{valueLabel}</Text>
+        <Text style={[styles.valueText, { color: valueColor }]} numberOfLines={1}>
+          {valueLabel}
+        </Text>
         {valueHint ? (
           <Text style={styles.giornataHint}>{valueHint}</Text>
         ) : player?.giornata ? (
@@ -947,8 +951,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#fafbfc',
     borderRadius: 12,
-    padding: 10,
-    gap: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    gap: 6,
   },
   rankBadge: {
     minWidth: 20,
@@ -1011,11 +1016,13 @@ const styles = StyleSheet.create({
   playerInfo: {
     flex: 1,
     minWidth: 0,
+    marginRight: 2,
   },
   playerName: {
     fontSize: 14,
     fontWeight: '600',
     color: '#1a1a2e',
+    flexShrink: 1,
   },
   playerTeam: {
     fontSize: 12,
@@ -1024,10 +1031,11 @@ const styles = StyleSheet.create({
   },
   valueWrap: {
     alignItems: 'flex-end',
-    minWidth: 48,
+    flexShrink: 0,
+    marginLeft: 2,
   },
   valueText: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
   },
   giornataHint: {
