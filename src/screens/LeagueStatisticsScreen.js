@@ -7,7 +7,7 @@ import {
   ActivityIndicator,
   RefreshControl,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { leagueService } from '../services/api';
 import { FantasyTeamLogoImage, PlayerPhotoImage } from '../components/StableCachedImage';
@@ -45,26 +45,29 @@ function StatSection({ title, subtitle, icon, accentColor, children, emptyText }
 
 function PlayerRow({ rank, player, valueLabel, valueColor = '#667eea' }) {
   const role = String(player?.role || '').trim().toUpperCase();
+  const roleColor = ROLE_COLORS[role] || '#6c757d';
   return (
     <View style={styles.playerRow}>
       <Text style={styles.rankBadge}>{rank}</Text>
-      <PlayerPhotoImage
-        photoPath={player?.photo_path}
-        role={role}
-        style={styles.playerPhoto}
-      />
+      {player?.photo_path ? (
+        <View style={styles.playerPhotoCol}>
+          <PlayerPhotoImage photoPath={player.photo_path} style={styles.playerPhotoBadge} />
+          <View style={[styles.playerPhotoRoleOverlay, { backgroundColor: roleColor }]}>
+            <Text style={styles.playerPhotoRoleText}>{role}</Text>
+          </View>
+        </View>
+      ) : (
+        <View style={styles.roleBadgeCol}>
+          <View style={[styles.roleBadgeMini, { backgroundColor: roleColor }]}>
+            <Text style={styles.roleBadgeMiniText}>{role}</Text>
+          </View>
+        </View>
+      )}
       <View style={styles.playerInfo}>
         <Text style={styles.playerName} numberOfLines={1}>{playerLabel(player)}</Text>
-        <View style={styles.playerMeta}>
-          {role ? (
-            <View style={[styles.roleChip, { backgroundColor: `${ROLE_COLORS[role] || '#6c757d'}22` }]}>
-              <Text style={[styles.roleChipText, { color: ROLE_COLORS[role] || '#6c757d' }]}>{role}</Text>
-            </View>
-          ) : null}
-          {player?.team_name ? (
-            <Text style={styles.teamNameText} numberOfLines={1}>{player.team_name}</Text>
-          ) : null}
-        </View>
+        {player?.team_name ? (
+          <Text style={styles.playerTeam} numberOfLines={1}>{player.team_name}</Text>
+        ) : null}
       </View>
       <View style={styles.valueWrap}>
         <Text style={[styles.valueText, { color: valueColor }]}>{valueLabel}</Text>
@@ -133,19 +136,25 @@ export default function LeagueStatisticsScreen({ route }) {
 
   if (loading && !stats) {
     return (
-      <SafeAreaView style={styles.container} edges={['top']}>
+      <View style={styles.container}>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#667eea" />
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      <View style={[styles.header, { paddingTop: insets.top }]}>
-        <Text style={styles.headerTitle}>Statistiche</Text>
-        {league?.name ? <Text style={styles.leagueName}>{league.name}</Text> : null}
+    <View style={styles.container}>
+      <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
+        <View style={styles.headerTopRow}>
+          <View style={{ flex: 1 }} />
+          <View style={{ flex: 2, alignItems: 'center' }}>
+            <Text style={styles.headerTitle}>Statistiche</Text>
+            {league?.name ? <Text style={styles.leagueName}>{league.name}</Text> : null}
+          </View>
+          <View style={{ flex: 1 }} />
+        </View>
       </View>
 
       <ScrollView
@@ -267,7 +276,7 @@ export default function LeagueStatisticsScreen({ route }) {
           ))}
         </StatSection>
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -283,21 +292,25 @@ const styles = StyleSheet.create({
   },
   header: {
     backgroundColor: '#fff',
-    paddingHorizontal: 20,
-    paddingBottom: 14,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#eee',
+    borderBottomColor: '#e8e8e8',
+  },
+  headerTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   headerTitle: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#1a1a2e',
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#333',
   },
   leagueName: {
-    marginTop: 4,
-    fontSize: 14,
-    color: '#667eea',
-    fontWeight: '600',
+    fontSize: 13,
+    color: '#888',
+    marginTop: 1,
+    textAlign: 'center',
   },
   content: {
     flex: 1,
@@ -383,10 +396,48 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#999',
   },
-  playerPhoto: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+  playerPhotoCol: {
+    width: 56,
+    height: 56,
+    position: 'relative',
+  },
+  playerPhotoBadge: {
+    width: 56,
+    height: 56,
+  },
+  playerPhotoRoleOverlay: {
+    position: 'absolute',
+    bottom: -1,
+    right: -1,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: '#fff',
+  },
+  playerPhotoRoleText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
+  roleBadgeCol: {
+    width: 56,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  roleBadgeMini: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  roleBadgeMiniText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: 'bold',
   },
   playerInfo: {
     flex: 1,
@@ -397,25 +448,10 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#1a1a2e',
   },
-  playerMeta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginTop: 3,
-  },
-  roleChip: {
-    borderRadius: 6,
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-  },
-  roleChipText: {
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  teamNameText: {
-    flex: 1,
-    fontSize: 11,
+  playerTeam: {
+    fontSize: 12,
     color: '#888',
+    marginTop: 2,
   },
   valueWrap: {
     alignItems: 'flex-end',

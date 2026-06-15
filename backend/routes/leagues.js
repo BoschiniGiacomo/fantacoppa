@@ -12,6 +12,7 @@ const {
 } = require('./notifications');
 const { buildAutoLineupFromVotes } = require('../utils/autoLineup');
 const { computeBonusTotal: computeBonusTotalUtil } = require('../utils/bonus');
+const { injuryReplacementExclusionSql } = require('../utils/budgetReconcile');
 const {
   resolveUserLineup,
   persistUserLineup,
@@ -2522,6 +2523,20 @@ const LEAGUE_STATS_BONUS_SCORE_SQL = `
   + CASE WHEN COALESCE(bs.enable_clean_sheet, 0) = 1 THEN COALESCE(bs.bonus_clean_sheet, 0) * COALESCE(pr.clean_sheet, 0) ELSE 0 END
 `;
 
+/** Proprietari contati solo nella lega richiesta (no cluster/gruppi ufficiali, no altre leghe collegate). */
+const LEAGUE_PLAYER_PURCHASE_COUNT_SQL = `
+  (
+    SELECT COUNT(DISTINCT up.user_id)::int
+    FROM user_players up
+    INNER JOIN league_members lm
+      ON lm.user_id = up.user_id
+     AND lm.league_id = ?
+    WHERE up.player_id = p.id
+      AND up.league_id = ?
+      AND ${injuryReplacementExclusionSql('up')}
+  )
+`;
+
 function mapLeagueStatsPlayerRow(r) {
   return {
     player_id: Number(r.player_id || r.id || 0),
@@ -2576,27 +2591,25 @@ router.get('/:id/statistics', authenticateToken, async (req, res) => {
         `SELECT p.id AS player_id, p.first_name, p.last_name, p.role,
                 COALESCE(p.photo_path, '') AS photo_path,
                 COALESCE(t.name, '') AS team_name,
-                COUNT(up.user_id)::int AS purchase_count
+                ${LEAGUE_PLAYER_PURCHASE_COUNT_SQL} AS purchase_count
          FROM players p
          JOIN teams t ON t.id = p.team_id AND t.league_id = ?
-         LEFT JOIN user_players up ON up.player_id = p.id AND up.league_id = ?
          GROUP BY p.id, p.first_name, p.last_name, p.role, p.photo_path, t.name
          ORDER BY purchase_count DESC, p.last_name ASC, p.first_name ASC
          LIMIT 5`,
-        [effectiveLeagueId, leagueId]
+        [leagueId, leagueId, effectiveLeagueId]
       ),
       query(
         `SELECT p.id AS player_id, p.first_name, p.last_name, p.role,
                 COALESCE(p.photo_path, '') AS photo_path,
                 COALESCE(t.name, '') AS team_name,
-                COUNT(up.user_id)::int AS purchase_count
+                ${LEAGUE_PLAYER_PURCHASE_COUNT_SQL} AS purchase_count
          FROM players p
          JOIN teams t ON t.id = p.team_id AND t.league_id = ?
-         LEFT JOIN user_players up ON up.player_id = p.id AND up.league_id = ?
          GROUP BY p.id, p.first_name, p.last_name, p.role, p.photo_path, t.name
          ORDER BY purchase_count ASC, p.last_name ASC, p.first_name ASC
          LIMIT 5`,
-        [effectiveLeagueId, leagueId]
+        [leagueId, leagueId, effectiveLeagueId]
       ),
       query(
         `WITH team_giornata AS (
