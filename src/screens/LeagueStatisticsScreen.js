@@ -233,7 +233,7 @@ export default function LeagueStatisticsScreen({ route }) {
           subtitle="Somma fantavoto titolari in una singola giornata"
           icon="sad-outline"
           accentColor="#c62828"
-          emptyText="Calcola almeno una giornata per vedere questo dato."
+          emptyText="Nessuna giornata con punteggio valido (escluse le formazioni a 0)."
         >
           {stats?.worst_team_matchday ? (
             <TeamHighlightCard item={stats.worst_team_matchday} variant="worst" />

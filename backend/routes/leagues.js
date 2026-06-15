@@ -2632,6 +2632,7 @@ router.get('/:id/statistics', authenticateToken, async (req, res) => {
          JOIN users u ON u.id = mr.user_id
          LEFT JOIN user_budget ub ON ub.user_id = mr.user_id AND ub.league_id = mr.league_id
          WHERE mr.league_id = ?
+           AND mr.punteggio > 0
          ORDER BY mr.punteggio ASC, mr.giornata ASC,
                   LOWER(COALESCE(ub.team_name, u.username)) ASC
          LIMIT 1`,
