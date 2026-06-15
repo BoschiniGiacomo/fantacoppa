@@ -8,6 +8,7 @@ import {
   RefreshControl,
   TouchableOpacity,
   TextInput,
+  Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -90,7 +91,41 @@ function sortBestPurchaseRows(rows, useCreditRatio) {
   return list;
 }
 
-function StatSection({ title, subtitle, icon, accentColor, children, emptyText, hasListContent, formationSection }) {
+function BestPurchasesRatioHeaderControl({ active, accentColor, onToggle }) {
+  const showInfo = () => {
+    Alert.alert(
+      'Rapporto ai crediti',
+      'Se attivo, la classifica ordina per somma fantavoti ÷ √costo d\'acquisto.\nSe disattivo, ordina solo per somma fantavoti in lega.',
+      [{ text: 'OK' }]
+    );
+  };
+
+  return (
+    <View style={styles.sectionHeaderTrailing}>
+      <TouchableOpacity
+        onPress={showInfo}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        accessibilityLabel="Info rapporto ai crediti"
+      >
+        <Ionicons name="information-circle-outline" size={22} color="#999" />
+      </TouchableOpacity>
+      <TouchableOpacity
+        onPress={onToggle}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        accessibilityLabel="Attiva rapporto ai crediti"
+        accessibilityState={{ checked: active }}
+      >
+        <Ionicons
+          name={active ? 'checkbox' : 'square-outline'}
+          size={24}
+          color={active ? accentColor : '#bbb'}
+        />
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+function StatSection({ title, subtitle, icon, accentColor, children, emptyText, hasListContent, formationSection, headerTrailing }) {
   const hasContent = hasListContent != null ? hasListContent : React.Children.count(children) > 0;
   return (
     <View style={[styles.section, formationSection && styles.sectionFormation]}>
@@ -102,6 +137,7 @@ function StatSection({ title, subtitle, icon, accentColor, children, emptyText, 
           <Text style={styles.sectionTitle}>{title}</Text>
           {subtitle ? <Text style={styles.sectionSubtitle}>{subtitle}</Text> : null}
         </View>
+        {headerTrailing || null}
       </View>
       <View style={[styles.sectionBody, formationSection && styles.sectionBodyFormation]}>
         {hasContent ? children : (
@@ -130,7 +166,7 @@ function RankedListSection({
   onToggleRole,
   onToggleTeam,
   onClearFilters,
-  extraControls,
+  headerTrailing,
   renderRow,
 }) {
   const [filtersExpanded, setFiltersExpanded] = useState(false);
@@ -148,6 +184,7 @@ function RankedListSection({
       accentColor={accentColor}
       emptyText={emptyText}
       hasListContent
+      headerTrailing={headerTrailing}
     >
       <View style={styles.limitBar}>
         {LIMIT_OPTIONS.map((opt) => {
@@ -187,10 +224,6 @@ function RankedListSection({
           ) : null}
         </TouchableOpacity>
       </View>
-
-      {extraControls ? (
-        <View style={styles.extraControlsWrap}>{extraControls}</View>
-      ) : null}
 
       {filtersExpanded ? (
         <RankingFiltersBar
@@ -398,8 +431,9 @@ export default function LeagueStatisticsScreen({ route }) {
     const limit = sectionLimits[sectionKey] || '5';
     const roles = sectionRoleFilters[sectionKey] || [];
     const teams = sectionTeamFilters[sectionKey] || [];
+    if (sectionKey === 'best_purchases' && bestPurchasesUseCreditRatio) return true;
     return limit === 'all' || roles.length > 0 || teams.length > 0;
-  }, [sectionLimits, sectionRoleFilters, sectionTeamFilters]);
+  }, [sectionLimits, sectionRoleFilters, sectionTeamFilters, bestPurchasesUseCreditRatio]);
 
   const isSectionPoolLoading = useCallback((sectionKey) => {
     if (!sectionNeedsFullPool(sectionKey)) return false;
@@ -441,6 +475,16 @@ export default function LeagueStatisticsScreen({ route }) {
     setSectionTeamFilters((prev) => ({ ...prev, [sectionKey]: [] }));
   }, []);
 
+  const toggleBestPurchasesCreditRatio = useCallback(() => {
+    setBestPurchasesUseCreditRatio((prev) => {
+      const next = !prev;
+      if (next) {
+        ensureFullRanking('best_purchases', 'best_purchases');
+      }
+      return next;
+    });
+  }, [ensureFullRanking]);
+
   const getSectionFilterProps = useCallback((sectionKey, rankingType) => ({
     officialTeams,
     selectedRoles: sectionRoleFilters[sectionKey] || [],
@@ -463,7 +507,7 @@ export default function LeagueStatisticsScreen({ route }) {
     const limit = sectionLimits[sectionKey] || '5';
     const roles = sectionRoleFilters[sectionKey] || [];
     const teams = sectionTeamFilters[sectionKey] || [];
-    const needsFull = limit === 'all' || roles.length > 0 || teams.length > 0;
+    const needsFull = sectionNeedsFullPool(sectionKey);
 
     const applyBestPurchaseSort = (items) => (
       sectionKey === 'best_purchases'
@@ -488,7 +532,7 @@ export default function LeagueStatisticsScreen({ route }) {
     }
     const n = limit === '5' ? 5 : 10;
     return filtered.slice(0, n);
-  }, [sectionLimits, sectionRoleFilters, sectionTeamFilters, stats, allRankings, sectionSearch, bestPurchasesUseCreditRatio]);
+  }, [sectionLimits, sectionRoleFilters, sectionTeamFilters, stats, allRankings, sectionSearch, bestPurchasesUseCreditRatio, sectionNeedsFullPool]);
 
   const mostPurchasedItems = useMemo(
     () => getSectionItems('most_purchased', 'most_purchased'),
@@ -629,19 +673,12 @@ export default function LeagueStatisticsScreen({ route }) {
           searchQuery={sectionSearch.best_purchases || ''}
           onSearchChange={(text) => setSectionSearch((prev) => ({ ...prev, best_purchases: text }))}
           {...getSectionFilterProps('best_purchases', 'best_purchases')}
-          extraControls={(
-            <TouchableOpacity
-              style={styles.bestPurchaseOptionRow}
-              onPress={() => setBestPurchasesUseCreditRatio((v) => !v)}
-              activeOpacity={0.75}
-            >
-              <Ionicons
-                name={bestPurchasesUseCreditRatio ? 'checkbox' : 'square-outline'}
-                size={22}
-                color={bestPurchasesUseCreditRatio ? '#667eea' : '#bbb'}
-              />
-              <Text style={styles.bestPurchaseOptionLabel}>Rapporto ai crediti</Text>
-            </TouchableOpacity>
+          headerTrailing={(
+            <BestPurchasesRatioHeaderControl
+              active={bestPurchasesUseCreditRatio}
+              accentColor="#667eea"
+              onToggle={toggleBestPurchasesCreditRatio}
+            />
           )}
           renderRow={(player, index) => (
             <PlayerRow
@@ -888,6 +925,14 @@ const styles = StyleSheet.create({
   },
   sectionHeaderText: {
     flex: 1,
+    minWidth: 0,
+  },
+  sectionHeaderTrailing: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexShrink: 0,
+    marginLeft: 4,
   },
   sectionTitle: {
     fontSize: 16,
@@ -955,21 +1000,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     color: '#888',
-  },
-  extraControlsWrap: {
-    marginTop: 2,
-    marginBottom: 2,
-  },
-  bestPurchaseOptionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingVertical: 4,
-  },
-  bestPurchaseOptionLabel: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#555',
   },
   searchBar: {
     flexDirection: 'row',
