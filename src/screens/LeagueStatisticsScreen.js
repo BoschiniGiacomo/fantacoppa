@@ -43,7 +43,7 @@ function StatSection({ title, subtitle, icon, accentColor, children, emptyText }
   );
 }
 
-function PlayerRow({ rank, player, valueLabel, valueColor = '#667eea' }) {
+function PlayerRow({ rank, player, valueLabel, valueColor = '#667eea', valueHint }) {
   const role = String(player?.role || '').trim().toUpperCase();
   const roleColor = ROLE_COLORS[role] || '#6c757d';
   return (
@@ -71,7 +71,9 @@ function PlayerRow({ rank, player, valueLabel, valueColor = '#667eea' }) {
       </View>
       <View style={styles.valueWrap}>
         <Text style={[styles.valueText, { color: valueColor }]}>{valueLabel}</Text>
-        {player?.giornata ? (
+        {valueHint ? (
+          <Text style={styles.giornataHint}>{valueHint}</Text>
+        ) : player?.giornata ? (
           <Text style={styles.giornataHint}>G.{player.giornata}</Text>
         ) : null}
       </View>
@@ -272,6 +274,25 @@ export default function LeagueStatisticsScreen({ route }) {
               player={player}
               valueLabel={formatVoteRating(player.fantavoto)}
               valueColor="#c62828"
+            />
+          ))}
+        </StatSection>
+
+        <StatSection
+          title="Migliori acquisti"
+          subtitle="Somma fantavoti in lega ÷ costo d'acquisto"
+          icon="trending-up-outline"
+          accentColor="#667eea"
+          emptyText="Servono acquisti in lega e voti inseriti per calcolare il rapporto."
+        >
+          {(stats?.best_purchases || []).map((player, index) => (
+            <PlayerRow
+              key={`buy-${player.player_id}`}
+              rank={index + 1}
+              player={player}
+              valueLabel={Number(player.value_ratio || 0).toFixed(2)}
+              valueHint={`${formatVoteRating(player.total_fantavoto_sum)} / ${formatVoteRating(player.cost)}`}
+              valueColor="#667eea"
             />
           ))}
         </StatSection>

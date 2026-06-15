@@ -2561,6 +2561,23 @@ function mapLeagueStatsTeamRow(r) {
   };
 }
 
+function mapLeagueStatsBestPurchaseRow(r) {
+  const cost = Number(r.cost || 0);
+  const totalFantavotoSum = Number(r.total_fantavoto_sum || 0);
+  const valueRatio = cost > 0 ? totalFantavotoSum / cost : 0;
+  return {
+    player_id: Number(r.player_id || 0),
+    first_name: r.first_name || '',
+    last_name: r.last_name || '',
+    role: r.role || '',
+    team_name: r.team_name || '',
+    photo_path: r.photo_path || '',
+    cost: Number(cost.toFixed(2)),
+    total_fantavoto_sum: Number(totalFantavotoSum.toFixed(2)),
+    value_ratio: Number(valueRatio.toFixed(2)),
+  };
+}
+
 // GET /api/leagues/:id/statistics - statistiche lega (solo admin)
 router.get('/:id/statistics', authenticateToken, async (req, res) => {
   try {
@@ -2586,6 +2603,7 @@ router.get('/:id/statistics', authenticateToken, async (req, res) => {
       worstTeamRows,
       topFantavotoRows,
       bottomFantavotoRows,
+      bestPurchaseRows,
     ] = await Promise.all([
       query(
         `SELECT p.id AS player_id, p.first_name, p.last_name, p.role,
@@ -2670,6 +2688,41 @@ router.get('/:id/statistics', authenticateToken, async (req, res) => {
          LIMIT 5`,
         [leagueId, effectiveLeagueId]
       ).catch(() => []),
+      query(
+        `WITH purchased_players AS (
+           SELECT DISTINCT up.player_id
+           FROM user_players up
+           INNER JOIN league_members lm
+             ON lm.user_id = up.user_id
+            AND lm.league_id = ?
+           WHERE up.league_id = ?
+             AND ${injuryReplacementExclusionSql('up')}
+         ),
+         player_totals AS (
+           SELECT pr.player_id,
+                  SUM((${LEAGUE_STATS_BONUS_SCORE_SQL}))::float AS total_fantavoto_sum
+           FROM player_ratings pr
+           LEFT JOIN league_bonus_settings bs ON bs.league_id = ?
+           WHERE pr.league_id = ?
+             AND pr.rating > 0
+           GROUP BY pr.player_id
+         )
+         SELECT p.id AS player_id, p.first_name, p.last_name, p.role,
+                COALESCE(p.photo_path, '') AS photo_path,
+                COALESCE(t.name, '') AS team_name,
+                p.rating::float AS cost,
+                pt.total_fantavoto_sum,
+                (pt.total_fantavoto_sum / NULLIF(p.rating, 0))::float AS value_ratio
+         FROM purchased_players pp
+         JOIN players p ON p.id = pp.player_id
+         JOIN teams t ON t.id = p.team_id AND t.league_id = ?
+         JOIN player_totals pt ON pt.player_id = p.id
+         WHERE p.rating > 0
+           AND pt.total_fantavoto_sum > 0
+         ORDER BY value_ratio DESC, pt.total_fantavoto_sum DESC, p.last_name ASC, p.first_name ASC
+         LIMIT 5`,
+        [leagueId, leagueId, leagueId, effectiveLeagueId, effectiveLeagueId]
+      ).catch(() => []),
     ]);
 
     return res.json({
@@ -2679,6 +2732,7 @@ router.get('/:id/statistics', authenticateToken, async (req, res) => {
       worst_team_matchday: worstTeamRows[0] ? mapLeagueStatsTeamRow(worstTeamRows[0]) : null,
       top_fantavoti: (topFantavotoRows || []).map(mapLeagueStatsPlayerRow),
       bottom_fantavoti: (bottomFantavotoRows || []).map(mapLeagueStatsPlayerRow),
+      best_purchases: (bestPurchaseRows || []).map(mapLeagueStatsBestPurchaseRow),
     });
   } catch (error) {
     console.error('League statistics error:', error);
