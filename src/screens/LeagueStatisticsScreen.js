@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -7,15 +7,30 @@ import {
   ActivityIndicator,
   RefreshControl,
   TouchableOpacity,
+  TextInput,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { leagueService } from '../services/api';
 import { FantasyTeamLogoImage, PlayerPhotoImage } from '../components/StableCachedImage';
 import MatchdayFormationPanel from '../components/MatchdayFormationPanel';
+import RankingFiltersBar from '../components/RankingFiltersBar';
 import { formatVoteRating } from '../utils/voteRating';
 
 const ROLE_COLORS = { P: '#0d6efd', D: '#198754', C: '#e6a817', A: '#dc3545' };
+const LIMIT_OPTIONS = [
+  { id: '5', label: 'Top 5' },
+  { id: '10', label: 'Top 10' },
+  { id: 'all', label: 'All' },
+];
+
+const RANKING_SECTION_DEFAULTS = {
+  most_purchased: '5',
+  least_purchased: '5',
+  top_fantavoti: '5',
+  bottom_fantavoti: '5',
+  best_purchases: '5',
+};
 
 function playerLabel(player) {
   const first = String(player?.first_name || '').trim();
@@ -23,8 +38,43 @@ function playerLabel(player) {
   return [first, last].filter(Boolean).join(' ') || 'Giocatore';
 }
 
-function StatSection({ title, subtitle, icon, accentColor, children, emptyText }) {
-  const hasContent = React.Children.count(children) > 0;
+function matchesRankingSearch(player, query) {
+  const q = String(query || '').trim().toLowerCase();
+  if (!q) return true;
+  const haystack = [
+    player?.first_name,
+    player?.last_name,
+    player?.team_name,
+    player?.role,
+    player?.giornata != null ? `g.${player.giornata}` : '',
+    player?.giornata,
+    player?.purchase_count,
+    player?.fantavoto,
+    player?.value_ratio,
+    player?.cost,
+    player?.total_fantavoto_sum,
+  ]
+    .map((v) => String(v ?? '').toLowerCase())
+    .join(' ');
+  return haystack.includes(q);
+}
+
+function matchesRankingFilters(player, selectedRoles, selectedTeamIds) {
+  const roles = Array.isArray(selectedRoles) ? selectedRoles : [];
+  const teamIds = Array.isArray(selectedTeamIds) ? selectedTeamIds : [];
+  if (roles.length > 0) {
+    const role = String(player?.role || '').trim().toUpperCase();
+    if (!roles.includes(role)) return false;
+  }
+  if (teamIds.length > 0) {
+    const tid = Number(player?.team_id);
+    if (!teamIds.includes(tid)) return false;
+  }
+  return true;
+}
+
+function StatSection({ title, subtitle, icon, accentColor, children, emptyText, hasListContent }) {
+  const hasContent = hasListContent != null ? hasListContent : React.Children.count(children) > 0;
   return (
     <View style={styles.section}>
       <View style={styles.sectionHeader}>
@@ -42,6 +92,115 @@ function StatSection({ title, subtitle, icon, accentColor, children, emptyText }
         )}
       </View>
     </View>
+  );
+}
+
+function RankedListSection({
+  title,
+  subtitle,
+  icon,
+  accentColor,
+  emptyText,
+  items,
+  limit,
+  onLimitChange,
+  loadingAll,
+  searchQuery,
+  onSearchChange,
+  officialTeams,
+  selectedRoles,
+  selectedTeamIds,
+  onToggleRole,
+  onToggleTeam,
+  onClearFilters,
+  renderRow,
+}) {
+  const showSearch = limit === 'all';
+  const hasItems = Array.isArray(items) && items.length > 0;
+  const hasActiveFilters = (selectedRoles?.length || 0) > 0 || (selectedTeamIds?.length || 0) > 0;
+  const hasSearch = showSearch && String(searchQuery || '').trim().length > 0;
+
+  return (
+    <StatSection
+      title={title}
+      subtitle={subtitle}
+      icon={icon}
+      accentColor={accentColor}
+      emptyText={emptyText}
+      hasListContent
+    >
+      <View style={styles.limitBar}>
+        {LIMIT_OPTIONS.map((opt) => {
+          const active = limit === opt.id;
+          return (
+            <TouchableOpacity
+              key={opt.id}
+              style={[styles.limitChip, active && { backgroundColor: `${accentColor}18`, borderColor: accentColor }]}
+              onPress={() => onLimitChange(opt.id)}
+              activeOpacity={0.75}
+            >
+              <Text style={[styles.limitChipText, active && { color: accentColor, fontWeight: '700' }]}>
+                {opt.label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      <RankingFiltersBar
+        accentColor={accentColor}
+        officialTeams={officialTeams}
+        selectedRoles={selectedRoles}
+        selectedTeamIds={selectedTeamIds}
+        onToggleRole={onToggleRole}
+        onToggleTeam={onToggleTeam}
+        onClearFilters={onClearFilters}
+      />
+
+      {showSearch ? (
+        <View style={styles.searchBar}>
+          <Ionicons name="search" size={16} color="#999" />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Filtra risultati..."
+            placeholderTextColor="#aaa"
+            value={searchQuery}
+            onChangeText={onSearchChange}
+            autoCapitalize="none"
+            autoCorrect={false}
+            clearButtonMode="while-editing"
+          />
+          {searchQuery ? (
+            <TouchableOpacity onPress={() => onSearchChange('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Ionicons name="close-circle" size={18} color="#bbb" />
+            </TouchableOpacity>
+          ) : null}
+        </View>
+      ) : null}
+
+      {loadingAll ? (
+        <View style={styles.sectionLoading}>
+          <ActivityIndicator size="small" color={accentColor} />
+          <Text style={styles.sectionLoadingText}>Caricamento elenco completo...</Text>
+        </View>
+      ) : null}
+
+      {!loadingAll && hasItems
+        ? items.map((player, index) => renderRow(player, index))
+        : null}
+
+      {!loadingAll && !hasItems && hasSearch ? (
+        <Text style={styles.emptyFilterText}>Nessun risultato per la ricerca.</Text>
+      ) : null}
+
+      {!loadingAll && !hasItems && !hasSearch && hasActiveFilters ? (
+        <Text style={styles.emptyFilterText}>Nessun risultato con i filtri selezionati.</Text>
+      ) : null}
+
+      {!loadingAll && !hasItems && !hasSearch && !hasActiveFilters ? (
+        <Text style={styles.emptyText}>{emptyText}</Text>
+      ) : null}
+    </StatSection>
   );
 }
 
@@ -144,6 +303,142 @@ export default function LeagueStatisticsScreen({ route }) {
   const [teamFormations, setTeamFormations] = useState({});
   const [loadingTeamFormations, setLoadingTeamFormations] = useState({});
   const [teamFormationViewMode, setTeamFormationViewMode] = useState({});
+  const [sectionLimits, setSectionLimits] = useState({ ...RANKING_SECTION_DEFAULTS });
+  const [allRankings, setAllRankings] = useState({});
+  const [loadingAllRankings, setLoadingAllRankings] = useState({});
+  const [sectionSearch, setSectionSearch] = useState({});
+  const [sectionRoleFilters, setSectionRoleFilters] = useState({});
+  const [sectionTeamFilters, setSectionTeamFilters] = useState({});
+
+  const officialTeams = useMemo(() => {
+    const fromStats = stats?.official_teams;
+    return Array.isArray(fromStats) ? fromStats : [];
+  }, [stats?.official_teams]);
+
+  const ensureFullRanking = useCallback(async (sectionKey, rankingType) => {
+    if (allRankings[sectionKey]) return;
+    if (loadingAllRankings[sectionKey]) return;
+
+    setLoadingAllRankings((prev) => ({ ...prev, [sectionKey]: true }));
+    try {
+      const res = await leagueService.getStatisticsRanking(leagueId, rankingType);
+      setAllRankings((prev) => ({ ...prev, [sectionKey]: res.data?.items || [] }));
+    } catch (_) {
+      setAllRankings((prev) => ({ ...prev, [sectionKey]: [] }));
+    } finally {
+      setLoadingAllRankings((prev) => ({ ...prev, [sectionKey]: false }));
+    }
+  }, [allRankings, loadingAllRankings, leagueId]);
+
+  const sectionNeedsFullPool = useCallback((sectionKey) => {
+    const limit = sectionLimits[sectionKey] || '5';
+    const roles = sectionRoleFilters[sectionKey] || [];
+    const teams = sectionTeamFilters[sectionKey] || [];
+    return limit === 'all' || roles.length > 0 || teams.length > 0;
+  }, [sectionLimits, sectionRoleFilters, sectionTeamFilters]);
+
+  const isSectionPoolLoading = useCallback((sectionKey) => {
+    if (!sectionNeedsFullPool(sectionKey)) return false;
+    if (allRankings[sectionKey]) return false;
+    return !!loadingAllRankings[sectionKey];
+  }, [sectionNeedsFullPool, allRankings, loadingAllRankings]);
+
+  const handleLimitChange = useCallback(async (sectionKey, rankingType, newLimit) => {
+    setSectionLimits((prev) => ({ ...prev, [sectionKey]: newLimit }));
+    if (newLimit !== 'all') {
+      setSectionSearch((prev) => ({ ...prev, [sectionKey]: '' }));
+    }
+    if (newLimit === 'all' || (sectionRoleFilters[sectionKey] || []).length > 0 || (sectionTeamFilters[sectionKey] || []).length > 0) {
+      await ensureFullRanking(sectionKey, rankingType);
+    }
+  }, [ensureFullRanking, sectionRoleFilters, sectionTeamFilters]);
+
+  const toggleSectionRole = useCallback((sectionKey, rankingType, role) => {
+    setSectionRoleFilters((prev) => {
+      const cur = prev[sectionKey] || [];
+      const next = cur.includes(role) ? cur.filter((r) => r !== role) : [...cur, role];
+      return { ...prev, [sectionKey]: next };
+    });
+    ensureFullRanking(sectionKey, rankingType);
+  }, [ensureFullRanking]);
+
+  const toggleSectionTeam = useCallback((sectionKey, rankingType, teamId) => {
+    const tid = Number(teamId);
+    setSectionTeamFilters((prev) => {
+      const cur = prev[sectionKey] || [];
+      const next = cur.includes(tid) ? cur.filter((id) => id !== tid) : [...cur, tid];
+      return { ...prev, [sectionKey]: next };
+    });
+    ensureFullRanking(sectionKey, rankingType);
+  }, [ensureFullRanking]);
+
+  const clearSectionFilters = useCallback((sectionKey) => {
+    setSectionRoleFilters((prev) => ({ ...prev, [sectionKey]: [] }));
+    setSectionTeamFilters((prev) => ({ ...prev, [sectionKey]: [] }));
+  }, []);
+
+  const getSectionFilterProps = useCallback((sectionKey, rankingType) => ({
+    officialTeams,
+    selectedRoles: sectionRoleFilters[sectionKey] || [],
+    selectedTeamIds: sectionTeamFilters[sectionKey] || [],
+    onToggleRole: (role) => toggleSectionRole(sectionKey, rankingType, role),
+    onToggleTeam: (teamId) => toggleSectionTeam(sectionKey, rankingType, teamId),
+    onClearFilters: () => clearSectionFilters(sectionKey),
+    loadingAll: isSectionPoolLoading(sectionKey),
+  }), [
+    officialTeams,
+    sectionRoleFilters,
+    sectionTeamFilters,
+    toggleSectionRole,
+    toggleSectionTeam,
+    clearSectionFilters,
+    isSectionPoolLoading,
+  ]);
+
+  const getSectionItems = useCallback((sectionKey, statKey) => {
+    const limit = sectionLimits[sectionKey] || '5';
+    const roles = sectionRoleFilters[sectionKey] || [];
+    const teams = sectionTeamFilters[sectionKey] || [];
+    const needsFull = limit === 'all' || roles.length > 0 || teams.length > 0;
+
+    if (!needsFull) {
+      const preview = stats?.[statKey] || [];
+      return limit === '5' ? preview.slice(0, 5) : preview.slice(0, 10);
+    }
+
+    const pool = allRankings[sectionKey];
+    if (!pool) return [];
+
+    let filtered = pool.filter((p) => matchesRankingFilters(p, roles, teams));
+    if (limit === 'all') {
+      const q = sectionSearch[sectionKey] || '';
+      filtered = filtered.filter((p) => matchesRankingSearch(p, q));
+      return filtered;
+    }
+    const n = limit === '5' ? 5 : 10;
+    return filtered.slice(0, n);
+  }, [sectionLimits, sectionRoleFilters, sectionTeamFilters, stats, allRankings, sectionSearch]);
+
+  const mostPurchasedItems = useMemo(
+    () => getSectionItems('most_purchased', 'most_purchased'),
+    [getSectionItems]
+  );
+  const leastPurchasedItems = useMemo(
+    () => getSectionItems('least_purchased', 'least_purchased'),
+    [getSectionItems]
+  );
+  const topFantavotiItems = useMemo(
+    () => getSectionItems('top_fantavoti', 'top_fantavoti'),
+    [getSectionItems]
+  );
+  const bottomFantavotiItems = useMemo(
+    () => getSectionItems('bottom_fantavoti', 'bottom_fantavoti'),
+    [getSectionItems]
+  );
+  const bestPurchasesItems = useMemo(
+    () => getSectionItems('best_purchases', 'best_purchases'),
+    [getSectionItems]
+  );
 
   const toggleTeamFormation = useCallback(async (cardKey, item) => {
     if (!item?.user_id || !item?.giornata) return;
@@ -181,6 +476,14 @@ export default function LeagueStatisticsScreen({ route }) {
         setExpandedTeamCards({});
         setTeamFormations({});
         setLoadingTeamFormations({});
+        setSectionLimits({ ...RANKING_SECTION_DEFAULTS });
+        setAllRankings({});
+        setLoadingAllRankings({});
+        setSectionSearch({});
+        setSectionRoleFilters({});
+        setSectionTeamFilters({});
+      } else {
+        setAllRankings({});
       }
     } catch (err) {
       const msg = err?.response?.data?.message || 'Impossibile caricare le statistiche';
@@ -240,42 +543,56 @@ export default function LeagueStatisticsScreen({ route }) {
           </View>
         ) : null}
 
-        <StatSection
+        <RankedListSection
           title="Più acquistati"
-          subtitle="Top 5 giocatori con più proprietari"
+          subtitle="Giocatori con più proprietari in lega"
           icon="bag-outline"
           accentColor="#667eea"
           emptyText="Nessun dato sul mercato."
-        >
-          {(stats?.most_purchased || []).map((player, index) => (
+          items={mostPurchasedItems}
+          limit={sectionLimits.most_purchased}
+          onLimitChange={(lim) => handleLimitChange('most_purchased', 'most_purchased', lim)}
+          searchQuery={sectionSearch.most_purchased || ''}
+          onSearchChange={(text) => setSectionSearch((prev) => ({ ...prev, most_purchased: text }))}
+          {...getSectionFilterProps('most_purchased', 'most_purchased')}
+          renderRow={(player, index) => (
             <PlayerRow
-              key={`most-${player.player_id}`}
+              key={`most-${player.player_id}-${index}`}
               rank={index + 1}
               player={player}
               valueLabel={`${player.purchase_count}`}
               valueColor="#667eea"
             />
-          ))}
-        </StatSection>
+          )}
+        />
 
-        {(stats?.least_purchased || []).length > 0 ? (
-          <StatSection
+        {(stats?.least_purchased || []).length > 0
+          || sectionLimits.least_purchased !== '5'
+          || !!allRankings.least_purchased
+          || (sectionRoleFilters.least_purchased || []).length > 0
+          || (sectionTeamFilters.least_purchased || []).length > 0 ? (
+          <RankedListSection
             title="Meno acquistati"
-            subtitle="Top 5 con meno proprietari"
+            subtitle="Giocatori con meno proprietari in lega"
             icon="trending-down-outline"
             accentColor="#6c757d"
             emptyText="Nessun dato."
-          >
-            {(stats?.least_purchased || []).map((player, index) => (
+            items={leastPurchasedItems}
+            limit={sectionLimits.least_purchased}
+            onLimitChange={(lim) => handleLimitChange('least_purchased', 'least_purchased', lim)}
+            searchQuery={sectionSearch.least_purchased || ''}
+            onSearchChange={(text) => setSectionSearch((prev) => ({ ...prev, least_purchased: text }))}
+            {...getSectionFilterProps('least_purchased', 'least_purchased')}
+            renderRow={(player, index) => (
               <PlayerRow
-                key={`least-${player.player_id}`}
+                key={`least-${player.player_id}-${index}`}
                 rank={index + 1}
                 player={player}
                 valueLabel={`${player.purchase_count}`}
                 valueColor="#6c757d"
               />
-            ))}
-          </StatSection>
+            )}
+          />
         ) : null}
 
         <StatSection
@@ -320,60 +637,75 @@ export default function LeagueStatisticsScreen({ route }) {
           ) : null}
         </StatSection>
 
-        <StatSection
+        <RankedListSection
           title="Fantavoti più alti"
           subtitle="Migliori prestazioni singole per giornata"
           icon="arrow-up-circle-outline"
           accentColor="#2e7d32"
           emptyText="Inserisci voti e calcola le giornate per vedere questo dato."
-        >
-          {(stats?.top_fantavoti || []).map((player, index) => (
+          items={topFantavotiItems}
+          limit={sectionLimits.top_fantavoti}
+          onLimitChange={(lim) => handleLimitChange('top_fantavoti', 'top_fantavoti', lim)}
+          searchQuery={sectionSearch.top_fantavoti || ''}
+          onSearchChange={(text) => setSectionSearch((prev) => ({ ...prev, top_fantavoti: text }))}
+          {...getSectionFilterProps('top_fantavoti', 'top_fantavoti')}
+          renderRow={(player, index) => (
             <PlayerRow
-              key={`top-${player.player_id}-${player.giornata}`}
+              key={`top-${player.player_id}-${player.giornata}-${index}`}
               rank={index + 1}
               player={player}
               valueLabel={formatVoteRating(player.fantavoto)}
               valueColor="#2e7d32"
             />
-          ))}
-        </StatSection>
+          )}
+        />
 
-        <StatSection
+        <RankedListSection
           title="Fantavoti più bassi"
           subtitle="Peggiori prestazioni singole per giornata"
           icon="arrow-down-circle-outline"
           accentColor="#c62828"
           emptyText="Inserisci voti e calcola le giornate per vedere questo dato."
-        >
-          {(stats?.bottom_fantavoti || []).map((player, index) => (
+          items={bottomFantavotiItems}
+          limit={sectionLimits.bottom_fantavoti}
+          onLimitChange={(lim) => handleLimitChange('bottom_fantavoti', 'bottom_fantavoti', lim)}
+          searchQuery={sectionSearch.bottom_fantavoti || ''}
+          onSearchChange={(text) => setSectionSearch((prev) => ({ ...prev, bottom_fantavoti: text }))}
+          {...getSectionFilterProps('bottom_fantavoti', 'bottom_fantavoti')}
+          renderRow={(player, index) => (
             <PlayerRow
-              key={`bottom-${player.player_id}-${player.giornata}`}
+              key={`bottom-${player.player_id}-${player.giornata}-${index}`}
               rank={index + 1}
               player={player}
               valueLabel={formatVoteRating(player.fantavoto)}
               valueColor="#c62828"
             />
-          ))}
-        </StatSection>
+          )}
+        />
 
-        <StatSection
+        <RankedListSection
           title="Migliori acquisti"
           subtitle="Somma fantavoti in lega ÷ costo d'acquisto"
           icon="trending-up-outline"
           accentColor="#667eea"
           emptyText="Servono acquisti in lega e voti inseriti per calcolare il rapporto."
-        >
-          {(stats?.best_purchases || []).map((player, index) => (
+          items={bestPurchasesItems}
+          limit={sectionLimits.best_purchases}
+          onLimitChange={(lim) => handleLimitChange('best_purchases', 'best_purchases', lim)}
+          searchQuery={sectionSearch.best_purchases || ''}
+          onSearchChange={(text) => setSectionSearch((prev) => ({ ...prev, best_purchases: text }))}
+          {...getSectionFilterProps('best_purchases', 'best_purchases')}
+          renderRow={(player, index) => (
             <PlayerRow
-              key={`buy-${player.player_id}`}
+              key={`buy-${player.player_id}-${index}`}
               rank={index + 1}
               player={player}
               valueLabel={Number(player.value_ratio || 0).toFixed(2)}
               valueHint={`${formatVoteRating(player.total_fantavoto_sum)} / ${formatVoteRating(player.cost)}`}
               valueColor="#667eea"
             />
-          ))}
-        </StatSection>
+          )}
+        />
       </ScrollView>
     </View>
   );
@@ -473,6 +805,60 @@ const styles = StyleSheet.create({
   sectionBody: {
     padding: 10,
     gap: 8,
+  },
+  limitBar: {
+    flexDirection: 'row',
+    gap: 6,
+    marginBottom: 2,
+  },
+  limitChip: {
+    flex: 1,
+    paddingVertical: 7,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e8e8e8',
+    backgroundColor: '#fafafa',
+    alignItems: 'center',
+  },
+  limitChipText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#888',
+  },
+  searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#f5f6fa',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#ececec',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 14,
+    color: '#333',
+    paddingVertical: 0,
+  },
+  sectionLoading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+  },
+  sectionLoadingText: {
+    fontSize: 13,
+    color: '#888',
+  },
+  emptyFilterText: {
+    color: '#999',
+    fontSize: 13,
+    textAlign: 'center',
+    paddingVertical: 8,
+    fontStyle: 'italic',
   },
   emptyText: {
     color: '#999',
