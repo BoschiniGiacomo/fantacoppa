@@ -2563,11 +2563,18 @@ function mapLeagueStatsTeamRow(r) {
   };
 }
 
+/** Nel rapporto migliori acquisti il costo entra come √costo per attenuarne l'impatto. */
+function leagueStatsBestPurchaseDivisor(cost) {
+  const c = Number(cost || 0);
+  return c > 0 ? Math.sqrt(c) : 0;
+}
+
 function mapLeagueStatsBestPurchaseRow(r) {
   const base = mapLeagueStatsPlayerRow(r);
   const cost = Number(r.cost || 0);
   const totalFantavotoSum = Number(r.total_fantavoto_sum || 0);
-  const valueRatio = cost > 0 ? totalFantavotoSum / cost : 0;
+  const divisor = leagueStatsBestPurchaseDivisor(cost);
+  const valueRatio = divisor > 0 ? totalFantavotoSum / divisor : 0;
   return {
     ...base,
     cost: Number(cost.toFixed(2)),
@@ -2732,7 +2739,7 @@ async function fetchLeagueStatRanking(type, leagueId, effectiveLeagueId, limit =
                 ${LEAGUE_STATS_TEAM_FIELDS_SQL},
                 p.rating::float AS cost,
                 pt.total_fantavoto_sum,
-                (pt.total_fantavoto_sum / NULLIF(p.rating, 0))::float AS value_ratio
+                (pt.total_fantavoto_sum / NULLIF(SQRT(p.rating), 0))::float AS value_ratio
          FROM purchased_players pp
          JOIN players p ON p.id = pp.player_id
          JOIN teams t ON t.id = p.team_id AND t.league_id = ?

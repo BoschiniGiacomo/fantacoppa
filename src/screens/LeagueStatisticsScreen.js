@@ -685,7 +685,7 @@ export default function LeagueStatisticsScreen({ route }) {
 
         <RankedListSection
           title="Migliori acquisti"
-          subtitle="Somma fantavoti in lega ÷ costo d'acquisto"
+          subtitle="Somma fantavoti in lega ÷ √costo d'acquisto"
           icon="trending-up-outline"
           accentColor="#667eea"
           emptyText="Servono acquisti in lega e voti inseriti per calcolare il rapporto."
