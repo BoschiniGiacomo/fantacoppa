@@ -14,11 +14,12 @@ import {
   Switch,
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
+import * as ImagePicker from 'expo-image-picker';
 import LoopingVideoView from '../components/LoopingVideoView';
 import AppLoadingFullScreenModal from '../components/AppLoadingFullScreenModal';
 import { useAuth } from '../context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
-import { superuserService } from '../services/api';
+import { superuserService, publicAssetUrl } from '../services/api';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -156,6 +157,7 @@ export default function SuperUserScreen() {
   const [newGroupDescription, setNewGroupDescription] = useState('');
   const [selectedGroupForEdit, setSelectedGroupForEdit] = useState(null);
   const [showGroupDetailModal, setShowGroupDetailModal] = useState(false);
+  const [uploadingGroupLogo, setUploadingGroupLogo] = useState(false);
   const [referenceYearDrafts, setReferenceYearDrafts] = useState({});
   /** @type {Record<string, Array<{id:number,name:string,girone_index?:number|null}>>} */
   const [gironiTeamsByLeague, setGironiTeamsByLeague] = useState({});
@@ -1062,6 +1064,65 @@ export default function SuperUserScreen() {
     }
   };
 
+  const handlePickOfficialGroupLogo = async () => {
+    const groupId = Number(selectedGroupForEdit?.id);
+    if (!groupId) return;
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        showToast('Concedi accesso alla galleria per selezionare un logo');
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaType?.Images || 'images',
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+      if (result.canceled || !result.assets?.length) return;
+      const picked = result.assets[0];
+      const sizeMb = Number(picked?.fileSize || 0) > 0 ? Number(picked.fileSize) / (1024 * 1024) : 0;
+      if (sizeMb > 2) {
+        showToast('Il file è troppo grande. Massimo 2MB');
+        return;
+      }
+      setUploadingGroupLogo(true);
+      const res = await superuserService.uploadOfficialGroupLogo(groupId, picked.uri);
+      const logoPath = res?.data?.logo_path || null;
+      setSelectedGroupForEdit((prev) => (prev ? { ...prev, logo_path: logoPath } : prev));
+      setOfficialGroups((prev) =>
+        (Array.isArray(prev) ? prev : []).map((g) =>
+          Number(g.id) === groupId ? { ...g, logo_path: logoPath } : g
+        )
+      );
+      showToast('Logo gruppo aggiornato', 'success');
+    } catch (error) {
+      showToast(error.response?.data?.message || error.message || 'Errore caricamento logo');
+    } finally {
+      setUploadingGroupLogo(false);
+    }
+  };
+
+  const handleRemoveOfficialGroupLogo = async () => {
+    const groupId = Number(selectedGroupForEdit?.id);
+    if (!groupId) return;
+    try {
+      setUploadingGroupLogo(true);
+      await superuserService.removeOfficialGroupLogo(groupId);
+      setSelectedGroupForEdit((prev) => (prev ? { ...prev, logo_path: null } : prev));
+      setOfficialGroups((prev) =>
+        (Array.isArray(prev) ? prev : []).map((g) =>
+          Number(g.id) === groupId ? { ...g, logo_path: null } : g
+        )
+      );
+      showToast('Logo gruppo rimosso', 'success');
+    } catch (error) {
+      showToast(error.response?.data?.message || error.message || 'Errore rimozione logo');
+    } finally {
+      setUploadingGroupLogo(false);
+    }
+  };
+
   const handleSaveLeagueReferenceYear = async (groupId, leagueId, overrideDraft = null) => {
     const draft = String(overrideDraft ?? referenceYearDrafts[String(leagueId)] ?? '').trim();
     if (draft !== '') {
@@ -1811,7 +1872,11 @@ export default function SuperUserScreen() {
                       try {
                         const response = await superuserService.getOfficialGroupLeagues(item.id);
                         const leaguesInGroup = response.data.leagues || [];
-                        setSelectedGroupForEdit({ ...item, leagues: leaguesInGroup });
+                        setSelectedGroupForEdit({
+                          ...item,
+                          ...(response.data?.group || {}),
+                          leagues: leaguesInGroup,
+                        });
                         const nextDrafts = {};
                         leaguesInGroup.forEach((lg) => {
                           nextDrafts[String(lg.id)] = lg?.reference_year != null ? String(lg.reference_year) : '';
@@ -2326,6 +2391,44 @@ export default function SuperUserScreen() {
                     {selectedGroupForEdit.description}
                   </Text>
                 )}
+
+                <View style={styles.groupLogoSection}>
+                  <Text style={styles.groupDetailSectionTitle}>Logo gruppo</Text>
+                  <View style={styles.groupLogoRow}>
+                    {selectedGroupForEdit.logo_path ? (
+                      <Image
+                        source={{ uri: publicAssetUrl(selectedGroupForEdit.logo_path) }}
+                        style={styles.groupLogoPreview}
+                      />
+                    ) : (
+                      <View style={styles.groupLogoPlaceholder}>
+                        <Ionicons name="trophy-outline" size={28} color="#94a3b8" />
+                      </View>
+                    )}
+                    <View style={styles.groupLogoActions}>
+                      <TouchableOpacity
+                        style={[styles.groupLogoBtn, uploadingGroupLogo && styles.groupLogoBtnDisabled]}
+                        onPress={handlePickOfficialGroupLogo}
+                        disabled={uploadingGroupLogo}
+                      >
+                        {uploadingGroupLogo ? (
+                          <ActivityIndicator size="small" color="#667eea" />
+                        ) : (
+                          <Text style={styles.groupLogoBtnText}>Carica logo</Text>
+                        )}
+                      </TouchableOpacity>
+                      {selectedGroupForEdit.logo_path ? (
+                        <TouchableOpacity
+                          style={[styles.groupLogoBtnOutline, uploadingGroupLogo && styles.groupLogoBtnDisabled]}
+                          onPress={handleRemoveOfficialGroupLogo}
+                          disabled={uploadingGroupLogo}
+                        >
+                          <Text style={styles.groupLogoBtnOutlineText}>Rimuovi</Text>
+                        </TouchableOpacity>
+                      ) : null}
+                    </View>
+                  </View>
+                </View>
                 
                 <Text style={styles.groupDetailSectionTitle}>
                   Leghe del Gruppo ({selectedGroupForEdit.leagues?.length || 0})
@@ -3801,6 +3904,63 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     marginBottom: 16,
     lineHeight: 20,
+  },
+  groupLogoSection: {
+    marginBottom: 16,
+    paddingHorizontal: 16,
+  },
+  groupLogoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+  },
+  groupLogoPreview: {
+    width: 72,
+    height: 72,
+    borderRadius: 12,
+    backgroundColor: '#f1f5f9',
+  },
+  groupLogoPlaceholder: {
+    width: 72,
+    height: 72,
+    borderRadius: 12,
+    backgroundColor: '#f1f5f9',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  groupLogoActions: {
+    flex: 1,
+    gap: 8,
+  },
+  groupLogoBtn: {
+    backgroundColor: '#667eea',
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    alignItems: 'center',
+  },
+  groupLogoBtnOutline: {
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+  },
+  groupLogoBtnDisabled: {
+    opacity: 0.6,
+  },
+  groupLogoBtnText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  groupLogoBtnOutlineText: {
+    color: '#64748b',
+    fontWeight: '700',
+    fontSize: 13,
   },
   groupDetailSectionTitle: {
     fontSize: 16,

@@ -653,14 +653,16 @@ router.put('/leagues/:id/hidden-from-discovery', authenticateToken, requireSuper
 
 router.get('/official-groups', authenticateToken, requireSuperuser, async (_req, res) => {
   try {
+    await query(`ALTER TABLE official_league_groups ADD COLUMN IF NOT EXISTS logo_path TEXT`);
     const rows = await query(
       `SELECT og.id, og.name, og.description, og.created_by, og.created_at,
+              COALESCE(NULLIF(to_jsonb(og)->>'logo_path',''), NULLIF(og.logo_path, '')) AS logo_path,
               COALESCE(u.username, '') AS created_by_username,
               COUNT(l.id)::int AS league_count
        FROM official_league_groups og
        LEFT JOIN leagues l ON l.official_group_id = og.id
        LEFT JOIN users u ON u.id = og.created_by
-       GROUP BY og.id, og.name, og.description, og.created_by, og.created_at, u.username
+       GROUP BY og.id, og.name, og.description, og.created_by, og.created_at, og.logo_path, u.username
        ORDER BY og.created_at DESC, og.id DESC`
     );
     return res.json(rows);
@@ -750,9 +752,10 @@ router.get('/official-groups/:id/leagues', authenticateToken, requireSuperuser, 
     const groupId = Number(req.params.id);
     if (!groupId || groupId <= 0) return res.status(400).json({ message: 'ID gruppo non valido' });
 
+    await query(`ALTER TABLE official_league_groups ADD COLUMN IF NOT EXISTS logo_path TEXT`);
     const groupRows = await query(
-      `SELECT id, name
-       FROM official_league_groups
+      `SELECT id, name, COALESCE(NULLIF(to_jsonb(og)->>'logo_path',''), NULLIF(og.logo_path, '')) AS logo_path
+       FROM official_league_groups og
        WHERE id = ?
        LIMIT 1`,
       [groupId]
@@ -773,7 +776,11 @@ router.get('/official-groups/:id/leagues', authenticateToken, requireSuperuser, 
       [groupId]
     );
     return res.json({
-      group: { id: Number(groupRows[0].id), name: groupRows[0].name },
+      group: {
+        id: Number(groupRows[0].id),
+        name: groupRows[0].name,
+        logo_path: groupRows[0].logo_path || null,
+      },
       leagues,
     });
   } catch (error) {
@@ -1540,6 +1547,87 @@ function allowedLogoMime(mimetype, originalname) {
   if (okMime) return true;
   return ['.png', '.jpg', '.jpeg', '.gif', '.webp'].some((e) => n.endsWith(e));
 }
+
+const officialGroupLogoUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 2 * 1024 * 1024 },
+});
+
+router.post(
+  '/official-groups/:id/logo',
+  authenticateToken,
+  requireSuperuser,
+  officialGroupLogoUpload.single('logo'),
+  async (req, res) => {
+    try {
+      const groupId = Number(req.params.id);
+      if (!groupId || groupId <= 0) return res.status(400).json({ message: 'ID gruppo non valido' });
+      if (!req.file) return res.status(400).json({ message: 'File logo mancante' });
+      if (!allowedLogoMime(req.file.mimetype, req.file.originalname)) {
+        return res.status(400).json({ message: 'Formato non supportato (PNG, JPEG, WEBP)' });
+      }
+      await query(`ALTER TABLE official_league_groups ADD COLUMN IF NOT EXISTS logo_path TEXT`);
+      const exists = await query(`SELECT id, logo_path FROM official_league_groups WHERE id = ? LIMIT 1`, [groupId]);
+      if (!exists.length) return res.status(404).json({ message: 'Gruppo non trovato' });
+
+      const supabase = getSupabaseStorageClient();
+      if (!supabase) {
+        return res.status(500).json({ message: 'Supabase Storage non configurato sul server' });
+      }
+
+      const ext = path.extname(String(req.file.originalname || '')).toLowerCase();
+      const safeExt = ['.jpg', '.jpeg', '.png', '.webp'].includes(ext) ? ext : '.jpg';
+      const ts = Math.floor(Date.now() / 1000);
+      const filename = `official_group_${groupId}_${ts}${safeExt}`;
+      const storagePath = `official_group_logos/${filename}`;
+
+      const prevPath = exists[0]?.logo_path;
+      const { error: storageError } = await supabase.storage
+        .from('uploads')
+        .upload(storagePath, req.file.buffer, {
+          contentType: req.file.mimetype || 'image/jpeg',
+          upsert: true,
+          cacheControl: '3600',
+        });
+      if (storageError) {
+        return res.status(500).json({ message: 'Errore upload logo su Supabase Storage', error: storageError.message });
+      }
+
+      const logoPath = `uploads/${storagePath}`;
+      if (prevPath && String(prevPath).startsWith('uploads/')) {
+        const old = String(prevPath).replace(/^uploads\//, '');
+        await supabase.storage.from('uploads').remove([old]).catch(() => {});
+      }
+
+      await query(`UPDATE official_league_groups SET logo_path = ? WHERE id = ?`, [logoPath, groupId]);
+      return res.json({ success: true, logo_path: logoPath });
+    } catch (error) {
+      console.error('Upload official group logo:', error);
+      return res.status(500).json({ message: 'Errore upload logo gruppo ufficiale', error: error.message });
+    }
+  }
+);
+
+router.delete('/official-groups/:id/logo', authenticateToken, requireSuperuser, async (req, res) => {
+  try {
+    const groupId = Number(req.params.id);
+    if (!groupId || groupId <= 0) return res.status(400).json({ message: 'ID gruppo non valido' });
+    await query(`ALTER TABLE official_league_groups ADD COLUMN IF NOT EXISTS logo_path TEXT`);
+    const exists = await query(`SELECT id, logo_path FROM official_league_groups WHERE id = ? LIMIT 1`, [groupId]);
+    if (!exists.length) return res.status(404).json({ message: 'Gruppo non trovato' });
+    const prevPath = exists[0]?.logo_path;
+    const supabase = getSupabaseStorageClient();
+    if (supabase && prevPath && String(prevPath).startsWith('uploads/')) {
+      const old = String(prevPath).replace(/^uploads\//, '');
+      await supabase.storage.from('uploads').remove([old]).catch(() => {});
+    }
+    await query(`UPDATE official_league_groups SET logo_path = NULL WHERE id = ?`, [groupId]);
+    return res.json({ success: true });
+  } catch (error) {
+    console.error('Remove official group logo:', error);
+    return res.status(500).json({ message: 'Errore rimozione logo gruppo ufficiale', error: error.message });
+  }
+});
 
 router.post(
   '/login-logo',

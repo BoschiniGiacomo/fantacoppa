@@ -2509,6 +2509,579 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
   }
 });
 
+let officialGroupLogoSchemaReady = false;
+async function ensureOfficialGroupLogoSchema() {
+  if (officialGroupLogoSchemaReady) return;
+  await query(`ALTER TABLE official_league_groups ADD COLUMN IF NOT EXISTS logo_path TEXT`);
+  officialGroupLogoSchemaReady = true;
+}
+
+function normalizeOfficialGroupLogoPathForApi(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return null;
+  const cleaned = s.replace(/^\/+/, '');
+  if (/^https?:\/\//i.test(cleaned)) return cleaned;
+  if (cleaned.startsWith('uploads/')) return cleaned;
+  if (cleaned.includes('/')) return cleaned;
+  return `uploads/official_group_logos/${cleaned}`;
+}
+
+async function fetchOfficialGroupRow(groupId) {
+  await ensureOfficialGroupLogoSchema();
+  const rows = await query(
+    `SELECT id, name, description, COALESCE(NULLIF(to_jsonb(og)->>'logo_path',''), NULLIF(og.logo_path, '')) AS logo_path
+     FROM official_league_groups og
+     WHERE og.id = ?
+     LIMIT 1`,
+    [groupId]
+  );
+  return rows[0] || null;
+}
+
+async function listOfficialGroupSeasonLeagues(competitionId) {
+  return await query(
+    `SELECT l.id AS league_id, NULLIF(to_jsonb(l)->>'reference_year','')::int AS reference_year
+     FROM leagues l
+     WHERE l.official_group_id = ?
+       AND COALESCE(l.is_official, 0) = 1
+     ORDER BY NULLIF(to_jsonb(l)->>'reference_year','')::int DESC NULLS LAST, l.id DESC`,
+    [competitionId]
+  );
+}
+
+function determineKnockoutMatchWinner(match) {
+  if (!match) return null;
+  const hs = match.home_score != null ? Number(match.home_score) : null;
+  const as = match.away_score != null ? Number(match.away_score) : null;
+  if (!Number.isFinite(hs) || !Number.isFinite(as)) return null;
+  const hps = match.home_shootout_score != null ? Number(match.home_shootout_score) : null;
+  const aps = match.away_shootout_score != null ? Number(match.away_shootout_score) : null;
+  const outcomeHome = hs === as && Number.isFinite(hps) && Number.isFinite(aps) ? hps : hs;
+  const outcomeAway = hs === as && Number.isFinite(hps) && Number.isFinite(aps) ? aps : as;
+  if (outcomeHome > outcomeAway) {
+    return {
+      team_id: match.home_team_id != null ? Number(match.home_team_id) : null,
+      team_name: match.home_team_name != null ? String(match.home_team_name) : null,
+      logo_path: match.home_team_logo_path || null,
+    };
+  }
+  if (outcomeAway > outcomeHome) {
+    return {
+      team_id: match.away_team_id != null ? Number(match.away_team_id) : null,
+      team_name: match.away_team_name != null ? String(match.away_team_name) : null,
+      logo_path: match.away_team_logo_path || null,
+    };
+  }
+  return null;
+}
+
+async function buildOfficialGroupHallOfFame(competitionId) {
+  const leagues = await listOfficialGroupSeasonLeagues(competitionId);
+  const winnersByYear = [];
+  const titleBuckets = new Map();
+
+  for (const row of leagues || []) {
+    const leagueId = Number(row.league_id);
+    const year = Number(row.reference_year);
+    if (!Number.isFinite(leagueId) || leagueId <= 0 || !Number.isFinite(year)) continue;
+    const ko = await buildKnockoutBracketForLeague({ competitionId, leagueId });
+    const finalMatch = ko?.final || null;
+    if (!finalMatch?.id) continue;
+    const endedIds = await fetchMatchEndedIds([Number(finalMatch.id)]);
+    if (!endedIds.has(Number(finalMatch.id))) continue;
+    const winner = determineKnockoutMatchWinner(finalMatch);
+    if (!winner?.team_name) continue;
+    const logoPath = normalizeTeamLogoPathForApi(winner.logo_path);
+    winnersByYear.push({
+      year,
+      team_id: winner.team_id,
+      team_name: winner.team_name,
+      team_logo_path: logoPath,
+      team_logo_url: logoUrlForPath(logoPath),
+    });
+    const norm = normalizeTeamNameForFavorite(winner.team_name);
+    const prev = titleBuckets.get(norm) || {
+      team_name: winner.team_name,
+      titles: 0,
+      years: [],
+      team_logo_path: logoPath,
+    };
+    prev.titles += 1;
+    prev.years.push(year);
+    if (logoPath && !prev.team_logo_path) prev.team_logo_path = logoPath;
+    titleBuckets.set(norm, prev);
+  }
+
+  winnersByYear.sort((a, b) => Number(b.year) - Number(a.year));
+  const ranking = [...titleBuckets.values()]
+    .map((r) => ({
+      team_name: r.team_name,
+      titles: r.titles,
+      years: [...r.years].sort((a, b) => b - a),
+      team_logo_path: r.team_logo_path,
+      team_logo_url: logoUrlForPath(r.team_logo_path),
+    }))
+    .sort((a, b) => b.titles - a.titles || a.team_name.localeCompare(b.team_name, 'it'));
+
+  return { winners_by_year: winnersByYear, ranking };
+}
+
+async function computeOfficialGroupSeasonStats(competitionId, targetLeagueIds, isAbsoluteMode) {
+  const compId = Number(competitionId);
+  const leagueIds = [...new Set((targetLeagueIds || []).map(Number).filter((id) => Number.isFinite(id) && id > 0))];
+  if (!leagueIds.length) {
+    return { scorers: [], assistmen: [], presences: [] };
+  }
+
+  const phLeagueIds = leagueIds.map(() => '?').join(', ');
+  const [seasonTeamRows, seasonMatches] = await Promise.all([
+    query(
+      `SELECT id, league_id FROM teams WHERE league_id IN (${phLeagueIds}) ORDER BY id ASC`,
+      leagueIds
+    ),
+    query(
+      `SELECT id, home_team_id, away_team_id, home_score, away_score
+       FROM official_matches
+       WHERE competition_id = ?
+         AND home_team_id IN (SELECT id FROM teams WHERE league_id IN (${phLeagueIds}))
+         AND away_team_id IN (SELECT id FROM teams WHERE league_id IN (${phLeagueIds}))
+       ORDER BY id ASC`,
+      [compId, ...leagueIds, ...leagueIds]
+    ),
+  ]);
+
+  const seasonTeamIds = Array.from(
+    new Set((seasonTeamRows || []).map((r) => Number(r.id)).filter((id) => Number.isFinite(id) && id > 0))
+  );
+  if (!seasonTeamIds.length) {
+    return { scorers: [], assistmen: [], presences: [] };
+  }
+
+  const presencesPromise = fetchOfficialTeamPresencesWithVoteRanking(seasonTeamRows, {
+    isAbsoluteMode,
+    competitionId: compId,
+  }).catch(() => []);
+
+  const matchIds = (seasonMatches || []).map((m) => Number(m.id)).filter((n) => Number.isFinite(n) && n > 0);
+  const seasonEndedMatchIds = await fetchMatchEndedIds(matchIds);
+
+  let evRows = [];
+  if (matchIds.length > 0) {
+    const ph = matchIds.map(() => '?').join(', ');
+    evRows = await query(
+      `SELECT id, match_id, event_type, team_side, team_id, player_id, assist_player_id, payload_json
+       FROM official_match_events
+       WHERE match_id IN (${ph})
+       ORDER BY id ASC`,
+      matchIds
+    );
+  }
+
+  const playerIds = Array.from(
+    new Set(
+      (evRows || [])
+        .flatMap((e) => {
+          const payload = safeJsonParse(e.payload_json) || {};
+          return [
+            Number(e.player_id),
+            Number(e.assist_player_id),
+            Number(payload.player_id),
+            Number(payload.assist_player_id),
+          ];
+        })
+        .filter((n) => Number.isFinite(n) && n > 0)
+    )
+  );
+
+  let playerNameMap = new Map();
+  let playerTeamMap = new Map();
+  if (playerIds.length > 0) {
+    const phPlayers = playerIds.map(() => '?').join(', ');
+    const pRows = await query(
+      `SELECT id, first_name, last_name, team_id FROM players WHERE id IN (${phPlayers})`,
+      playerIds
+    );
+    playerNameMap = new Map(
+      (pRows || []).map((p) => [Number(p.id), String(`${p.first_name || ''} ${p.last_name || ''}`).trim()])
+    );
+    playerTeamMap = new Map((pRows || []).map((p) => [Number(p.id), Number(p.team_id)]));
+  }
+
+  const evByMatch = new Map();
+  for (const ev of evRows || []) {
+    const mid = Number(ev.match_id);
+    if (!evByMatch.has(mid)) evByMatch.set(mid, []);
+    evByMatch.get(mid).push(ev);
+  }
+
+  const scorersMap = new Map();
+  const assistsMap = new Map();
+
+  for (const m of seasonMatches || []) {
+    const events = evByMatch.get(Number(m.id)) || [];
+    const resolvedSeason = resolveOfficialMatchResultForStandings(
+      m,
+      { has: events.some((e) => isRegularGoalEventType(e.event_type) || e.event_type === 'own_goal'), home: 0, away: 0 },
+      seasonEndedMatchIds.has(Number(m.id))
+    );
+    if (!resolvedSeason.counted) continue;
+
+    for (const e of events) {
+      if (!isRegularGoalEventType(e.event_type)) continue;
+      if (!eventHasGoalScorer(e)) continue;
+      const payload = safeJsonParse(e.payload_json) || {};
+      const pid = Number(e.player_id) || Number(payload?.player_id);
+      const aid = Number(e.assist_player_id) || Number(payload?.assist_player_id);
+      const pn =
+        (Number.isFinite(pid) && pid > 0 ? String(playerNameMap.get(pid) || '').trim() : '') ||
+        String(payload?.player_name || '').trim();
+      const scorerOnLeagueTeam =
+        (Number.isFinite(pid) && pid > 0 && seasonTeamIds.includes(Number(playerTeamMap.get(pid)))) ||
+        seasonTeamIds.includes(Number(e.team_id) || Number(payload?.team_id));
+      if (scorerOnLeagueTeam && pn) scorersMap.set(pn, Number(scorersMap.get(pn) || 0) + 1);
+      const an =
+        (Number.isFinite(aid) && aid > 0 ? String(playerNameMap.get(aid) || '').trim() : '') ||
+        String(payload?.assist_player_name || payload?.assist_name || '').trim();
+      const assistOnLeagueTeam =
+        (Number.isFinite(aid) && aid > 0 && seasonTeamIds.includes(Number(playerTeamMap.get(aid)))) ||
+        seasonTeamIds.includes(Number(e.team_id) || Number(payload?.team_id));
+      if (assistOnLeagueTeam && an) assistsMap.set(an, Number(assistsMap.get(an) || 0) + 1);
+    }
+  }
+
+  const listFromMap = (mp) =>
+    Array.from(mp.entries())
+      .map(([name, value]) => ({ name, value: Number(value || 0) }))
+      .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name, 'it'));
+
+  const presences = await presencesPromise;
+  return {
+    scorers: listFromMap(scorersMap),
+    assistmen: listFromMap(assistsMap),
+    presences: Array.isArray(presences) ? presences : [],
+  };
+}
+
+// GET /matches/groups/:groupId/detail — dettaglio gruppo ufficiale
+router.get('/matches/groups/:groupId/detail', authenticateToken, async (req, res) => {
+  try {
+    const groupId = Number(req.params.groupId);
+    if (!groupId || groupId <= 0) return res.status(400).json({ message: 'groupId non valido' });
+    const group = await fetchOfficialGroupRow(groupId);
+    if (!group) return res.status(404).json({ message: 'Gruppo non trovato' });
+    const logoPath = normalizeOfficialGroupLogoPathForApi(group.logo_path);
+    return res.json({
+      group: {
+        id: Number(group.id),
+        name: String(group.name || '').trim(),
+        description: group.description != null ? String(group.description) : null,
+        logo_path: logoPath,
+        logo_url: logoUrlForPath(logoPath),
+      },
+    });
+  } catch (err) {
+    if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
+    return res.status(500).json({ message: 'Errore caricamento dettaglio gruppo', error: err.message });
+  }
+});
+
+// GET /matches/groups/:groupId/matches — tutte le partite del gruppo ufficiale
+router.get('/matches/groups/:groupId/matches', authenticateToken, async (req, res) => {
+  try {
+    const userId = Number(req.user?.userId);
+    const groupId = Number(req.params.groupId);
+    if (!groupId || groupId <= 0) return res.status(400).json({ message: 'groupId non valido' });
+    const group = await fetchOfficialGroupRow(groupId);
+    if (!group) return res.status(404).json({ message: 'Gruppo non trovato' });
+
+    const rows = await query(
+      `
+      WITH su AS (
+        SELECT CASE WHEN COALESCE(is_superuser, 0) IN (1, 2) THEN 1 ELSE 0 END AS can_see
+        FROM users WHERE id = ?
+      ),
+      ev_scores AS (
+        SELECT
+          e.match_id,
+          SUM(CASE
+                WHEN e.event_type IN ('goal','penalty_goal') AND (
+                  e.team_id = om.home_team_id OR (e.team_id IS NULL AND e.team_side = 'home')
+                ) THEN 1
+                WHEN e.event_type = 'own_goal' AND (
+                  e.team_id = om.away_team_id OR (e.team_id IS NULL AND e.team_side = 'away')
+                ) THEN 1
+                ELSE 0
+              END)::int AS ev_home,
+          SUM(CASE
+                WHEN e.event_type IN ('goal','penalty_goal') AND (
+                  e.team_id = om.away_team_id OR (e.team_id IS NULL AND e.team_side = 'away')
+                ) THEN 1
+                WHEN e.event_type = 'own_goal' AND (
+                  e.team_id = om.home_team_id OR (e.team_id IS NULL AND e.team_side = 'home')
+                ) THEN 1
+                ELSE 0
+              END)::int AS ev_away,
+          SUM(CASE
+                WHEN e.event_type = 'shootout_goal' AND (
+                  e.team_id = om.home_team_id OR (e.team_id IS NULL AND e.team_side = 'home')
+                ) THEN 1
+                ELSE 0
+              END)::int AS ev_home_shootout,
+          SUM(CASE
+                WHEN e.event_type = 'shootout_goal' AND (
+                  e.team_id = om.away_team_id OR (e.team_id IS NULL AND e.team_side = 'away')
+                ) THEN 1
+                ELSE 0
+              END)::int AS ev_away_shootout,
+          BOOL_OR(e.event_type IN ('shootout_goal','shootout_missed')) AS has_shootout
+        FROM official_match_events e
+        JOIN official_matches om ON om.id = e.match_id
+        WHERE e.event_type IN ('goal','penalty_goal','own_goal','shootout_goal','shootout_missed')
+        GROUP BY e.match_id
+      ),
+      last_phase AS (
+        SELECT DISTINCT ON (e.match_id)
+          e.match_id,
+          e.event_type AS last_phase_type
+        FROM official_match_events e
+        WHERE e.event_type IN (
+          'match_start','half_time','second_half_start','second_half_end',
+          'extra_first_half_start','extra_half_time','extra_second_half_start','extra_second_half_end',
+          'penalties_start','match_end'
+        )
+        ORDER BY e.match_id, e.id DESC
+      ),
+${SQL_WALKOVER_MATCHES_CTE}
+      SELECT
+        m.id,
+        m.kickoff_at,
+        m.competition_id,
+        ms.name AS match_stage,
+        m.home_team_id,
+        ht.name AS home_team_name,
+        ht.logo_path AS home_team_logo_path,
+        m.away_team_id,
+        at.name AS away_team_name,
+        at.logo_path AS away_team_logo_path,
+        COALESCE(evs.ev_home, m.home_score, CASE WHEN lp.last_phase_type = 'match_end' THEN 0 END) AS home_score,
+        COALESCE(evs.ev_away, m.away_score, CASE WHEN lp.last_phase_type = 'match_end' THEN 0 END) AS away_score,
+        CASE WHEN COALESCE(evs.has_shootout, false) THEN COALESCE(evs.ev_home_shootout, 0) ELSE NULL END AS home_shootout_score,
+        CASE WHEN COALESCE(evs.has_shootout, false) THEN COALESCE(evs.ev_away_shootout, 0) ELSE NULL END AS away_shootout_score,
+        lp.last_phase_type,
+        COALESCE(wo.match_id IS NOT NULL, false) AS is_walkover
+      FROM official_matches m
+      INNER JOIN teams ht ON ht.id = m.home_team_id
+      INNER JOIN teams at ON at.id = m.away_team_id
+      LEFT JOIN official_match_stages ms ON ms.id = NULLIF(to_jsonb(m)->>'match_stage_id','')::int
+      LEFT JOIN ev_scores evs ON evs.match_id = m.id
+      LEFT JOIN last_phase lp ON lp.match_id = m.id
+      LEFT JOIN walkover_matches wo ON wo.match_id = m.id
+      WHERE m.competition_id = ?
+        AND ((SELECT can_see FROM su) = 1 OR COALESCE(m.is_admin_only, 0) = 0)
+      ORDER BY m.kickoff_at ASC, m.id ASC
+      `,
+      [userId, groupId]
+    );
+
+    const matches = (Array.isArray(rows) ? rows : []).map((r) => {
+      const homeLogoPath = normalizeTeamLogoPathForApi(r?.home_team_logo_path);
+      const awayLogoPath = normalizeTeamLogoPathForApi(r?.away_team_logo_path);
+      return {
+        id: Number(r.id),
+        kickoff_at: r.kickoff_at,
+        competition_id: Number(r.competition_id),
+        match_stage: r.match_stage != null ? String(r.match_stage) : null,
+        home_team_id: Number(r.home_team_id),
+        home_team_name: r.home_team_name,
+        home_team_logo_path: homeLogoPath,
+        home_team_logo_url: logoUrlForPath(homeLogoPath),
+        away_team_id: Number(r.away_team_id),
+        away_team_name: r.away_team_name,
+        away_team_logo_path: awayLogoPath,
+        away_team_logo_url: logoUrlForPath(awayLogoPath),
+        home_score: r.home_score != null ? Number(r.home_score) : null,
+        away_score: r.away_score != null ? Number(r.away_score) : null,
+        home_shootout_score: r.home_shootout_score != null ? Number(r.home_shootout_score) : null,
+        away_shootout_score: r.away_shootout_score != null ? Number(r.away_shootout_score) : null,
+        last_phase_type: r.last_phase_type || null,
+        is_walkover: r.is_walkover === true || r.is_walkover === 1 ? 1 : 0,
+      };
+    });
+
+    return res.json({
+      group: { id: groupId, name: String(group.name || '').trim() },
+      matches,
+    });
+  } catch (err) {
+    if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
+    return res.status(500).json({ message: 'Errore caricamento partite gruppo', error: err.message });
+  }
+});
+
+// GET /matches/groups/:groupId/season-standings?reference_year=yyyy
+router.get('/matches/groups/:groupId/season-standings', authenticateToken, async (req, res) => {
+  try {
+    const groupId = Number(req.params.groupId);
+    const referenceYearRaw = req.query?.reference_year;
+    const requestedYear =
+      referenceYearRaw == null || String(referenceYearRaw).trim() === ''
+        ? null
+        : Number(referenceYearRaw);
+
+    if (!groupId || groupId <= 0) return res.status(400).json({ message: 'groupId non valido' });
+    if (requestedYear != null && !Number.isFinite(requestedYear)) {
+      return res.status(400).json({ message: 'reference_year non valido' });
+    }
+
+    const group = await fetchOfficialGroupRow(groupId);
+    if (!group) return res.status(404).json({ message: 'Gruppo non trovato' });
+
+    const seasonLeagues = await listOfficialGroupSeasonLeagues(groupId);
+    const availableYears = Array.from(
+      new Set(
+        (Array.isArray(seasonLeagues) ? seasonLeagues : [])
+          .map((r) => Number(r.reference_year))
+          .filter((y) => Number.isFinite(y))
+      )
+    ).sort((a, b) => b - a);
+
+    const selectedYear =
+      requestedYear != null && Number.isFinite(requestedYear)
+        ? Math.trunc(requestedYear)
+        : availableYears.length > 0
+          ? availableYears[0]
+          : null;
+
+    let selectedLeagueId = null;
+    if (selectedYear != null) {
+      const hit = (seasonLeagues || []).find((r) => Number(r.reference_year) === selectedYear);
+      selectedLeagueId = hit ? Number(hit.league_id) : null;
+    }
+    if (!selectedLeagueId) {
+      selectedLeagueId = Number((seasonLeagues || [])[0]?.league_id || 0) || null;
+    }
+
+    let standings = [];
+    let standings_groups = null;
+    let knockout = { quarterfinals: [], semifinals: [], final: null };
+    if (selectedLeagueId) {
+      const [tablesResult, ko] = await Promise.all([
+        computeOfficialLeagueGironiStandings({ leagueId: selectedLeagueId, competitionId: groupId }),
+        buildKnockoutBracketForLeague({ leagueId: selectedLeagueId, competitionId: groupId }),
+      ]);
+      standings = tablesResult.standings;
+      standings_groups = tablesResult.standings_groups;
+      knockout = ko;
+    }
+
+    return res.json({
+      group: { id: groupId, name: String(group.name || '').trim() },
+      available_years: availableYears,
+      selected_year: selectedYear,
+      standings: Array.isArray(standings) ? standings : [],
+      standings_groups,
+      knockout,
+    });
+  } catch (err) {
+    if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
+    return res.status(500).json({ message: 'Errore caricamento stagione gruppo', error: err.message });
+  }
+});
+
+// GET /matches/groups/:groupId/season-stats?reference_year=yyyy|mode=absolute
+router.get('/matches/groups/:groupId/season-stats', authenticateToken, async (req, res) => {
+  try {
+    const groupId = Number(req.params.groupId);
+    const referenceYearRaw = req.query?.reference_year;
+    const statsModeRaw = String(req.query?.mode || '').trim().toLowerCase();
+    const isAbsoluteMode = statsModeRaw === 'absolute' || String(referenceYearRaw || '').trim().toLowerCase() === 'absolute';
+    const requestedYear =
+      isAbsoluteMode || referenceYearRaw == null || String(referenceYearRaw).trim() === ''
+        ? null
+        : Number(referenceYearRaw);
+
+    if (!groupId || groupId <= 0) return res.status(400).json({ message: 'groupId non valido' });
+    if (requestedYear != null && !Number.isFinite(requestedYear)) {
+      return res.status(400).json({ message: 'reference_year non valido' });
+    }
+
+    const group = await fetchOfficialGroupRow(groupId);
+    if (!group) return res.status(404).json({ message: 'Gruppo non trovato' });
+
+    const seasonLeagues = await listOfficialGroupSeasonLeagues(groupId);
+    const availableYears = Array.from(
+      new Set(
+        (Array.isArray(seasonLeagues) ? seasonLeagues : [])
+          .map((r) => Number(r.reference_year))
+          .filter((y) => Number.isFinite(y))
+      )
+    ).sort((a, b) => b - a);
+
+    const selectedYear = isAbsoluteMode
+      ? 'absolute'
+      : (
+        requestedYear != null && Number.isFinite(requestedYear)
+          ? Math.trunc(requestedYear)
+          : availableYears.length > 0
+            ? availableYears[0]
+            : null
+      );
+
+    const targetLeagueIds = isAbsoluteMode
+      ? Array.from(
+        new Set(
+          (Array.isArray(seasonLeagues) ? seasonLeagues : [])
+            .map((r) => Number(r.league_id))
+            .filter((id) => Number.isFinite(id) && id > 0)
+        )
+      )
+      : (() => {
+        let selectedLeagueId = null;
+        if (selectedYear != null && Number.isFinite(Number(selectedYear))) {
+          const hit = (seasonLeagues || []).find((r) => Number(r.reference_year) === Number(selectedYear));
+          selectedLeagueId = hit ? Number(hit.league_id) : null;
+        }
+        if (!selectedLeagueId) {
+          selectedLeagueId = Number((seasonLeagues || [])[0]?.league_id || 0) || null;
+        }
+        return selectedLeagueId ? [selectedLeagueId] : [];
+      })();
+
+    const stats = await computeOfficialGroupSeasonStats(groupId, targetLeagueIds, isAbsoluteMode);
+
+    return res.json({
+      group: { id: groupId, name: String(group.name || '').trim() },
+      available_years: availableYears,
+      selected_year: selectedYear,
+      scorers: stats.scorers,
+      assistmen: stats.assistmen,
+      presences: stats.presences,
+    });
+  } catch (err) {
+    if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
+    return res.status(500).json({ message: 'Errore caricamento statistiche gruppo', error: err.message });
+  }
+});
+
+// GET /matches/groups/:groupId/hall-of-fame — albo d'oro (vincitori finali)
+router.get('/matches/groups/:groupId/hall-of-fame', authenticateToken, async (req, res) => {
+  try {
+    const groupId = Number(req.params.groupId);
+    if (!groupId || groupId <= 0) return res.status(400).json({ message: 'groupId non valido' });
+    const group = await fetchOfficialGroupRow(groupId);
+    if (!group) return res.status(404).json({ message: 'Gruppo non trovato' });
+    const hall = await buildOfficialGroupHallOfFame(groupId);
+    return res.json({
+      group: { id: groupId, name: String(group.name || '').trim() },
+      winners_by_year: hall.winners_by_year,
+      ranking: hall.ranking,
+    });
+  } catch (err) {
+    if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
+    return res.status(500).json({ message: 'Errore caricamento albo d\'oro', error: err.message });
+  }
+});
+
 router.put('/admin/matches/:matchId/unavailable-players', authenticateToken, requireSuperuserLevels([1, 2]), async (req, res) => {
   try {
     const matchId = Number(req.params.matchId);

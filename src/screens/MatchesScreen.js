@@ -327,11 +327,18 @@ export default function MatchesScreen() {
     const regular = items.filter((m) => Number(m.is_favorite) !== 1);
     const map = new Map();
     regular.forEach((m) => {
-      const key = m.competition_name || 'Competizione';
-      if (!map.has(key)) map.set(key, []);
-      map.get(key).push(m);
+      const compId = Number(m.competition_id) || 0;
+      const key = compId > 0 ? `id:${compId}` : `name:${m.competition_name || 'Competizione'}`;
+      if (!map.has(key)) {
+        map.set(key, {
+          competition: m.competition_name || 'Competizione',
+          competitionId: compId > 0 ? compId : null,
+          matches: [],
+        });
+      }
+      map.get(key).matches.push(m);
     });
-    return Array.from(map.entries()).map(([competition, matches]) => ({ competition, matches }));
+    return Array.from(map.values());
   }, [items]);
 
   const load = useCallback(async (date, isRefresh = false) => {
@@ -645,8 +652,22 @@ export default function MatchesScreen() {
               </View>
             ) : null}
             {regularGrouped.map((group) => (
-              <View key={group.competition} style={styles.groupBox}>
-                <Text style={styles.groupTitle}>{group.competition}</Text>
+              <View key={group.competitionId || group.competition} style={styles.groupBox}>
+                <TouchableOpacity
+                  activeOpacity={group.competitionId ? 0.7 : 1}
+                  disabled={!group.competitionId}
+                  onPress={() => {
+                    if (!group.competitionId) return;
+                    navigation.navigate('OfficialGroupDetail', {
+                      competitionId: group.competitionId,
+                      groupName: group.competition,
+                    });
+                  }}
+                >
+                  <Text style={[styles.groupTitle, group.competitionId ? styles.groupTitleLink : null]}>
+                    {group.competition}
+                  </Text>
+                </TouchableOpacity>
                 {group.matches.map((m) => (
                   <MatchListMatchRow
                     key={m.id}
@@ -817,6 +838,7 @@ const styles = StyleSheet.create({
     borderColor: '#ececec',
   },
   groupTitle: { fontSize: 15, fontWeight: '700', color: '#333', marginBottom: 8 },
+  groupTitleLink: { color: '#667eea' },
   favHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 },
   matchRow: {
     flexDirection: 'row',

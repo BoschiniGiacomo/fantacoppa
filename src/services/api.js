@@ -566,6 +566,23 @@ export const matchesService = {
           : (referenceYear != null ? { reference_year: referenceYear } : {})),
       },
     }),
+  getOfficialGroupDetail: (groupId) => api.get(`matches/groups/${groupId}/detail`),
+  getOfficialGroupMatches: (groupId) => api.get(`matches/groups/${groupId}/matches`),
+  getOfficialGroupSeasonStandings: (groupId, referenceYear = null) =>
+    api.get(`matches/groups/${groupId}/season-standings`, {
+      params: {
+        ...(referenceYear != null ? { reference_year: referenceYear } : {}),
+      },
+    }),
+  getOfficialGroupSeasonStats: (groupId, referenceYear = null) =>
+    api.get(`matches/groups/${groupId}/season-stats`, {
+      params: {
+        ...(referenceYear === 'absolute'
+          ? { mode: 'absolute' }
+          : (referenceYear != null ? { reference_year: referenceYear } : {})),
+      },
+    }),
+  getOfficialGroupHallOfFame: (groupId) => api.get(`matches/groups/${groupId}/hall-of-fame`),
   toggleMatchNotifications: (matchId, enabled) =>
     api.post('matches/notifications/toggle', { match_id: matchId, enabled: enabled ? 1 : 0 }),
   setFavoriteMatch: (matchId, isFavorite) =>
@@ -677,6 +694,19 @@ export const superuserService = {
     api.get(`/admin/official-groups/${groupId}/leagues/${leagueId}/official-gironi-teams`),
   saveOfficialLeagueGironiTeams: (groupId, leagueId, assignments) =>
     api.put(`/admin/official-groups/${groupId}/leagues/${leagueId}/official-gironi-teams`, { assignments }),
+  uploadOfficialGroupLogo: async (groupId, imageUri) => {
+    const formData = new FormData();
+    const filename = imageUri.split('/').pop();
+    const match = /\.(\w+)$/.exec(filename);
+    const type = match ? `image/${match[1] === 'jpg' ? 'jpeg' : match[1]}` : 'image/jpeg';
+    formData.append('logo', { uri: imageUri, name: filename, type });
+    const headers = await buildAuthVersionHeaders();
+    return axios.post(`${API_BASE_URL}/superuser/official-groups/${groupId}/logo`, formData, {
+      headers: { ...headers, 'Content-Type': 'multipart/form-data' },
+      timeout: 30000,
+    });
+  },
+  removeOfficialGroupLogo: (groupId) => api.delete(`/superuser/official-groups/${groupId}/logo`),
   setLeagueOfficial: (leagueId, data) => api.put(`/superuser/leagues/${leagueId}/official`, data),
   toggleVisibleForLinking: (leagueId) => api.put(`/superuser/leagues/${leagueId}/visible-for-linking`),
   toggleLeagueHiddenFromDiscovery: (leagueId) => api.put(`/superuser/leagues/${leagueId}/hidden-from-discovery`),
