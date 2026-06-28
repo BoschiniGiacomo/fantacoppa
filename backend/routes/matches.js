@@ -1132,7 +1132,7 @@ async function buildKnockoutBracketForLeague({ competitionId, leagueId }) {
   const compId = Number(competitionId);
   const lid = Number(leagueId);
   if (!Number.isFinite(compId) || compId <= 0 || !Number.isFinite(lid) || lid <= 0) {
-    return { quarterfinals: [], semifinals: [], final: null, wine_trophy_final: null };
+    return { quarterfinals: [], semifinals: [], final: null };
   }
 
   const knockoutRows = await query(
@@ -1163,7 +1163,7 @@ async function buildKnockoutBracketForLeague({ competitionId, leagueId }) {
           AND at.league_id = ?
         )
       )
-      AND NULLIF(to_jsonb(m)->>'match_stage_id','')::int IN (2, 3, 4, 6)
+      AND NULLIF(to_jsonb(m)->>'match_stage_id','')::int IN (2, 3, 4)
     ORDER BY
       NULLIF(to_jsonb(m)->>'match_stage_id','')::int ASC,
       m.kickoff_at ASC NULLS LAST,
@@ -1267,7 +1267,6 @@ async function buildKnockoutBracketForLeague({ competitionId, leagueId }) {
     quarterfinals: mapped.filter((m) => m.stage_id === 4),
     semifinals: mapped.filter((m) => m.stage_id === 2),
     final: mapped.find((m) => m.stage_id === 3) || null,
-    wine_trophy_final: mapped.find((m) => m.stage_id === 6) || null,
   };
 }
 
@@ -2627,6 +2626,127 @@ function determineKnockoutMatchWinner(match) {
   return null;
 }
 
+const HALL_CAMPIONATO_FINAL_STAGE_ID = 3;
+const HALL_WINE_TROPHY_STAGE_ID = 6;
+
+/** Finale (o trofeo) di una lega/stage per albo d'oro — query leggera, senza tabellone completo. */
+async function fetchLeagueKnockoutStageFinalMatch({ competitionId, leagueId, stageId }) {
+  const compId = Number(competitionId);
+  const lid = Number(leagueId);
+  const sid = Number(stageId);
+  if (!Number.isFinite(compId) || compId <= 0 || !Number.isFinite(lid) || lid <= 0 || !Number.isFinite(sid) || sid <= 0) {
+    return null;
+  }
+
+  const rows = await query(
+    `
+    SELECT
+      m.id,
+      m.home_team_id,
+      ht.name AS home_team_name,
+      ht.logo_path AS home_team_logo_path,
+      m.away_team_id,
+      at.name AS away_team_name,
+      at.logo_path AS away_team_logo_path,
+      m.home_score,
+      m.away_score
+    FROM official_matches m
+    LEFT JOIN teams ht ON ht.id = m.home_team_id
+    LEFT JOIN teams at ON at.id = m.away_team_id
+    WHERE m.competition_id = ?
+      AND (
+        m.league_id = ?
+        OR (m.league_id IS NULL AND ht.league_id = ? AND at.league_id = ?)
+      )
+      AND NULLIF(to_jsonb(m)->>'match_stage_id','')::int = ?
+    ORDER BY m.kickoff_at DESC NULLS LAST, m.id DESC
+    LIMIT 1
+    `,
+    [compId, lid, lid, lid, sid]
+  );
+  const row = rows?.[0];
+  if (!row) return null;
+
+  const mid = Number(row.id);
+  let hs = row.home_score != null ? Number(row.home_score) : null;
+  let as = row.away_score != null ? Number(row.away_score) : null;
+  let hps = null;
+  let aps = null;
+  const homeId = Number(row.home_team_id);
+  const awayId = Number(row.away_team_id);
+
+  const evRows = await query(
+    `SELECT event_type, team_side, team_id
+     FROM official_match_events
+     WHERE match_id = ?
+     ORDER BY id ASC`,
+    [mid]
+  );
+
+  let homeGoals = 0;
+  let awayGoals = 0;
+  let homeShootout = 0;
+  let awayShootout = 0;
+  let hasGoalEvents = false;
+  let hasShootout = false;
+
+  for (const e of evRows || []) {
+    const evTeamId = Number(e.team_id);
+    const byTeamId = Number.isFinite(evTeamId) && evTeamId > 0;
+    if (e.event_type === 'shootout_goal') {
+      hasShootout = true;
+      if (byTeamId) {
+        if (evTeamId === homeId) homeShootout += 1;
+        if (evTeamId === awayId) awayShootout += 1;
+      } else {
+        if (e.team_side === 'home') homeShootout += 1;
+        if (e.team_side === 'away') awayShootout += 1;
+      }
+    } else if (isRegularGoalEventType(e.event_type)) {
+      hasGoalEvents = true;
+      if (byTeamId) {
+        if (evTeamId === homeId) homeGoals += 1;
+        if (evTeamId === awayId) awayGoals += 1;
+      } else {
+        if (e.team_side === 'home') homeGoals += 1;
+        if (e.team_side === 'away') awayGoals += 1;
+      }
+    } else if (e.event_type === 'own_goal') {
+      hasGoalEvents = true;
+      if (byTeamId) {
+        if (evTeamId === homeId) awayGoals += 1;
+        if (evTeamId === awayId) homeGoals += 1;
+      } else {
+        if (e.team_side === 'home') awayGoals += 1;
+        if (e.team_side === 'away') homeGoals += 1;
+      }
+    }
+  }
+
+  if (hasGoalEvents) {
+    hs = homeGoals;
+    as = awayGoals;
+  }
+  if (hasShootout) {
+    hps = homeShootout;
+    aps = awayShootout;
+  }
+
+  return {
+    id: mid,
+    home_team_id: homeId,
+    home_team_name: String(row.home_team_name || ''),
+    home_team_logo_path: normalizeTeamLogoPathForApi(row.home_team_logo_path),
+    away_team_id: awayId,
+    away_team_name: String(row.away_team_name || ''),
+    away_team_logo_path: normalizeTeamLogoPathForApi(row.away_team_logo_path),
+    home_score: Number.isFinite(hs) ? hs : null,
+    away_score: Number.isFinite(as) ? as : null,
+    home_shootout_score: Number.isFinite(hps) && Number.isFinite(aps) ? hps : null,
+    away_shootout_score: Number.isFinite(hps) && Number.isFinite(aps) ? aps : null,
+  };
+}
+
 async function buildOfficialGroupHallOfFame(competitionId) {
   const leagues = await listOfficialGroupSeasonLeagues(competitionId);
   const winnersByYear = [];
@@ -2652,8 +2772,20 @@ async function buildOfficialGroupHallOfFame(competitionId) {
     const leagueId = Number(row.league_id);
     const year = Number(row.reference_year);
     if (!Number.isFinite(leagueId) || leagueId <= 0 || !Number.isFinite(year)) continue;
-    const ko = await buildKnockoutBracketForLeague({ competitionId, leagueId });
-    const finalMatch = ko?.final || null;
+
+    const [finalMatch, wineMatch] = await Promise.all([
+      fetchLeagueKnockoutStageFinalMatch({
+        competitionId,
+        leagueId,
+        stageId: HALL_CAMPIONATO_FINAL_STAGE_ID,
+      }),
+      fetchLeagueKnockoutStageFinalMatch({
+        competitionId,
+        leagueId,
+        stageId: HALL_WINE_TROPHY_STAGE_ID,
+      }),
+    ]);
+
     if (finalMatch?.id) {
       const endedIds = await fetchMatchEndedIds([Number(finalMatch.id)]);
       if (endedIds.has(Number(finalMatch.id))) {
@@ -2675,7 +2807,6 @@ async function buildOfficialGroupHallOfFame(competitionId) {
       }
     }
 
-    const wineMatch = ko?.wine_trophy_final || null;
     if (wineMatch?.id) {
       const wineEndedIds = await fetchMatchEndedIds([Number(wineMatch.id)]);
       if (wineEndedIds.has(Number(wineMatch.id))) {

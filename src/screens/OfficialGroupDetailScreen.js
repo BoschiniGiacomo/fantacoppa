@@ -511,6 +511,10 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
       const res = await matchesService.getOfficialGroupHallOfFame(competitionId);
       setHallRanking(Array.isArray(res?.data?.ranking) ? res.data.ranking : []);
       setHallWinnersByYear(Array.isArray(res?.data?.winners_by_year) ? res.data.winners_by_year : []);
+    } catch (err) {
+      console.error('Error loading group hall of fame:', err);
+      setHallRanking([]);
+      setHallWinnersByYear([]);
     } finally {
       setHallLoading(false);
     }
