@@ -580,8 +580,9 @@ export const matchesService = {
       referenceYear === 'absolute'
         ? { mode: 'absolute' }
         : (referenceYear != null ? { reference_year: referenceYear } : {});
-    console.log('[OfficialGroupStats][api] request', { groupId, referenceYear, params });
-    return api.get(`matches/groups/${groupId}/season-stats`, { params });
+    const timeout = referenceYear === 'absolute' ? 90000 : 10000;
+    console.log('[OfficialGroupStats][api] request', { groupId, referenceYear, params, timeout });
+    return api.get(`matches/groups/${groupId}/season-stats`, { params, timeout });
   },
   getOfficialGroupHallOfFame: (groupId) => api.get(`matches/groups/${groupId}/hall-of-fame`),
   toggleMatchNotifications: (matchId, enabled) =>

@@ -517,7 +517,13 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
         });
       } catch (err) {
         if (seq !== statsLoadSeqRef.current) return;
-        console.error('[OfficialGroupStats][client] load error', { seq, targetYear, err });
+        console.error('[OfficialGroupStats][client] load error', {
+          seq,
+          targetYear,
+          code: err?.code,
+          message: err?.message,
+          status: err?.response?.status,
+        });
       } finally {
         if (seq === statsLoadSeqRef.current) setStatsLoading(false);
       }
