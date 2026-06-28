@@ -2041,14 +2041,14 @@ async function mergeAbsolutePresencesByCluster(perPlayer, officialGroupId) {
   const groupId = Number(officialGroupId);
   if (!Number.isFinite(groupId) || groupId <= 0) {
     return entries
-      .map(({ name, value }) => ({ name, value }))
+      .map(({ name, value, team_name }) => ({ name, value, team_name: team_name || null }))
       .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name, 'it'));
   }
 
   const playerIds = [...new Set(entries.map((e) => Number(e.player_id)).filter((id) => id > 0))];
   if (!playerIds.length) {
     return entries
-      .map(({ name, value }) => ({ name, value }))
+      .map(({ name, value, team_name }) => ({ name, value, team_name: team_name || null }))
       .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name, 'it'));
   }
 
@@ -2081,6 +2081,7 @@ async function mergeAbsolutePresencesByCluster(perPlayer, officialGroupId) {
     if (!prev) {
       buckets.set(key, {
         name: e.name,
+        team_name: e.team_name || null,
         value: Number(e.value) || 0,
         labelScore: Number(e.value) || 0,
       });
@@ -2091,12 +2092,13 @@ async function mergeAbsolutePresencesByCluster(perPlayer, officialGroupId) {
     if (v > prev.labelScore) {
       prev.labelScore = v;
       prev.name = e.name;
+      prev.team_name = e.team_name || null;
     }
   }
 
   return [...buckets.values()]
     .filter((b) => b.value > 0)
-    .map((b) => ({ name: b.name, value: b.value }))
+    .map((b) => ({ name: b.name, team_name: b.team_name || null, value: b.value }))
     .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name, 'it'));
 }
 
@@ -2147,10 +2149,12 @@ async function fetchOfficialTeamPresencesWithVoteRanking(seasonTeamRows, opts = 
     SELECT
       p.id AS player_id,
       TRIM(CONCAT(COALESCE(p.first_name, ''), ' ', COALESCE(p.last_name, ''))) AS player_name,
+      t.name AS team_name,
       COUNT(DISTINCT (rated.canon_league_id, rated.giornata))::int AS presenze
     FROM rated
     INNER JOIN players p ON p.id = rated.player_id
-    GROUP BY p.id, p.first_name, p.last_name
+    INNER JOIN teams t ON t.id = p.team_id
+    GROUP BY p.id, p.first_name, p.last_name, t.name
     HAVING COUNT(DISTINCT (rated.canon_league_id, rated.giornata)) > 0
     ORDER BY presenze DESC, player_name ASC`;
 
@@ -2160,6 +2164,7 @@ async function fetchOfficialTeamPresencesWithVoteRanking(seasonTeamRows, opts = 
     .map((r) => ({
       player_id: Number(r.player_id),
       name: String(r.player_name || '').trim() || 'Giocatore',
+      team_name: r.team_name != null ? String(r.team_name).trim() : null,
       value: Number(r.presenze || 0),
     }))
     .filter((r) => r.value > 0);
@@ -2169,7 +2174,7 @@ async function fetchOfficialTeamPresencesWithVoteRanking(seasonTeamRows, opts = 
   }
 
   return perPlayer
-    .map(({ name, value }) => ({ name, value }))
+    .map(({ name, value, team_name }) => ({ name, value, team_name: team_name || null }))
     .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name, 'it'));
 }
 
@@ -2636,7 +2641,7 @@ async function computeOfficialGroupSeasonStats(competitionId, targetLeagueIds, i
   const phLeagueIds = leagueIds.map(() => '?').join(', ');
   const [seasonTeamRows, seasonMatches] = await Promise.all([
     query(
-      `SELECT id, league_id FROM teams WHERE league_id IN (${phLeagueIds}) ORDER BY id ASC`,
+      `SELECT id, league_id, name FROM teams WHERE league_id IN (${phLeagueIds}) ORDER BY id ASC`,
       leagueIds
     ),
     query(
@@ -2652,6 +2657,9 @@ async function computeOfficialGroupSeasonStats(competitionId, targetLeagueIds, i
 
   const seasonTeamIds = Array.from(
     new Set((seasonTeamRows || []).map((r) => Number(r.id)).filter((id) => Number.isFinite(id) && id > 0))
+  );
+  const teamNameMap = new Map(
+    (seasonTeamRows || []).map((r) => [Number(r.id), String(r.name || '').trim()]).filter(([id, name]) => id > 0 && name)
   );
   if (!seasonTeamIds.length) {
     return { scorers: [], assistmen: [], presences: [] };
@@ -2717,6 +2725,31 @@ async function computeOfficialGroupSeasonStats(competitionId, targetLeagueIds, i
   const scorersMap = new Map();
   const assistsMap = new Map();
 
+  const bumpLeaderboard = (map, key, name, teamName) => {
+    const label = String(name || '').trim();
+    if (!label || !key) return;
+    const prev = map.get(key);
+    if (!prev) {
+      map.set(key, { name: label, team_name: teamName || null, value: 1 });
+      return;
+    }
+    prev.value += 1;
+  };
+
+  const resolveTeamName = (teamId) => {
+    const tid = Number(teamId);
+    if (!Number.isFinite(tid) || tid <= 0) return null;
+    return teamNameMap.get(tid) || null;
+  };
+
+  const leaderboardKey = (playerId, name, teamId) => {
+    const pid = Number(playerId);
+    if (Number.isFinite(pid) && pid > 0) return `p:${pid}`;
+    const tid = Number(teamId);
+    const teamPart = Number.isFinite(tid) && tid > 0 ? String(tid) : '-';
+    return `n:${String(name || '').trim()}|t:${teamPart}`;
+  };
+
   for (const m of seasonMatches || []) {
     const events = evByMatch.get(Number(m.id)) || [];
     const resolvedSeason = resolveOfficialMatchResultForStandings(
@@ -2738,20 +2771,42 @@ async function computeOfficialGroupSeasonStats(competitionId, targetLeagueIds, i
       const scorerOnLeagueTeam =
         (Number.isFinite(pid) && pid > 0 && seasonTeamIds.includes(Number(playerTeamMap.get(pid)))) ||
         seasonTeamIds.includes(Number(e.team_id) || Number(payload?.team_id));
-      if (scorerOnLeagueTeam && pn) scorersMap.set(pn, Number(scorersMap.get(pn) || 0) + 1);
+      if (scorerOnLeagueTeam && pn) {
+        const scorerTeamId =
+          Number.isFinite(pid) && pid > 0 ? playerTeamMap.get(pid) : Number(e.team_id) || Number(payload?.team_id);
+        bumpLeaderboard(
+          scorersMap,
+          leaderboardKey(pid, pn, scorerTeamId),
+          pn,
+          resolveTeamName(scorerTeamId)
+        );
+      }
       const an =
         (Number.isFinite(aid) && aid > 0 ? String(playerNameMap.get(aid) || '').trim() : '') ||
         String(payload?.assist_player_name || payload?.assist_name || '').trim();
       const assistOnLeagueTeam =
         (Number.isFinite(aid) && aid > 0 && seasonTeamIds.includes(Number(playerTeamMap.get(aid)))) ||
         seasonTeamIds.includes(Number(e.team_id) || Number(payload?.team_id));
-      if (assistOnLeagueTeam && an) assistsMap.set(an, Number(assistsMap.get(an) || 0) + 1);
+      if (assistOnLeagueTeam && an) {
+        const assistTeamId =
+          Number.isFinite(aid) && aid > 0 ? playerTeamMap.get(aid) : Number(e.team_id) || Number(payload?.team_id);
+        bumpLeaderboard(
+          assistsMap,
+          leaderboardKey(aid, an, assistTeamId),
+          an,
+          resolveTeamName(assistTeamId)
+        );
+      }
     }
   }
 
   const listFromMap = (mp) =>
-    Array.from(mp.entries())
-      .map(([name, value]) => ({ name, value: Number(value || 0) }))
+    Array.from(mp.values())
+      .map(({ name, team_name, value }) => ({
+        name,
+        team_name: team_name || null,
+        value: Number(value || 0),
+      }))
       .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name, 'it'));
 
   const presences = await presencesPromise;

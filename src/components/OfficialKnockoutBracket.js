@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, Platform } from 'react-native';
 import KnockoutSemiTieBlock from './KnockoutSemiTieBlock';
 import { KnockoutScoreText, hasKnockoutShootoutScore } from './KnockoutSemiTieBlock';
@@ -9,8 +9,54 @@ import {
   KNOCKOUT_BRACKET_LOGO_SIZE,
 } from '../utils/knockoutBracket';
 
-function KnockoutStraightConnector({ flowTall, layout, quarterTies = [] }) {
+function KnockoutStraightConnector({ flowTall, layout, quarterTies = [], lineCentersY = null }) {
   const ties = quarterTies.length > 0 ? quarterTies : [{ twoLegged: false }];
+  const measured =
+    Array.isArray(lineCentersY) &&
+    lineCentersY.length === ties.length &&
+    lineCentersY.every((y) => Number.isFinite(y) && y >= 0);
+
+  if (measured) {
+    const colHeight = Math.max(...lineCentersY) + 8;
+    const colWidth = flowTall && layout.flowColCompact ? 28 : 56;
+    return (
+      <View
+        style={[
+          layout.flowColStraightStack,
+          flowTall && layout.flowColCompact,
+          {
+            position: 'relative',
+            height: colHeight,
+            width: colWidth,
+            gap: 0,
+          },
+        ]}
+      >
+        {ties.map((tie, idx) => (
+          <View
+            key={`q-flow-line-${idx}`}
+            style={{
+              position: 'absolute',
+              top: lineCentersY[idx] - 0.5,
+              left: 0,
+              width: colWidth,
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <View
+              style={[
+                layout.flowStraightLine,
+                flowTall && layout.flowStraightLineTall,
+                flowTall && layout.flowColCompact && layout.flowStraightLineCompact,
+              ]}
+            />
+          </View>
+        ))}
+      </View>
+    );
+  }
+
   return (
     <View
       style={[
@@ -48,12 +94,20 @@ function KnockoutFlowConnector({
   flowTall,
   layout,
   quarterTies = [],
+  quarterLineCentersY = null,
   afterQuarters = false,
   afterSemis = false,
   withQuarterfinals = false,
 }) {
   if (afterQuarters) {
-    return <KnockoutStraightConnector flowTall={flowTall} layout={layout} quarterTies={quarterTies} />;
+    return (
+      <KnockoutStraightConnector
+        flowTall={flowTall}
+        layout={layout}
+        quarterTies={quarterTies}
+        lineCentersY={quarterLineCentersY}
+      />
+    );
   }
 
   const {
@@ -149,18 +203,42 @@ function KnockoutHeaderFinalCell({ layout }) {
   );
 }
 
-function KnockoutStageTies({ ties, tieLabelPrefix, onPressMatch, LogoComponent, tieBlockStyles }) {
-  return ties.map((tie, idx) => (
-    <KnockoutSemiTieBlock
-      key={`${tieLabelPrefix}-tie-${idx}-${tie.legs.map((l) => l.id).join('-')}`}
-      tie={tie}
-      sfIndex={idx}
-      tieLabelPrefix={tieLabelPrefix}
-      onPressMatch={onPressMatch}
-      LogoComponent={LogoComponent}
-      styles={tieBlockStyles}
-    />
-  ));
+function KnockoutStageTies({
+  ties,
+  tieLabelPrefix,
+  onPressMatch,
+  LogoComponent,
+  tieBlockStyles,
+  onTieLayout,
+}) {
+  return ties.map((tie, idx) => {
+    const block = (
+      <KnockoutSemiTieBlock
+        tie={tie}
+        sfIndex={idx}
+        tieLabelPrefix={tieLabelPrefix}
+        onPressMatch={onPressMatch}
+        LogoComponent={LogoComponent}
+        styles={tieBlockStyles}
+      />
+    );
+    if (!onTieLayout) {
+      return (
+        <React.Fragment key={`${tieLabelPrefix}-tie-${idx}-${tie.legs.map((l) => l.id).join('-')}`}>
+          {block}
+        </React.Fragment>
+      );
+    }
+    return (
+      <View
+        key={`${tieLabelPrefix}-tie-${idx}-${tie.legs.map((l) => l.id).join('-')}`}
+        collapsable={false}
+        onLayout={(e) => onTieLayout(idx, e)}
+      >
+        {block}
+      </View>
+    );
+  });
 }
 
 function KnockoutStageColumn({
@@ -173,6 +251,7 @@ function KnockoutStageColumn({
   LogoComponent,
   tieBlockStyles,
   layout,
+  onTieLayout,
 }) {
   const tiesContent = (
     <KnockoutStageTies
@@ -181,6 +260,7 @@ function KnockoutStageColumn({
       onPressMatch={onPressMatch}
       LogoComponent={LogoComponent}
       tieBlockStyles={tieBlockStyles}
+      onTieLayout={onTieLayout}
     />
   );
   if (bare) return <>{tiesContent}</>;
@@ -394,6 +474,33 @@ export default function OfficialKnockoutBracket({
     layout,
   };
 
+  const quarterTieMeasureKey = useMemo(
+    () => quarterfinalTies.map((tie) => `${tie.latestMatchId || ''}-${tie.legs.map((l) => l.id).join('-')}`).join('|'),
+    [quarterfinalTies]
+  );
+  const [quarterLineCentersY, setQuarterLineCentersY] = useState(null);
+  const quarterTieMeasuresRef = useRef({});
+
+  useEffect(() => {
+    quarterTieMeasuresRef.current = {};
+    setQuarterLineCentersY(null);
+  }, [quarterTieMeasureKey]);
+
+  const handleQuarterTieLayout = useCallback(
+    (idx, event) => {
+      const { y, height } = event.nativeEvent.layout;
+      if (!Number.isFinite(y) || !Number.isFinite(height) || height <= 0) return;
+      quarterTieMeasuresRef.current[idx] = y + height / 2;
+      const expected = quarterfinalTies.length;
+      if (expected <= 0) return;
+      const centers = Array.from({ length: expected }, (_, i) => quarterTieMeasuresRef.current[i]);
+      if (centers.every((v) => Number.isFinite(v) && v >= 0)) {
+        setQuarterLineCentersY(centers);
+      }
+    },
+    [quarterfinalTies.length]
+  );
+
   if (hasQuarterfinals) {
     const quarterColStyle = [layout.quarterCol, flowTall && layout.stageColWide];
     const stageColStyle = [layout.stageCol, flowTall && layout.stageColWide];
@@ -411,12 +518,13 @@ export default function OfficialKnockoutBracket({
           contentContainerStyle={layout.bracketScrollContent}
         >
           <View style={layout.bracketRow}>
-            <View style={quarterColStyle}>
+            <View style={quarterColStyle} collapsable={false}>
               <KnockoutStageHeaderTitle label="Quarti" layout={layout} mirrorTwoLegPad={quarterTwoLegged} />
               <KnockoutStageColumn
                 ties={quarterfinalTies}
                 tieLabelPrefix="QF"
                 bare
+                onTieLayout={handleQuarterTieLayout}
                 {...commonStageProps}
               />
             </View>
@@ -424,6 +532,7 @@ export default function OfficialKnockoutBracket({
               flowTall={flowTall}
               layout={layout}
               quarterTies={quarterfinalTies}
+              quarterLineCentersY={quarterLineCentersY}
               afterQuarters
               withQuarterfinals
             />

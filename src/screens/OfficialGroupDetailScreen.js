@@ -167,11 +167,6 @@ function getMatchYear(iso) {
   return d.getFullYear();
 }
 
-function logOfficialGroupMatches(step, extra = {}) {
-  if (!__DEV__) return;
-  console.log('[OfficialGroupMatches][client]', step, extra);
-}
-
 function getMatchStatusText(match) {
   const phase = String(match?.last_phase_type || '').trim();
   if (phase === 'match_end') {
@@ -386,8 +381,6 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
     if (!competitionId) return;
     matchesLoadSeqRef.current += 1;
     const seq = matchesLoadSeqRef.current;
-    const t0 = Date.now();
-    logOfficialGroupMatches('load_start', { competitionId, seq });
 
     initialMatchesScrollDoneRef.current = false;
     setMatchesListPositioned(false);
@@ -397,20 +390,9 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
       if (seq !== matchesLoadSeqRef.current) return;
 
       const matches = Array.isArray(res?.data?.matches) ? res.data.matches : [];
-      logOfficialGroupMatches('load_done', {
-        seq,
-        count: matches.length,
-        ms: Date.now() - t0,
-      });
 
       setGroupMatches(matches);
       pendingScrollIndexRef.current = resolveInitialMatchScrollIndex(buildMatchListItems(matches));
-    } catch (err) {
-      logOfficialGroupMatches('load_error', {
-        seq,
-        ms: Date.now() - t0,
-        message: err?.message || String(err),
-      });
     } finally {
       if (seq === matchesLoadSeqRef.current) setMatchesLoading(false);
     }
@@ -531,21 +513,34 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
     const expanded = !!statsLeaderboardExpanded[tableKey];
     const visible = !canExpand || expanded ? list : list.slice(0, STATS_LEADERBOARD_PREVIEW);
     return (
-      <>
+      <View style={styles.statsTableWrap}>
         <View style={[styles.statsTableRow, styles.statsTableHeaderRow]}>
-          <Text style={[styles.statsTableCell, styles.statsTablePos, styles.statsTableHeaderCell]}>Pos.</Text>
+          <Text style={[styles.statsTableCell, styles.statsTablePos, styles.statsTableHeaderCell]}>#</Text>
           <Text style={[styles.statsTableCell, styles.statsTablePlayer, styles.statsTableHeaderCell]}>Giocatore</Text>
-          <Text style={[styles.statsTableCell, styles.statsTableValue, styles.statsTableHeaderCell]}>{valueLabel}</Text>
+          <Text style={[styles.statsTableCell, styles.statsTableValue, styles.statsTableHeaderCell]} numberOfLines={1}>
+            {valueLabel}
+          </Text>
         </View>
-        {visible.map((s, i) => (
-          <View key={`${tableKey}-${i}`} style={styles.statsTableRow}>
-            <Text style={[styles.statsTableCell, styles.statsTablePos]}>{i + 1}</Text>
-            <Text style={[styles.statsTableCell, styles.statsTablePlayer]} numberOfLines={1}>
-              {String(s?.name || '-')}
-            </Text>
-            <Text style={[styles.statsTableCell, styles.statsTableValue]}>{Number(s?.value || 0)}</Text>
-          </View>
-        ))}
+        {visible.map((s, i) => {
+          const playerName = String(s?.name || '-');
+          const teamName = String(s?.team_name || '').trim();
+          return (
+            <View key={`${tableKey}-${i}`} style={styles.statsTableRow}>
+              <Text style={[styles.statsTableCell, styles.statsTablePos]}>{i + 1}</Text>
+              <View style={styles.statsTablePlayerCol}>
+                <Text style={styles.statsTablePlayerName} numberOfLines={1} ellipsizeMode="tail">
+                  {playerName}
+                </Text>
+                {teamName ? (
+                  <Text style={styles.statsTablePlayerTeam} numberOfLines={1} ellipsizeMode="tail">
+                    {teamName}
+                  </Text>
+                ) : null}
+              </View>
+              <Text style={[styles.statsTableCell, styles.statsTableValue]}>{Number(s?.value || 0)}</Text>
+            </View>
+          );
+        })}
         {canExpand ? (
           <TouchableOpacity style={styles.statsTableExpandBtn} onPress={() => toggleStatsLeaderboard(tableKey)} activeOpacity={0.7}>
             <Text style={styles.statsTableExpandText}>
@@ -554,7 +549,7 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
             <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={16} color="#111827" />
           </TouchableOpacity>
         ) : null}
-      </>
+      </View>
     );
   };
 
@@ -961,7 +956,7 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
             ) : null}
           </ScrollView>
         ) : activeTab === 'stats' ? (
-          <View style={[styles.card, styles.teamCard]}>
+          <View style={[styles.card, styles.teamCard, styles.statsCard]}>
             <View ref={statsPickerAnchorRef} style={styles.seasonPickerWrap} collapsable={false}>
               <TouchableOpacity style={styles.seasonPickerBtn} onPress={() => setStatsPickerOpen((v) => !v)} activeOpacity={0.8}>
                 <Text style={styles.seasonPickerBtnText}>
@@ -990,11 +985,11 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
               <ScrollView style={styles.teamSquadList} contentContainerStyle={styles.statsListContent} showsVerticalScrollIndicator={false}>
                 <View style={styles.statsBlock}>
                   <Text style={styles.statsBlockTitle}>Marcatori</Text>
-                  {renderStatsLeaderboardTable(statsScorers, 'Goal', 'Nessun marcatore disponibile.', 'scorers')}
+                  {renderStatsLeaderboardTable(statsScorers, 'Gol', 'Nessun marcatore disponibile.', 'scorers')}
                 </View>
                 <View style={styles.statsBlock}>
                   <Text style={styles.statsBlockTitle}>Assistman</Text>
-                  {renderStatsLeaderboardTable(statsAssistmen, 'Assist', 'Nessun assist disponibile.', 'assistmen')}
+                  {renderStatsLeaderboardTable(statsAssistmen, 'Ass.', 'Nessun assist disponibile.', 'assistmen')}
                 </View>
                 <View style={styles.statsBlock}>
                   <Text style={styles.statsBlockTitle}>Presenze</Text>
@@ -1136,6 +1131,7 @@ const styles = StyleSheet.create({
   },
   matchesCard: { flex: 1, minHeight: 0, paddingTop: 8, paddingBottom: 8, paddingHorizontal: 0 },
   teamCard: { flex: 1, minHeight: 0 },
+  statsCard: { paddingHorizontal: 10, paddingTop: 12, paddingBottom: 12 },
   seasonCard: { flex: 1, minHeight: 0, paddingHorizontal: 8, paddingTop: 12, paddingBottom: 12 },
   seasonScroll: { flex: 1, marginHorizontal: -12 },
   seasonScrollContent: { paddingBottom: 8, paddingHorizontal: 12 },
@@ -1278,89 +1274,187 @@ const styles = StyleSheet.create({
   seasonTdTeamName: { flex: 1, minWidth: 0 },
   teamCell: { flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: 0 },
   seasonTeamCell: { paddingRight: 4 },
-  seasonKnockoutCard: { marginTop: 10, paddingHorizontal: 8, paddingTop: 12, paddingBottom: 12 },
-  seasonKnockoutTitle: { fontSize: 15, fontWeight: '800', color: '#1e293b', marginBottom: 10 },
-  seasonKnockoutSemiBlock: {},
-  seasonKnockoutSemiLabelRow: {},
-  seasonKnockoutSemiSmallLabel: {},
-  seasonKnockoutMatchStackMeasure: {},
-  seasonKnockoutTieStack: {},
-  seasonKnockoutTwoLegScoreCols: {},
-  seasonKnockoutLegColLabel: {},
-  seasonKnockoutLegColLabelFallbackSlot: {},
-  seasonKnockoutMatchStack: {},
-  seasonKnockoutTeamBox: {},
-  seasonKnockoutTeamRow: {},
-  seasonKnockoutLogoPlaceholder: {},
-  seasonKnockoutTeamText: {},
-  seasonKnockoutScoreBox: {},
-  seasonKnockoutScoreTextRow: {},
-  seasonKnockoutScoreText: {},
-  seasonKnockoutShootoutDivider: {},
-  seasonKnockoutShootoutScoreText: {},
-  seasonKnockoutAggregateText: {},
-  seasonKnockoutHeaderRow: {},
-  seasonKnockoutColumnTitle: {},
-  seasonKnockoutColumnTitleWide: {},
-  seasonKnockoutColumnTitleSpacer: {},
-  seasonKnockoutColumnTitleSpacerCompact: {},
-  seasonKnockoutStageColumnTitle: {},
-  seasonKnockoutFinalHeaderCol: {},
-  seasonKnockoutFinalColStack: {},
-  seasonKnockoutFinalColBody: {},
-  seasonKnockoutFinalMatchWrap: {},
-  seasonKnockoutBracketRow: {},
-  seasonKnockoutBracketScroll: {},
-  seasonKnockoutBracketScrollContent: {},
-  seasonKnockoutSemisCol: {},
-  seasonKnockoutSemisColWide: {},
-  seasonKnockoutStageColScroll: {},
-  seasonKnockoutFlowCol: {},
-  seasonKnockoutFlowColTall: {},
-  seasonKnockoutFlowColCompact: {},
-  seasonKnockoutFlowStraightStack: {},
-  seasonKnockoutFlowStraightStackTall: {},
-  seasonKnockoutFlowStraightHeaderSpacer: {},
-  seasonKnockoutFlowStraightTieSlot: {},
-  seasonKnockoutFlowStraightTieSlotTall: {},
-  seasonKnockoutFlowStraightFirstTieSlot: {},
-  seasonKnockoutFlowStraightSecondTieSlot: {},
-  seasonKnockoutFlowStraightSecondTieSlotTall: {},
-  seasonKnockoutFlowStraightLine: {},
-  seasonKnockoutFlowStraightLineTall: {},
-  seasonKnockoutFlowStraightLineCompact: {},
-  seasonKnockoutFlowColSemiFinal: {},
-  seasonKnockoutFlowColSemiFinalTall: {},
-  seasonKnockoutBracketMiddleArmSemiFinal: {},
-  seasonKnockoutBracketMiddleArmSemiFinalTall: {},
-  seasonKnockoutBracketTopArm: {},
-  seasonKnockoutBracketTopArmCompact: {},
-  seasonKnockoutBracketTopArmCompactTall: {},
-  seasonKnockoutBracketBottomArm: {},
-  seasonKnockoutBracketBottomArmCompact: {},
-  seasonKnockoutBracketBottomArmCompactTall: {},
-  seasonKnockoutBracketVertical: {},
-  seasonKnockoutBracketVerticalCompact: {},
-  seasonKnockoutBracketVerticalCompactTall: {},
-  seasonKnockoutBracketMiddleArm: {},
-  seasonKnockoutBracketMiddleArmCompact: {},
-  seasonKnockoutBracketMiddleArmCompactTall: {},
-  seasonKnockoutFinalCol: {},
-  seasonKnockoutFinalLabelRow: {},
+  seasonKnockoutCard: {
+    marginTop: 12,
+    marginHorizontal: -8,
+    borderRadius: 12,
+    paddingTop: 12,
+    paddingHorizontal: 5,
+    paddingBottom: 6,
+  },
+  seasonKnockoutTitle: { fontSize: 16, fontWeight: '800', color: '#111827', textAlign: 'center', marginBottom: 6 },
+  seasonKnockoutHeaderRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
+  seasonKnockoutColumnTitle: { flex: 1.2, fontSize: 12, fontWeight: '800', color: '#6b7280', textTransform: 'uppercase' },
+  seasonKnockoutStageColumnTitle: { fontSize: 12, fontWeight: '800', color: '#6b7280', textTransform: 'uppercase', marginBottom: 4, alignSelf: 'flex-start' },
+  seasonKnockoutFinalHeaderCol: { flex: 1.08, alignSelf: 'flex-start', marginLeft: -2 },
+  seasonKnockoutFinalColStack: { justifyContent: 'flex-start', paddingTop: 0, alignSelf: 'stretch' },
+  seasonKnockoutFinalColBody: { paddingTop: 0, justifyContent: 'flex-start' },
+  seasonKnockoutFinalMatchWrap: { flex: 1, justifyContent: 'center', paddingTop: 20, width: '100%' },
+  seasonKnockoutColumnTitleWide: { flex: 1.35 },
+  seasonKnockoutColumnTitleSpacer: { width: 56 },
+  seasonKnockoutColumnTitleSpacerCompact: { width: 28 },
+  seasonKnockoutBracketScroll: { marginHorizontal: -4 },
+  seasonKnockoutBracketScrollContent: { paddingRight: 12, paddingBottom: 14 },
+  seasonKnockoutBracketRow: { flexDirection: 'row', alignItems: 'stretch', gap: 0 },
+  seasonKnockoutSemisCol: { flex: 1.2, gap: 10, alignSelf: 'flex-start', marginRight: -2 },
+  seasonKnockoutStageColScroll: { width: 200, gap: 10, alignSelf: 'flex-start', marginRight: -2, flexShrink: 0 },
+  seasonKnockoutSemisColWide: { flex: 1.35, marginRight: 0 },
+  seasonKnockoutSemiBlock: { flexGrow: 0, flexShrink: 0 },
+  seasonKnockoutFinalCol: { flex: 1.08, alignSelf: 'stretch', justifyContent: 'center', paddingTop: 20, marginLeft: -2 },
+  seasonKnockoutSemiLabelRow: {
+    marginBottom: 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingRight: 6,
+  },
+  seasonKnockoutSemiSmallLabel: { fontSize: 11, fontWeight: '800', color: '#6b7280', textTransform: 'uppercase' },
+  seasonKnockoutFlowCol: {
+    width: 56,
+    height: 112,
+    marginTop: 46,
+    position: 'relative',
+  },
+  seasonKnockoutFlowColTall: {
+    height: 152,
+    marginTop: 42,
+  },
+  seasonKnockoutFlowColCompact: { width: 28 },
+  seasonKnockoutFlowColStraightStack: {
+    width: 56,
+    alignSelf: 'flex-start',
+    gap: 10,
+  },
+  seasonKnockoutFlowColStraightStackTall: {},
+  seasonKnockoutFlowStraightHeaderSpacer: { height: 22 },
+  seasonKnockoutFlowStraightTieSlot: {
+    minHeight: 76,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  seasonKnockoutFlowStraightFirstTieSlot: {
+    justifyContent: 'flex-start',
+    paddingTop: 50,
+  },
+  seasonKnockoutFlowStraightSecondTieSlot: {
+    justifyContent: 'flex-start',
+    paddingTop: 18,
+  },
+  seasonKnockoutFlowStraightSecondTieSlotTall: {
+    paddingTop: 42,
+  },
+  seasonKnockoutFlowStraightTieSlotTall: { minHeight: 124 },
+  seasonKnockoutFlowStraightLine: {
+    height: 1,
+    width: 32,
+    backgroundColor: '#d1d5db',
+  },
+  seasonKnockoutFlowStraightLineTall: { width: 32 },
+  seasonKnockoutFlowStraightLineCompact: { width: 18 },
+  seasonKnockoutFlowColSemiFinal: { marginTop: 77 },
+  seasonKnockoutFlowColSemiFinalTall: { marginTop: 73 },
+  seasonKnockoutTieStack: { gap: 6, width: '100%' },
+  seasonKnockoutTwoLegScoreCols: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  seasonKnockoutLegColLabelFallbackSlot: {
+    minWidth: 20,
+    alignItems: 'center',
+  },
+  seasonKnockoutLegColLabel: {
+    textAlign: 'center',
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#9ca3af',
+  },
+  seasonKnockoutAggregateText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#6b7280',
+    marginTop: 2,
+    paddingHorizontal: 2,
+  },
+  seasonKnockoutBracketTopArm: { position: 'absolute', left: 6, top: 10, width: 32, height: 1, backgroundColor: '#d1d5db' },
+  seasonKnockoutBracketBottomArm: { position: 'absolute', left: 6, bottom: 10, width: 32, height: 1, backgroundColor: '#d1d5db' },
+  seasonKnockoutBracketVertical: { position: 'absolute', left: 38, top: 10, width: 1, height: 92, backgroundColor: '#d1d5db' },
+  seasonKnockoutBracketMiddleArm: { position: 'absolute', left: 38, top: 56, width: 14, height: 1, backgroundColor: '#d1d5db' },
+  seasonKnockoutBracketTopArmCompact: { left: 3, width: 14 },
+  seasonKnockoutBracketTopArmCompactTall: { top: 4 },
+  seasonKnockoutBracketBottomArmCompact: { left: 3, width: 14 },
+  seasonKnockoutBracketBottomArmCompactTall: { bottom: 10 },
+  seasonKnockoutBracketVerticalCompact: { left: 17 },
+  seasonKnockoutBracketVerticalCompactTall: { top: 4, height: 138 },
+  seasonKnockoutBracketMiddleArmCompact: { left: 17, width: 11 },
+  seasonKnockoutBracketMiddleArmCompactTall: { top: 88 },
+  seasonKnockoutBracketMiddleArmSemiFinal: { top: 61 },
+  seasonKnockoutBracketMiddleArmSemiFinalTall: { top: 91 },
+  seasonKnockoutFinalLabelRow: { height: 0, marginBottom: 0 },
+  seasonKnockoutMatchStackMeasure: { width: '100%' },
+  seasonKnockoutMatchStack: { gap: 6, width: '100%' },
+  seasonKnockoutTeamRow: { flexDirection: 'row', alignItems: 'center', gap: 4, minHeight: 18 },
   seasonKnockoutLogo: { width: 30, height: 30 },
-  seasonKnockoutLogoFallback: { width: 30, height: 30, borderRadius: 6, backgroundColor: '#eef2ff' },
+  seasonKnockoutLogoFallback: { width: 30, height: 30, borderRadius: 6, backgroundColor: '#eef2ff', alignItems: 'center', justifyContent: 'center' },
+  seasonKnockoutLogoPlaceholder: { width: 30, height: 30 },
+  seasonKnockoutTeamBox: {
+    flex: 1,
+    minWidth: 0,
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    borderRadius: 7,
+    minHeight: 32,
+    paddingVertical: 0,
+    paddingLeft: 0,
+    paddingRight: 6,
+    backgroundColor: '#fff',
+  },
+  seasonKnockoutTeamText: { flex: 1, minWidth: 0, fontSize: 14, fontWeight: '700', color: '#111827' },
+  seasonKnockoutScoreBox: {
+    minWidth: 20,
+    height: 22,
+    paddingHorizontal: 2,
+    borderRadius: 5,
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  seasonKnockoutScoreTextRow: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+  seasonKnockoutScoreText: { fontSize: 12, fontWeight: '800', color: '#111827' },
+  seasonKnockoutShootoutDivider: { width: 1, height: 10, backgroundColor: '#d1d5db' },
+  seasonKnockoutShootoutScoreText: { fontSize: 8, fontWeight: '800', color: '#9ca3af' },
   teamSquadList: { flex: 1 },
   statsListContent: { paddingBottom: 12 },
   statsBlock: { marginBottom: 18 },
   statsBlockTitle: { fontSize: 15, fontWeight: '800', color: '#1e293b', marginBottom: 8 },
-  statsTableRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
+  statsTableWrap: {
+    width: '100%',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  statsTableRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingLeft: 8,
+    paddingRight: 8,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+  },
   statsTableHeaderRow: { backgroundColor: '#f8fafc', borderBottomColor: '#e5e7eb' },
   statsTableHeaderCell: { fontWeight: '800', color: '#64748b', fontSize: 11 },
   statsTableCell: { fontSize: 13, fontWeight: '600', color: '#1f2937' },
-  statsTablePos: { width: 36 },
+  statsTablePos: { width: 26, textAlign: 'center', flexShrink: 0 },
   statsTablePlayer: { flex: 1, minWidth: 0 },
-  statsTableValue: { width: 52, textAlign: 'right' },
-  statsTableExpandBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 10 },
+  statsTablePlayerCol: { flex: 1, minWidth: 0, paddingRight: 6 },
+  statsTablePlayerName: { fontSize: 13, fontWeight: '600', color: '#1f2937' },
+  statsTablePlayerTeam: { fontSize: 10, color: '#64748b', marginTop: 1 },
+  statsTableValue: { width: 36, textAlign: 'right', flexShrink: 0, fontWeight: '700' },
+  statsTableExpandBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 10, borderBottomWidth: 0 },
   statsTableExpandText: { fontSize: 13, fontWeight: '700', color: '#111827' },
   hallScrollContent: { paddingBottom: 12 },
   hallSectionTitle: { fontSize: 15, fontWeight: '800', color: '#1e293b', marginBottom: 8 },
