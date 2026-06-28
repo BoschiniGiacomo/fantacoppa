@@ -162,6 +162,29 @@ function getMatchYear(iso) {
   return d.getFullYear();
 }
 
+function getMatchSortKey(m) {
+  const d = parseAppDate(m?.kickoff_at);
+  const t = d && !Number.isNaN(d.getTime()) ? d.getTime() : 0;
+  return [t, Number(m?.id) || 0];
+}
+
+function mergeGroupMatchesChronological(existing, incoming) {
+  const map = new Map();
+  (Array.isArray(existing) ? existing : []).forEach((m) => map.set(Number(m.id), m));
+  (Array.isArray(incoming) ? incoming : []).forEach((m) => map.set(Number(m.id), m));
+  return [...map.values()].sort((a, b) => {
+    const [ta, ia] = getMatchSortKey(a);
+    const [tb, ib] = getMatchSortKey(b);
+    if (ta !== tb) return ta - tb;
+    return ia - ib;
+  });
+}
+
+function logOfficialGroupMatches(step, extra = {}) {
+  if (!__DEV__) return;
+  console.log('[OfficialGroupMatches][client]', step, extra);
+}
+
 function getMatchStatusText(match) {
   const phase = String(match?.last_phase_type || '').trim();
   if (phase === 'match_end') {
@@ -219,6 +242,8 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
   const [hallRanking, setHallRanking] = useState([]);
   const [hallWinnersByYear, setHallWinnersByYear] = useState([]);
   const matchesScrollRef = useRef(null);
+  const matchesLoadSeqRef = useRef(0);
+  const [matchesLoadingOlder, setMatchesLoadingOlder] = useState(false);
   const [matchesViewportHeight, setMatchesViewportHeight] = useState(0);
   const [matchesContentHeight, setMatchesContentHeight] = useState(0);
   const itemLayoutsRef = useRef({});
@@ -250,20 +275,101 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
 
   const loadGroupMatches = useCallback(async () => {
     if (!competitionId) return;
+    const seq = matchesLoadSeqRef.current + 1;
+    matchesLoadSeqRef.current = seq;
+    const t0 = Date.now();
+    logOfficialGroupMatches('load_start', { competitionId, seq });
+
+    setMatchesLoading(true);
+    setMatchesLoadingOlder(false);
     try {
-      setMatchesLoading(true);
-      const res = await matchesService.getOfficialGroupMatches(competitionId);
-      setGroupMatches(Array.isArray(res?.data?.matches) ? res.data.matches : []);
+      const tYears0 = Date.now();
+      const yearsRes = await matchesService.getOfficialGroupMatchYears(competitionId);
+      if (seq !== matchesLoadSeqRef.current) return;
+
+      const years = Array.isArray(yearsRes?.data?.years) ? yearsRes.data.years : [];
+      logOfficialGroupMatches('years_done', { seq, ms: Date.now() - tYears0, years });
+
+      if (years.length === 0) {
+        setGroupMatches([]);
+        itemLayoutsRef.current = {};
+        initialScrollDoneRef.current = false;
+        setMatchesTick((v) => v + 1);
+        logOfficialGroupMatches('load_empty', { seq, totalMs: Date.now() - t0 });
+        return;
+      }
+
+      const newestYear = Number(years[0]);
+      const tFirst0 = Date.now();
+      const firstRes = await matchesService.getOfficialGroupMatches(competitionId, newestYear);
+      if (seq !== matchesLoadSeqRef.current) return;
+
+      const firstMatches = Array.isArray(firstRes?.data?.matches) ? firstRes.data.matches : [];
+      logOfficialGroupMatches('first_year_done', {
+        seq,
+        year: newestYear,
+        count: firstMatches.length,
+        ms: Date.now() - tFirst0,
+        totalMs: Date.now() - t0,
+      });
+
+      setGroupMatches(firstMatches);
       itemLayoutsRef.current = {};
       initialScrollDoneRef.current = false;
       setMatchesTick((v) => v + 1);
-    } finally {
       setMatchesLoading(false);
+
+      const olderYears = years.slice(1).map(Number).filter((y) => Number.isFinite(y));
+      if (olderYears.length === 0) {
+        logOfficialGroupMatches('load_complete', { seq, totalMs: Date.now() - t0, yearsLoaded: 1 });
+        return;
+      }
+
+      setMatchesLoadingOlder(true);
+      for (const year of olderYears) {
+        if (seq !== matchesLoadSeqRef.current) return;
+        const tYear0 = Date.now();
+        const yearRes = await matchesService.getOfficialGroupMatches(competitionId, year);
+        if (seq !== matchesLoadSeqRef.current) return;
+
+        const yearMatches = Array.isArray(yearRes?.data?.matches) ? yearRes.data.matches : [];
+        logOfficialGroupMatches('older_year_done', {
+          seq,
+          year,
+          count: yearMatches.length,
+          ms: Date.now() - tYear0,
+          totalMs: Date.now() - t0,
+        });
+
+        if (yearMatches.length > 0) {
+          setGroupMatches((prev) => mergeGroupMatchesChronological(prev, yearMatches));
+        }
+      }
+
+      logOfficialGroupMatches('load_complete', {
+        seq,
+        totalMs: Date.now() - t0,
+        yearsLoaded: years.length,
+      });
+    } catch (err) {
+      logOfficialGroupMatches('load_error', {
+        seq,
+        totalMs: Date.now() - t0,
+        message: err?.message || String(err),
+      });
+    } finally {
+      if (seq === matchesLoadSeqRef.current) {
+        setMatchesLoading(false);
+        setMatchesLoadingOlder(false);
+      }
     }
   }, [competitionId]);
 
   useEffect(() => {
-    if (activeTab !== 'matches') return;
+    if (activeTab !== 'matches') {
+      matchesLoadSeqRef.current += 1;
+      return;
+    }
     void loadGroupMatches();
   }, [activeTab, loadGroupMatches]);
 
@@ -625,6 +731,11 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
                 onLayout={(e) => setMatchesViewportHeight(e.nativeEvent.layout.height)}
                 onContentSizeChange={(_, h) => setMatchesContentHeight(h)}
                 showsVerticalScrollIndicator={false}
+                maintainVisibleContentPosition={
+                  matchesLoadingOlder
+                    ? { minIndexForVisible: 0, autoscrollToTopThreshold: 24 }
+                    : undefined
+                }
               >
                 {groupMatches.length === 0 ? (
                   <Text style={styles.placeholderText}>Nessuna partita disponibile.</Text>

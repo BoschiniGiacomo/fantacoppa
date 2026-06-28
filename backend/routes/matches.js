@@ -2785,134 +2785,232 @@ router.get('/matches/groups/:groupId/detail', authenticateToken, async (req, res
   }
 });
 
-// GET /matches/groups/:groupId/matches — tutte le partite del gruppo ufficiale
-router.get('/matches/groups/:groupId/matches', authenticateToken, async (req, res) => {
-  try {
-    const userId = Number(req.user?.userId);
-    const groupId = Number(req.params.groupId);
-    if (!groupId || groupId <= 0) return res.status(400).json({ message: 'groupId non valido' });
-    const group = await fetchOfficialGroupRow(groupId);
-    if (!group) return res.status(404).json({ message: 'Gruppo non trovato' });
+function mapOfficialGroupMatchRows(rows) {
+  return (Array.isArray(rows) ? rows : []).map((r) => {
+    const homeLogoPath = normalizeTeamLogoPathForApi(r?.home_team_logo_path);
+    const awayLogoPath = normalizeTeamLogoPathForApi(r?.away_team_logo_path);
+    return {
+      id: Number(r.id),
+      kickoff_at: r.kickoff_at,
+      competition_id: Number(r.competition_id),
+      match_stage: r.match_stage != null ? String(r.match_stage) : null,
+      home_team_id: Number(r.home_team_id),
+      home_team_name: r.home_team_name,
+      home_team_logo_path: homeLogoPath,
+      home_team_logo_url: logoUrlForPath(homeLogoPath),
+      away_team_id: Number(r.away_team_id),
+      away_team_name: r.away_team_name,
+      away_team_logo_path: awayLogoPath,
+      away_team_logo_url: logoUrlForPath(awayLogoPath),
+      home_score: r.home_score != null ? Number(r.home_score) : null,
+      away_score: r.away_score != null ? Number(r.away_score) : null,
+      home_shootout_score: r.home_shootout_score != null ? Number(r.home_shootout_score) : null,
+      away_shootout_score: r.away_shootout_score != null ? Number(r.away_shootout_score) : null,
+      last_phase_type: r.last_phase_type || null,
+      is_walkover: r.is_walkover === true || r.is_walkover === 1 ? 1 : 0,
+    };
+  });
+}
 
-    const rows = await query(
-      `
-      WITH su AS (
-        SELECT CASE WHEN COALESCE(is_superuser, 0) IN (1, 2) THEN 1 ELSE 0 END AS can_see
-        FROM users WHERE id = ?
-      ),
-      ev_scores AS (
-        SELECT
-          e.match_id,
-          SUM(CASE
-                WHEN e.event_type IN ('goal','penalty_goal') AND (
-                  e.team_id = om.home_team_id OR (e.team_id IS NULL AND e.team_side = 'home')
-                ) THEN 1
-                WHEN e.event_type = 'own_goal' AND (
-                  e.team_id = om.away_team_id OR (e.team_id IS NULL AND e.team_side = 'away')
-                ) THEN 1
-                ELSE 0
-              END)::int AS ev_home,
-          SUM(CASE
-                WHEN e.event_type IN ('goal','penalty_goal') AND (
-                  e.team_id = om.away_team_id OR (e.team_id IS NULL AND e.team_side = 'away')
-                ) THEN 1
-                WHEN e.event_type = 'own_goal' AND (
-                  e.team_id = om.home_team_id OR (e.team_id IS NULL AND e.team_side = 'home')
-                ) THEN 1
-                ELSE 0
-              END)::int AS ev_away,
-          SUM(CASE
-                WHEN e.event_type = 'shootout_goal' AND (
-                  e.team_id = om.home_team_id OR (e.team_id IS NULL AND e.team_side = 'home')
-                ) THEN 1
-                ELSE 0
-              END)::int AS ev_home_shootout,
-          SUM(CASE
-                WHEN e.event_type = 'shootout_goal' AND (
-                  e.team_id = om.away_team_id OR (e.team_id IS NULL AND e.team_side = 'away')
-                ) THEN 1
-                ELSE 0
-              END)::int AS ev_away_shootout,
-          BOOL_OR(e.event_type IN ('shootout_goal','shootout_missed')) AS has_shootout
-        FROM official_match_events e
-        JOIN official_matches om ON om.id = e.match_id
-        WHERE e.event_type IN ('goal','penalty_goal','own_goal','shootout_goal','shootout_missed')
-        GROUP BY e.match_id
-      ),
-      last_phase AS (
-        SELECT DISTINCT ON (e.match_id)
-          e.match_id,
-          e.event_type AS last_phase_type
-        FROM official_match_events e
-        WHERE e.event_type IN (
+async function queryOfficialGroupMatchYears({ userId, groupId }) {
+  const rows = await query(
+    `
+    WITH su AS (
+      SELECT CASE WHEN COALESCE(is_superuser, 0) IN (1, 2) THEN 1 ELSE 0 END AS can_see
+      FROM users WHERE id = ?
+    )
+    SELECT DISTINCT EXTRACT(YEAR FROM (m.kickoff_at AT TIME ZONE 'Europe/Rome'))::int AS kickoff_year
+    FROM official_matches m
+    WHERE m.competition_id = ?
+      AND m.kickoff_at IS NOT NULL
+      AND ((SELECT can_see FROM su) = 1 OR COALESCE(m.is_admin_only, 0) = 0)
+    ORDER BY kickoff_year DESC
+    `,
+    [userId, groupId]
+  );
+  return (Array.isArray(rows) ? rows : [])
+    .map((r) => Number(r.kickoff_year))
+    .filter((y) => Number.isFinite(y));
+}
+
+async function queryOfficialGroupMatchesRows({ userId, groupId, kickoffYear = null }) {
+  const params = [userId, groupId];
+  let kickoffYearClause = '';
+  if (kickoffYear != null && Number.isFinite(Number(kickoffYear))) {
+    kickoffYearClause =
+      'AND EXTRACT(YEAR FROM (m.kickoff_at AT TIME ZONE \'Europe/Rome\'))::int = ?';
+    params.push(Math.trunc(Number(kickoffYear)));
+  }
+
+  return await query(
+    `
+    WITH su AS (
+      SELECT CASE WHEN COALESCE(is_superuser, 0) IN (1, 2) THEN 1 ELSE 0 END AS can_see
+      FROM users WHERE id = ?
+    ),
+    ev_scores AS (
+      SELECT
+        e.match_id,
+        SUM(CASE
+              WHEN e.event_type IN ('goal','penalty_goal') AND (
+                e.team_id = om.home_team_id OR (e.team_id IS NULL AND e.team_side = 'home')
+              ) THEN 1
+              WHEN e.event_type = 'own_goal' AND (
+                e.team_id = om.away_team_id OR (e.team_id IS NULL AND e.team_side = 'away')
+              ) THEN 1
+              ELSE 0
+            END)::int AS ev_home,
+        SUM(CASE
+              WHEN e.event_type IN ('goal','penalty_goal') AND (
+                e.team_id = om.away_team_id OR (e.team_id IS NULL AND e.team_side = 'away')
+              ) THEN 1
+              WHEN e.event_type = 'own_goal' AND (
+                e.team_id = om.home_team_id OR (e.team_id IS NULL AND e.team_side = 'home')
+              ) THEN 1
+              ELSE 0
+            END)::int AS ev_away,
+        SUM(CASE
+              WHEN e.event_type = 'shootout_goal' AND (
+                e.team_id = om.home_team_id OR (e.team_id IS NULL AND e.team_side = 'home')
+              ) THEN 1
+              ELSE 0
+            END)::int AS ev_home_shootout,
+        SUM(CASE
+              WHEN e.event_type = 'shootout_goal' AND (
+                e.team_id = om.away_team_id OR (e.team_id IS NULL AND e.team_side = 'away')
+              ) THEN 1
+              ELSE 0
+            END)::int AS ev_away_shootout,
+        BOOL_OR(e.event_type IN ('shootout_goal','shootout_missed')) AS has_shootout
+      FROM official_match_events e
+      JOIN official_matches om ON om.id = e.match_id
+      WHERE om.competition_id = ?
+        AND e.event_type IN ('goal','penalty_goal','own_goal','shootout_goal','shootout_missed')
+      GROUP BY e.match_id
+    ),
+    last_phase AS (
+      SELECT DISTINCT ON (e.match_id)
+        e.match_id,
+        e.event_type AS last_phase_type
+      FROM official_match_events e
+      INNER JOIN official_matches om ON om.id = e.match_id
+      WHERE om.competition_id = ?
+        AND e.event_type IN (
           'match_start','half_time','second_half_start','second_half_end',
           'extra_first_half_start','extra_half_time','extra_second_half_start','extra_second_half_end',
           'penalties_start','match_end'
         )
-        ORDER BY e.match_id, e.id DESC
-      ),
+      ORDER BY e.match_id, e.id DESC
+    ),
 ${SQL_WALKOVER_MATCHES_CTE}
-      SELECT
-        m.id,
-        m.kickoff_at,
-        m.competition_id,
-        ms.name AS match_stage,
-        m.home_team_id,
-        ht.name AS home_team_name,
-        ht.logo_path AS home_team_logo_path,
-        m.away_team_id,
-        at.name AS away_team_name,
-        at.logo_path AS away_team_logo_path,
-        COALESCE(evs.ev_home, m.home_score, CASE WHEN lp.last_phase_type = 'match_end' THEN 0 END) AS home_score,
-        COALESCE(evs.ev_away, m.away_score, CASE WHEN lp.last_phase_type = 'match_end' THEN 0 END) AS away_score,
-        CASE WHEN COALESCE(evs.has_shootout, false) THEN COALESCE(evs.ev_home_shootout, 0) ELSE NULL END AS home_shootout_score,
-        CASE WHEN COALESCE(evs.has_shootout, false) THEN COALESCE(evs.ev_away_shootout, 0) ELSE NULL END AS away_shootout_score,
-        lp.last_phase_type,
-        COALESCE(wo.match_id IS NOT NULL, false) AS is_walkover
-      FROM official_matches m
-      INNER JOIN teams ht ON ht.id = m.home_team_id
-      INNER JOIN teams at ON at.id = m.away_team_id
-      LEFT JOIN official_match_stages ms ON ms.id = NULLIF(to_jsonb(m)->>'match_stage_id','')::int
-      LEFT JOIN ev_scores evs ON evs.match_id = m.id
-      LEFT JOIN last_phase lp ON lp.match_id = m.id
-      LEFT JOIN walkover_matches wo ON wo.match_id = m.id
-      WHERE m.competition_id = ?
-        AND ((SELECT can_see FROM su) = 1 OR COALESCE(m.is_admin_only, 0) = 0)
-      ORDER BY m.kickoff_at ASC, m.id ASC
-      `,
-      [userId, groupId]
-    );
+    SELECT
+      m.id,
+      m.kickoff_at,
+      m.competition_id,
+      ms.name AS match_stage,
+      m.home_team_id,
+      ht.name AS home_team_name,
+      ht.logo_path AS home_team_logo_path,
+      m.away_team_id,
+      at.name AS away_team_name,
+      at.logo_path AS away_team_logo_path,
+      COALESCE(evs.ev_home, m.home_score, CASE WHEN lp.last_phase_type = 'match_end' THEN 0 END) AS home_score,
+      COALESCE(evs.ev_away, m.away_score, CASE WHEN lp.last_phase_type = 'match_end' THEN 0 END) AS away_score,
+      CASE WHEN COALESCE(evs.has_shootout, false) THEN COALESCE(evs.ev_home_shootout, 0) ELSE NULL END AS home_shootout_score,
+      CASE WHEN COALESCE(evs.has_shootout, false) THEN COALESCE(evs.ev_away_shootout, 0) ELSE NULL END AS away_shootout_score,
+      lp.last_phase_type,
+      COALESCE(wo.match_id IS NOT NULL, false) AS is_walkover
+    FROM official_matches m
+    INNER JOIN teams ht ON ht.id = m.home_team_id
+    INNER JOIN teams at ON at.id = m.away_team_id
+    LEFT JOIN official_match_stages ms ON ms.id = NULLIF(to_jsonb(m)->>'match_stage_id','')::int
+    LEFT JOIN ev_scores evs ON evs.match_id = m.id
+    LEFT JOIN last_phase lp ON lp.match_id = m.id
+    LEFT JOIN walkover_matches wo ON wo.match_id = m.id
+    WHERE m.competition_id = ?
+      AND ((SELECT can_see FROM su) = 1 OR COALESCE(m.is_admin_only, 0) = 0)
+      ${kickoffYearClause}
+    ORDER BY m.kickoff_at ASC, m.id ASC
+    `,
+    [userId, groupId, groupId, ...params.slice(1)]
+  );
+}
 
-    const matches = (Array.isArray(rows) ? rows : []).map((r) => {
-      const homeLogoPath = normalizeTeamLogoPathForApi(r?.home_team_logo_path);
-      const awayLogoPath = normalizeTeamLogoPathForApi(r?.away_team_logo_path);
-      return {
-        id: Number(r.id),
-        kickoff_at: r.kickoff_at,
-        competition_id: Number(r.competition_id),
-        match_stage: r.match_stage != null ? String(r.match_stage) : null,
-        home_team_id: Number(r.home_team_id),
-        home_team_name: r.home_team_name,
-        home_team_logo_path: homeLogoPath,
-        home_team_logo_url: logoUrlForPath(homeLogoPath),
-        away_team_id: Number(r.away_team_id),
-        away_team_name: r.away_team_name,
-        away_team_logo_path: awayLogoPath,
-        away_team_logo_url: logoUrlForPath(awayLogoPath),
-        home_score: r.home_score != null ? Number(r.home_score) : null,
-        away_score: r.away_score != null ? Number(r.away_score) : null,
-        home_shootout_score: r.home_shootout_score != null ? Number(r.home_shootout_score) : null,
-        away_shootout_score: r.away_shootout_score != null ? Number(r.away_shootout_score) : null,
-        last_phase_type: r.last_phase_type || null,
-        is_walkover: r.is_walkover === true || r.is_walkover === 1 ? 1 : 0,
-      };
-    });
+// GET /matches/groups/:groupId/matches/years — anni disponibili (query leggera)
+router.get('/matches/groups/:groupId/matches/years', authenticateToken, async (req, res) => {
+  const t0 = Date.now();
+  const log = (step, extra = {}) => {
+    console.log('[OfficialGroupMatches][years]', step, { groupId: Number(req.params.groupId), ms: Date.now() - t0, ...extra });
+  };
+  try {
+    const userId = Number(req.user?.userId);
+    const groupId = Number(req.params.groupId);
+    if (!groupId || groupId <= 0) return res.status(400).json({ message: 'groupId non valido' });
+
+    const tGroup0 = Date.now();
+    const group = await fetchOfficialGroupRow(groupId);
+    log('fetch_group', { fetchGroupMs: Date.now() - tGroup0 });
+    if (!group) return res.status(404).json({ message: 'Gruppo non trovato' });
+
+    const tQuery0 = Date.now();
+    const years = await queryOfficialGroupMatchYears({ userId, groupId });
+    log('query_years', { queryMs: Date.now() - tQuery0, yearCount: years.length, years });
 
     return res.json({
       group: { id: groupId, name: String(group.name || '').trim() },
+      years,
+    });
+  } catch (err) {
+    log('error', { error: err?.message });
+    if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
+    return res.status(500).json({ message: 'Errore caricamento anni partite gruppo', error: err.message });
+  }
+});
+
+// GET /matches/groups/:groupId/matches?kickoff_year=yyyy — partite del gruppo (opz. filtro anno)
+router.get('/matches/groups/:groupId/matches', authenticateToken, async (req, res) => {
+  const t0 = Date.now();
+  const kickoffYearRaw = req.query?.kickoff_year;
+  const kickoffYear =
+    kickoffYearRaw == null || String(kickoffYearRaw).trim() === ''
+      ? null
+      : Number(kickoffYearRaw);
+  const log = (step, extra = {}) => {
+    console.log('[OfficialGroupMatches]', step, {
+      groupId: Number(req.params.groupId),
+      kickoffYear,
+      ms: Date.now() - t0,
+      ...extra,
+    });
+  };
+  try {
+    const userId = Number(req.user?.userId);
+    const groupId = Number(req.params.groupId);
+    if (!groupId || groupId <= 0) return res.status(400).json({ message: 'groupId non valido' });
+    if (kickoffYear != null && !Number.isFinite(kickoffYear)) {
+      return res.status(400).json({ message: 'kickoff_year non valido' });
+    }
+
+    const tGroup0 = Date.now();
+    const group = await fetchOfficialGroupRow(groupId);
+    log('fetch_group', { fetchGroupMs: Date.now() - tGroup0 });
+    if (!group) return res.status(404).json({ message: 'Gruppo non trovato' });
+
+    const tQuery0 = Date.now();
+    const rows = await queryOfficialGroupMatchesRows({ userId, groupId, kickoffYear });
+    log('query_matches', { queryMs: Date.now() - tQuery0, rowCount: Array.isArray(rows) ? rows.length : 0 });
+
+    const tMap0 = Date.now();
+    const matches = mapOfficialGroupMatchRows(rows);
+    log('map_matches', { mapMs: Date.now() - tMap0, matchCount: matches.length });
+
+    return res.json({
+      group: { id: groupId, name: String(group.name || '').trim() },
+      kickoff_year: kickoffYear != null ? Math.trunc(kickoffYear) : null,
       matches,
     });
   } catch (err) {
+    log('error', { error: err?.message });
     if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
     return res.status(500).json({ message: 'Errore caricamento partite gruppo', error: err.message });
   }
