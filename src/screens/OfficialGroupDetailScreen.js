@@ -352,6 +352,7 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
   const [hallLoading, setHallLoading] = useState(false);
   const [hallRanking, setHallRanking] = useState([]);
   const [hallWinnersByYear, setHallWinnersByYear] = useState([]);
+  const [hallRankingSort, setHallRankingSort] = useState('titles');
   const matchesListRef = useRef(null);
   const matchesLoadSeqRef = useRef(0);
   const statsLoadSeqRef = useRef(0);
@@ -585,6 +586,26 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
 
   const group = data?.group || {};
   const groupName = group.name || route?.params?.groupName || '-';
+
+  const sortedHallRanking = useMemo(() => {
+    const list = Array.isArray(hallRanking) ? [...hallRanking] : [];
+    if (hallRankingSort === 'wine_trophies') {
+      list.sort(
+        (a, b) =>
+          Number(b.wine_trophies || 0) - Number(a.wine_trophies || 0)
+          || Number(b.titles || 0) - Number(a.titles || 0)
+          || String(a.team_name || '').localeCompare(String(b.team_name || ''), 'it')
+      );
+    } else {
+      list.sort(
+        (a, b) =>
+          Number(b.titles || 0) - Number(a.titles || 0)
+          || Number(b.wine_trophies || 0) - Number(a.wine_trophies || 0)
+          || String(a.team_name || '').localeCompare(String(b.team_name || ''), 'it')
+      );
+    }
+    return list;
+  }, [hallRanking, hallRankingSort]);
 
   const seasonYearOptions = useMemo(
     () =>
@@ -1067,25 +1088,63 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
                   <View style={styles.seasonTableHeader}>
                     <Text style={[styles.seasonTh, styles.seasonThPos, { textAlign: 'center' }]}>Pos</Text>
                     <Text style={[styles.seasonTh, { flex: 1 }]}>Squadra</Text>
-                    <Text style={[styles.seasonTh, styles.seasonThStat, { textAlign: 'center' }]}>Titoli</Text>
+                    <TouchableOpacity
+                      style={styles.hallSortableTh}
+                      activeOpacity={0.7}
+                      onPress={() => setHallRankingSort('titles')}
+                    >
+                      <Text
+                        style={[
+                          styles.seasonTh,
+                          styles.hallThTitoli,
+                          hallRankingSort === 'titles' && styles.hallThSortActive,
+                          { textAlign: 'center' },
+                        ]}
+                      >
+                        Titoli
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.hallSortableThWine}
+                      activeOpacity={0.7}
+                      onPress={() => setHallRankingSort('wine_trophies')}
+                    >
+                      <Text
+                        style={[
+                          styles.seasonTh,
+                          styles.hallThWine,
+                          hallRankingSort === 'wine_trophies' && styles.hallThSortActive,
+                          { textAlign: 'center' },
+                        ]}
+                        numberOfLines={2}
+                      >
+                        Trofeo del vino
+                      </Text>
+                    </TouchableOpacity>
                   </View>
-                  {hallRanking.map((r, i) => (
-                    <View key={`hall-rank-${i}`} style={[styles.seasonTableRow, i === hallRanking.length - 1 && styles.seasonTableRowLast]}>
+                  {sortedHallRanking.map((r, i) => (
+                    <View
+                      key={`hall-rank-${String(r.team_name || i)}`}
+                      style={[styles.seasonTableRow, i === sortedHallRanking.length - 1 && styles.seasonTableRowLast]}
+                    >
                       <Text style={[styles.seasonTd, styles.seasonTdPos, { textAlign: 'center' }]}>{i + 1}</Text>
                       <View style={[styles.teamCell, styles.seasonTeamCell, { flex: 1 }]}>
                         <TeamRowLogo logoUrl={r.team_logo_url} logoPath={r.team_logo_path} />
                         <View style={styles.hallTeamTextCol}>
-                          <Text style={[styles.seasonTd, styles.seasonTdTeamName]} numberOfLines={1}>
+                          <Text style={[styles.seasonTd, styles.seasonTdTeamName]} numberOfLines={1} ellipsizeMode="tail">
                             {r.team_name || '-'}
                           </Text>
                           {Array.isArray(r.years) && r.years.length > 0 ? (
-                            <Text style={styles.hallYearsText} numberOfLines={1}>
+                            <Text style={styles.hallYearsText} numberOfLines={1} ellipsizeMode="tail">
                               {r.years.join(', ')}
                             </Text>
                           ) : null}
                         </View>
                       </View>
-                      <Text style={[styles.seasonTd, styles.seasonTdStat, { textAlign: 'center' }]}>{r.titles}</Text>
+                      <Text style={[styles.seasonTd, styles.hallTdTitoli, { textAlign: 'center' }]}>{r.titles ?? 0}</Text>
+                      <Text style={[styles.seasonTd, styles.hallTdWine, { textAlign: 'center' }]}>
+                        {r.wine_trophies ?? 0}
+                      </Text>
                     </View>
                   ))}
                 </View>
@@ -1514,6 +1573,13 @@ const styles = StyleSheet.create({
   hallScrollContent: { paddingBottom: 12 },
   hallSectionTitle: { fontSize: 15, fontWeight: '800', color: '#1e293b', marginBottom: 8 },
   hallSectionTitleSpaced: { marginTop: 18 },
+  hallSortableTh: { width: 44, flexShrink: 0 },
+  hallSortableThWine: { width: 56, flexShrink: 0, justifyContent: 'center' },
+  hallThTitoli: { width: 44 },
+  hallThWine: { width: 56, fontSize: 10, lineHeight: 12 },
+  hallThSortActive: { color: '#4f46e5' },
+  hallTdTitoli: { width: 44, flexShrink: 0, fontWeight: '700' },
+  hallTdWine: { width: 56, flexShrink: 0, fontWeight: '700' },
   hallTeamTextCol: { flex: 1, minWidth: 0 },
   hallYearsText: { fontSize: 10, color: '#64748b', marginTop: 1 },
   hallYearRow: {

@@ -1132,7 +1132,7 @@ async function buildKnockoutBracketForLeague({ competitionId, leagueId }) {
   const compId = Number(competitionId);
   const lid = Number(leagueId);
   if (!Number.isFinite(compId) || compId <= 0 || !Number.isFinite(lid) || lid <= 0) {
-    return { quarterfinals: [], semifinals: [], final: null };
+    return { quarterfinals: [], semifinals: [], final: null, wine_trophy_final: null };
   }
 
   const knockoutRows = await query(
@@ -1163,7 +1163,7 @@ async function buildKnockoutBracketForLeague({ competitionId, leagueId }) {
           AND at.league_id = ?
         )
       )
-      AND NULLIF(to_jsonb(m)->>'match_stage_id','')::int IN (2, 3, 4)
+      AND NULLIF(to_jsonb(m)->>'match_stage_id','')::int IN (2, 3, 4, 6)
     ORDER BY
       NULLIF(to_jsonb(m)->>'match_stage_id','')::int ASC,
       m.kickoff_at ASC NULLS LAST,
@@ -1267,6 +1267,7 @@ async function buildKnockoutBracketForLeague({ competitionId, leagueId }) {
     quarterfinals: mapped.filter((m) => m.stage_id === 4),
     semifinals: mapped.filter((m) => m.stage_id === 2),
     final: mapped.find((m) => m.stage_id === 3) || null,
+    wine_trophy_final: mapped.find((m) => m.stage_id === 6) || null,
   };
 }
 
@@ -2631,48 +2632,83 @@ async function buildOfficialGroupHallOfFame(competitionId) {
   const winnersByYear = [];
   const titleBuckets = new Map();
 
+  const ensureTeamBucket = (norm, teamName, logoPath) => {
+    if (!titleBuckets.has(norm)) {
+      titleBuckets.set(norm, {
+        team_name: teamName,
+        titles: 0,
+        years: [],
+        wine_trophies: 0,
+        wine_years: [],
+        team_logo_path: logoPath,
+      });
+    }
+    const bucket = titleBuckets.get(norm);
+    if (logoPath && !bucket.team_logo_path) bucket.team_logo_path = logoPath;
+    return bucket;
+  };
+
   for (const row of leagues || []) {
     const leagueId = Number(row.league_id);
     const year = Number(row.reference_year);
     if (!Number.isFinite(leagueId) || leagueId <= 0 || !Number.isFinite(year)) continue;
     const ko = await buildKnockoutBracketForLeague({ competitionId, leagueId });
     const finalMatch = ko?.final || null;
-    if (!finalMatch?.id) continue;
-    const endedIds = await fetchMatchEndedIds([Number(finalMatch.id)]);
-    if (!endedIds.has(Number(finalMatch.id))) continue;
-    const winner = determineKnockoutMatchWinner(finalMatch);
-    if (!winner?.team_name) continue;
-    const logoPath = normalizeTeamLogoPathForApi(winner.logo_path);
-    winnersByYear.push({
-      year,
-      team_id: winner.team_id,
-      team_name: winner.team_name,
-      team_logo_path: logoPath,
-      team_logo_url: logoUrlForPath(logoPath),
-    });
-    const norm = normalizeTeamNameForFavorite(winner.team_name);
-    const prev = titleBuckets.get(norm) || {
-      team_name: winner.team_name,
-      titles: 0,
-      years: [],
-      team_logo_path: logoPath,
-    };
-    prev.titles += 1;
-    prev.years.push(year);
-    if (logoPath && !prev.team_logo_path) prev.team_logo_path = logoPath;
-    titleBuckets.set(norm, prev);
+    if (finalMatch?.id) {
+      const endedIds = await fetchMatchEndedIds([Number(finalMatch.id)]);
+      if (endedIds.has(Number(finalMatch.id))) {
+        const winner = determineKnockoutMatchWinner(finalMatch);
+        if (winner?.team_name) {
+          const logoPath = normalizeTeamLogoPathForApi(winner.logo_path);
+          winnersByYear.push({
+            year,
+            team_id: winner.team_id,
+            team_name: winner.team_name,
+            team_logo_path: logoPath,
+            team_logo_url: logoUrlForPath(logoPath),
+          });
+          const norm = normalizeTeamNameForFavorite(winner.team_name);
+          const prev = ensureTeamBucket(norm, winner.team_name, logoPath);
+          prev.titles += 1;
+          prev.years.push(year);
+        }
+      }
+    }
+
+    const wineMatch = ko?.wine_trophy_final || null;
+    if (wineMatch?.id) {
+      const wineEndedIds = await fetchMatchEndedIds([Number(wineMatch.id)]);
+      if (wineEndedIds.has(Number(wineMatch.id))) {
+        const wineWinner = determineKnockoutMatchWinner(wineMatch);
+        if (wineWinner?.team_name) {
+          const wineLogoPath = normalizeTeamLogoPathForApi(wineWinner.logo_path);
+          const wineNorm = normalizeTeamNameForFavorite(wineWinner.team_name);
+          const wineBucket = ensureTeamBucket(wineNorm, wineWinner.team_name, wineLogoPath);
+          wineBucket.wine_trophies += 1;
+          wineBucket.wine_years.push(year);
+        }
+      }
+    }
   }
 
   winnersByYear.sort((a, b) => Number(b.year) - Number(a.year));
   const ranking = [...titleBuckets.values()]
+    .filter((r) => Number(r.titles) > 0 || Number(r.wine_trophies) > 0)
     .map((r) => ({
       team_name: r.team_name,
       titles: r.titles,
       years: [...r.years].sort((a, b) => b - a),
+      wine_trophies: r.wine_trophies,
+      wine_years: [...r.wine_years].sort((a, b) => b - a),
       team_logo_path: r.team_logo_path,
       team_logo_url: logoUrlForPath(r.team_logo_path),
     }))
-    .sort((a, b) => b.titles - a.titles || a.team_name.localeCompare(b.team_name, 'it'));
+    .sort(
+      (a, b) =>
+        b.titles - a.titles
+        || b.wine_trophies - a.wine_trophies
+        || a.team_name.localeCompare(b.team_name, 'it')
+    );
 
   return { winners_by_year: winnersByYear, ranking };
 }
