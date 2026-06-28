@@ -104,6 +104,17 @@ function labelForDate(date) {
   return `${DAY_NAMES[date.getDay()]} ${date.getDate()} ${MONTH_NAMES[date.getMonth()]}`;
 }
 
+function GroupTitleLogo({ logoUrl, logoPath }) {
+  if (!logoUrl && !logoPath) return null;
+  return (
+    <TeamLogoImage
+      logoUrl={logoUrl}
+      logoPath={logoPath}
+      style={styles.groupTitleLogo}
+    />
+  );
+}
+
 function TeamRowLogo({ logoUrl, logoPath }) {
   return (
     <TeamLogoImage
@@ -333,6 +344,8 @@ export default function MatchesScreen() {
         map.set(key, {
           competition: m.competition_name || 'Competizione',
           competitionId: compId > 0 ? compId : null,
+          competitionLogoUrl: m.competition_logo_url || null,
+          competitionLogoPath: m.competition_logo_path || null,
           matches: [],
         });
       }
@@ -654,6 +667,7 @@ export default function MatchesScreen() {
             {regularGrouped.map((group) => (
               <View key={group.competitionId || group.competition} style={styles.groupBox}>
                 <TouchableOpacity
+                  style={styles.groupTitleRow}
                   activeOpacity={group.competitionId ? 0.7 : 1}
                   disabled={!group.competitionId}
                   onPress={() => {
@@ -664,7 +678,14 @@ export default function MatchesScreen() {
                     });
                   }}
                 >
-                  <Text style={[styles.groupTitle, group.competitionId ? styles.groupTitleLink : null]}>
+                  <GroupTitleLogo
+                    logoUrl={group.competitionLogoUrl}
+                    logoPath={group.competitionLogoPath}
+                  />
+                  <Text
+                    style={[styles.groupTitle, group.competitionId ? styles.groupTitleLink : null]}
+                    numberOfLines={1}
+                  >
                     {group.competition}
                   </Text>
                 </TouchableOpacity>
@@ -837,8 +858,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#ececec',
   },
-  groupTitle: { fontSize: 15, fontWeight: '700', color: '#333', marginBottom: 8 },
-  groupTitleLink: { color: '#667eea' },
+  groupTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+  },
+  groupTitle: { flex: 1, fontSize: 15, fontWeight: '700', color: '#111827' },
+  groupTitleLink: { color: '#111827' },
+  groupTitleLogo: { width: 22, height: 22, flexShrink: 0 },
   favHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 },
   matchRow: {
     flexDirection: 'row',

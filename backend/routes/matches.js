@@ -1406,6 +1406,7 @@ ${SQL_WALKOVER_MATCHES_CTE}
         m.league_id,
         lg.name AS league_name,
         og.name AS competition_name,
+        COALESCE(NULLIF(to_jsonb(og)->>'logo_path',''), NULLIF(og.logo_path, '')) AS competition_logo_path,
         m.kickoff_at,
         COALESCE(m.status, 'scheduled') AS status,
         m.notes,
@@ -1452,8 +1453,11 @@ ${SQL_WALKOVER_MATCHES_CTE}
     const withLogos = (Array.isArray(rows) ? rows : []).map((r) => {
       const homeLogoPath = normalizeTeamLogoPathForApi(r?.home_team_logo_path);
       const awayLogoPath = normalizeTeamLogoPathForApi(r?.away_team_logo_path);
+      const competitionLogoPath = normalizeOfficialGroupLogoPathForApi(r?.competition_logo_path);
       return {
         ...r,
+        competition_logo_path: competitionLogoPath,
+        competition_logo_url: logoUrlForPath(competitionLogoPath),
         home_team_logo_path: homeLogoPath,
         home_team_logo_url: logoUrlForPath(homeLogoPath),
         away_team_logo_path: awayLogoPath,
@@ -2703,47 +2707,27 @@ async function computeOfficialGroupSeasonStats(competitionId, targetLeagueIds, i
   }
 
   if (isAbsoluteMode && leagueIds.length > 1) {
-    const t0 = Date.now();
-    console.log('[OfficialGroupStats][server] absolute compute start', { compId, leagueCount: leagueIds.length });
-    try {
-      const parts = await mapInPool(leagueIds, 3, async (lid) => {
-        const [goalsPart, presences] = await Promise.all([
-          computeOfficialGroupSeasonStatsCore(compId, [lid], false, {
-            keepPlayerIds: true,
-            skipPresences: true,
-          }),
-          fetchOfficialGroupPresencesForLeague(lid),
-        ]);
-        return {
-          scorers: goalsPart.scorers,
-          assistmen: goalsPart.assistmen,
-          presences,
-        };
-      });
-      const scorersRaw = parts.flatMap((p) => (Array.isArray(p.scorers) ? p.scorers : []));
-      const assistRaw = parts.flatMap((p) => (Array.isArray(p.assistmen) ? p.assistmen : []));
-      const presRaw = parts.flatMap((p) => (Array.isArray(p.presences) ? p.presences : []));
-      const scorers = await mergeAbsoluteStatsByCluster(scorersRaw, compId);
-      const assistmen = await mergeAbsoluteStatsByCluster(assistRaw, compId);
-      const presences = await mergeAbsoluteStatsByCluster(presRaw, compId);
-      console.log('[OfficialGroupStats][server] absolute compute done', {
-        compId,
-        ms: Date.now() - t0,
-        leagueCount: leagueIds.length,
-        counts: { scorers: scorers.length, assistmen: assistmen.length, presences: presences.length },
-        topScorer: scorers[0] || null,
-      });
-      return { scorers, assistmen, presences };
-    } catch (err) {
-      console.error('[OfficialGroupStats][server] absolute compute failed', {
-        compId,
-        ms: Date.now() - t0,
-        leagueCount: leagueIds.length,
-        error: err?.message,
-        stack: err?.stack,
-      });
-      throw err;
-    }
+    const parts = await mapInPool(leagueIds, 3, async (lid) => {
+      const [goalsPart, presences] = await Promise.all([
+        computeOfficialGroupSeasonStatsCore(compId, [lid], false, {
+          keepPlayerIds: true,
+          skipPresences: true,
+        }),
+        fetchOfficialGroupPresencesForLeague(lid),
+      ]);
+      return {
+        scorers: goalsPart.scorers,
+        assistmen: goalsPart.assistmen,
+        presences,
+      };
+    });
+    const scorersRaw = parts.flatMap((p) => (Array.isArray(p.scorers) ? p.scorers : []));
+    const assistRaw = parts.flatMap((p) => (Array.isArray(p.assistmen) ? p.assistmen : []));
+    const presRaw = parts.flatMap((p) => (Array.isArray(p.presences) ? p.presences : []));
+    const scorers = await mergeAbsoluteStatsByCluster(scorersRaw, compId);
+    const assistmen = await mergeAbsoluteStatsByCluster(assistRaw, compId);
+    const presences = await mergeAbsoluteStatsByCluster(presRaw, compId);
+    return { scorers, assistmen, presences };
   }
 
   return computeOfficialGroupSeasonStatsCore(compId, leagueIds, isAbsoluteMode, { keepPlayerIds: false });
@@ -3414,36 +3398,7 @@ router.get('/matches/groups/:groupId/season-stats', authenticateToken, async (re
         return selectedLeagueId ? [selectedLeagueId] : [];
       })();
 
-    console.log('[OfficialGroupStats][server] season-stats', {
-      groupId,
-      query: req.query,
-      statsModeRaw,
-      referenceYearRaw,
-      isAbsoluteMode,
-      requestedYear,
-      selectedYear,
-      availableYears,
-      seasonLeagues: (seasonLeagues || []).map((r) => ({
-        league_id: r.league_id,
-        reference_year: r.reference_year,
-      })),
-      targetLeagueIds,
-    });
-
     const stats = await computeOfficialGroupSeasonStats(groupId, targetLeagueIds, isAbsoluteMode);
-
-    console.log('[OfficialGroupStats][server] season-stats result', {
-      groupId,
-      isAbsoluteMode,
-      selectedYear,
-      targetLeagueIds,
-      counts: {
-        scorers: (stats.scorers || []).length,
-        assistmen: (stats.assistmen || []).length,
-        presences: (stats.presences || []).length,
-      },
-      topScorer: (stats.scorers || [])[0] || null,
-    });
 
     return res.json({
       group: { id: groupId, name: String(group.name || '').trim() },

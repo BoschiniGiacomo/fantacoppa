@@ -456,74 +456,32 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
         rawYear === ABSOLUTE_STATS_KEY || String(rawYear || '').toLowerCase() === ABSOLUTE_STATS_KEY
           ? ABSOLUTE_STATS_KEY
           : rawYear;
-      console.log('[OfficialGroupStats][client] load start', {
-        seq,
-        latestSeq: statsLoadSeqRef.current,
-        yearOverride,
-        rawYear,
-        targetYear,
-        selectedStatsYearRef: selectedStatsYearRef.current,
-        competitionId,
-      });
       try {
         setStatsLoading(true);
         const res = await matchesService.getOfficialGroupSeasonStats(competitionId, targetYear);
-        if (seq !== statsLoadSeqRef.current) {
-          console.log('[OfficialGroupStats][client] stale response ignored', {
-            seq,
-            latestSeq: statsLoadSeqRef.current,
-            targetYear,
-            backendSelected: res?.data?.selected_year,
-          });
-          return;
-        }
+        if (seq !== statsLoadSeqRef.current) return;
         const years = Array.isArray(res?.data?.available_years) ? res.data.available_years : [];
         const rawBackendSelected = res?.data?.selected_year;
         const backendSelected =
           String(rawBackendSelected || '').trim().toLowerCase() === ABSOLUTE_STATS_KEY
             ? ABSOLUTE_STATS_KEY
             : (rawBackendSelected != null ? Number(rawBackendSelected) : null);
-        const scorers = Array.isArray(res?.data?.scorers) ? res.data.scorers : [];
-        const assistmen = Array.isArray(res?.data?.assistmen) ? res.data.assistmen : [];
-        const presences = Array.isArray(res?.data?.presences) ? res.data.presences : [];
-        console.log('[OfficialGroupStats][client] load applied', {
-          seq,
-          targetYear,
-          backendSelected,
-          availableYears: years,
-          counts: { scorers: scorers.length, assistmen: assistmen.length, presences: presences.length },
-          topScorer: scorers[0] || null,
-        });
         setStatsYears(years);
-        setStatsScorers(scorers);
-        setStatsAssistmen(assistmen);
-        setStatsPresences(presences);
+        setStatsScorers(Array.isArray(res?.data?.scorers) ? res.data.scorers : []);
+        setStatsAssistmen(Array.isArray(res?.data?.assistmen) ? res.data.assistmen : []);
+        setStatsPresences(Array.isArray(res?.data?.presences) ? res.data.presences : []);
         setSelectedStatsYear((prev) => {
-          let next = prev;
           if (yearOverride != null) {
-            if (yearOverride === ABSOLUTE_STATS_KEY) next = ABSOLUTE_STATS_KEY;
-            else if (Number.isFinite(Number(yearOverride))) next = Number(yearOverride);
-          } else if (backendSelected === ABSOLUTE_STATS_KEY) next = ABSOLUTE_STATS_KEY;
-          else if (backendSelected != null && Number.isFinite(backendSelected)) {
-            next = prev === backendSelected ? prev : backendSelected;
+            if (yearOverride === ABSOLUTE_STATS_KEY) return ABSOLUTE_STATS_KEY;
+            if (Number.isFinite(Number(yearOverride))) return Number(yearOverride);
           }
-          console.log('[OfficialGroupStats][client] selected year update', {
-            prev,
-            next,
-            yearOverride,
-            backendSelected,
-          });
-          return next;
+          if (backendSelected === ABSOLUTE_STATS_KEY) return ABSOLUTE_STATS_KEY;
+          if (backendSelected == null || !Number.isFinite(backendSelected)) return prev;
+          return prev === backendSelected ? prev : backendSelected;
         });
       } catch (err) {
         if (seq !== statsLoadSeqRef.current) return;
-        console.error('[OfficialGroupStats][client] load error', {
-          seq,
-          targetYear,
-          code: err?.code,
-          message: err?.message,
-          status: err?.response?.status,
-        });
+        console.error('Error loading group season stats:', err);
       } finally {
         if (seq === statsLoadSeqRef.current) setStatsLoading(false);
       }
@@ -535,10 +493,6 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
 
   useEffect(() => {
     if (activeTab !== 'stats') return;
-    console.log('[OfficialGroupStats][client] tab stats opened, auto-load', {
-      competitionId,
-      selectedStatsYearRef: selectedStatsYearRef.current,
-    });
     setStatsPickerOpen(false);
     void loadGroupSeasonStats();
   }, [activeTab, loadGroupSeasonStats]);
@@ -1036,12 +990,6 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
                 anchorRef={statsPickerAnchorRef}
                 options={statsYearOptions}
                 onSelectOption={(item) => {
-                  console.log('[OfficialGroupStats][client] picker select', {
-                    key: item.key,
-                    label: item.label,
-                    value: item.value,
-                    valueType: typeof item.value,
-                  });
                   setStatsPickerOpen(false);
                   setSelectedStatsYear(item.value);
                   void loadGroupSeasonStats(item.value);
