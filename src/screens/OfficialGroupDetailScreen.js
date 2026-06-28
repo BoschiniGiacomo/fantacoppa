@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   BackHandler,
@@ -23,8 +23,9 @@ import { parseAppDate } from '../utils/dateTime';
 const SEASON_YEAR_PICKER_MAX_HEIGHT = 180;
 const ABSOLUTE_STATS_KEY = 'absolute';
 const STATS_LEADERBOARD_PREVIEW = 10;
-const MATCH_ROW_EST_HEIGHT = 118;
-const YEAR_DIVIDER_EST_HEIGHT = 42;
+const MATCH_LIST_ROW_HEIGHT = 127;
+const MATCH_LIST_YEAR_HEIGHT = 34;
+const MATCHES_LIST_CONTENT_PADDING_BOTTOM = 12;
 const MATCHES_LIST_INITIAL_RENDER = 14;
 
 function GroupLogo({ logoUrl, logoPath }) {
@@ -214,7 +215,7 @@ function buildMatchListItems(matches) {
 function computeMatchListLayouts(items) {
   let offset = 0;
   return items.map((item, index) => {
-    const length = item.type === 'year' ? YEAR_DIVIDER_EST_HEIGHT : MATCH_ROW_EST_HEIGHT;
+    const length = item.type === 'year' ? MATCH_LIST_YEAR_HEIGHT : MATCH_LIST_ROW_HEIGHT;
     const layout = { length, offset, index };
     offset += length;
     return layout;
@@ -223,7 +224,7 @@ function computeMatchListLayouts(items) {
 
 function resolveInitialMatchScrollIndex(items) {
   const now = Date.now();
-  let idx = 0;
+  let idx = -1;
   items.forEach((item, i) => {
     if (item.type !== 'match') return;
     const d = parseAppDate(item.match?.kickoff_at);
@@ -231,6 +232,21 @@ function resolveInitialMatchScrollIndex(items) {
     if (Number.isFinite(t) && t <= now) idx = i;
   });
   return idx;
+}
+
+function computeMatchesListScrollOffset(targetIndex, layouts, viewportHeight) {
+  if (targetIndex < 0 || !layouts.length) return 0;
+  const anchorLayout = layouts[targetIndex];
+  if (!anchorLayout) return 0;
+  const lastLayout = layouts[layouts.length - 1];
+  const contentHeight = lastLayout.offset + lastLayout.length + MATCHES_LIST_CONTENT_PADDING_BOTTOM;
+  if (viewportHeight > 0) {
+    const spaceBelow = Math.max(0, contentHeight - anchorLayout.offset);
+    if (spaceBelow < viewportHeight) {
+      return Math.max(0, contentHeight - viewportHeight);
+    }
+  }
+  return anchorLayout.offset;
 }
 
 const GroupMatchRow = React.memo(function GroupMatchRow({ match, onPress }) {
@@ -313,6 +329,7 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState(null);
   const [matchesLoading, setMatchesLoading] = useState(true);
+  const [matchesListPositioned, setMatchesListPositioned] = useState(false);
   const [groupMatches, setGroupMatches] = useState([]);
   const [seasonLoading, setSeasonLoading] = useState(false);
   const [seasonYears, setSeasonYears] = useState([]);
@@ -338,6 +355,8 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
   const [hallWinnersByYear, setHallWinnersByYear] = useState([]);
   const matchesListRef = useRef(null);
   const matchesLoadSeqRef = useRef(0);
+  const matchesViewportHeightRef = useRef(0);
+  const initialMatchesScrollDoneRef = useRef(false);
   const pendingScrollIndexRef = useRef(null);
   const seasonPickerAnchorRef = useRef(null);
   const statsPickerAnchorRef = useRef(null);
@@ -370,6 +389,8 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
     const t0 = Date.now();
     logOfficialGroupMatches('load_start', { competitionId, seq });
 
+    initialMatchesScrollDoneRef.current = false;
+    setMatchesListPositioned(false);
     setMatchesLoading(true);
     try {
       const res = await matchesService.getOfficialGroupMatches(competitionId);
@@ -578,12 +599,63 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
   const getMatchItemLayout = useCallback(
     (_, index) =>
       matchListLayouts[index] || {
-        length: MATCH_ROW_EST_HEIGHT,
-        offset: index * MATCH_ROW_EST_HEIGHT,
+        length: MATCH_LIST_ROW_HEIGHT,
+        offset: index * MATCH_LIST_ROW_HEIGHT,
         index,
       },
     [matchListLayouts]
   );
+
+  const tryApplyInitialMatchesScroll = useCallback(() => {
+    if (initialMatchesScrollDoneRef.current) return;
+    if (activeTab !== 'matches') return;
+    if (!matchesListRef.current) return;
+    if (matchListData.length === 0) {
+      initialMatchesScrollDoneRef.current = true;
+      setMatchesListPositioned(true);
+      return;
+    }
+    if (matchesViewportHeightRef.current <= 0) return;
+
+    const targetIndex = pendingScrollIndexRef.current ?? initialMatchScrollIndex;
+    const offset = computeMatchesListScrollOffset(
+      targetIndex,
+      matchListLayouts,
+      matchesViewportHeightRef.current
+    );
+
+    matchesListRef.current.scrollToOffset({ offset, animated: false });
+    initialMatchesScrollDoneRef.current = true;
+    pendingScrollIndexRef.current = null;
+    setMatchesListPositioned(true);
+  }, [activeTab, matchListData.length, initialMatchScrollIndex, matchListLayouts]);
+
+  const handleMatchesListLayout = useCallback(
+    (e) => {
+      matchesViewportHeightRef.current = e.nativeEvent.layout.height;
+      tryApplyInitialMatchesScroll();
+    },
+    [tryApplyInitialMatchesScroll]
+  );
+
+  const handleMatchesListContentSizeChange = useCallback(() => {
+    tryApplyInitialMatchesScroll();
+  }, [tryApplyInitialMatchesScroll]);
+
+  useLayoutEffect(() => {
+    if (activeTab !== 'matches' || matchesLoading) return;
+    initialMatchesScrollDoneRef.current = false;
+    if (matchListData.length === 0) {
+      initialMatchesScrollDoneRef.current = true;
+      setMatchesListPositioned(true);
+      return;
+    }
+    setMatchesListPositioned(false);
+    const raf = requestAnimationFrame(() => {
+      tryApplyInitialMatchesScroll();
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [activeTab, matchesLoading, matchListData.length, tryApplyInitialMatchesScroll]);
 
   const handleGroupMatchPress = useCallback(
     (match) => {
@@ -605,33 +677,6 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
       return <GroupMatchRow match={item.match} onPress={handleGroupMatchPress} />;
     },
     [handleGroupMatchPress]
-  );
-
-  const scrollMatchesToInitialIndex = useCallback(() => {
-    const targetIndex = pendingScrollIndexRef.current ?? initialMatchScrollIndex;
-    if (!matchesListRef.current || targetIndex <= 0) {
-      pendingScrollIndexRef.current = null;
-      return;
-    }
-    try {
-      matchesListRef.current.scrollToIndex({ index: targetIndex, animated: false, viewPosition: 0.35 });
-    } catch (_) {
-      const layout = matchListLayouts[targetIndex];
-      if (layout) {
-        matchesListRef.current.scrollToOffset({ offset: Math.max(0, layout.offset), animated: false });
-      }
-    }
-    pendingScrollIndexRef.current = null;
-  }, [initialMatchScrollIndex, matchListLayouts]);
-
-  const handleMatchListScrollToIndexFailed = useCallback(
-    (info) => {
-      const layout = matchListLayouts[info.index];
-      if (layout && matchesListRef.current) {
-        matchesListRef.current.scrollToOffset({ offset: Math.max(0, layout.offset), animated: false });
-      }
-    },
-    [matchListLayouts]
   );
 
   const hasSeasonKnockoutBracket = hasOfficialKnockoutBracket(seasonKnockout);
@@ -741,12 +786,6 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
     }, [handleBackNavigation])
   );
 
-  useEffect(() => {
-    if (activeTab !== 'matches' || matchesLoading || matchListData.length === 0) return;
-    const timer = setTimeout(scrollMatchesToInitialIndex, 0);
-    return () => clearTimeout(timer);
-  }, [activeTab, matchesLoading, matchListData.length, scrollMatchesToInitialIndex]);
-
   return (
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: Math.max(insets.top + 6, 12) }]}>
@@ -794,18 +833,16 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
                 data={matchListData}
                 keyExtractor={(item) => item.key}
                 renderItem={renderMatchListItem}
-                style={styles.matchesList}
+                style={[styles.matchesList, !matchesListPositioned && styles.matchesListHidden]}
                 contentContainerStyle={styles.matchesListContent}
                 showsVerticalScrollIndicator={false}
                 getItemLayout={getMatchItemLayout}
-                initialScrollIndex={
-                  matchListData.length > 0 && initialMatchScrollIndex > 0 ? initialMatchScrollIndex : undefined
-                }
+                onLayout={handleMatchesListLayout}
+                onContentSizeChange={handleMatchesListContentSizeChange}
                 initialNumToRender={MATCHES_LIST_INITIAL_RENDER}
                 maxToRenderPerBatch={12}
                 windowSize={9}
                 removeClippedSubviews
-                onScrollToIndexFailed={handleMatchListScrollToIndexFailed}
                 ListEmptyComponent={
                   <Text style={styles.placeholderText}>Nessuna partita disponibile.</Text>
                 }
@@ -1131,12 +1168,19 @@ const styles = StyleSheet.create({
   },
   skeletonLineTeam: { flex: 1, height: 12, borderRadius: 6, backgroundColor: '#eef2f7' },
   matchesList: { flex: 1 },
-  matchesListContent: { paddingBottom: 12, width: '100%' },
+  matchesListHidden: { opacity: 0 },
+  matchesListContent: { paddingBottom: MATCHES_LIST_CONTENT_PADDING_BOTTOM, width: '100%' },
   placeholderText: { color: '#64748b', fontSize: 14, textAlign: 'center', marginTop: 8 },
-  matchYearDivider: { flexDirection: 'row', alignItems: 'center', marginTop: 6, marginBottom: 12, paddingHorizontal: 4 },
+  matchYearDivider: {
+    height: MATCH_LIST_YEAR_HEIGHT,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+  },
   matchYearDividerLine: { flex: 1, height: 3, borderRadius: 2, backgroundColor: '#cbd5e1' },
   matchYearDividerText: { marginHorizontal: 12, fontSize: 13, fontWeight: '900', color: '#334155', letterSpacing: 0.6 },
   matchRowCard: {
+    height: MATCH_LIST_ROW_HEIGHT - 10,
     flexDirection: 'column',
     paddingVertical: 11,
     paddingHorizontal: 10,
@@ -1148,7 +1192,7 @@ const styles = StyleSheet.create({
   },
   matchTopMeta: { fontSize: 12, fontWeight: '700', color: '#475569', marginBottom: 8 },
   matchTopDivider: { height: 1, backgroundColor: '#e5e7eb', width: '100%', marginBottom: 8 },
-  matchBodyRow: { flexDirection: 'row', alignItems: 'center' },
+  matchBodyRow: { flexDirection: 'row', alignItems: 'center', minHeight: 60 },
   matchTeamsCol: { flex: 1, gap: 4 },
   matchTeamRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   matchTeamRowSecond: { marginTop: 6, paddingTop: 6 },
