@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   BackHandler,
+  FlatList,
   Modal,
   Pressable,
   ScrollView,
@@ -22,6 +23,9 @@ import { parseAppDate } from '../utils/dateTime';
 const SEASON_YEAR_PICKER_MAX_HEIGHT = 180;
 const ABSOLUTE_STATS_KEY = 'absolute';
 const STATS_LEADERBOARD_PREVIEW = 10;
+const MATCH_ROW_EST_HEIGHT = 118;
+const YEAR_DIVIDER_EST_HEIGHT = 42;
+const MATCHES_LIST_INITIAL_RENDER = 14;
 
 function GroupLogo({ logoUrl, logoPath }) {
   return (
@@ -162,24 +166,6 @@ function getMatchYear(iso) {
   return d.getFullYear();
 }
 
-function getMatchSortKey(m) {
-  const d = parseAppDate(m?.kickoff_at);
-  const t = d && !Number.isNaN(d.getTime()) ? d.getTime() : 0;
-  return [t, Number(m?.id) || 0];
-}
-
-function mergeGroupMatchesChronological(existing, incoming) {
-  const map = new Map();
-  (Array.isArray(existing) ? existing : []).forEach((m) => map.set(Number(m.id), m));
-  (Array.isArray(incoming) ? incoming : []).forEach((m) => map.set(Number(m.id), m));
-  return [...map.values()].sort((a, b) => {
-    const [ta, ia] = getMatchSortKey(a);
-    const [tb, ib] = getMatchSortKey(b);
-    if (ta !== tb) return ta - tb;
-    return ia - ib;
-  });
-}
-
 function logOfficialGroupMatches(step, extra = {}) {
   if (!__DEV__) return;
   console.log('[OfficialGroupMatches][client]', step, extra);
@@ -211,13 +197,122 @@ function TeamMatchScore({ score, shootoutScore }) {
   );
 }
 
+function buildMatchListItems(matches) {
+  const list = Array.isArray(matches) ? matches : [];
+  const items = [];
+  list.forEach((m, idx) => {
+    const matchYear = getMatchYear(m.kickoff_at);
+    const previousMatchYear = idx > 0 ? getMatchYear(list[idx - 1]?.kickoff_at) : null;
+    if (matchYear != null && matchYear !== previousMatchYear) {
+      items.push({ type: 'year', key: `year-${matchYear}`, year: matchYear });
+    }
+    items.push({ type: 'match', key: `match-${m.id}`, match: m });
+  });
+  return items;
+}
+
+function computeMatchListLayouts(items) {
+  let offset = 0;
+  return items.map((item, index) => {
+    const length = item.type === 'year' ? YEAR_DIVIDER_EST_HEIGHT : MATCH_ROW_EST_HEIGHT;
+    const layout = { length, offset, index };
+    offset += length;
+    return layout;
+  });
+}
+
+function resolveInitialMatchScrollIndex(items) {
+  const now = Date.now();
+  let idx = 0;
+  items.forEach((item, i) => {
+    if (item.type !== 'match') return;
+    const d = parseAppDate(item.match?.kickoff_at);
+    const t = d ? d.getTime() : NaN;
+    if (Number.isFinite(t) && t <= now) idx = i;
+  });
+  return idx;
+}
+
+const GroupMatchRow = React.memo(function GroupMatchRow({ match, onPress }) {
+  const isTerminated = String(match?.last_phase_type || '').trim() === 'match_end';
+  const hs = match.home_score != null ? Number(match.home_score) : isTerminated ? 0 : null;
+  const as = match.away_score != null ? Number(match.away_score) : isTerminated ? 0 : null;
+  const hasScore = Number.isFinite(hs) && Number.isFinite(as);
+  const hps = match.home_shootout_score != null ? Number(match.home_shootout_score) : null;
+  const aps = match.away_shootout_score != null ? Number(match.away_shootout_score) : null;
+  const hasShootout = Number.isFinite(hps) && Number.isFinite(aps);
+  const statusText = getMatchStatusText(match);
+  const showShootoutStatus = isTerminated && hasShootout;
+
+  return (
+    <TouchableOpacity style={styles.matchRowCard} activeOpacity={0.75} onPress={() => onPress(match)}>
+      <Text style={styles.matchTopMeta} numberOfLines={1}>
+        {formatMatchHeaderDate(match.kickoff_at, match.match_stage)}
+      </Text>
+      <View style={styles.matchTopDivider} />
+      <View style={styles.matchBodyRow}>
+        <View style={styles.matchTeamsCol}>
+          <View style={styles.matchTeamRow}>
+            <TeamRowLogo logoUrl={match.home_team_logo_url} logoPath={match.home_team_logo_path} />
+            <Text style={styles.matchTeamName} numberOfLines={1}>{match.home_team_name || '-'}</Text>
+            {hasScore ? <TeamMatchScore score={hs} shootoutScore={hasShootout ? hps : null} /> : null}
+          </View>
+          <View style={[styles.matchTeamRow, styles.matchTeamRowSecond]}>
+            <TeamRowLogo logoUrl={match.away_team_logo_url} logoPath={match.away_team_logo_path} />
+            <Text style={styles.matchTeamName} numberOfLines={1}>{match.away_team_name || '-'}</Text>
+            {hasScore ? <TeamMatchScore score={as} shootoutScore={hasShootout ? aps : null} /> : null}
+          </View>
+        </View>
+        <View style={styles.matchMetaCol}>
+          <View style={[styles.matchMetaAccent, { backgroundColor: '#cbd5e1' }]} />
+          <View style={styles.matchMetaTextWrap}>
+            <Text style={styles.matchMetaText}>{statusText}</Text>
+            {showShootoutStatus ? <Text style={styles.matchMetaShootoutText}>RIG.</Text> : null}
+          </View>
+        </View>
+      </View>
+    </TouchableOpacity>
+  );
+});
+
+function MatchYearDividerRow({ year }) {
+  return (
+    <View style={styles.matchYearDivider}>
+      <View style={styles.matchYearDividerLine} />
+      <Text style={styles.matchYearDividerText}>{year}</Text>
+      <View style={styles.matchYearDividerLine} />
+    </View>
+  );
+}
+
+function MatchesLoadingSkeleton() {
+  return (
+    <View style={styles.matchesSkeletonWrap}>
+      {Array.from({ length: 5 }, (_, i) => (
+        <View key={`match-skeleton-${i}`} style={styles.matchRowSkeleton}>
+          <View style={styles.skeletonLineShort} />
+          <View style={styles.skeletonDivider} />
+          <View style={styles.skeletonTeamRow}>
+            <View style={styles.skeletonLogo} />
+            <View style={styles.skeletonLineTeam} />
+          </View>
+          <View style={styles.skeletonTeamRow}>
+            <View style={styles.skeletonLogo} />
+            <View style={styles.skeletonLineTeam} />
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
+
 export default function OfficialGroupDetailScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
   const competitionId = Number(route?.params?.competitionId);
   const [activeTab, setActiveTab] = useState('matches');
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState(null);
-  const [matchesLoading, setMatchesLoading] = useState(false);
+  const [matchesLoading, setMatchesLoading] = useState(true);
   const [groupMatches, setGroupMatches] = useState([]);
   const [seasonLoading, setSeasonLoading] = useState(false);
   const [seasonYears, setSeasonYears] = useState([]);
@@ -241,14 +336,9 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
   const [hallLoading, setHallLoading] = useState(false);
   const [hallRanking, setHallRanking] = useState([]);
   const [hallWinnersByYear, setHallWinnersByYear] = useState([]);
-  const matchesScrollRef = useRef(null);
+  const matchesListRef = useRef(null);
   const matchesLoadSeqRef = useRef(0);
-  const [matchesLoadingOlder, setMatchesLoadingOlder] = useState(false);
-  const [matchesViewportHeight, setMatchesViewportHeight] = useState(0);
-  const [matchesContentHeight, setMatchesContentHeight] = useState(0);
-  const itemLayoutsRef = useRef({});
-  const [matchesTick, setMatchesTick] = useState(0);
-  const initialScrollDoneRef = useRef(false);
+  const pendingScrollIndexRef = useRef(null);
   const seasonPickerAnchorRef = useRef(null);
   const statsPickerAnchorRef = useRef(null);
 
@@ -275,103 +365,43 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
 
   const loadGroupMatches = useCallback(async () => {
     if (!competitionId) return;
-    const seq = matchesLoadSeqRef.current + 1;
-    matchesLoadSeqRef.current = seq;
+    matchesLoadSeqRef.current += 1;
+    const seq = matchesLoadSeqRef.current;
     const t0 = Date.now();
     logOfficialGroupMatches('load_start', { competitionId, seq });
 
     setMatchesLoading(true);
-    setMatchesLoadingOlder(false);
     try {
-      const tYears0 = Date.now();
-      const yearsRes = await matchesService.getOfficialGroupMatchYears(competitionId);
+      const res = await matchesService.getOfficialGroupMatches(competitionId);
       if (seq !== matchesLoadSeqRef.current) return;
 
-      const years = Array.isArray(yearsRes?.data?.years) ? yearsRes.data.years : [];
-      logOfficialGroupMatches('years_done', { seq, ms: Date.now() - tYears0, years });
-
-      if (years.length === 0) {
-        setGroupMatches([]);
-        itemLayoutsRef.current = {};
-        initialScrollDoneRef.current = false;
-        setMatchesTick((v) => v + 1);
-        logOfficialGroupMatches('load_empty', { seq, totalMs: Date.now() - t0 });
-        return;
-      }
-
-      const newestYear = Number(years[0]);
-      const tFirst0 = Date.now();
-      const firstRes = await matchesService.getOfficialGroupMatches(competitionId, newestYear);
-      if (seq !== matchesLoadSeqRef.current) return;
-
-      const firstMatches = Array.isArray(firstRes?.data?.matches) ? firstRes.data.matches : [];
-      logOfficialGroupMatches('first_year_done', {
+      const matches = Array.isArray(res?.data?.matches) ? res.data.matches : [];
+      logOfficialGroupMatches('load_done', {
         seq,
-        year: newestYear,
-        count: firstMatches.length,
-        ms: Date.now() - tFirst0,
-        totalMs: Date.now() - t0,
+        count: matches.length,
+        ms: Date.now() - t0,
       });
 
-      setGroupMatches(firstMatches);
-      itemLayoutsRef.current = {};
-      initialScrollDoneRef.current = false;
-      setMatchesTick((v) => v + 1);
-      setMatchesLoading(false);
-
-      const olderYears = years.slice(1).map(Number).filter((y) => Number.isFinite(y));
-      if (olderYears.length === 0) {
-        logOfficialGroupMatches('load_complete', { seq, totalMs: Date.now() - t0, yearsLoaded: 1 });
-        return;
-      }
-
-      setMatchesLoadingOlder(true);
-      for (const year of olderYears) {
-        if (seq !== matchesLoadSeqRef.current) return;
-        const tYear0 = Date.now();
-        const yearRes = await matchesService.getOfficialGroupMatches(competitionId, year);
-        if (seq !== matchesLoadSeqRef.current) return;
-
-        const yearMatches = Array.isArray(yearRes?.data?.matches) ? yearRes.data.matches : [];
-        logOfficialGroupMatches('older_year_done', {
-          seq,
-          year,
-          count: yearMatches.length,
-          ms: Date.now() - tYear0,
-          totalMs: Date.now() - t0,
-        });
-
-        if (yearMatches.length > 0) {
-          setGroupMatches((prev) => mergeGroupMatchesChronological(prev, yearMatches));
-        }
-      }
-
-      logOfficialGroupMatches('load_complete', {
-        seq,
-        totalMs: Date.now() - t0,
-        yearsLoaded: years.length,
-      });
+      setGroupMatches(matches);
+      pendingScrollIndexRef.current = resolveInitialMatchScrollIndex(buildMatchListItems(matches));
     } catch (err) {
       logOfficialGroupMatches('load_error', {
         seq,
-        totalMs: Date.now() - t0,
+        ms: Date.now() - t0,
         message: err?.message || String(err),
       });
     } finally {
-      if (seq === matchesLoadSeqRef.current) {
-        setMatchesLoading(false);
-        setMatchesLoadingOlder(false);
-      }
+      if (seq === matchesLoadSeqRef.current) setMatchesLoading(false);
     }
   }, [competitionId]);
 
   useEffect(() => {
-    if (activeTab !== 'matches') {
-      matchesLoadSeqRef.current += 1;
-      return;
-    }
+    if (!competitionId) return undefined;
     void loadGroupMatches();
-  }, [activeTab, loadGroupMatches]);
+    return () => {
+      matchesLoadSeqRef.current += 1;
+    };
+  }, [competitionId, loadGroupMatches]);
 
   const loadSeasonStandings = useCallback(
     async (yearOverride = null) => {
@@ -541,17 +571,68 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
     return opts;
   }, [statsYears, selectedStatsYear]);
 
-  const lastStartedIndex = useMemo(() => {
-    if (!Array.isArray(groupMatches) || groupMatches.length === 0) return -1;
-    const now = Date.now();
-    let idx = -1;
-    groupMatches.forEach((m, i) => {
-      const d = parseAppDate(m.kickoff_at);
-      const t = d ? d.getTime() : NaN;
-      if (Number.isFinite(t) && t <= now) idx = i;
-    });
-    return idx;
-  }, [groupMatches]);
+  const matchListData = useMemo(() => buildMatchListItems(groupMatches), [groupMatches]);
+  const matchListLayouts = useMemo(() => computeMatchListLayouts(matchListData), [matchListData]);
+  const initialMatchScrollIndex = useMemo(() => resolveInitialMatchScrollIndex(matchListData), [matchListData]);
+
+  const getMatchItemLayout = useCallback(
+    (_, index) =>
+      matchListLayouts[index] || {
+        length: MATCH_ROW_EST_HEIGHT,
+        offset: index * MATCH_ROW_EST_HEIGHT,
+        index,
+      },
+    [matchListLayouts]
+  );
+
+  const handleGroupMatchPress = useCallback(
+    (match) => {
+      navigation.navigate('MatchDetail', {
+        matchId: Number(match.id),
+        from: 'official-group',
+        competitionId,
+        groupName,
+      });
+    },
+    [navigation, competitionId, groupName]
+  );
+
+  const renderMatchListItem = useCallback(
+    ({ item }) => {
+      if (item.type === 'year') {
+        return <MatchYearDividerRow year={item.year} />;
+      }
+      return <GroupMatchRow match={item.match} onPress={handleGroupMatchPress} />;
+    },
+    [handleGroupMatchPress]
+  );
+
+  const scrollMatchesToInitialIndex = useCallback(() => {
+    const targetIndex = pendingScrollIndexRef.current ?? initialMatchScrollIndex;
+    if (!matchesListRef.current || targetIndex <= 0) {
+      pendingScrollIndexRef.current = null;
+      return;
+    }
+    try {
+      matchesListRef.current.scrollToIndex({ index: targetIndex, animated: false, viewPosition: 0.35 });
+    } catch (_) {
+      const layout = matchListLayouts[targetIndex];
+      if (layout) {
+        matchesListRef.current.scrollToOffset({ offset: Math.max(0, layout.offset), animated: false });
+      }
+    }
+    pendingScrollIndexRef.current = null;
+  }, [initialMatchScrollIndex, matchListLayouts]);
+
+  const handleMatchListScrollToIndexFailed = useCallback(
+    (info) => {
+      const layout = matchListLayouts[info.index];
+      if (layout && matchesListRef.current) {
+        matchesListRef.current.scrollToOffset({ offset: Math.max(0, layout.offset), animated: false });
+      }
+    },
+    [matchListLayouts]
+  );
 
   const hasSeasonKnockoutBracket = hasOfficialKnockoutBracket(seasonKnockout);
 
@@ -661,30 +742,10 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
   );
 
   useEffect(() => {
-    if (activeTab !== 'matches') return;
-    if (initialScrollDoneRef.current) return;
-    if (!matchesScrollRef.current) return;
-    if (matchesViewportHeight <= 0 || matchesContentHeight <= 0) return;
-    if (!groupMatches.length) return;
-    if (lastStartedIndex < 0) return;
-    const anchorLayout = itemLayoutsRef.current[lastStartedIndex];
-    if (!anchorLayout) return;
-    const spaceFromAnchorToBottom = Math.max(0, matchesContentHeight - anchorLayout.y);
-    if (spaceFromAnchorToBottom < matchesViewportHeight) {
-      matchesScrollRef.current.scrollToEnd({ animated: false });
-    } else {
-      matchesScrollRef.current.scrollTo({ y: Math.max(0, anchorLayout.y), animated: false });
-    }
-    initialScrollDoneRef.current = true;
-  }, [activeTab, matchesViewportHeight, matchesContentHeight, matchesTick, groupMatches, lastStartedIndex]);
-
-  if (loading) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color="#667eea" />
-      </View>
-    );
-  }
+    if (activeTab !== 'matches' || matchesLoading || matchListData.length === 0) return;
+    const timer = setTimeout(scrollMatchesToInitialIndex, 0);
+    return () => clearTimeout(timer);
+  }, [activeTab, matchesLoading, matchListData.length, scrollMatchesToInitialIndex]);
 
   return (
     <View style={styles.container}>
@@ -695,7 +756,13 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
       </View>
 
       <View style={styles.heroCard}>
-        <GroupLogo logoUrl={group.logo_url} logoPath={group.logo_path} />
+        {loading && !group.logo_path && !group.logo_url ? (
+          <View style={styles.logoFallback}>
+            <ActivityIndicator color="#667eea" />
+          </View>
+        ) : (
+          <GroupLogo logoUrl={group.logo_url} logoPath={group.logo_path} />
+        )}
         <Text style={styles.groupName} numberOfLines={2}>
           {groupName}
         </Text>
@@ -720,95 +787,29 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
         {activeTab === 'matches' ? (
           <View style={[styles.card, styles.matchesCard]}>
             {matchesLoading ? (
-              <View style={styles.matchesLoadingBox}>
-                <ActivityIndicator color="#667eea" />
-              </View>
+              <MatchesLoadingSkeleton />
             ) : (
-              <ScrollView
-                ref={matchesScrollRef}
+              <FlatList
+                ref={matchesListRef}
+                data={matchListData}
+                keyExtractor={(item) => item.key}
+                renderItem={renderMatchListItem}
                 style={styles.matchesList}
                 contentContainerStyle={styles.matchesListContent}
-                onLayout={(e) => setMatchesViewportHeight(e.nativeEvent.layout.height)}
-                onContentSizeChange={(_, h) => setMatchesContentHeight(h)}
                 showsVerticalScrollIndicator={false}
-                maintainVisibleContentPosition={
-                  matchesLoadingOlder
-                    ? { minIndexForVisible: 0, autoscrollToTopThreshold: 24 }
-                    : undefined
+                getItemLayout={getMatchItemLayout}
+                initialScrollIndex={
+                  matchListData.length > 0 && initialMatchScrollIndex > 0 ? initialMatchScrollIndex : undefined
                 }
-              >
-                {groupMatches.length === 0 ? (
+                initialNumToRender={MATCHES_LIST_INITIAL_RENDER}
+                maxToRenderPerBatch={12}
+                windowSize={9}
+                removeClippedSubviews
+                onScrollToIndexFailed={handleMatchListScrollToIndexFailed}
+                ListEmptyComponent={
                   <Text style={styles.placeholderText}>Nessuna partita disponibile.</Text>
-                ) : (
-                  groupMatches.map((m, idx) => {
-                    const matchYear = getMatchYear(m.kickoff_at);
-                    const previousMatchYear = idx > 0 ? getMatchYear(groupMatches[idx - 1]?.kickoff_at) : null;
-                    const showYearDivider = matchYear != null && matchYear !== previousMatchYear;
-                    const isTerminated = String(m?.last_phase_type || '').trim() === 'match_end';
-                    const hs = m.home_score != null ? Number(m.home_score) : isTerminated ? 0 : null;
-                    const as = m.away_score != null ? Number(m.away_score) : isTerminated ? 0 : null;
-                    const hasScore = Number.isFinite(hs) && Number.isFinite(as);
-                    const hps = m.home_shootout_score != null ? Number(m.home_shootout_score) : null;
-                    const aps = m.away_shootout_score != null ? Number(m.away_shootout_score) : null;
-                    const hasShootout = Number.isFinite(hps) && Number.isFinite(aps);
-                    const statusText = getMatchStatusText(m);
-                    const showShootoutStatus = isTerminated && hasShootout;
-                    return (
-                      <React.Fragment key={`group-match-wrap-${m.id}`}>
-                        {showYearDivider ? (
-                          <View style={styles.matchYearDivider}>
-                            <View style={styles.matchYearDividerLine} />
-                            <Text style={styles.matchYearDividerText}>{matchYear}</Text>
-                            <View style={styles.matchYearDividerLine} />
-                          </View>
-                        ) : null}
-                        <TouchableOpacity
-                          style={styles.matchRowCard}
-                          activeOpacity={0.75}
-                          onPress={() =>
-                            navigation.navigate('MatchDetail', {
-                              matchId: Number(m.id),
-                              from: 'official-group',
-                              competitionId,
-                              groupName,
-                            })
-                          }
-                          onLayout={(e) => {
-                            itemLayoutsRef.current[idx] = { y: e.nativeEvent.layout.y, h: e.nativeEvent.layout.height };
-                            setMatchesTick((v) => v + 1);
-                          }}
-                        >
-                          <Text style={styles.matchTopMeta} numberOfLines={1}>
-                            {formatMatchHeaderDate(m.kickoff_at, m.match_stage)}
-                          </Text>
-                          <View style={styles.matchTopDivider} />
-                          <View style={styles.matchBodyRow}>
-                            <View style={styles.matchTeamsCol}>
-                              <View style={styles.matchTeamRow}>
-                                <TeamRowLogo logoUrl={m.home_team_logo_url} logoPath={m.home_team_logo_path} />
-                                <Text style={styles.matchTeamName} numberOfLines={1}>{m.home_team_name || '-'}</Text>
-                                {hasScore ? <TeamMatchScore score={hs} shootoutScore={hasShootout ? hps : null} /> : null}
-                              </View>
-                              <View style={[styles.matchTeamRow, styles.matchTeamRowSecond]}>
-                                <TeamRowLogo logoUrl={m.away_team_logo_url} logoPath={m.away_team_logo_path} />
-                                <Text style={styles.matchTeamName} numberOfLines={1}>{m.away_team_name || '-'}</Text>
-                                {hasScore ? <TeamMatchScore score={as} shootoutScore={hasShootout ? aps : null} /> : null}
-                              </View>
-                            </View>
-                            <View style={styles.matchMetaCol}>
-                              <View style={[styles.matchMetaAccent, { backgroundColor: '#cbd5e1' }]} />
-                              <View style={styles.matchMetaTextWrap}>
-                                <Text style={styles.matchMetaText}>{statusText}</Text>
-                                {showShootoutStatus ? <Text style={styles.matchMetaShootoutText}>RIG.</Text> : null}
-                              </View>
-                            </View>
-                          </View>
-                        </TouchableOpacity>
-                      </React.Fragment>
-                    );
-                  })
-                )}
-              </ScrollView>
+                }
+              />
             )}
           </View>
         ) : activeTab === 'season' ? (
@@ -1102,6 +1103,33 @@ const styles = StyleSheet.create({
   seasonScroll: { flex: 1, marginHorizontal: -12 },
   seasonScrollContent: { paddingBottom: 8, paddingHorizontal: 12 },
   matchesLoadingBox: { minHeight: 120, alignItems: 'center', justifyContent: 'center' },
+  matchesSkeletonWrap: { paddingHorizontal: 12, paddingTop: 4, paddingBottom: 12 },
+  matchRowSkeleton: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#ececec',
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    marginBottom: 10,
+  },
+  skeletonLineShort: {
+    width: '42%',
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#eef2f7',
+    marginBottom: 10,
+  },
+  skeletonDivider: { height: 1, backgroundColor: '#f1f5f9', marginBottom: 12 },
+  skeletonTeamRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
+  skeletonLogo: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#eef2f7',
+    marginRight: 10,
+  },
+  skeletonLineTeam: { flex: 1, height: 12, borderRadius: 6, backgroundColor: '#eef2f7' },
   matchesList: { flex: 1 },
   matchesListContent: { paddingBottom: 12, width: '100%' },
   placeholderText: { color: '#64748b', fontSize: 14, textAlign: 'center', marginTop: 8 },

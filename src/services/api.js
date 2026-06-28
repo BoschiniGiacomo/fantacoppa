@@ -568,12 +568,7 @@ export const matchesService = {
     }),
   getOfficialGroupDetail: (groupId) => api.get(`matches/groups/${groupId}/detail`),
   getOfficialGroupMatchYears: (groupId) => api.get(`matches/groups/${groupId}/matches/years`),
-  getOfficialGroupMatches: (groupId, kickoffYear = null) =>
-    api.get(`matches/groups/${groupId}/matches`, {
-      params: {
-        ...(kickoffYear != null ? { kickoff_year: kickoffYear } : {}),
-      },
-    }),
+  getOfficialGroupMatches: (groupId) => api.get(`matches/groups/${groupId}/matches`),
   getOfficialGroupSeasonStandings: (groupId, referenceYear = null) =>
     api.get(`matches/groups/${groupId}/season-standings`, {
       params: {

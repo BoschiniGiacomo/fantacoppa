@@ -2815,40 +2815,69 @@ function mapOfficialGroupMatchRows(rows) {
 async function queryOfficialGroupMatchYears({ userId, groupId }) {
   const rows = await query(
     `
-    WITH su AS (
-      SELECT CASE WHEN COALESCE(is_superuser, 0) IN (1, 2) THEN 1 ELSE 0 END AS can_see
-      FROM users WHERE id = ?
-    )
     SELECT DISTINCT EXTRACT(YEAR FROM (m.kickoff_at AT TIME ZONE 'Europe/Rome'))::int AS kickoff_year
     FROM official_matches m
     WHERE m.competition_id = ?
       AND m.kickoff_at IS NOT NULL
-      AND ((SELECT can_see FROM su) = 1 OR COALESCE(m.is_admin_only, 0) = 0)
+      AND (
+        EXISTS (SELECT 1 FROM users u WHERE u.id = ? AND COALESCE(u.is_superuser, 0) IN (1, 2))
+        OR COALESCE(m.is_admin_only, 0) = 0
+      )
     ORDER BY kickoff_year DESC
     `,
-    [userId, groupId]
+    [groupId, userId]
   );
   return (Array.isArray(rows) ? rows : [])
     .map((r) => Number(r.kickoff_year))
     .filter((y) => Number.isFinite(y));
 }
 
-async function queryOfficialGroupMatchesRows({ userId, groupId, kickoffYear = null }) {
-  const params = [userId, groupId];
-  let kickoffYearClause = '';
-  if (kickoffYear != null && Number.isFinite(Number(kickoffYear))) {
-    kickoffYearClause =
-      'AND EXTRACT(YEAR FROM (m.kickoff_at AT TIME ZONE \'Europe/Rome\'))::int = ?';
+function parseKickoffYearsQuery(raw) {
+  if (raw == null) return [];
+  const parts = Array.isArray(raw) ? raw : String(raw).split(',');
+  return [...new Set(parts.map((v) => Number(String(v).trim())).filter((y) => Number.isFinite(y)))].sort((a, b) => b - a);
+}
+
+async function queryOfficialGroupMatchesRows({ userId, groupId, kickoffYear = null, kickoffYears = null }) {
+  const visibilityClause =
+    '(EXISTS (SELECT 1 FROM users u WHERE u.id = ? AND COALESCE(u.is_superuser, 0) IN (1, 2)) OR COALESCE(m.is_admin_only, 0) = 0)';
+  const params = [groupId, userId];
+
+  const yearsList = parseKickoffYearsQuery(kickoffYears);
+  let yearClause = '';
+  if (yearsList.length > 0) {
+    const ph = yearsList.map(() => '?').join(', ');
+    yearClause = `AND EXTRACT(YEAR FROM (m.kickoff_at AT TIME ZONE 'Europe/Rome'))::int IN (${ph})`;
+    params.push(...yearsList);
+  } else if (kickoffYear != null && Number.isFinite(Number(kickoffYear))) {
+    yearClause = 'AND EXTRACT(YEAR FROM (m.kickoff_at AT TIME ZONE \'Europe/Rome\'))::int = ?';
     params.push(Math.trunc(Number(kickoffYear)));
   }
 
+  // Lista partite: punteggi da official_matches + solo fase/rigori/tavolino (no ricalcolo gol da tutti gli eventi).
   return await query(
     `
-    WITH su AS (
-      SELECT CASE WHEN COALESCE(is_superuser, 0) IN (1, 2) THEN 1 ELSE 0 END AS can_see
-      FROM users WHERE id = ?
+    WITH scoped_matches AS (
+      SELECT m.id
+      FROM official_matches m
+      WHERE m.competition_id = ?
+        AND ${visibilityClause}
+        ${yearClause}
     ),
-    ev_scores AS (
+    last_phase AS (
+      SELECT DISTINCT ON (e.match_id)
+        e.match_id,
+        e.event_type AS last_phase_type
+      FROM official_match_events e
+      INNER JOIN scoped_matches sm ON sm.id = e.match_id
+      WHERE e.event_type IN (
+        'match_start','half_time','second_half_start','second_half_end',
+        'extra_first_half_start','extra_half_time','extra_second_half_start','extra_second_half_end',
+        'penalties_start','match_end'
+      )
+      ORDER BY e.match_id, e.id DESC
+    ),
+    live_scores AS (
       SELECT
         e.match_id,
         SUM(CASE
@@ -2868,7 +2897,18 @@ async function queryOfficialGroupMatchesRows({ userId, groupId, kickoffYear = nu
                 e.team_id = om.home_team_id OR (e.team_id IS NULL AND e.team_side = 'home')
               ) THEN 1
               ELSE 0
-            END)::int AS ev_away,
+            END)::int AS ev_away
+      FROM official_match_events e
+      INNER JOIN official_matches om ON om.id = e.match_id
+      INNER JOIN scoped_matches sm ON sm.id = e.match_id
+      LEFT JOIN last_phase lp ON lp.match_id = sm.id
+      WHERE e.event_type IN ('goal','penalty_goal','own_goal')
+        AND COALESCE(lp.last_phase_type, '') <> 'match_end'
+      GROUP BY e.match_id
+    ),
+    shootout_scores AS (
+      SELECT
+        e.match_id,
         SUM(CASE
               WHEN e.event_type = 'shootout_goal' AND (
                 e.team_id = om.home_team_id OR (e.team_id IS NULL AND e.team_side = 'home')
@@ -2883,26 +2923,40 @@ async function queryOfficialGroupMatchesRows({ userId, groupId, kickoffYear = nu
             END)::int AS ev_away_shootout,
         BOOL_OR(e.event_type IN ('shootout_goal','shootout_missed')) AS has_shootout
       FROM official_match_events e
-      JOIN official_matches om ON om.id = e.match_id
-      WHERE om.competition_id = ?
-        AND e.event_type IN ('goal','penalty_goal','own_goal','shootout_goal','shootout_missed')
+      INNER JOIN official_matches om ON om.id = e.match_id
+      INNER JOIN scoped_matches sm ON sm.id = e.match_id
+      WHERE e.event_type IN ('shootout_goal','shootout_missed')
       GROUP BY e.match_id
     ),
-    last_phase AS (
-      SELECT DISTINCT ON (e.match_id)
-        e.match_id,
-        e.event_type AS last_phase_type
-      FROM official_match_events e
-      INNER JOIN official_matches om ON om.id = e.match_id
-      WHERE om.competition_id = ?
-        AND e.event_type IN (
-          'match_start','half_time','second_half_start','second_half_end',
-          'extra_first_half_start','extra_half_time','extra_second_half_start','extra_second_half_end',
-          'penalties_start','match_end'
-        )
-      ORDER BY e.match_id, e.id DESC
-    ),
-${SQL_WALKOVER_MATCHES_CTE}
+    walkover_matches AS (
+      SELECT wg.match_id
+      FROM (
+        SELECT e.match_id
+        FROM official_match_events e
+        INNER JOIN scoped_matches sm ON sm.id = e.match_id
+        WHERE e.event_type IN ('goal','penalty_goal')
+          AND COALESCE(e.minute, 0) = 0
+          AND (e.player_id IS NULL OR e.player_id <= 0)
+          AND COALESCE(TRIM(
+            CASE
+              WHEN e.payload_json IS NULL OR BTRIM(e.payload_json) IN ('', '{}') THEN ''
+              ELSE COALESCE((e.payload_json::jsonb)->>'player_name', '')
+            END
+          ), '') = ''
+          AND COALESCE(NULLIF(TRIM(
+            CASE
+              WHEN e.payload_json IS NULL OR BTRIM(e.payload_json) IN ('', '{}') THEN ''
+              ELSE COALESCE((e.payload_json::jsonb)->>'player_id', '')
+            END
+          ), ''), '0')::int <= 0
+        GROUP BY e.match_id
+        HAVING COUNT(*) = 3
+      ) wg
+      WHERE EXISTS (
+        SELECT 1 FROM official_match_events me
+        WHERE me.match_id = wg.match_id AND me.event_type = 'match_end'
+      )
+    )
     SELECT
       m.id,
       m.kickoff_at,
@@ -2914,25 +2968,32 @@ ${SQL_WALKOVER_MATCHES_CTE}
       m.away_team_id,
       at.name AS away_team_name,
       at.logo_path AS away_team_logo_path,
-      COALESCE(evs.ev_home, m.home_score, CASE WHEN lp.last_phase_type = 'match_end' THEN 0 END) AS home_score,
-      COALESCE(evs.ev_away, m.away_score, CASE WHEN lp.last_phase_type = 'match_end' THEN 0 END) AS away_score,
-      CASE WHEN COALESCE(evs.has_shootout, false) THEN COALESCE(evs.ev_home_shootout, 0) ELSE NULL END AS home_shootout_score,
-      CASE WHEN COALESCE(evs.has_shootout, false) THEN COALESCE(evs.ev_away_shootout, 0) ELSE NULL END AS away_shootout_score,
+      COALESCE(
+        m.home_score,
+        ls.ev_home,
+        CASE WHEN lp.last_phase_type = 'match_end' THEN 0 END
+      ) AS home_score,
+      COALESCE(
+        m.away_score,
+        ls.ev_away,
+        CASE WHEN lp.last_phase_type = 'match_end' THEN 0 END
+      ) AS away_score,
+      CASE WHEN COALESCE(so.has_shootout, false) THEN COALESCE(so.ev_home_shootout, 0) ELSE NULL END AS home_shootout_score,
+      CASE WHEN COALESCE(so.has_shootout, false) THEN COALESCE(so.ev_away_shootout, 0) ELSE NULL END AS away_shootout_score,
       lp.last_phase_type,
       COALESCE(wo.match_id IS NOT NULL, false) AS is_walkover
     FROM official_matches m
+    INNER JOIN scoped_matches sm ON sm.id = m.id
     INNER JOIN teams ht ON ht.id = m.home_team_id
     INNER JOIN teams at ON at.id = m.away_team_id
     LEFT JOIN official_match_stages ms ON ms.id = NULLIF(to_jsonb(m)->>'match_stage_id','')::int
-    LEFT JOIN ev_scores evs ON evs.match_id = m.id
     LEFT JOIN last_phase lp ON lp.match_id = m.id
+    LEFT JOIN live_scores ls ON ls.match_id = m.id
+    LEFT JOIN shootout_scores so ON so.match_id = m.id
     LEFT JOIN walkover_matches wo ON wo.match_id = m.id
-    WHERE m.competition_id = ?
-      AND ((SELECT can_see FROM su) = 1 OR COALESCE(m.is_admin_only, 0) = 0)
-      ${kickoffYearClause}
     ORDER BY m.kickoff_at ASC, m.id ASC
     `,
-    [userId, groupId, groupId, ...params.slice(1)]
+    params
   );
 }
 
@@ -2948,16 +3009,16 @@ router.get('/matches/groups/:groupId/matches/years', authenticateToken, async (r
     if (!groupId || groupId <= 0) return res.status(400).json({ message: 'groupId non valido' });
 
     const tGroup0 = Date.now();
-    const group = await fetchOfficialGroupRow(groupId);
+    const exists = await query(`SELECT id FROM official_league_groups WHERE id = ? LIMIT 1`, [groupId]);
     log('fetch_group', { fetchGroupMs: Date.now() - tGroup0 });
-    if (!group) return res.status(404).json({ message: 'Gruppo non trovato' });
+    if (!exists.length) return res.status(404).json({ message: 'Gruppo non trovato' });
 
     const tQuery0 = Date.now();
     const years = await queryOfficialGroupMatchYears({ userId, groupId });
     log('query_years', { queryMs: Date.now() - tQuery0, yearCount: years.length, years });
 
     return res.json({
-      group: { id: groupId, name: String(group.name || '').trim() },
+      group: { id: groupId },
       years,
     });
   } catch (err) {
@@ -2971,14 +3032,17 @@ router.get('/matches/groups/:groupId/matches/years', authenticateToken, async (r
 router.get('/matches/groups/:groupId/matches', authenticateToken, async (req, res) => {
   const t0 = Date.now();
   const kickoffYearRaw = req.query?.kickoff_year;
+  const kickoffYearsRaw = req.query?.kickoff_years;
   const kickoffYear =
     kickoffYearRaw == null || String(kickoffYearRaw).trim() === ''
       ? null
       : Number(kickoffYearRaw);
+  const kickoffYears = parseKickoffYearsQuery(kickoffYearsRaw);
   const log = (step, extra = {}) => {
     console.log('[OfficialGroupMatches]', step, {
       groupId: Number(req.params.groupId),
       kickoffYear,
+      kickoffYears,
       ms: Date.now() - t0,
       ...extra,
     });
@@ -2990,14 +3054,26 @@ router.get('/matches/groups/:groupId/matches', authenticateToken, async (req, re
     if (kickoffYear != null && !Number.isFinite(kickoffYear)) {
       return res.status(400).json({ message: 'kickoff_year non valido' });
     }
+    if (kickoffYears.length > 0 && kickoffYear != null) {
+      return res.status(400).json({ message: 'Usa kickoff_year oppure kickoff_years, non entrambi' });
+    }
 
     const tGroup0 = Date.now();
-    const group = await fetchOfficialGroupRow(groupId);
+    const groupRows = await query(
+      `SELECT id, name FROM official_league_groups WHERE id = ? LIMIT 1`,
+      [groupId]
+    );
     log('fetch_group', { fetchGroupMs: Date.now() - tGroup0 });
+    const group = groupRows[0];
     if (!group) return res.status(404).json({ message: 'Gruppo non trovato' });
 
     const tQuery0 = Date.now();
-    const rows = await queryOfficialGroupMatchesRows({ userId, groupId, kickoffYear });
+    const rows = await queryOfficialGroupMatchesRows({
+      userId,
+      groupId,
+      kickoffYear,
+      kickoffYears: kickoffYears.length > 0 ? kickoffYears : null,
+    });
     log('query_matches', { queryMs: Date.now() - tQuery0, rowCount: Array.isArray(rows) ? rows.length : 0 });
 
     const tMap0 = Date.now();
@@ -3007,6 +3083,7 @@ router.get('/matches/groups/:groupId/matches', authenticateToken, async (req, re
     return res.json({
       group: { id: groupId, name: String(group.name || '').trim() },
       kickoff_year: kickoffYear != null ? Math.trunc(kickoffYear) : null,
+      kickoff_years: kickoffYears.length > 0 ? kickoffYears : null,
       matches,
     });
   } catch (err) {
