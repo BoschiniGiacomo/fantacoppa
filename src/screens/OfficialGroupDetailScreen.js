@@ -350,6 +350,8 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
   const [hallWinnersByYear, setHallWinnersByYear] = useState([]);
   const matchesListRef = useRef(null);
   const matchesLoadSeqRef = useRef(0);
+  const statsLoadSeqRef = useRef(0);
+  const selectedStatsYearRef = useRef(null);
   const matchesViewportHeightRef = useRef(0);
   const initialMatchesScrollDoneRef = useRef(false);
   const pendingScrollIndexRef = useRef(null);
@@ -447,34 +449,90 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
   const loadGroupSeasonStats = useCallback(
     async (yearOverride = null) => {
       if (!competitionId) return;
+      statsLoadSeqRef.current += 1;
+      const seq = statsLoadSeqRef.current;
+      const rawYear = yearOverride != null ? yearOverride : selectedStatsYearRef.current;
+      const targetYear =
+        rawYear === ABSOLUTE_STATS_KEY || String(rawYear || '').toLowerCase() === ABSOLUTE_STATS_KEY
+          ? ABSOLUTE_STATS_KEY
+          : rawYear;
+      console.log('[OfficialGroupStats][client] load start', {
+        seq,
+        latestSeq: statsLoadSeqRef.current,
+        yearOverride,
+        rawYear,
+        targetYear,
+        selectedStatsYearRef: selectedStatsYearRef.current,
+        competitionId,
+      });
       try {
         setStatsLoading(true);
-        const targetYear = yearOverride != null ? yearOverride : selectedStatsYear;
         const res = await matchesService.getOfficialGroupSeasonStats(competitionId, targetYear);
+        if (seq !== statsLoadSeqRef.current) {
+          console.log('[OfficialGroupStats][client] stale response ignored', {
+            seq,
+            latestSeq: statsLoadSeqRef.current,
+            targetYear,
+            backendSelected: res?.data?.selected_year,
+          });
+          return;
+        }
         const years = Array.isArray(res?.data?.available_years) ? res.data.available_years : [];
         const rawBackendSelected = res?.data?.selected_year;
         const backendSelected =
           String(rawBackendSelected || '').trim().toLowerCase() === ABSOLUTE_STATS_KEY
             ? ABSOLUTE_STATS_KEY
             : (rawBackendSelected != null ? Number(rawBackendSelected) : null);
-        setStatsYears(years);
-        setStatsScorers(Array.isArray(res?.data?.scorers) ? res.data.scorers : []);
-        setStatsAssistmen(Array.isArray(res?.data?.assistmen) ? res.data.assistmen : []);
-        setStatsPresences(Array.isArray(res?.data?.presences) ? res.data.presences : []);
-        setSelectedStatsYear((prev) => {
-          if (backendSelected === ABSOLUTE_STATS_KEY) return ABSOLUTE_STATS_KEY;
-          if (backendSelected == null || !Number.isFinite(backendSelected)) return prev;
-          return prev === backendSelected ? prev : backendSelected;
+        const scorers = Array.isArray(res?.data?.scorers) ? res.data.scorers : [];
+        const assistmen = Array.isArray(res?.data?.assistmen) ? res.data.assistmen : [];
+        const presences = Array.isArray(res?.data?.presences) ? res.data.presences : [];
+        console.log('[OfficialGroupStats][client] load applied', {
+          seq,
+          targetYear,
+          backendSelected,
+          availableYears: years,
+          counts: { scorers: scorers.length, assistmen: assistmen.length, presences: presences.length },
+          topScorer: scorers[0] || null,
         });
+        setStatsYears(years);
+        setStatsScorers(scorers);
+        setStatsAssistmen(assistmen);
+        setStatsPresences(presences);
+        setSelectedStatsYear((prev) => {
+          let next = prev;
+          if (yearOverride != null) {
+            if (yearOverride === ABSOLUTE_STATS_KEY) next = ABSOLUTE_STATS_KEY;
+            else if (Number.isFinite(Number(yearOverride))) next = Number(yearOverride);
+          } else if (backendSelected === ABSOLUTE_STATS_KEY) next = ABSOLUTE_STATS_KEY;
+          else if (backendSelected != null && Number.isFinite(backendSelected)) {
+            next = prev === backendSelected ? prev : backendSelected;
+          }
+          console.log('[OfficialGroupStats][client] selected year update', {
+            prev,
+            next,
+            yearOverride,
+            backendSelected,
+          });
+          return next;
+        });
+      } catch (err) {
+        if (seq !== statsLoadSeqRef.current) return;
+        console.error('[OfficialGroupStats][client] load error', { seq, targetYear, err });
       } finally {
-        setStatsLoading(false);
+        if (seq === statsLoadSeqRef.current) setStatsLoading(false);
       }
     },
-    [competitionId, selectedStatsYear]
+    [competitionId]
   );
+
+  selectedStatsYearRef.current = selectedStatsYear;
 
   useEffect(() => {
     if (activeTab !== 'stats') return;
+    console.log('[OfficialGroupStats][client] tab stats opened, auto-load', {
+      competitionId,
+      selectedStatsYearRef: selectedStatsYearRef.current,
+    });
     setStatsPickerOpen(false);
     void loadGroupSeasonStats();
   }, [activeTab, loadGroupSeasonStats]);
@@ -515,7 +573,7 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
     return (
       <View style={styles.statsTableWrap}>
         <View style={[styles.statsTableRow, styles.statsTableHeaderRow]}>
-          <Text style={[styles.statsTableCell, styles.statsTablePos, styles.statsTableHeaderCell]}>#</Text>
+          <Text style={[styles.statsTableCell, styles.statsTablePos, styles.statsTableHeaderCell]}>Pos.</Text>
           <Text style={[styles.statsTableCell, styles.statsTablePlayer, styles.statsTableHeaderCell]}>Giocatore</Text>
           <Text style={[styles.statsTableCell, styles.statsTableValue, styles.statsTableHeaderCell]} numberOfLines={1}>
             {valueLabel}
@@ -972,7 +1030,14 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
                 anchorRef={statsPickerAnchorRef}
                 options={statsYearOptions}
                 onSelectOption={(item) => {
+                  console.log('[OfficialGroupStats][client] picker select', {
+                    key: item.key,
+                    label: item.label,
+                    value: item.value,
+                    valueType: typeof item.value,
+                  });
                   setStatsPickerOpen(false);
+                  setSelectedStatsYear(item.value);
                   void loadGroupSeasonStats(item.value);
                 }}
               />
@@ -1240,9 +1305,15 @@ const styles = StyleSheet.create({
   seasonPickerItemText: { fontSize: 14, fontWeight: '600', color: '#334155' },
   seasonPickerItemTextActive: { color: '#4f46e5', fontWeight: '700' },
   seasonStandingsTablesCol: { gap: 14 },
-  seasonStandingsTableBlock: { marginBottom: 4 },
-  seasonGironeTitle: { fontSize: 14, fontWeight: '800', color: '#334155', marginBottom: 8 },
-  seasonTableWrap: { marginTop: 2, borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 12, overflow: 'hidden' },
+  seasonStandingsTableBlock: { width: '100%' },
+  seasonGironeTitle: { fontSize: 15, fontWeight: '800', color: '#111827', marginBottom: 8 },
+  seasonTableWrap: {
+    marginTop: 2,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
   seasonTableHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1253,27 +1324,27 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#e5e7eb',
   },
-  seasonTh: { fontSize: 11, fontWeight: '800', color: '#64748b' },
-  seasonThPos: { width: 28 },
+  seasonTh: { fontSize: 12, fontWeight: '700', color: '#475569' },
+  seasonThPos: { width: 44 },
   seasonThStat: { width: 28 },
-  seasonThPt: { width: 30 },
+  seasonThPt: { color: '#334155' },
   seasonTableRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingLeft: 4,
     paddingRight: 4,
-    paddingVertical: 8,
+    paddingVertical: 9,
     borderBottomWidth: 1,
     borderBottomColor: '#f1f5f9',
   },
   seasonTableRowLast: { borderBottomWidth: 0 },
-  seasonTd: { fontSize: 12, fontWeight: '600', color: '#1f2937' },
-  seasonTdPos: { width: 28 },
+  seasonTd: { fontSize: 13, fontWeight: '400', color: '#1f2937' },
+  seasonTdPos: { width: 44, fontWeight: '600' },
   seasonTdStat: { width: 28 },
-  seasonTdPt: { width: 30, fontWeight: '800' },
-  seasonTdTeamName: { flex: 1, minWidth: 0 },
-  teamCell: { flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: 0 },
-  seasonTeamCell: { paddingRight: 4 },
+  seasonTdPt: { fontWeight: '700' },
+  seasonTdTeamName: { flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: '600' },
+  teamCell: { flexDirection: 'row', alignItems: 'center', gap: 8, minWidth: 0 },
+  seasonTeamCell: { gap: 6 },
   seasonKnockoutCard: {
     marginTop: 12,
     marginHorizontal: -8,
@@ -1448,12 +1519,12 @@ const styles = StyleSheet.create({
   statsTableHeaderRow: { backgroundColor: '#f8fafc', borderBottomColor: '#e5e7eb' },
   statsTableHeaderCell: { fontWeight: '800', color: '#64748b', fontSize: 11 },
   statsTableCell: { fontSize: 13, fontWeight: '600', color: '#1f2937' },
-  statsTablePos: { width: 26, textAlign: 'center', flexShrink: 0 },
-  statsTablePlayer: { flex: 1, minWidth: 0 },
-  statsTablePlayerCol: { flex: 1, minWidth: 0, paddingRight: 6 },
+  statsTablePos: { width: 34, marginRight: 10, textAlign: 'center', flexShrink: 0 },
+  statsTablePlayer: { flex: 1, minWidth: 0, flexShrink: 1 },
+  statsTablePlayerCol: { flex: 1, minWidth: 0, paddingRight: 2, flexShrink: 1 },
   statsTablePlayerName: { fontSize: 13, fontWeight: '600', color: '#1f2937' },
   statsTablePlayerTeam: { fontSize: 10, color: '#64748b', marginTop: 1 },
-  statsTableValue: { width: 36, textAlign: 'right', flexShrink: 0, fontWeight: '700' },
+  statsTableValue: { width: 44, minWidth: 44, textAlign: 'right', flexShrink: 0, fontWeight: '700' },
   statsTableExpandBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 10, borderBottomWidth: 0 },
   statsTableExpandText: { fontSize: 13, fontWeight: '700', color: '#111827' },
   hallScrollContent: { paddingBottom: 12 },

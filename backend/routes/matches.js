@@ -3277,7 +3277,36 @@ router.get('/matches/groups/:groupId/season-stats', authenticateToken, async (re
         return selectedLeagueId ? [selectedLeagueId] : [];
       })();
 
+    console.log('[OfficialGroupStats][server] season-stats', {
+      groupId,
+      query: req.query,
+      statsModeRaw,
+      referenceYearRaw,
+      isAbsoluteMode,
+      requestedYear,
+      selectedYear,
+      availableYears,
+      seasonLeagues: (seasonLeagues || []).map((r) => ({
+        league_id: r.league_id,
+        reference_year: r.reference_year,
+      })),
+      targetLeagueIds,
+    });
+
     const stats = await computeOfficialGroupSeasonStats(groupId, targetLeagueIds, isAbsoluteMode);
+
+    console.log('[OfficialGroupStats][server] season-stats result', {
+      groupId,
+      isAbsoluteMode,
+      selectedYear,
+      targetLeagueIds,
+      counts: {
+        scorers: (stats.scorers || []).length,
+        assistmen: (stats.assistmen || []).length,
+        presences: (stats.presences || []).length,
+      },
+      topScorer: (stats.scorers || [])[0] || null,
+    });
 
     return res.json({
       group: { id: groupId, name: String(group.name || '').trim() },

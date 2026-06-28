@@ -575,14 +575,14 @@ export const matchesService = {
         ...(referenceYear != null ? { reference_year: referenceYear } : {}),
       },
     }),
-  getOfficialGroupSeasonStats: (groupId, referenceYear = null) =>
-    api.get(`matches/groups/${groupId}/season-stats`, {
-      params: {
-        ...(referenceYear === 'absolute'
-          ? { mode: 'absolute' }
-          : (referenceYear != null ? { reference_year: referenceYear } : {})),
-      },
-    }),
+  getOfficialGroupSeasonStats: (groupId, referenceYear = null) => {
+    const params =
+      referenceYear === 'absolute'
+        ? { mode: 'absolute' }
+        : (referenceYear != null ? { reference_year: referenceYear } : {});
+    console.log('[OfficialGroupStats][api] request', { groupId, referenceYear, params });
+    return api.get(`matches/groups/${groupId}/season-stats`, { params });
+  },
   getOfficialGroupHallOfFame: (groupId) => api.get(`matches/groups/${groupId}/hall-of-fame`),
   toggleMatchNotifications: (matchId, enabled) =>
     api.post('matches/notifications/toggle', { match_id: matchId, enabled: enabled ? 1 : 0 }),
