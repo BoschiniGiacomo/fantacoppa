@@ -873,7 +873,7 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
         </TouchableOpacity>
       </ScrollView>
 
-      <View style={styles.content}>
+      <View style={[styles.content, activeTab === 'hall' && styles.contentHall]}>
         {activeTab === 'matches' ? (
           <View style={[styles.card, styles.matchesCard]}>
             {matchesLoading ? (
@@ -1087,7 +1087,10 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
             ) : hallRanking.length === 0 && hallWinnersByYear.length === 0 ? (
               <Text style={styles.placeholderText}>Nessun vincitore di finale registrato.</Text>
             ) : (
-              <ScrollView contentContainerStyle={styles.hallScrollContent} showsVerticalScrollIndicator={false}>
+              <ScrollView
+                contentContainerStyle={[styles.hallScrollContent, { paddingBottom: Math.max(insets.bottom, 12) }]}
+                showsVerticalScrollIndicator={false}
+              >
                 <Text style={styles.hallSectionTitle}>Classifica titoli</Text>
                 <View style={styles.hallTableWrap}>
                   <View style={[styles.seasonTableHeader, styles.hallTableHeader]}>
@@ -1244,6 +1247,7 @@ const styles = StyleSheet.create({
   tabText: { color: '#475569', fontWeight: '700', fontSize: 13 },
   tabTextActive: { color: '#667eea' },
   content: { flex: 1, paddingHorizontal: 12, paddingBottom: 12 },
+  contentHall: { paddingHorizontal: 0, paddingBottom: 0 },
   card: {
     backgroundColor: '#fff',
     borderRadius: 14,
@@ -1585,21 +1589,30 @@ const styles = StyleSheet.create({
   statsTableValue: { width: 44, minWidth: 44, textAlign: 'right', flexShrink: 0, fontWeight: '700' },
   statsTableExpandBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 10, borderBottomWidth: 0 },
   statsTableExpandText: { fontSize: 13, fontWeight: '700', color: '#111827' },
-  hallScrollContent: { paddingBottom: 12 },
-  hallCard: { paddingHorizontal: 6, paddingTop: 12, paddingBottom: 12 },
-  hallSectionTitle: { fontSize: 15, fontWeight: '800', color: '#1e293b', marginBottom: 8 },
+  hallScrollContent: { paddingBottom: 4 },
+  hallCard: {
+    flex: 1,
+    minHeight: 0,
+    borderRadius: 0,
+    borderLeftWidth: 0,
+    borderRightWidth: 0,
+    borderBottomWidth: 0,
+    paddingHorizontal: 0,
+    paddingTop: 12,
+    paddingBottom: 0,
+  },
+  hallSectionTitle: { fontSize: 15, fontWeight: '800', color: '#1e293b', marginBottom: 8, paddingHorizontal: 12 },
   hallSectionTitleSpaced: { marginTop: 18 },
   hallTableWrap: {
     marginTop: 2,
-    marginHorizontal: -6,
-    borderWidth: 1,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
     borderColor: '#e5e7eb',
-    borderRadius: 12,
     overflow: 'hidden',
-    width: 'auto',
+    width: '100%',
     alignSelf: 'stretch',
   },
-  hallTableHeader: { paddingLeft: 8, paddingRight: 8, paddingVertical: 10 },
+  hallTableHeader: { paddingLeft: 12, paddingRight: 12, paddingVertical: 10 },
   hallThPos: { width: 48 },
   hallThTeam: { fontSize: 13 },
   hallSortableTh: { width: 52, flexShrink: 0 },
@@ -1607,7 +1620,7 @@ const styles = StyleSheet.create({
   hallThTitoli: { width: 52 },
   hallThWine: { width: 68, fontSize: 11, lineHeight: 13 },
   hallThSortActive: { color: '#4f46e5' },
-  hallTableRow: { alignItems: 'stretch', paddingLeft: 8, paddingRight: 8, paddingVertical: 12 },
+  hallTableRow: { alignItems: 'stretch', paddingLeft: 12, paddingRight: 12, paddingVertical: 12 },
   hallPosCol: {
     width: 48,
     flexShrink: 0,
@@ -1644,11 +1657,12 @@ const styles = StyleSheet.create({
   },
   hallTeamTextCol: { flex: 1, minWidth: 0 },
   hallTeamName: { fontSize: 15, fontWeight: '700', color: '#1f2937', lineHeight: 19 },
-  hallYearsText: { fontSize: 11, color: '#64748b', marginTop: 2, flexShrink: 1, lineHeight: 15 },
+  hallYearsText: { fontSize: 10, color: '#64748b', marginTop: 2, flexShrink: 1, lineHeight: 12 },
   hallYearRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 10,
+    paddingHorizontal: 12,
     borderBottomWidth: 1,
     borderBottomColor: '#f1f5f9',
     gap: 10,
