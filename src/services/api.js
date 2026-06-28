@@ -583,7 +583,8 @@ export const matchesService = {
           : (referenceYear != null ? { reference_year: referenceYear } : {}),
       timeout: referenceYear === 'absolute' ? 90000 : 10000,
     }),
-  getOfficialGroupHallOfFame: (groupId) => api.get(`matches/groups/${groupId}/hall-of-fame`),
+  getOfficialGroupHallOfFame: (groupId) =>
+    api.get(`matches/groups/${groupId}/hall-of-fame`, { timeout: 60000 }),
   toggleMatchNotifications: (matchId, enabled) =>
     api.post('matches/notifications/toggle', { match_id: matchId, enabled: enabled ? 1 : 0 }),
   setFavoriteMatch: (matchId, isFavorite) =>
