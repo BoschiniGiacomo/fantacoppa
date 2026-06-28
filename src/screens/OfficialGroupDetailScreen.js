@@ -40,13 +40,14 @@ function GroupLogo({ logoUrl, logoPath }) {
   );
 }
 
-function TeamRowLogo({ logoUrl, logoPath }) {
+function TeamRowLogo({ logoUrl, logoPath, style, fallbackStyle, fallbackIconSize }) {
   return (
     <TeamLogoImage
       logoUrl={logoUrl}
       logoPath={logoPath}
-      style={styles.matchTeamLogo}
-      fallbackStyle={styles.matchTeamLogoFallback}
+      style={style || styles.matchTeamLogo}
+      fallbackStyle={fallbackStyle || styles.matchTeamLogoFallback}
+      fallbackIconSize={fallbackIconSize}
     />
   );
 }
@@ -948,7 +949,7 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
                         {block.label ? <Text style={styles.seasonGironeTitle}>{block.label}</Text> : null}
                         <View style={styles.seasonTableWrap}>
                           <View style={styles.seasonTableHeader}>
-                            <Text style={[styles.seasonTh, styles.seasonThPos, { textAlign: 'center' }]}>Pos</Text>
+                            <Text style={[styles.seasonTh, styles.seasonThPos, { textAlign: 'center' }]}>Pos.</Text>
                             <Text style={[styles.seasonTh, { flex: 1 }]}>Squadra</Text>
                             <Text style={[styles.seasonTh, styles.seasonThStat, { textAlign: 'center' }]}>PG</Text>
                             <Text style={[styles.seasonTh, styles.seasonThStat, { textAlign: 'center' }]}>GF</Text>
@@ -1078,7 +1079,7 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
             )}
           </View>
         ) : (
-          <View style={[styles.card, styles.teamCard]}>
+          <View style={[styles.card, styles.teamCard, styles.hallCard]}>
             {hallLoading ? (
               <View style={styles.matchesLoadingBox}>
                 <ActivityIndicator color="#667eea" />
@@ -1088,10 +1089,10 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
             ) : (
               <ScrollView contentContainerStyle={styles.hallScrollContent} showsVerticalScrollIndicator={false}>
                 <Text style={styles.hallSectionTitle}>Classifica titoli</Text>
-                <View style={styles.seasonTableWrap}>
-                  <View style={styles.seasonTableHeader}>
-                    <Text style={[styles.seasonTh, styles.seasonThPos, { textAlign: 'center' }]}>Pos</Text>
-                    <Text style={[styles.seasonTh, { flex: 1 }]}>Squadra</Text>
+                <View style={styles.hallTableWrap}>
+                  <View style={[styles.seasonTableHeader, styles.hallTableHeader]}>
+                    <Text style={[styles.seasonTh, styles.hallThPos, { textAlign: 'center' }]}>Pos.</Text>
+                    <Text style={[styles.seasonTh, styles.hallThTeam, { flex: 1 }]}>Squadra</Text>
                     <TouchableOpacity
                       style={styles.hallSortableTh}
                       activeOpacity={0.7}
@@ -1129,26 +1130,36 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
                   {sortedHallRanking.map((r, i) => (
                     <View
                       key={`hall-rank-${String(r.team_name || i)}`}
-                      style={[styles.seasonTableRow, i === sortedHallRanking.length - 1 && styles.seasonTableRowLast]}
+                      style={[styles.seasonTableRow, styles.hallTableRow, i === sortedHallRanking.length - 1 && styles.seasonTableRowLast]}
                     >
-                      <Text style={[styles.seasonTd, styles.seasonTdPos, { textAlign: 'center' }]}>{i + 1}</Text>
-                      <View style={[styles.teamCell, styles.seasonTeamCell, { flex: 1 }]}>
-                        <TeamRowLogo logoUrl={r.team_logo_url} logoPath={r.team_logo_path} />
+                      <View style={styles.hallPosCol}>
+                        <Text style={[styles.seasonTd, styles.hallTdPos]}>{i + 1}</Text>
+                      </View>
+                      <View style={[styles.teamCell, styles.hallTeamCell, { flex: 1 }]}>
+                        <TeamRowLogo
+                          logoUrl={r.team_logo_url}
+                          logoPath={r.team_logo_path}
+                          style={styles.hallTeamLogo}
+                          fallbackStyle={styles.hallTeamLogoFallback}
+                          fallbackIconSize={22}
+                        />
                         <View style={styles.hallTeamTextCol}>
-                          <Text style={[styles.seasonTd, styles.seasonTdTeamName]} numberOfLines={1} ellipsizeMode="tail">
+                          <Text style={styles.hallTeamName} numberOfLines={2} ellipsizeMode="tail">
                             {r.team_name || '-'}
                           </Text>
                           {Array.isArray(r.years) && r.years.length > 0 ? (
-                            <Text style={styles.hallYearsText} numberOfLines={1} ellipsizeMode="tail">
+                            <Text style={styles.hallYearsText}>
                               {r.years.join(', ')}
                             </Text>
                           ) : null}
                         </View>
                       </View>
-                      <Text style={[styles.seasonTd, styles.hallTdTitoli, { textAlign: 'center' }]}>{r.titles ?? 0}</Text>
-                      <Text style={[styles.seasonTd, styles.hallTdWine, { textAlign: 'center' }]}>
-                        {r.wine_trophies ?? 0}
-                      </Text>
+                      <View style={styles.hallMetricCol}>
+                        <Text style={[styles.seasonTd, styles.hallTdTitoli]}>{r.titles ?? 0}</Text>
+                      </View>
+                      <View style={styles.hallMetricColWine}>
+                        <Text style={[styles.seasonTd, styles.hallTdWine]}>{r.wine_trophies ?? 0}</Text>
+                      </View>
                     </View>
                   ))}
                 </View>
@@ -1575,17 +1586,65 @@ const styles = StyleSheet.create({
   statsTableExpandBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 10, borderBottomWidth: 0 },
   statsTableExpandText: { fontSize: 13, fontWeight: '700', color: '#111827' },
   hallScrollContent: { paddingBottom: 12 },
+  hallCard: { paddingHorizontal: 6, paddingTop: 12, paddingBottom: 12 },
   hallSectionTitle: { fontSize: 15, fontWeight: '800', color: '#1e293b', marginBottom: 8 },
   hallSectionTitleSpaced: { marginTop: 18 },
-  hallSortableTh: { width: 44, flexShrink: 0 },
-  hallSortableThWine: { width: 56, flexShrink: 0, justifyContent: 'center' },
-  hallThTitoli: { width: 44 },
-  hallThWine: { width: 56, fontSize: 10, lineHeight: 12 },
+  hallTableWrap: {
+    marginTop: 2,
+    marginHorizontal: -6,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 12,
+    overflow: 'hidden',
+    width: 'auto',
+    alignSelf: 'stretch',
+  },
+  hallTableHeader: { paddingLeft: 8, paddingRight: 8, paddingVertical: 10 },
+  hallThPos: { width: 48 },
+  hallThTeam: { fontSize: 13 },
+  hallSortableTh: { width: 52, flexShrink: 0 },
+  hallSortableThWine: { width: 68, flexShrink: 0, justifyContent: 'center' },
+  hallThTitoli: { width: 52 },
+  hallThWine: { width: 68, fontSize: 11, lineHeight: 13 },
   hallThSortActive: { color: '#4f46e5' },
-  hallTdTitoli: { width: 44, flexShrink: 0, fontWeight: '700' },
-  hallTdWine: { width: 56, flexShrink: 0, fontWeight: '700' },
+  hallTableRow: { alignItems: 'stretch', paddingLeft: 8, paddingRight: 8, paddingVertical: 12 },
+  hallPosCol: {
+    width: 48,
+    flexShrink: 0,
+    alignSelf: 'stretch',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  hallTdPos: { fontWeight: '700', fontSize: 15, textAlign: 'center' },
+  hallMetricCol: {
+    width: 52,
+    flexShrink: 0,
+    alignSelf: 'stretch',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  hallMetricColWine: {
+    width: 68,
+    flexShrink: 0,
+    alignSelf: 'stretch',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  hallTdTitoli: { fontWeight: '800', fontSize: 15, textAlign: 'center' },
+  hallTdWine: { fontWeight: '800', fontSize: 15, textAlign: 'center' },
+  hallTeamCell: { gap: 10, alignItems: 'center' },
+  hallTeamLogo: { width: 36, height: 36 },
+  hallTeamLogoFallback: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    backgroundColor: '#eef2ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   hallTeamTextCol: { flex: 1, minWidth: 0 },
-  hallYearsText: { fontSize: 10, color: '#64748b', marginTop: 1 },
+  hallTeamName: { fontSize: 15, fontWeight: '700', color: '#1f2937', lineHeight: 19 },
+  hallYearsText: { fontSize: 11, color: '#64748b', marginTop: 2, flexShrink: 1, lineHeight: 15 },
   hallYearRow: {
     flexDirection: 'row',
     alignItems: 'center',
