@@ -2034,6 +2034,23 @@ async function expandLeagueIdsForRatingsMany(leagueIds) {
 /**
  * In modalità Assolute: giocatori nello stesso cluster (approved) → una riga, valore = somma.
  */
+function bumpAbsoluteTeamTotal(teamTotals, teamName, delta) {
+  const tn = String(teamName || '').trim();
+  const d = Number(delta) || 0;
+  if (!tn || d <= 0) return;
+  teamTotals.set(tn, (teamTotals.get(tn) || 0) + d);
+}
+
+function formatAbsoluteTeamBreakdown(teamTotals) {
+  if (!teamTotals || teamTotals.size === 0) return null;
+  const parts = [...teamTotals.entries()]
+    .filter(([name, count]) => name && Number(count) > 0)
+    .sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0]), 'it'));
+  if (!parts.length) return null;
+  if (parts.length === 1) return parts[0][0];
+  return parts.map(([name, count]) => `${name} (${count})`).join(' - ');
+}
+
 async function mergeAbsoluteStatsByCluster(perPlayer, officialGroupId) {
   const entries = (perPlayer || []).filter((e) => Number(e.value) > 0);
   if (!entries.length) return [];
@@ -2052,9 +2069,13 @@ async function mergeAbsoluteStatsByCluster(perPlayer, officialGroupId) {
       .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name, 'it'));
   }
 
-  const ph = playerIds.map(() => '?').join(', ');
-  const memberRows = await query(
-    `
+  const playerToCluster = new Map();
+  const CLUSTER_LOOKUP_BATCH = 400;
+  for (let i = 0; i < playerIds.length; i += CLUSTER_LOOKUP_BATCH) {
+    const batch = playerIds.slice(i, i + CLUSTER_LOOKUP_BATCH);
+    const ph = batch.map(() => '?').join(', ');
+    const memberRows = await query(
+      `
     SELECT pcm.player_id, pcm.cluster_id
     FROM player_cluster_members pcm
     INNER JOIN player_clusters pc ON pc.id = pcm.cluster_id
@@ -2062,14 +2083,13 @@ async function mergeAbsoluteStatsByCluster(perPlayer, officialGroupId) {
       AND pc.status = 'approved'
       AND pcm.player_id IN (${ph})
     `,
-    [groupId, ...playerIds]
-  );
-
-  const playerToCluster = new Map();
-  for (const r of memberRows || []) {
-    const pid = Number(r.player_id);
-    const cid = Number(r.cluster_id);
-    if (pid > 0 && cid > 0) playerToCluster.set(pid, cid);
+      [groupId, ...batch]
+    );
+    for (const r of memberRows || []) {
+      const pid = Number(r.player_id);
+      const cid = Number(r.cluster_id);
+      if (pid > 0 && cid > 0) playerToCluster.set(pid, cid);
+    }
   }
 
   const buckets = new Map();
@@ -2079,26 +2099,32 @@ async function mergeAbsoluteStatsByCluster(perPlayer, officialGroupId) {
     const key = clusterId ? `c:${clusterId}` : `p:${pid}`;
     const prev = buckets.get(key);
     if (!prev) {
+      const teamTotals = new Map();
+      bumpAbsoluteTeamTotal(teamTotals, e.team_name, e.value);
       buckets.set(key, {
         name: e.name,
-        team_name: e.team_name || null,
         value: Number(e.value) || 0,
         labelScore: Number(e.value) || 0,
+        teamTotals,
       });
       continue;
     }
     prev.value += Number(e.value) || 0;
+    bumpAbsoluteTeamTotal(prev.teamTotals, e.team_name, e.value);
     const v = Number(e.value) || 0;
     if (v > prev.labelScore) {
       prev.labelScore = v;
       prev.name = e.name;
-      prev.team_name = e.team_name || null;
     }
   }
 
   return [...buckets.values()]
     .filter((b) => b.value > 0)
-    .map((b) => ({ name: b.name, team_name: b.team_name || null, value: b.value }))
+    .map((b) => ({
+      name: b.name,
+      team_name: formatAbsoluteTeamBreakdown(b.teamTotals),
+      value: b.value,
+    }))
     .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name, 'it'));
 }
 
@@ -2647,6 +2673,28 @@ async function buildOfficialGroupHallOfFame(competitionId) {
   return { winners_by_year: winnersByYear, ranking };
 }
 
+async function mapInPool(items, poolSize, fn) {
+  const list = Array.isArray(items) ? items : [];
+  const size = Math.max(1, Number(poolSize) || 1);
+  const results = [];
+  for (let i = 0; i < list.length; i += size) {
+    const chunk = list.slice(i, i + size);
+    const chunkResults = await Promise.all(chunk.map((item, idx) => fn(item, i + idx)));
+    results.push(...chunkResults);
+  }
+  return results;
+}
+
+async function fetchOfficialGroupPresencesForLeague(leagueId) {
+  const lid = Number(leagueId);
+  if (!Number.isFinite(lid) || lid <= 0) return [];
+  const seasonTeamRows = await query(
+    `SELECT id, league_id, name FROM teams WHERE league_id = ? ORDER BY id ASC`,
+    [lid]
+  );
+  return fetchOfficialTeamPresencesWithVoteRanking(seasonTeamRows, { keepPlayerIds: true }).catch(() => []);
+}
+
 async function computeOfficialGroupSeasonStats(competitionId, targetLeagueIds, isAbsoluteMode) {
   const compId = Number(competitionId);
   const leagueIds = [...new Set((targetLeagueIds || []).map(Number).filter((id) => Number.isFinite(id) && id > 0))];
@@ -2656,28 +2704,46 @@ async function computeOfficialGroupSeasonStats(competitionId, targetLeagueIds, i
 
   if (isAbsoluteMode && leagueIds.length > 1) {
     const t0 = Date.now();
-    console.log('[OfficialGroupStats][server] absolute parallel start', { compId, leagueCount: leagueIds.length });
-    const parts = await Promise.all(
-      leagueIds.map((lid) =>
-        computeOfficialGroupSeasonStatsCore(compId, [lid], false, { keepPlayerIds: true })
-      )
-    );
-    const scorersRaw = parts.flatMap((p) => (Array.isArray(p.scorers) ? p.scorers : []));
-    const assistRaw = parts.flatMap((p) => (Array.isArray(p.assistmen) ? p.assistmen : []));
-    const presRaw = parts.flatMap((p) => (Array.isArray(p.presences) ? p.presences : []));
-    const [scorers, assistmen, presences] = await Promise.all([
-      mergeAbsoluteStatsByCluster(scorersRaw, compId),
-      mergeAbsoluteStatsByCluster(assistRaw, compId),
-      mergeAbsoluteStatsByCluster(presRaw, compId),
-    ]);
-    console.log('[OfficialGroupStats][server] absolute parallel done', {
-      compId,
-      ms: Date.now() - t0,
-      leagueCount: leagueIds.length,
-      counts: { scorers: scorers.length, assistmen: assistmen.length, presences: presences.length },
-      topScorer: scorers[0] || null,
-    });
-    return { scorers, assistmen, presences };
+    console.log('[OfficialGroupStats][server] absolute compute start', { compId, leagueCount: leagueIds.length });
+    try {
+      const parts = await mapInPool(leagueIds, 3, async (lid) => {
+        const [goalsPart, presences] = await Promise.all([
+          computeOfficialGroupSeasonStatsCore(compId, [lid], false, {
+            keepPlayerIds: true,
+            skipPresences: true,
+          }),
+          fetchOfficialGroupPresencesForLeague(lid),
+        ]);
+        return {
+          scorers: goalsPart.scorers,
+          assistmen: goalsPart.assistmen,
+          presences,
+        };
+      });
+      const scorersRaw = parts.flatMap((p) => (Array.isArray(p.scorers) ? p.scorers : []));
+      const assistRaw = parts.flatMap((p) => (Array.isArray(p.assistmen) ? p.assistmen : []));
+      const presRaw = parts.flatMap((p) => (Array.isArray(p.presences) ? p.presences : []));
+      const scorers = await mergeAbsoluteStatsByCluster(scorersRaw, compId);
+      const assistmen = await mergeAbsoluteStatsByCluster(assistRaw, compId);
+      const presences = await mergeAbsoluteStatsByCluster(presRaw, compId);
+      console.log('[OfficialGroupStats][server] absolute compute done', {
+        compId,
+        ms: Date.now() - t0,
+        leagueCount: leagueIds.length,
+        counts: { scorers: scorers.length, assistmen: assistmen.length, presences: presences.length },
+        topScorer: scorers[0] || null,
+      });
+      return { scorers, assistmen, presences };
+    } catch (err) {
+      console.error('[OfficialGroupStats][server] absolute compute failed', {
+        compId,
+        ms: Date.now() - t0,
+        leagueCount: leagueIds.length,
+        error: err?.message,
+        stack: err?.stack,
+      });
+      throw err;
+    }
   }
 
   return computeOfficialGroupSeasonStatsCore(compId, leagueIds, isAbsoluteMode, { keepPlayerIds: false });
@@ -2687,7 +2753,7 @@ async function computeOfficialGroupSeasonStatsCore(
   competitionId,
   leagueIds,
   isAbsoluteMode,
-  { keepPlayerIds = false } = {}
+  { keepPlayerIds = false, skipPresences = false } = {}
 ) {
   const compId = Number(competitionId);
   if (!leagueIds.length) {
@@ -2721,11 +2787,13 @@ async function computeOfficialGroupSeasonStatsCore(
     return { scorers: [], assistmen: [], presences: [] };
   }
 
-  const presencesPromise = fetchOfficialTeamPresencesWithVoteRanking(seasonTeamRows, {
-    isAbsoluteMode: isAbsoluteMode && !keepPlayerIds,
-    competitionId: compId,
-    keepPlayerIds,
-  }).catch(() => []);
+  const presencesPromise = skipPresences
+    ? Promise.resolve([])
+    : fetchOfficialTeamPresencesWithVoteRanking(seasonTeamRows, {
+      isAbsoluteMode: isAbsoluteMode && !keepPlayerIds,
+      competitionId: compId,
+      keepPlayerIds,
+    }).catch(() => []);
 
   const matchIds = (seasonMatches || []).map((m) => Number(m.id)).filter((n) => Number.isFinite(n) && n > 0);
   const seasonEndedMatchIds = await fetchMatchEndedIds(matchIds);

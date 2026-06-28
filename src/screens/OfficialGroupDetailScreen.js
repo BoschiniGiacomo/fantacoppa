@@ -596,7 +596,7 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
                   {playerName}
                 </Text>
                 {teamName ? (
-                  <Text style={styles.statsTablePlayerTeam} numberOfLines={1} ellipsizeMode="tail">
+                  <Text style={styles.statsTablePlayerTeam} numberOfLines={2} ellipsizeMode="tail">
                     {teamName}
                   </Text>
                 ) : null}
