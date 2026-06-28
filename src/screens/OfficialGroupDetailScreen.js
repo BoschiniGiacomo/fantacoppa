@@ -339,10 +339,14 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
   const [statsScorers, setStatsScorers] = useState([]);
   const [statsAssistmen, setStatsAssistmen] = useState([]);
   const [statsPresences, setStatsPresences] = useState([]);
+  const [statsYellowCards, setStatsYellowCards] = useState([]);
+  const [statsRedCards, setStatsRedCards] = useState([]);
   const [statsLeaderboardExpanded, setStatsLeaderboardExpanded] = useState({
     scorers: false,
     assistmen: false,
     presences: false,
+    yellow_cards: false,
+    red_cards: false,
   });
   const [statsPickerOpen, setStatsPickerOpen] = useState(false);
   const [hallLoading, setHallLoading] = useState(false);
@@ -470,6 +474,8 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
         setStatsScorers(Array.isArray(res?.data?.scorers) ? res.data.scorers : []);
         setStatsAssistmen(Array.isArray(res?.data?.assistmen) ? res.data.assistmen : []);
         setStatsPresences(Array.isArray(res?.data?.presences) ? res.data.presences : []);
+        setStatsYellowCards(Array.isArray(res?.data?.yellow_cards) ? res.data.yellow_cards : []);
+        setStatsRedCards(Array.isArray(res?.data?.red_cards) ? res.data.red_cards : []);
         setSelectedStatsYear((prev) => {
           if (yearOverride != null) {
             if (yearOverride === ABSOLUTE_STATS_KEY) return ABSOLUTE_STATS_KEY;
@@ -515,7 +521,13 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
   }, [activeTab, loadHallOfFame]);
 
   useEffect(() => {
-    setStatsLeaderboardExpanded({ scorers: false, assistmen: false, presences: false });
+    setStatsLeaderboardExpanded({
+      scorers: false,
+      assistmen: false,
+      presences: false,
+      yellow_cards: false,
+      red_cards: false,
+    });
   }, [selectedStatsYear]);
 
   const toggleStatsLeaderboard = (tableKey) => {
@@ -1017,6 +1029,24 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
                     'Pres.',
                     'Nessuna presenza con voto nel periodo selezionato.',
                     'presences'
+                  )}
+                </View>
+                <View style={styles.statsBlock}>
+                  <Text style={styles.statsBlockTitle}>Cartellini gialli</Text>
+                  {renderStatsLeaderboardTable(
+                    statsYellowCards,
+                    'Gialli',
+                    'Nessun cartellino giallo disponibile.',
+                    'yellow_cards'
+                  )}
+                </View>
+                <View style={styles.statsBlock}>
+                  <Text style={styles.statsBlockTitle}>Cartellini rossi</Text>
+                  {renderStatsLeaderboardTable(
+                    statsRedCards,
+                    'Rossi',
+                    'Nessun cartellino rosso disponibile.',
+                    'red_cards'
                   )}
                 </View>
               </ScrollView>

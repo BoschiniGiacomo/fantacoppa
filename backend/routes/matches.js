@@ -2703,7 +2703,7 @@ async function computeOfficialGroupSeasonStats(competitionId, targetLeagueIds, i
   const compId = Number(competitionId);
   const leagueIds = [...new Set((targetLeagueIds || []).map(Number).filter((id) => Number.isFinite(id) && id > 0))];
   if (!leagueIds.length) {
-    return { scorers: [], assistmen: [], presences: [] };
+    return { scorers: [], assistmen: [], presences: [], yellow_cards: [], red_cards: [] };
   }
 
   if (isAbsoluteMode && leagueIds.length > 1) {
@@ -2718,16 +2718,22 @@ async function computeOfficialGroupSeasonStats(competitionId, targetLeagueIds, i
       return {
         scorers: goalsPart.scorers,
         assistmen: goalsPart.assistmen,
+        yellow_cards: goalsPart.yellow_cards,
+        red_cards: goalsPart.red_cards,
         presences,
       };
     });
     const scorersRaw = parts.flatMap((p) => (Array.isArray(p.scorers) ? p.scorers : []));
     const assistRaw = parts.flatMap((p) => (Array.isArray(p.assistmen) ? p.assistmen : []));
+    const yellowRaw = parts.flatMap((p) => (Array.isArray(p.yellow_cards) ? p.yellow_cards : []));
+    const redRaw = parts.flatMap((p) => (Array.isArray(p.red_cards) ? p.red_cards : []));
     const presRaw = parts.flatMap((p) => (Array.isArray(p.presences) ? p.presences : []));
     const scorers = await mergeAbsoluteStatsByCluster(scorersRaw, compId);
     const assistmen = await mergeAbsoluteStatsByCluster(assistRaw, compId);
+    const yellow_cards = await mergeAbsoluteStatsByCluster(yellowRaw, compId);
+    const red_cards = await mergeAbsoluteStatsByCluster(redRaw, compId);
     const presences = await mergeAbsoluteStatsByCluster(presRaw, compId);
-    return { scorers, assistmen, presences };
+    return { scorers, assistmen, presences, yellow_cards, red_cards };
   }
 
   return computeOfficialGroupSeasonStatsCore(compId, leagueIds, isAbsoluteMode, { keepPlayerIds: false });
@@ -2741,7 +2747,7 @@ async function computeOfficialGroupSeasonStatsCore(
 ) {
   const compId = Number(competitionId);
   if (!leagueIds.length) {
-    return { scorers: [], assistmen: [], presences: [] };
+    return { scorers: [], assistmen: [], presences: [], yellow_cards: [], red_cards: [] };
   }
 
   const phLeagueIds = leagueIds.map(() => '?').join(', ');
@@ -2768,7 +2774,7 @@ async function computeOfficialGroupSeasonStatsCore(
     (seasonTeamRows || []).map((r) => [Number(r.id), String(r.name || '').trim()]).filter(([id, name]) => id > 0 && name)
   );
   if (!seasonTeamIds.length) {
-    return { scorers: [], assistmen: [], presences: [] };
+    return { scorers: [], assistmen: [], presences: [], yellow_cards: [], red_cards: [] };
   }
 
   const presencesPromise = skipPresences
@@ -2833,6 +2839,8 @@ async function computeOfficialGroupSeasonStatsCore(
 
   const scorersMap = new Map();
   const assistsMap = new Map();
+  const yellowCardsMap = new Map();
+  const redCardsMap = new Map();
 
   const bumpLeaderboard = (map, key, name, teamName, playerId = null) => {
     const label = String(name || '').trim();
@@ -2875,10 +2883,33 @@ async function computeOfficialGroupSeasonStatsCore(
     if (!resolvedSeason.counted) continue;
 
     for (const e of events) {
-      if (!isRegularGoalEventType(e.event_type)) continue;
-      if (!eventHasGoalScorer(e)) continue;
       const payload = safeJsonParse(e.payload_json) || {};
       const pid = Number(e.player_id) || Number(payload?.player_id);
+
+      if (e.event_type === 'yellow_card' || e.event_type === 'red_card') {
+        const pn =
+          (Number.isFinite(pid) && pid > 0 ? String(playerNameMap.get(pid) || '').trim() : '') ||
+          String(payload?.player_name || '').trim();
+        const cardOnLeagueTeam =
+          (Number.isFinite(pid) && pid > 0 && seasonTeamIds.includes(Number(playerTeamMap.get(pid)))) ||
+          seasonTeamIds.includes(Number(e.team_id) || Number(payload?.team_id));
+        if (cardOnLeagueTeam && pn) {
+          const cardTeamId =
+            Number.isFinite(pid) && pid > 0 ? playerTeamMap.get(pid) : Number(e.team_id) || Number(payload?.team_id);
+          const cardMap = e.event_type === 'yellow_card' ? yellowCardsMap : redCardsMap;
+          bumpLeaderboard(
+            cardMap,
+            leaderboardKey(pid, pn, cardTeamId),
+            pn,
+            resolveTeamName(cardTeamId),
+            pid
+          );
+        }
+        continue;
+      }
+
+      if (!isRegularGoalEventType(e.event_type)) continue;
+      if (!eventHasGoalScorer(e)) continue;
       const aid = Number(e.assist_player_id) || Number(payload?.assist_player_id);
       const pn =
         (Number.isFinite(pid) && pid > 0 ? String(playerNameMap.get(pid) || '').trim() : '') ||
@@ -2935,6 +2966,8 @@ async function computeOfficialGroupSeasonStatsCore(
     scorers: listFromMap(scorersMap),
     assistmen: listFromMap(assistsMap),
     presences: Array.isArray(presences) ? presences : [],
+    yellow_cards: listFromMap(yellowCardsMap),
+    red_cards: listFromMap(redCardsMap),
   };
 }
 
@@ -3407,6 +3440,8 @@ router.get('/matches/groups/:groupId/season-stats', authenticateToken, async (re
       scorers: stats.scorers,
       assistmen: stats.assistmen,
       presences: stats.presences,
+      yellow_cards: stats.yellow_cards,
+      red_cards: stats.red_cards,
     });
   } catch (err) {
     if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
