@@ -159,6 +159,7 @@ export default function SuperUserScreen() {
   const [showGroupDetailModal, setShowGroupDetailModal] = useState(false);
   const [uploadingGroupLogo, setUploadingGroupLogo] = useState(false);
   const [referenceYearDrafts, setReferenceYearDrafts] = useState({});
+  const [expandedGroupLeagueIds, setExpandedGroupLeagueIds] = useState({});
   /** @type {Record<string, Array<{id:number,name:string,girone_index?:number|null}>>} */
   const [gironiTeamsByLeague, setGironiTeamsByLeague] = useState({});
   const [savingReferenceYearByLeague, setSavingReferenceYearByLeague] = useState({});
@@ -1064,6 +1065,37 @@ export default function SuperUserScreen() {
     }
   };
 
+  const handleOfficialGroupLogoEditPress = () => {
+    if (uploadingGroupLogo) return;
+    if (selectedGroupForEdit?.logo_path) {
+      setConfirmModal({
+        title: 'Logo gruppo',
+        message: 'Vuoi sostituire il logo o rimuoverlo?',
+        confirmText: 'Scegli immagine',
+        secondaryText: 'Rimuovi',
+        onConfirm: () => {
+          setConfirmModal(null);
+          void handlePickOfficialGroupLogo();
+        },
+        onSecondary: () => {
+          setConfirmModal(null);
+          setConfirmModal({
+            title: 'Rimuovi logo',
+            message: 'Vuoi rimuovere il logo di questo gruppo?',
+            confirmText: 'Rimuovi',
+            destructive: true,
+            onConfirm: () => {
+              setConfirmModal(null);
+              void handleRemoveOfficialGroupLogo();
+            },
+          });
+        },
+      });
+      return;
+    }
+    void handlePickOfficialGroupLogo();
+  };
+
   const handlePickOfficialGroupLogo = async () => {
     const groupId = Number(selectedGroupForEdit?.id);
     if (!groupId) return;
@@ -1281,6 +1313,40 @@ export default function SuperUserScreen() {
       hour: '2-digit',
       minute: '2-digit',
     });
+  };
+
+  const formatCreationDate = (dateString) => {
+    if (!dateString) return '—';
+    const date = new Date(dateString);
+    return date.toLocaleDateString('it-IT', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    });
+  };
+
+  const getLeagueDisplayYear = (league) => {
+    const draft = String(referenceYearDrafts[String(league?.id)] ?? '').trim();
+    if (draft) return draft;
+    if (league?.reference_year != null && String(league.reference_year).trim() !== '') {
+      return String(league.reference_year);
+    }
+    return '—';
+  };
+
+  const closeGroupDetailModal = () => {
+    setShowGroupDetailModal(false);
+    setSelectedGroupForEdit(null);
+    setReferenceYearDrafts({});
+    setGironiTeamsByLeague({});
+    setExpandedGroupLeagueIds({});
+  };
+
+  const toggleGroupLeagueExpanded = (leagueId) => {
+    setExpandedGroupLeagueIds((prev) => ({
+      ...prev,
+      [leagueId]: !prev[leagueId],
+    }));
   };
   
   // Verifica se utente è online (attività < 5 minuti)
@@ -2359,88 +2425,92 @@ export default function SuperUserScreen() {
         visible={showGroupDetailModal}
         animationType="slide"
         transparent={true}
-        onRequestClose={() => {
-          setShowGroupDetailModal(false);
-          setSelectedGroupForEdit(null);
-          setReferenceYearDrafts({});
-          setGironiTeamsByLeague({});
-        }}
+        onRequestClose={closeGroupDetailModal}
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>
-                {selectedGroupForEdit?.name || 'Gruppo Ufficiale'}
-              </Text>
-              <TouchableOpacity
-                onPress={() => {
-                  setShowGroupDetailModal(false);
-                  setSelectedGroupForEdit(null);
-                  setReferenceYearDrafts({});
-                  setGironiTeamsByLeague({});
-                }}
-              >
+            <View style={[styles.modalHeader, styles.groupDetailModalHeader]}>
+              <View style={styles.groupDetailModalHeaderSpacer} />
+              <Text style={styles.groupDetailModalHeaderTitle}>Gruppo ufficiale</Text>
+              <TouchableOpacity onPress={closeGroupDetailModal}>
                 <Ionicons name="close" size={24} color="#666" />
               </TouchableOpacity>
             </View>
             
             {selectedGroupForEdit && (
-              <ScrollView style={styles.modalScrollView} contentContainerStyle={{ paddingBottom: 20 }}>
-                {selectedGroupForEdit.description && (
-                  <Text style={styles.groupDetailDescription}>
-                    {selectedGroupForEdit.description}
-                  </Text>
-                )}
-
-                <View style={styles.groupLogoSection}>
-                  <Text style={styles.groupDetailSectionTitle}>Logo gruppo</Text>
-                  <View style={styles.groupLogoRow}>
-                    {selectedGroupForEdit.logo_path ? (
-                      <Image
-                        source={{ uri: publicAssetUrl(selectedGroupForEdit.logo_path) }}
-                        style={styles.groupLogoPreview}
-                      />
-                    ) : (
-                      <View style={styles.groupLogoPlaceholder}>
-                        <Ionicons name="trophy-outline" size={28} color="#94a3b8" />
+              <>
+                <View style={styles.groupProfileHero}>
+                  <View style={styles.groupLogoHeroContainer}>
+                    {uploadingGroupLogo ? (
+                      <View style={styles.groupLogoHeroCircle}>
+                        <ActivityIndicator size="large" color="#667eea" />
                       </View>
-                    )}
-                    <View style={styles.groupLogoActions}>
-                      <TouchableOpacity
-                        style={[styles.groupLogoBtn, uploadingGroupLogo && styles.groupLogoBtnDisabled]}
-                        onPress={handlePickOfficialGroupLogo}
-                        disabled={uploadingGroupLogo}
-                      >
-                        {uploadingGroupLogo ? (
-                          <ActivityIndicator size="small" color="#667eea" />
-                        ) : (
-                          <Text style={styles.groupLogoBtnText}>Carica logo</Text>
-                        )}
-                      </TouchableOpacity>
-                      {selectedGroupForEdit.logo_path ? (
+                    ) : selectedGroupForEdit.logo_path ? (
+                      <View style={styles.groupLogoHeroWrapper}>
+                        <Image
+                          source={{ uri: publicAssetUrl(selectedGroupForEdit.logo_path) }}
+                          style={styles.groupLogoHeroImage}
+                        />
                         <TouchableOpacity
-                          style={[styles.groupLogoBtnOutline, uploadingGroupLogo && styles.groupLogoBtnDisabled]}
-                          onPress={handleRemoveOfficialGroupLogo}
+                          style={styles.groupLogoEditBadge}
+                          onPress={handleOfficialGroupLogoEditPress}
                           disabled={uploadingGroupLogo}
                         >
-                          <Text style={styles.groupLogoBtnOutlineText}>Rimuovi</Text>
+                          <Ionicons name="create-outline" size={18} color="#fff" />
                         </TouchableOpacity>
-                      ) : null}
-                    </View>
+                      </View>
+                    ) : (
+                      <View style={styles.groupLogoHeroWrapper}>
+                        <View style={styles.groupLogoHeroCircle}>
+                          <Ionicons name="trophy-outline" size={48} color="#94a3b8" />
+                        </View>
+                        <TouchableOpacity
+                          style={styles.groupLogoEditBadge}
+                          onPress={handleOfficialGroupLogoEditPress}
+                          disabled={uploadingGroupLogo}
+                        >
+                          <Ionicons name="create-outline" size={18} color="#fff" />
+                        </TouchableOpacity>
+                      </View>
+                    )}
                   </View>
+                  <Text style={styles.groupProfileName}>{selectedGroupForEdit.name || 'Gruppo Ufficiale'}</Text>
+                  {selectedGroupForEdit.description ? (
+                    <Text style={styles.groupProfileDescription}>{selectedGroupForEdit.description}</Text>
+                  ) : null}
                 </View>
-                
+
+              <ScrollView style={styles.modalScrollView} contentContainerStyle={{ paddingBottom: 20 }}>
                 <Text style={styles.groupDetailSectionTitle}>
                   Leghe del Gruppo ({selectedGroupForEdit.leagues?.length || 0})
                 </Text>
                 
                 {selectedGroupForEdit.leagues && selectedGroupForEdit.leagues.length > 0 ? (
-                  selectedGroupForEdit.leagues.map((league) => (
+                  selectedGroupForEdit.leagues.map((league) => {
+                    const isExpanded = !!expandedGroupLeagueIds[league.id];
+                    return (
                     <View key={league.id} style={styles.groupLeagueItem}>
-                      <Text style={styles.groupLeagueName}>{league.name}</Text>
-                      <Text style={styles.groupLeagueDetails}>
-                        {league.member_count} membri • {formatDateTime(league.created_at)}
-                      </Text>
+                      <TouchableOpacity
+                        style={styles.groupLeagueHeader}
+                        onPress={() => toggleGroupLeagueExpanded(league.id)}
+                        activeOpacity={0.75}
+                      >
+                        <View style={styles.groupLeagueHeaderText}>
+                          <Text style={styles.groupLeagueName} numberOfLines={2}>
+                            {league.name}
+                          </Text>
+                          <Text style={styles.groupLeagueSummary}>
+                            Anno {getLeagueDisplayYear(league)} • Creato il {formatCreationDate(league.created_at)}
+                          </Text>
+                        </View>
+                        <Ionicons
+                          name={isExpanded ? 'chevron-up' : 'chevron-down'}
+                          size={18}
+                          color="#94a3b8"
+                        />
+                      </TouchableOpacity>
+                      {isExpanded ? (
+                      <View style={styles.groupLeagueExpandedBody}>
                       <View style={styles.groupLeagueReferenceYearRow}>
                         <TouchableOpacity
                           style={styles.groupLeagueReferenceYearPickerBtn}
@@ -2608,8 +2678,11 @@ export default function SuperUserScreen() {
                           )}
                         </View>
                       ) : null}
+                      </View>
+                      ) : null}
                     </View>
-                  ))
+                    );
+                  })
                 ) : (
                   <Text style={styles.groupDetailEmpty}>
                     Nessuna lega in questo gruppo
@@ -2642,10 +2715,7 @@ export default function SuperUserScreen() {
                           setConfirmModal(null);
                           try {
                             await superuserService.deleteOfficialGroup(selectedGroupForEdit.id);
-                            setShowGroupDetailModal(false);
-                            setSelectedGroupForEdit(null);
-                            setGironiTeamsByLeague({});
-                            setReferenceYearDrafts({});
+                            closeGroupDetailModal();
                             await loadOfficialGroups();
                             await loadLeagues();
                             showToast('Gruppo eliminato con successo', 'success');
@@ -2662,6 +2732,7 @@ export default function SuperUserScreen() {
                   </TouchableOpacity>
                 </View>
               </ScrollView>
+              </>
             )}
           </View>
         </View>
@@ -3905,62 +3976,83 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     lineHeight: 20,
   },
-  groupLogoSection: {
-    marginBottom: 16,
-    paddingHorizontal: 16,
+  groupDetailModalHeader: {
+    borderBottomWidth: 0,
+    paddingBottom: 8,
   },
-  groupLogoRow: {
-    flexDirection: 'row',
+  groupDetailModalHeaderSpacer: { width: 24 },
+  groupDetailModalHeaderTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#64748b',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
+  groupProfileHero: {
     alignItems: 'center',
-    gap: 14,
+    paddingTop: 4,
+    paddingBottom: 20,
+    paddingHorizontal: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eef2f7',
+    backgroundColor: '#fff',
   },
-  groupLogoPreview: {
-    width: 72,
-    height: 72,
-    borderRadius: 12,
-    backgroundColor: '#f1f5f9',
+  groupLogoHeroContainer: {
+    marginBottom: 14,
+    alignItems: 'center',
   },
-  groupLogoPlaceholder: {
-    width: 72,
-    height: 72,
-    borderRadius: 12,
-    backgroundColor: '#f1f5f9',
+  groupLogoHeroWrapper: {
+    position: 'relative',
+  },
+  groupLogoHeroCircle: {
+    width: 112,
+    height: 112,
+    borderRadius: 56,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
+    borderWidth: 3,
     borderColor: '#e2e8f0',
+    backgroundColor: '#f8fafc',
   },
-  groupLogoActions: {
-    flex: 1,
-    gap: 8,
+  groupLogoHeroImage: {
+    width: 112,
+    height: 112,
+    borderRadius: 56,
+    borderWidth: 3,
+    borderColor: '#667eea',
+    backgroundColor: '#f1f5f9',
   },
-  groupLogoBtn: {
+  groupLogoEditBadge: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: '#667eea',
-    borderRadius: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
     alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 3,
+    borderColor: '#fff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 4,
   },
-  groupLogoBtnOutline: {
-    borderRadius: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#cbd5e1',
+  groupProfileName: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#1e293b',
+    textAlign: 'center',
   },
-  groupLogoBtnDisabled: {
-    opacity: 0.6,
-  },
-  groupLogoBtnText: {
-    color: '#fff',
-    fontWeight: '700',
-    fontSize: 13,
-  },
-  groupLogoBtnOutlineText: {
+  groupProfileDescription: {
+    fontSize: 14,
     color: '#64748b',
-    fontWeight: '700',
-    fontSize: 13,
+    textAlign: 'center',
+    marginTop: 6,
+    lineHeight: 20,
+    paddingHorizontal: 8,
   },
   groupDetailSectionTitle: {
     fontSize: 16,
@@ -3970,11 +4062,30 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   groupLeagueItem: {
-    padding: 16,
-    backgroundColor: '#f9f9f9',
+    backgroundColor: '#fff',
     marginHorizontal: 16,
     marginBottom: 8,
-    borderRadius: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#e8ecf1',
+    overflow: 'hidden',
+  },
+  groupLeagueHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    gap: 10,
+  },
+  groupLeagueHeaderText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  groupLeagueExpandedBody: {
+    paddingHorizontal: 14,
+    paddingBottom: 14,
+    borderTopWidth: 1,
+    borderTopColor: '#eef2f7',
   },
   clusterLeagueRow: {
     flexDirection: 'row',
@@ -4022,16 +4133,20 @@ const styles = StyleSheet.create({
   },
   groupLeagueName: {
     fontSize: 15,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 4,
+    fontWeight: '700',
+    color: '#1e293b',
+  },
+  groupLeagueSummary: {
+    fontSize: 12,
+    color: '#64748b',
+    marginTop: 4,
   },
   groupLeagueDetails: {
     fontSize: 13,
     color: '#666',
   },
   groupLeagueReferenceYearRow: {
-    marginTop: 10,
+    marginTop: 4,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
