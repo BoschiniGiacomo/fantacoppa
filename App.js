@@ -71,6 +71,8 @@ function readLeagueBootstrapFromCache(leagueId) {
   return row && typeof row === 'object' ? row : null;
 }
 import AppLoadingFullScreenModal from './src/components/AppLoadingFullScreenModal';
+import { fetchAndCacheStripTeams } from './src/services/matchesStripPrefetch';
+import { readStripTeamsDisk } from './src/services/matchesStripTeamsCache';
 
 const Stack = createStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -127,6 +129,15 @@ const FormationScreenWrapped = withLeagueWrapper(FormationScreen);
 
 // Tab Navigator per le schermate principali
 function MainTabs() {
+  const { token } = useAuth();
+
+  useEffect(() => {
+    readStripTeamsDisk().catch(() => {});
+    if (token) {
+      fetchAndCacheStripTeams(token).catch(() => {});
+    }
+  }, [token]);
+
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
@@ -158,7 +169,11 @@ function MainTabs() {
         options={{ title: 'Home' }}
       />
       <Tab.Screen name="Leghe" component={LeaguesScreen} />
-      <Tab.Screen name="Partite" component={MatchesScreen} />
+      <Tab.Screen
+        name="Partite"
+        component={MatchesScreen}
+        options={{ lazy: false }}
+      />
       <Tab.Screen name="Profilo" component={ProfileScreen} />
     </Tab.Navigator>
   );

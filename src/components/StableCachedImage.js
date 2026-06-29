@@ -1,10 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Image, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { resolveDisplayMediaUri } from '../utils/resolveDisplayMediaUri';
+import { resolveDisplayMediaUri, resolveDisplayMediaUriSync } from '../utils/resolveDisplayMediaUri';
 
 /**
- * Logo squadra / foto giocatore con cache disco (path Supabase stabile).
+ * Logo squadra / foto giocatore: bundle sincrono al primo frame, poi cache disco / rete.
  */
 export default function StableCachedImage({
   logoUrl,
@@ -20,28 +20,38 @@ export default function StableCachedImage({
   resizeMode = 'contain',
   onError,
 }) {
-  const [uri, setUri] = useState(null);
+  const fields = useMemo(
+    () => ({ logoUrl, logoPath, photoPath, teamLogo, asset }),
+    [logoUrl, logoPath, photoPath, teamLogo, asset]
+  );
+
+  const syncUri = useMemo(
+    () => resolveDisplayMediaUriSync(fields).uri,
+    [fields]
+  );
+
+  const [uri, setUri] = useState(syncUri);
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     setFailed(false);
+    const immediate = resolveDisplayMediaUriSync(fields).uri;
+    if (immediate) setUri(immediate);
+
     (async () => {
-      const { uri: resolved } = await resolveDisplayMediaUri({
-        logoUrl,
-        logoPath,
-        photoPath,
-        teamLogo,
-        asset,
-      });
-      if (!cancelled) setUri(resolved);
+      const { uri: resolved } = await resolveDisplayMediaUri(fields);
+      if (!cancelled && resolved) setUri(resolved);
     })();
+
     return () => {
       cancelled = true;
     };
-  }, [logoUrl, logoPath, photoPath, teamLogo, asset]);
+  }, [fields]);
 
-  if (!uri || failed) {
+  const showFallback = !uri || failed;
+
+  if (showFallback) {
     if (fallbackStyle) {
       return (
         <View style={fallbackStyle}>

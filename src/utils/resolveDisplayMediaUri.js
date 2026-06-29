@@ -1,4 +1,5 @@
 import { publicAssetUrl } from '../services/api';
+import { getBundledAssetUri } from './bundledUploads';
 import { normalizeUploadPath, resolveCanonicalUploadPath } from './normalizeUploadPath';
 import { logMediaCache, mediaUriSource } from './mediaCacheDebug';
 import { resolveMediaLocalFirst } from './stableMediaDiskCache';
@@ -27,6 +28,27 @@ function pickRemoteFallback({ logoUrl, logoPath, photoPath, teamLogo }) {
     return publicAssetUrl(canonical || logoUrl) || null;
   }
   return null;
+}
+
+/**
+ * Risoluzione immediata (solo bundle app). Per loghi già nell'APK: zero attesa al primo frame.
+ */
+export function resolveDisplayMediaUriSync({
+  logoUrl,
+  logoPath,
+  photoPath,
+  teamLogo,
+  asset = 'team_logo',
+} = {}) {
+  const storagePath = pickStorageInput({ logoUrl, logoPath, photoPath, teamLogo });
+  if (!storagePath) {
+    return { uri: pickRemoteFallback({ logoUrl, logoPath, photoPath, teamLogo }), path: null };
+  }
+  const bundled = getBundledAssetUri(storagePath);
+  if (bundled) {
+    return { uri: bundled, path: storagePath };
+  }
+  return { uri: null, path: storagePath };
 }
 
 /**

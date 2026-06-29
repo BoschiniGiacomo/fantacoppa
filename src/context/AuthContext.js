@@ -7,6 +7,8 @@ import {
   setUpdateRequiredHandler,
 } from '../services/api';
 import { prefetchLeagueWarmData, invalidateAllLeagueWarmCache } from '../services/leagueWarmCache';
+import { clearStripTeamsCache } from '../services/matchesStripTeamsCache';
+import { fetchAndCacheStripTeams } from '../services/matchesStripPrefetch';
 import { registerPushTokenIfPermitted } from '../services/notificationService';
 
 const AuthContext = createContext({});
@@ -164,6 +166,7 @@ export const AuthProvider = ({ children }) => {
           setUser(null);
         }
         if (parsedUser) {
+          fetchAndCacheStripTeams(storedToken).catch(() => {});
           await prefetchLeagueWarmData({
             onProgress: (f) => setBootstrapProgress(0.24 + Math.min(1, f) * 0.7),
             userId: parsedUser?.id,
@@ -204,6 +207,7 @@ export const AuthProvider = ({ children }) => {
       setUser(newUser);
       authService.setAuthToken(newToken);
       registerPushTokenIfPermitted().catch(() => {});
+      fetchAndCacheStripTeams(newToken).catch(() => {});
       await prefetchLeagueWarmData({ onProgress: () => {}, userId: newUser?.id });
 
       return { success: true };
@@ -239,6 +243,7 @@ export const AuthProvider = ({ children }) => {
       setUser(newUser);
       authService.setAuthToken(newToken);
       registerPushTokenIfPermitted().catch(() => {});
+      fetchAndCacheStripTeams(newToken).catch(() => {});
       await prefetchLeagueWarmData({ onProgress: () => {}, userId: newUser?.id });
 
       return { success: true };
@@ -253,6 +258,7 @@ export const AuthProvider = ({ children }) => {
   const logout = async () => {
     try {
       invalidateAllLeagueWarmCache();
+      clearStripTeamsCache();
       await AsyncStorage.removeItem('authToken');
       await AsyncStorage.removeItem('user');
       setToken(null);
