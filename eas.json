@@ -33,8 +33,7 @@
       },
       "android": {
         "buildType": "app-bundle"
-      },
-      "prebuildCommand": "npm run generate:uploads-manifest"
+      }
     },
     "production-apk": {
       "channel": "production",
@@ -44,8 +43,7 @@
       },
       "android": {
         "buildType": "apk"
-      },
-      "prebuildCommand": "npm run generate:uploads-manifest"
+      }
     }
   },
   "submit": {
