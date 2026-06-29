@@ -1095,11 +1095,12 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
         ) : activeTab === 'trophies' ? (
           <View style={[styles.card, styles.trophiesCard]}>
             {trophiesLoading ? (
-              <View style={styles.matchesLoadingBox}>
+              <View style={[styles.matchesLoadingBox, styles.trophiesLoadingBox]}>
                 <ActivityIndicator color="#c9a227" />
               </View>
             ) : (
               <ScrollView
+                style={styles.trophiesList}
                 contentContainerStyle={styles.trophiesScrollContent}
                 showsVerticalScrollIndicator={false}
               >
@@ -1404,13 +1405,15 @@ const styles = StyleSheet.create({
   trophiesCard: {
     flex: 1,
     minHeight: 0,
-    backgroundColor: '#12100e',
+    backgroundColor: 'transparent',
     borderWidth: 0,
-    padding: 8,
-    borderRadius: 0,
+    padding: 0,
+    overflow: 'hidden',
   },
+  trophiesList: { flex: 1 },
+  trophiesLoadingBox: { flex: 1, minHeight: 0 },
   trophiesScrollContent: {
-    paddingBottom: 16,
+    paddingBottom: 12,
     flexGrow: 1,
   },
   seasonCard: {

@@ -91,13 +91,14 @@ function WineTrophyVisual() {
   );
 }
 
+const TROPHIES_PER_ROW = 3;
+
 function TrophySlot({ type, year }) {
   const isWine = type === 'wine';
   return (
     <View style={styles.slot}>
       <View style={[styles.slotAlcove, isWine ? styles.slotAlcoveWine : styles.slotAlcoveChamp]}>
         <View style={[styles.slotSpotlight, isWine ? styles.slotSpotlightWine : styles.slotSpotlightChamp]} />
-        <View style={styles.slotHook} />
         <View style={[styles.slotPedestal, isWine ? styles.slotPedestalWine : styles.slotPedestalChamp]}>
           {isWine ? <WineTrophyVisual /> : <ChampionshipTrophyVisual />}
         </View>
@@ -113,6 +114,10 @@ function TrophySlot({ type, year }) {
 
 function TrophyShelf({ title, trophies, type, emptyHint }) {
   const isWine = type === 'wine';
+  const rows = [];
+  for (let i = 0; i < trophies.length; i += TROPHIES_PER_ROW) {
+    rows.push(trophies.slice(i, i + TROPHIES_PER_ROW));
+  }
   return (
     <View style={styles.shelfBlock}>
       <View style={[styles.shelfNameplate, isWine ? styles.shelfNameplateWine : styles.shelfNameplateChamp]}>
@@ -129,8 +134,12 @@ function TrophyShelf({ title, trophies, type, emptyHint }) {
           <View style={styles.shelfPlankLip} />
           {trophies.length > 0 ? (
             <View style={styles.shelfGrid}>
-              {trophies.map((t) => (
-                <TrophySlot key={`${type}-${t.year}`} type={type} year={t.year} />
+              {rows.map((row, rowIndex) => (
+                <View key={`${type}-row-${rowIndex}`} style={styles.shelfRow}>
+                  {row.map((t) => (
+                    <TrophySlot key={`${type}-${t.year}`} type={type} year={t.year} />
+                  ))}
+                </View>
               ))}
             </View>
           ) : (
@@ -205,9 +214,7 @@ export default function OfficialTeamTrophyBoard({ championships = [], wineTrophi
 
 const styles = StyleSheet.create({
   boardWall: {
-    padding: 4,
-    backgroundColor: '#14100c',
-    borderRadius: 18,
+    width: '100%',
   },
   boardFrame: {
     borderRadius: 14,
@@ -216,10 +223,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#3d2818',
     overflow: 'hidden',
     shadowColor: '#000',
-    shadowOpacity: 0.45,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 8,
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 4,
   },
   boardFrameBevelTop: {
     height: 5,
@@ -277,11 +284,12 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.03)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.06)',
-    zIndex: 2,
+    zIndex: 0,
   },
   cabinetInner: {
     gap: 16,
-    zIndex: 1,
+    zIndex: 2,
+    position: 'relative',
   },
   shelfDivider: {
     height: 4,
@@ -363,7 +371,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     paddingTop: 10,
     paddingBottom: 14,
-    paddingHorizontal: 8,
+    paddingHorizontal: 6,
     position: 'relative',
     overflow: 'visible',
   },
@@ -398,10 +406,14 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   shelfGrid: {
+    gap: 6,
+  },
+  shelfRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
     justifyContent: 'center',
-    gap: 12,
+    alignItems: 'flex-end',
+    gap: 8,
+    width: '100%',
   },
   shelfEmpty: {
     textAlign: 'center',
@@ -436,7 +448,7 @@ const styles = StyleSheet.create({
   },
   slotSpotlight: {
     position: 'absolute',
-    top: -8,
+    top: -6,
     width: 50,
     height: 50,
     borderRadius: 25,
@@ -447,19 +459,6 @@ const styles = StyleSheet.create({
   },
   slotSpotlightWine: {
     backgroundColor: 'rgba(200, 90, 120, 0.12)',
-  },
-  slotHook: {
-    position: 'absolute',
-    top: 6,
-    width: 14,
-    height: 6,
-    borderTopLeftRadius: 3,
-    borderTopRightRadius: 3,
-    backgroundColor: '#6b5420',
-    borderWidth: 1,
-    borderBottomWidth: 0,
-    borderColor: '#8b6914',
-    zIndex: 2,
   },
   slotPedestal: {
     width: 68,
