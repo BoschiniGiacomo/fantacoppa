@@ -1,0 +1,238 @@
+﻿[
+  {
+    "id": "3d87c851-77db-4805-b8ed-af1e6fa64573",
+    "status": "ERRORED",
+    "platform": "ANDROID",
+    "error": {
+      "errorCode": "EAS_BUILD_UNKNOWN_GRADLE_ERROR",
+      "message": "Gradle build failed with unknown error. See logs for the \"Run gradlew\" phase for more information."
+    },
+    "artifacts": {},
+    "fingerprint": {
+      "id": "019f1417-46b7-7469-b759-6e1d988cc5b3",
+      "hash": "a989288c1045f62485bc8cc38615f30e5694ddfa"
+    },
+    "initiatingActor": {
+      "id": "61807ba8-d6ae-45b3-b396-a540296c0a79",
+      "displayName": "boscojack02"
+    },
+    "logFiles": [
+      "https://storage.googleapis.com/eas-workflows-production/logs/f1e19392-b5b0-4646-8672-5f8e39654f4a/3d87c851-77db-4805-b8ed-af1e6fa64573/2026-06-29T16%3A44%3A50Z-22be4565-a1e9-4254-ace1-79ca9858e057.txt?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=www-production%40exponentjs.iam.gserviceaccount.com%2F20260629%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20260629T170207Z&X-Goog-Expires=900&X-Goog-SignedHeaders=host&X-Goog-Signature=c13f373e43f68e0adf274957f570c9a991cd5234ba71030733825675e66e1b9199141d8e90011153a95936b0d0d360308bb9beaf1407257958ca12472beb09db558f481d1717c4eef3745a42c937ea0f750da07e6a18e2751fa39bece62e1175ccba7753a6b7ab0d94f500a7e4e34799421aaf0367c0906f69b71c6b3688e2d9e6e3fe82a83d54564e4a4e63ca9bcde3c9d330ca6e93fad13d6ef63293499f275ba4ad5df57e3a7c72803c79e7ad57618f88959e5b63d367ae16f021da83acbbf5d1882ae0e5c4070417f65823b815c9a8d42ca978055380df371c8604268e3b7ca7e5f89877dc7b18df5074ae1443805f735f3ad3d8eb74230d97b365c10aa0"
+    ],
+    "project": {
+      "id": "f1e19392-b5b0-4646-8672-5f8e39654f4a",
+      "name": "fantacoppa",
+      "slug": "fantacoppa",
+      "ownerAccount": {
+        "id": "60e5c5d0-5e42-4398-99c3-bec6544ed3c6",
+        "name": "boscojack02"
+      }
+    },
+    "channel": "production",
+    "distribution": "STORE",
+    "buildProfile": "production",
+    "sdkVersion": "54.0.0",
+    "appVersion": "1.0.11",
+    "appBuildVersion": "15",
+    "runtimeVersion": "1.0.11",
+    "priority": "NORMAL_PLUS",
+    "createdAt": "2026-06-29T15:54:57.544Z",
+    "updatedAt": "2026-06-29T16:50:29.366Z",
+    "completedAt": "2026-06-29T16:50:29.133Z",
+    "expirationDate": "2026-07-29T15:54:57.585Z",
+    "isForIosSimulator": false,
+    "metrics": {
+      "buildWaitTime": 7687,
+      "buildQueueTime": 2989260,
+      "buildDuration": 334642
+    }
+  },
+  {
+    "id": "d7ba1e9c-3ec2-48f9-afb4-5acd2914e065",
+    "status": "FINISHED",
+    "platform": "ANDROID",
+    "artifacts": {
+      "buildUrl": "https://expo.dev/artifacts/eas/sD4eKxitckG4vo7vne46Bt.aab",
+      "applicationArchiveUrl": "https://expo.dev/artifacts/eas/sD4eKxitckG4vo7vne46Bt.aab"
+    },
+    "fingerprint": {
+      "id": "019e3d94-f5d5-74b9-a31d-e17413017a51",
+      "hash": "abd25fd6675893c9c5f3120a0c744aa14a1dc181"
+    },
+    "initiatingActor": {
+      "id": "61807ba8-d6ae-45b3-b396-a540296c0a79",
+      "displayName": "boscojack02"
+    },
+    "logFiles": [
+      "https://storage.googleapis.com/eas-workflows-production/logs/f1e19392-b5b0-4646-8672-5f8e39654f4a/d7ba1e9c-3ec2-48f9-afb4-5acd2914e065/2026-05-19T00%3A14%3A00Z-8675a9e3-0918-4cd9-a505-01074950ee41.txt?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=www-production%40exponentjs.iam.gserviceaccount.com%2F20260629%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20260629T170207Z&X-Goog-Expires=900&X-Goog-SignedHeaders=host&X-Goog-Signature=c08fc067db23f09bb10316946ac671e1054917b6f60a3e36ac381f751f83267fb0ad8895d25ec674885699939177c2ef36cc4fe124eb3c8e3748aebc5e5d69ddd6771f5b6df56381d9e672989a2771cb9bc27f41d3d520cd00f2a8f857bf0c780c618f662d83f8d1962512bd18ade1f8f2c2492dc74bcc5a54686154f5cb9d47ae6ca48280c06f8a7af59f9759be83431386d9e8cc64fd8f7fd7346584ed32fe1dadb9d255d357a78968d9871d0b186dc89dfad04eaeabe4ca5b818dcb37f907f46472c7ddafd0389f85384c06ceb422dec85d096ed3ab8079cc0965889669d13f7ddb857093f38d55ec1a4302a25229fb464ce09f51be3f2069c71c659770c6"
+    ],
+    "project": {
+      "id": "f1e19392-b5b0-4646-8672-5f8e39654f4a",
+      "name": "fantacoppa",
+      "slug": "fantacoppa",
+      "ownerAccount": {
+        "id": "60e5c5d0-5e42-4398-99c3-bec6544ed3c6",
+        "name": "boscojack02"
+      }
+    },
+    "channel": "production",
+    "distribution": "STORE",
+    "buildProfile": "production",
+    "sdkVersion": "54.0.0",
+    "appVersion": "1.0.10",
+    "appBuildVersion": "14",
+    "runtimeVersion": "1.0.10",
+    "priority": "NORMAL",
+    "createdAt": "2026-05-19T00:13:52.953Z",
+    "updatedAt": "2026-05-19T04:00:25.773Z",
+    "completedAt": "2026-05-19T00:29:08.507Z",
+    "expirationDate": "2026-06-18T00:13:52.972Z",
+    "isForIosSimulator": false,
+    "metrics": {
+      "buildWaitTime": 7100,
+      "buildQueueTime": 4439,
+      "buildDuration": 904015
+    }
+  },
+  {
+    "id": "8dfb5fd4-d822-48f6-ac6f-e8cce99b1069",
+    "status": "FINISHED",
+    "platform": "ANDROID",
+    "artifacts": {
+      "buildUrl": "https://expo.dev/artifacts/eas/iwTrNvAUCzgku2KTpNPiLV.aab",
+      "applicationArchiveUrl": "https://expo.dev/artifacts/eas/iwTrNvAUCzgku2KTpNPiLV.aab"
+    },
+    "fingerprint": {
+      "id": "019e3c25-6958-73ee-965a-29baa83a97c7",
+      "hash": "c6460cc8bd800ea47b1b55e16421505269905e37"
+    },
+    "initiatingActor": {
+      "id": "61807ba8-d6ae-45b3-b396-a540296c0a79",
+      "displayName": "boscojack02"
+    },
+    "logFiles": [
+      "https://storage.googleapis.com/eas-workflows-production/logs/f1e19392-b5b0-4646-8672-5f8e39654f4a/8dfb5fd4-d822-48f6-ac6f-e8cce99b1069/2026-05-18T17%3A59%3A49Z-ef409273-6185-475f-b0ef-b0edfa77d992.txt?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=www-production%40exponentjs.iam.gserviceaccount.com%2F20260629%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20260629T170207Z&X-Goog-Expires=900&X-Goog-SignedHeaders=host&X-Goog-Signature=1f3ac00348b5f310319d594617c5675999407f86b97ed51423f4cf96f88c37fe2babe976dd27297dbebc3e43f8a3709a83cbe38b8da80a7bef94cebdcf471523dcfb10ee35ac9e43065b80b025e2d1a179bef050dec906e4bdff011e72d9227fcfb1cd63cb2cb1caeed9ff7bbb90d622e58bc0c4c0bc781ca77ff2a3974c28889c9fb6b1f8c6f5d49f02b82b6d88eb7bc1810f47b93a74f76d784e4400237bed738f98e1744757eb788e5de46267bdc0538b475ca42a70deb1c31861ab06d9083b72ad35a0ba2edcbc4431f1b2583f21df51503a2196cb16b51b6e04c20249fb04fc152e5cd80342b894c47017998bc440701288e11083c6babd6709315b25c5"
+    ],
+    "project": {
+      "id": "f1e19392-b5b0-4646-8672-5f8e39654f4a",
+      "name": "fantacoppa",
+      "slug": "fantacoppa",
+      "ownerAccount": {
+        "id": "60e5c5d0-5e42-4398-99c3-bec6544ed3c6",
+        "name": "boscojack02"
+      }
+    },
+    "channel": "production",
+    "distribution": "STORE",
+    "buildProfile": "production",
+    "sdkVersion": "54.0.0",
+    "appVersion": "1.0.10",
+    "appBuildVersion": "13",
+    "runtimeVersion": "1.0.10",
+    "priority": "NORMAL",
+    "createdAt": "2026-05-18T17:32:25.209Z",
+    "updatedAt": "2026-05-18T22:00:27.009Z",
+    "completedAt": "2026-05-18T18:16:00.837Z",
+    "expirationDate": "2026-06-17T17:32:25.285Z",
+    "isForIosSimulator": false,
+    "metrics": {
+      "buildWaitTime": 6962,
+      "buildQueueTime": 1641740,
+      "buildDuration": 966926
+    }
+  },
+  {
+    "id": "dd2636b5-470d-404e-a0bd-d386f9ed7d9e",
+    "status": "FINISHED",
+    "platform": "ANDROID",
+    "artifacts": {
+      "buildUrl": "https://expo.dev/artifacts/eas/tiTDgdJQhCJH5mcvHJfSMU.aab",
+      "applicationArchiveUrl": "https://expo.dev/artifacts/eas/tiTDgdJQhCJH5mcvHJfSMU.aab"
+    },
+    "fingerprint": {
+      "id": "019e3855-a4bb-746f-8560-6b4027a2aebc",
+      "hash": "20bf6aa4e0794355bfc1f658d53219fc202635fe"
+    },
+    "initiatingActor": {
+      "id": "61807ba8-d6ae-45b3-b396-a540296c0a79",
+      "displayName": "boscojack02"
+    },
+    "logFiles": [
+      "https://storage.googleapis.com/eas-workflows-production/logs/f1e19392-b5b0-4646-8672-5f8e39654f4a/dd2636b5-470d-404e-a0bd-d386f9ed7d9e/2026-05-17T23%3A46%3A38Z-7e9df1ab-a3f9-494f-85be-cdd8bb1bd203.txt?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=www-production%40exponentjs.iam.gserviceaccount.com%2F20260629%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20260629T170207Z&X-Goog-Expires=900&X-Goog-SignedHeaders=host&X-Goog-Signature=a0e9aec0f9d4fd50b48599eaf71fa9dffd42941801fbbd85d78bff874a324b075458e4fb952e49668f764886055d40a3e10483db19dc901ddc73b973d197593ed597686ab2cebb823f8be5973578aa9b2fe00bf30550453fc52992a3e99e77ca8471ac27b55b325b3f6c5395ca52211e4da297159eccd23b22afdbdac10e21b471444a20583f24cc69b9041adfc0713f957a652c333fe7a1701b778092723bf724770679929cb021536f9f6df0a6111af6aea1819024a43b9a90e21957c74a987836ee8b38e124d541ae0765b8ffe8a928d071403815bd98f4604427b8a06488b130ecfca4ae0478a6d4cc5043a01994fecf7f3d5f8dd20516c66d1812e431b0"
+    ],
+    "project": {
+      "id": "f1e19392-b5b0-4646-8672-5f8e39654f4a",
+      "name": "fantacoppa",
+      "slug": "fantacoppa",
+      "ownerAccount": {
+        "id": "60e5c5d0-5e42-4398-99c3-bec6544ed3c6",
+        "name": "boscojack02"
+      }
+    },
+    "channel": "production",
+    "distribution": "STORE",
+    "buildProfile": "production",
+    "sdkVersion": "54.0.0",
+    "appVersion": "1.0.10",
+    "appBuildVersion": "12",
+    "runtimeVersion": "1.0.10",
+    "priority": "NORMAL",
+    "createdAt": "2026-05-17T23:46:37.341Z",
+    "updatedAt": "2026-05-18T04:00:09.543Z",
+    "completedAt": "2026-05-18T00:02:10.782Z",
+    "expirationDate": "2026-06-16T23:46:37.365Z",
+    "isForIosSimulator": false,
+    "metrics": {
+      "buildWaitTime": 716,
+      "buildQueueTime": 4531,
+      "buildDuration": 928194
+    }
+  },
+  {
+    "id": "4a91ce9f-541f-47bf-a7ff-95f09cd2c9df",
+    "status": "FINISHED",
+    "platform": "ANDROID",
+    "artifacts": {
+      "buildUrl": "https://expo.dev/artifacts/eas/ad5gTGnoX3icRqfDnzmmc2.aab",
+      "applicationArchiveUrl": "https://expo.dev/artifacts/eas/ad5gTGnoX3icRqfDnzmmc2.aab"
+    },
+    "fingerprint": {
+      "id": "019e268f-7945-755c-a9e1-3d18c971ec0f",
+      "hash": "201f0b0ce08781eca1fdada6be4902ea1734cc9a"
+    },
+    "initiatingActor": {
+      "id": "61807ba8-d6ae-45b3-b396-a540296c0a79",
+      "displayName": "boscojack02"
+    },
+    "logFiles": [
+      "https://storage.googleapis.com/eas-workflows-production/logs/f1e19392-b5b0-4646-8672-5f8e39654f4a/4a91ce9f-541f-47bf-a7ff-95f09cd2c9df/2026-05-14T16%3A07%3A03Z-f09ff5ed-fe2f-45ba-afef-c631a6d2c73e.txt?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=www-production%40exponentjs.iam.gserviceaccount.com%2F20260629%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20260629T170207Z&X-Goog-Expires=900&X-Goog-SignedHeaders=host&X-Goog-Signature=a5fc9f8fc9dee16d4c5d82a166b4db540105e98f180427bc244e159908950517f429d0422c737af6dc98fa0e81fde9257e739c8a70eca2f0c029d4dba86c15a5b2d8da80e1c47a000e3c60f32b73ed186b5f4f5c436942e08c2a4b0e7f96f7ce8e42af6ea1d85f1893ecd20d6eafa6e09b4f59e4f45f0694f844743764beaed3c22bf0fa3e1199b69a6ae13f098d906d3888ae9838184df2ab32307819b2336ca11ec23d20024748192f02d3415711d918c8699ad0d3cf789968423518ab43a4f12b2e0285c8ebd37373471b6113be28d4923d860088e9eba723d742b799e7142474022e79fa0eb8b8f448328150f6d4d9a962885c0ca80b8a00c104b7e47a80"
+    ],
+    "project": {
+      "id": "f1e19392-b5b0-4646-8672-5f8e39654f4a",
+      "name": "fantacoppa",
+      "slug": "fantacoppa",
+      "ownerAccount": {
+        "id": "60e5c5d0-5e42-4398-99c3-bec6544ed3c6",
+        "name": "boscojack02"
+      }
+    },
+    "channel": "production",
+    "distribution": "STORE",
+    "buildProfile": "production",
+    "sdkVersion": "54.0.0",
+    "appVersion": "1.0.9",
+    "appBuildVersion": "11",
+    "runtimeVersion": "1.0.9",
+    "priority": "NORMAL",
+    "createdAt": "2026-05-14T12:56:37.394Z",
+    "updatedAt": "2026-05-14T20:00:37.843Z",
+    "completedAt": "2026-05-14T16:22:34.275Z",
+    "expirationDate": "2026-06-13T12:56:37.438Z",
+    "isForIosSimulator": false,
+    "metrics": {
+      "buildWaitTime": 2722,
+      "buildQueueTime": 11435403,
+      "buildDuration": 918756
+    }
+  }
+]

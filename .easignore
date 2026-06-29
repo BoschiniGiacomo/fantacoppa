@@ -2,6 +2,9 @@
 FantaCoppaSito/
 backend/
 
+# Loghi squadre utente: solo Supabase, non nel bundle APK
+uploads/team_logos/
+
 # File di build e sviluppo
 *.bat
 *.md
