@@ -19,6 +19,7 @@ import { matchesService } from '../services/api';
 import { TeamLogoImage } from '../components/StableCachedImage';
 import { EMPTY_OFFICIAL_KNOCKOUT, hasOfficialKnockoutBracket } from '../utils/knockoutBracket';
 import OfficialKnockoutBracket from '../components/OfficialKnockoutBracket';
+import OfficialTeamTrophyBoard from '../components/OfficialTeamTrophyBoard';
 import { parseAppDate } from '../utils/dateTime';
 
 function TeamLogo({ logoUrl, logoPath }) {
@@ -335,6 +336,9 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
     presences: false,
   });
   const [statsPickerOpen, setStatsPickerOpen] = useState(false);
+  const [trophiesLoading, setTrophiesLoading] = useState(false);
+  const [teamChampionships, setTeamChampionships] = useState([]);
+  const [teamWineTrophies, setTeamWineTrophies] = useState([]);
   const [displayedFavoriteCount, setDisplayedFavoriteCount] = useState(0);
   const favoriteAnim = React.useRef(new Animated.Value(0)).current;
   const favoriteAnimListenerRef = React.useRef(null);
@@ -494,6 +498,36 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
     setStatsPickerOpen(false);
     void loadTeamSeasonStats();
   }, [activeTab, loadTeamSeasonStats]);
+
+  const loadTeamTrophies = useCallback(async () => {
+    if (!teamId || !competitionId) return;
+    try {
+      setTrophiesLoading(true);
+      const res = await matchesService.getOfficialTeamTrophies(teamId, competitionId);
+      setTeamChampionships(Array.isArray(res?.data?.championships) ? res.data.championships : []);
+      setTeamWineTrophies(Array.isArray(res?.data?.wine_trophies) ? res.data.wine_trophies : []);
+    } catch (err) {
+      console.error('Error loading team trophies:', err);
+      setTeamChampionships([]);
+      setTeamWineTrophies([]);
+    } finally {
+      setTrophiesLoading(false);
+    }
+  }, [teamId, competitionId]);
+
+  useEffect(() => {
+    if (activeTab !== 'trophies') return;
+    void loadTeamTrophies();
+  }, [activeTab, loadTeamTrophies]);
+
+  useEffect(() => {
+    void loadTeamTrophies();
+  }, [loadTeamTrophies]);
+
+  const trophyCount = useMemo(
+    () => teamChampionships.length + teamWineTrophies.length,
+    [teamChampionships.length, teamWineTrophies.length]
+  );
 
   useEffect(() => {
     setStatsLeaderboardExpanded({ scorers: false, assistmen: false, presences: false });
@@ -822,6 +856,7 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabsScroll} contentContainerStyle={styles.tabsScrollContent}>
         <TouchableOpacity style={[styles.tabBtn, activeTab === 'matches' && styles.tabBtnActive]} onPress={() => setActiveTab('matches')}><Text style={[styles.tabText, activeTab === 'matches' && styles.tabTextActive]}>Partite</Text></TouchableOpacity>
         <TouchableOpacity style={[styles.tabBtn, activeTab === 'season' && styles.tabBtnActive]} onPress={() => setActiveTab('season')}><Text style={[styles.tabText, activeTab === 'season' && styles.tabTextActive]}>Stagione</Text></TouchableOpacity>
+        <TouchableOpacity style={[styles.tabBtn, activeTab === 'trophies' && styles.tabBtnActive]} onPress={() => setActiveTab('trophies')}><Text style={[styles.tabText, activeTab === 'trophies' && styles.tabTextActive]}>Trofei{trophyCount > 0 ? ` (${trophyCount})` : ''}</Text></TouchableOpacity>
         <TouchableOpacity style={[styles.tabBtn, activeTab === 'stats' && styles.tabBtnActive]} onPress={() => setActiveTab('stats')}><Text style={[styles.tabText, activeTab === 'stats' && styles.tabTextActive]}>Statistiche</Text></TouchableOpacity>
         <TouchableOpacity style={[styles.tabBtn, activeTab === 'team' && styles.tabBtnActive]} onPress={() => setActiveTab('team')}><Text style={[styles.tabText, activeTab === 'team' && styles.tabTextActive]}>Squadra</Text></TouchableOpacity>
       </ScrollView>
@@ -1062,6 +1097,24 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
               </View>
             ) : null}
           </ScrollView>
+        ) : activeTab === 'trophies' ? (
+          <View style={[styles.card, styles.trophiesCard]}>
+            {trophiesLoading ? (
+              <View style={styles.matchesLoadingBox}>
+                <ActivityIndicator color="#c9a227" />
+              </View>
+            ) : (
+              <ScrollView
+                contentContainerStyle={styles.trophiesScrollContent}
+                showsVerticalScrollIndicator={false}
+              >
+                <OfficialTeamTrophyBoard
+                  championships={teamChampionships}
+                  wineTrophies={teamWineTrophies}
+                />
+              </ScrollView>
+            )}
+          </View>
         ) : activeTab === 'stats' ? (
           <View style={[styles.card, styles.teamCard]}>
             <View ref={statsPickerAnchorRef} style={styles.seasonPickerWrap} collapsable={false}>
@@ -1249,10 +1302,7 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
           </View>
         ) : (
           <View style={styles.card}>
-            <Text style={styles.placeholderTitle}>
-              {activeTab === 'stats' ? 'Statistiche' : 'Squadra'}
-            </Text>
-            <Text style={styles.placeholderText}>Contenuto in preparazione.</Text>
+            <Text style={styles.placeholderText}>Contenuto non disponibile.</Text>
           </View>
         )}
       </View>
@@ -1355,6 +1405,16 @@ const styles = StyleSheet.create({
   teamCard: {
     flex: 1,
     minHeight: 0,
+  },
+  trophiesCard: {
+    flex: 1,
+    minHeight: 0,
+    backgroundColor: 'transparent',
+    borderWidth: 0,
+    padding: 0,
+  },
+  trophiesScrollContent: {
+    paddingBottom: 12,
   },
   seasonCard: {
     flex: 1,

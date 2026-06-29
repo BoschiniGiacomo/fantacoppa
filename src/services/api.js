@@ -566,6 +566,10 @@ export const matchesService = {
           : (referenceYear != null ? { reference_year: referenceYear } : {})),
       },
     }),
+  getOfficialTeamTrophies: (teamId, competitionId) =>
+    api.get(`matches/teams/${teamId}/trophies`, {
+      params: { competition_id: competitionId },
+    }),
   getOfficialGroupDetail: (groupId) => api.get(`matches/groups/${groupId}/detail`),
   getOfficialGroupMatchYears: (groupId) => api.get(`matches/groups/${groupId}/matches/years`),
   getOfficialGroupMatches: (groupId) => api.get(`matches/groups/${groupId}/matches`),

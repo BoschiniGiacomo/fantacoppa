@@ -2881,6 +2881,47 @@ async function buildOfficialGroupHallOfFame(competitionId) {
   return { winners_by_year: winnersByYear, ranking };
 }
 
+async function buildOfficialTeamTrophies(competitionId, teamNameNorm) {
+  const norm = String(teamNameNorm || '').trim();
+  if (!norm) return { championships: [], wine_trophies: [] };
+
+  const leagues = await listOfficialGroupSeasonLeagues(competitionId);
+  const championships = [];
+  const wineTrophies = [];
+  const leagueIds = (leagues || [])
+    .map((r) => Number(r.league_id))
+    .filter((id) => Number.isFinite(id) && id > 0);
+  const finalMatchesByLeagueStage = await fetchHallFinalMatchesByLeagueStage(competitionId, leagueIds);
+
+  for (const row of leagues || []) {
+    const leagueId = Number(row.league_id);
+    const year = Number(row.reference_year);
+    if (!Number.isFinite(leagueId) || leagueId <= 0 || !Number.isFinite(year)) continue;
+
+    const finalMatch = finalMatchesByLeagueStage.get(`${leagueId}:${HALL_CAMPIONATO_FINAL_STAGE_ID}`) || null;
+    const winner = determineKnockoutMatchWinner(finalMatch);
+    if (winner?.team_name && normalizeTeamNameForFavorite(winner.team_name) === norm) {
+      championships.push({
+        year,
+        team_id: winner.team_id != null ? Number(winner.team_id) : null,
+      });
+    }
+
+    const wineMatch = finalMatchesByLeagueStage.get(`${leagueId}:${HALL_WINE_TROPHY_STAGE_ID}`) || null;
+    const wineWinner = determineKnockoutMatchWinner(wineMatch);
+    if (wineWinner?.team_name && normalizeTeamNameForFavorite(wineWinner.team_name) === norm) {
+      wineTrophies.push({
+        year,
+        team_id: wineWinner.team_id != null ? Number(wineWinner.team_id) : null,
+      });
+    }
+  }
+
+  championships.sort((a, b) => Number(b.year) - Number(a.year));
+  wineTrophies.sort((a, b) => Number(b.year) - Number(a.year));
+  return { championships, wine_trophies: wineTrophies };
+}
+
 async function mapInPool(items, poolSize, fn) {
   const list = Array.isArray(items) ? items : [];
   const size = Math.max(1, Number(poolSize) || 1);
@@ -3650,6 +3691,33 @@ router.get('/matches/groups/:groupId/season-stats', authenticateToken, async (re
   } catch (err) {
     if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
     return res.status(500).json({ message: 'Errore caricamento statistiche gruppo', error: err.message });
+  }
+});
+
+// GET /matches/teams/:teamId/trophies?competition_id=xx — trofei vinti dalla squadra nel gruppo
+router.get('/matches/teams/:teamId/trophies', authenticateToken, async (req, res) => {
+  try {
+    const teamId = Number(req.params.teamId);
+    const competitionId = Number(req.query?.competition_id);
+    if (!teamId || teamId <= 0) return res.status(400).json({ message: 'teamId non valido' });
+    if (!competitionId || competitionId <= 0) return res.status(400).json({ message: 'competition_id non valido' });
+
+    const teamRows = await query(`SELECT id, name FROM teams WHERE id = ? LIMIT 1`, [teamId]);
+    const team = teamRows[0];
+    if (!team) return res.status(404).json({ message: 'Squadra non trovata' });
+
+    const teamName = String(team.name || '').trim();
+    if (!teamName) return res.status(404).json({ message: 'Squadra non valida' });
+
+    const trophies = await buildOfficialTeamTrophies(competitionId, normalizeTeamNameForFavorite(teamName));
+    return res.json({
+      team: { id: teamId, name: teamName, competition_id: competitionId },
+      championships: trophies.championships,
+      wine_trophies: trophies.wine_trophies,
+    });
+  } catch (err) {
+    if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
+    return res.status(500).json({ message: 'Errore caricamento trofei', error: err.message });
   }
 });
 
