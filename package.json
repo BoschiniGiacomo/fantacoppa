@@ -7,6 +7,8 @@
     "generate:uploads-manifest": "node scripts/generateBundledUploadsManifest.js",
     "dedupe:uploads": "node scripts/dedupeUploadsMedia.js",
     "dedupe:uploads:db": "node scripts/dedupeUploadsMedia.js --db",
+    "sync:uploads:supabase": "node scripts/syncUploadsToSupabase.js",
+    "prepare:media-release": "node scripts/dedupeUploadsMedia.js --db && node scripts/syncUploadsToSupabase.js",
     "start": "expo start",
     "start:clean": "expo start -c",
     "start:tunnel": "expo start --tunnel",

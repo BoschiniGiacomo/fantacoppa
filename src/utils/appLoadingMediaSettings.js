@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import api, { publicAssetUrl, superuserService } from '../services/api';
 import { getBundledAppLoading } from './bundledUploads';
+import { resolveCanonicalUploadPath } from './normalizeUploadPath';
 import { getCachedLocalUriForPath, resolveMediaLocalFirst } from './stableMediaDiskCache';
 import { logMediaCache } from './mediaCacheDebug';
 
@@ -179,7 +180,8 @@ async function resolveLoadingUri(path, type) {
 export async function getAppLoadingMediaSettings() {
   try {
     const res = await api.get('/public/app-loading');
-    const path = res.data?.path;
+    const rawPath = res.data?.path;
+    const path = rawPath ? resolveCanonicalUploadPath(rawPath) || rawPath : null;
     const type = res.data?.type;
     if (path) {
       await clearLegacyDeviceOnlyKeys();

@@ -1,5 +1,6 @@
 import { Image } from 'react-native';
 import { BUNDLED_UPLOADS, BUNDLED_SLOT_DEFAULTS } from '../generated/bundledUploadsManifest';
+import { resolveCanonicalUploadPath } from './normalizeUploadPath';
 import { logMediaCache } from './mediaCacheDebug';
 
 const uriCache = new Map();
@@ -7,7 +8,7 @@ const uriCache = new Map();
 /** URI risolvibile da React Native (file:// in dev, asset:// in release) per un path Supabase in bundle. */
 export function getBundledAssetUri(storagePath) {
   if (!storagePath) return null;
-  const key = String(storagePath).trim();
+  const key = resolveCanonicalUploadPath(storagePath) || String(storagePath).trim();
   if (uriCache.has(key)) return uriCache.get(key);
 
   const mod = BUNDLED_UPLOADS[key];
@@ -24,8 +25,9 @@ export function getBundledAssetUri(storagePath) {
 }
 
 export function isBundledUploadPath(storagePath) {
-  if (!storagePath) return false;
-  return Object.prototype.hasOwnProperty.call(BUNDLED_UPLOADS, String(storagePath).trim());
+  const key = resolveCanonicalUploadPath(storagePath) || String(storagePath || '').trim();
+  if (!key) return false;
+  return Object.prototype.hasOwnProperty.call(BUNDLED_UPLOADS, key);
 }
 
 /** Default login / loading dal bundle (zero rete). */

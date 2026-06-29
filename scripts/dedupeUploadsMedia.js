@@ -105,7 +105,7 @@ async function dedupeTeamLogosByGroupName() {
      WHERE l.official_group_id IS NOT NULL
        AND l.official_group_id > 0
        AND COALESCE(l.is_official, 0) = 1
-       AND COALESCE(NULLIF(TRIM(COALESCE(NULLIF(to_jsonb(t)->>'logo_path',''), NULLIF(t.logo_path,''))), '') IS NOT NULL`
+       AND COALESCE(NULLIF(TRIM(COALESCE(NULLIF(to_jsonb(t)->>'logo_path',''), NULLIF(t.logo_path,''))), ''), '') != ''`
   );
 
   const buckets = new Map();

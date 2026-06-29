@@ -1,11 +1,13 @@
 import api, { publicAssetUrl, superuserService } from '../services/api';
+import { resolveCanonicalUploadPath } from './normalizeUploadPath';
 import { resolveMediaLocalFirst } from './stableMediaDiskCache';
 import { logMediaCache } from './mediaCacheDebug';
 
 export async function getLoginLogoSettings() {
   try {
     const res = await api.get('/public/login-logo');
-    const path = res.data?.path;
+    const rawPath = res.data?.path;
+    const path = rawPath ? resolveCanonicalUploadPath(rawPath) || rawPath : null;
     if (path) {
       logMediaCache('logo_api_ok', { path, layer: 'api_db' });
       const uri = (await resolveMediaLocalFirst(path, { asset: 'login_logo' })) || publicAssetUrl(path);

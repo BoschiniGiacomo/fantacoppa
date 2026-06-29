@@ -1,11 +1,13 @@
 import api, { publicAssetUrl, superuserService } from '../services/api';
+import { resolveCanonicalUploadPath } from './normalizeUploadPath';
 import { resolveMediaLocalFirst } from './stableMediaDiskCache';
 import { logMediaCache } from './mediaCacheDebug';
 
 export async function getLoginBackgroundSettings() {
   try {
     const res = await api.get('/public/login-background');
-    const path = res.data?.path;
+    const rawPath = res.data?.path;
+    const path = rawPath ? resolveCanonicalUploadPath(rawPath) || rawPath : null;
     if (path) {
       logMediaCache('login_bg_api_ok', { path, layer: 'api_db', asset: 'login_background' });
       const uri =

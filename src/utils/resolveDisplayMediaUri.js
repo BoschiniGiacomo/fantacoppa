@@ -19,10 +19,12 @@ function pickRemoteFallback({ logoUrl, logoPath, photoPath, teamLogo }) {
   if (logoUrl && /^https?:\/\//i.test(String(logoUrl))) return String(logoUrl).trim();
   const path = logoPath || photoPath || teamLogo;
   if (path && !String(path).startsWith('default_')) {
-    return publicAssetUrl(path) || null;
+    const canonical = resolveCanonicalUploadPath(path);
+    return publicAssetUrl(canonical || path) || null;
   }
   if (logoUrl && !String(logoUrl).startsWith('default_')) {
-    return publicAssetUrl(logoUrl) || null;
+    const canonical = resolveCanonicalUploadPath(logoUrl);
+    return publicAssetUrl(canonical || logoUrl) || null;
   }
   return null;
 }
