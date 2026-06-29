@@ -524,11 +524,6 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
     void loadTeamTrophies();
   }, [loadTeamTrophies]);
 
-  const trophyCount = useMemo(
-    () => teamChampionships.length + teamWineTrophies.length,
-    [teamChampionships.length, teamWineTrophies.length]
-  );
-
   useEffect(() => {
     setStatsLeaderboardExpanded({ scorers: false, assistmen: false, presences: false });
   }, [selectedStatsYear]);
@@ -856,9 +851,9 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabsScroll} contentContainerStyle={styles.tabsScrollContent}>
         <TouchableOpacity style={[styles.tabBtn, activeTab === 'matches' && styles.tabBtnActive]} onPress={() => setActiveTab('matches')}><Text style={[styles.tabText, activeTab === 'matches' && styles.tabTextActive]}>Partite</Text></TouchableOpacity>
         <TouchableOpacity style={[styles.tabBtn, activeTab === 'season' && styles.tabBtnActive]} onPress={() => setActiveTab('season')}><Text style={[styles.tabText, activeTab === 'season' && styles.tabTextActive]}>Stagione</Text></TouchableOpacity>
-        <TouchableOpacity style={[styles.tabBtn, activeTab === 'trophies' && styles.tabBtnActive]} onPress={() => setActiveTab('trophies')}><Text style={[styles.tabText, activeTab === 'trophies' && styles.tabTextActive]}>Trofei{trophyCount > 0 ? ` (${trophyCount})` : ''}</Text></TouchableOpacity>
         <TouchableOpacity style={[styles.tabBtn, activeTab === 'stats' && styles.tabBtnActive]} onPress={() => setActiveTab('stats')}><Text style={[styles.tabText, activeTab === 'stats' && styles.tabTextActive]}>Statistiche</Text></TouchableOpacity>
         <TouchableOpacity style={[styles.tabBtn, activeTab === 'team' && styles.tabBtnActive]} onPress={() => setActiveTab('team')}><Text style={[styles.tabText, activeTab === 'team' && styles.tabTextActive]}>Squadra</Text></TouchableOpacity>
+        <TouchableOpacity style={[styles.tabBtn, activeTab === 'trophies' && styles.tabBtnActive]} onPress={() => setActiveTab('trophies')}><Text style={[styles.tabText, activeTab === 'trophies' && styles.tabTextActive]}>Trofei</Text></TouchableOpacity>
       </ScrollView>
 
       <View style={styles.content}>

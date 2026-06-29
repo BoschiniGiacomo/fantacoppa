@@ -40,16 +40,34 @@ function ChampionshipTrophyVisual() {
 function WineTrophyVisual() {
   return (
     <View style={styles.wineVisual}>
-      <View style={styles.wineHalo} />
-      <MaterialCommunityIcons name="fruit-grapes" size={12} color="#e8c4d8" style={styles.wineGrapes} />
-      <View style={styles.wineGoblet}>
-        <View style={styles.wineLiquid} />
-        <View style={styles.wineGobletRim} />
+      <View style={styles.wineAura} />
+      <View style={styles.wineCupWrap}>
+        <View style={styles.wineHandleLeft} />
+        <View style={styles.wineHandleRight} />
+        <View style={styles.wineCupOuter}>
+          <View style={styles.wineCupRim} />
+          <View style={styles.wineCupInner}>
+            <View style={styles.wineLiquidBody}>
+              <View style={styles.wineLiquidSurface} />
+              <View style={styles.wineLiquidGlow} />
+            </View>
+            <View style={styles.wineGrapeMedallion}>
+              <View style={styles.wineGrapeHalo} />
+              <MaterialCommunityIcons name="fruit-grapes" size={17} color="#f0d4e4" />
+            </View>
+            <View style={styles.wineCupShineLeft} />
+            <View style={styles.wineCupShineRight} />
+          </View>
+        </View>
       </View>
-      <View style={styles.wineStem} />
-      <View style={styles.wineFoot}>
-        <View style={styles.wineFootTop} />
-        <View style={styles.wineFootBase} />
+      <View style={styles.wineStem}>
+        <View style={styles.wineStemRing} />
+      </View>
+      <View style={styles.winePlinth}>
+        <View style={styles.winePlinthCap} />
+        <View style={styles.winePlinthBody}>
+          <View style={styles.winePlinthInset} />
+        </View>
       </View>
     </View>
   );
@@ -268,8 +286,8 @@ const styles = StyleSheet.create({
     borderColor: '#3d3018',
   },
   slotPedestalWine: {
-    backgroundColor: '#180f12',
-    borderColor: '#3d2030',
+    backgroundColor: '#140c10',
+    borderColor: '#4a2840',
   },
   plaque: {
     paddingHorizontal: 2,
@@ -390,81 +408,197 @@ const styles = StyleSheet.create({
     borderTopWidth: 0,
   },
   wineVisual: {
-    width: 48,
-    height: 72,
+    width: 56,
+    height: 76,
     alignItems: 'center',
     justifyContent: 'flex-end',
   },
-  wineHalo: {
+  wineAura: {
     position: 'absolute',
-    top: 4,
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    backgroundColor: 'rgba(180, 60, 90, 0.18)',
+    top: 10,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(140, 40, 70, 0.22)',
+    shadowColor: '#c45c7a',
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 0 },
   },
-  wineGrapes: {
-    position: 'absolute',
-    top: 6,
-    zIndex: 3,
-    opacity: 0.9,
-  },
-  wineGoblet: {
-    width: 34,
-    height: 26,
-    borderTopLeftRadius: 6,
-    borderTopRightRadius: 6,
-    borderBottomLeftRadius: 16,
-    borderBottomRightRadius: 16,
-    backgroundColor: '#4a1528',
-    borderWidth: 1.5,
-    borderColor: '#8b3050',
-    overflow: 'hidden',
-    zIndex: 2,
+  wineCupWrap: {
+    width: 50,
+    height: 38,
     alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 2,
   },
-  wineLiquid: {
+  wineHandleLeft: {
     position: 'absolute',
-    bottom: 0,
     left: 0,
-    right: 0,
-    height: 16,
-    backgroundColor: '#6b1d3a',
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255,180,200,0.2)',
+    top: 8,
+    width: 10,
+    height: 22,
+    borderWidth: 2,
+    borderColor: '#9a4a62',
+    borderRightWidth: 0,
+    borderTopLeftRadius: 12,
+    borderBottomLeftRadius: 12,
+    opacity: 0.85,
   },
-  wineGobletRim: {
+  wineHandleRight: {
+    position: 'absolute',
+    right: 0,
+    top: 8,
+    width: 10,
+    height: 22,
+    borderWidth: 2,
+    borderColor: '#9a4a62',
+    borderLeftWidth: 0,
+    borderTopRightRadius: 12,
+    borderBottomRightRadius: 12,
+    opacity: 0.85,
+  },
+  wineCupOuter: {
+    width: 36,
+    height: 34,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: '#b86a84',
+    backgroundColor: '#5a2038',
+    overflow: 'hidden',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.35,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
+  },
+  wineCupRim: {
     position: 'absolute',
     top: 0,
-    left: 4,
-    right: 4,
-    height: 3,
-    backgroundColor: 'rgba(255,255,255,0.12)',
-    borderRadius: 2,
+    left: 0,
+    right: 0,
+    height: 5,
+    backgroundColor: 'rgba(255,220,230,0.18)',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.1)',
   },
-  wineStem: {
+  wineCupInner: {
+    flex: 1,
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingTop: 4,
+    paddingBottom: 3,
+  },
+  wineLiquidBody: {
+    ...StyleSheet.absoluteFillObject,
+    top: 14,
+    backgroundColor: '#4a1028',
+  },
+  wineLiquidSurface: {
+    position: 'absolute',
+    top: 0,
+    left: -4,
+    right: -4,
+    height: 7,
+    borderTopLeftRadius: 12,
+    borderTopRightRadius: 12,
+    backgroundColor: '#7a1f42',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,180,200,0.35)',
+  },
+  wineLiquidGlow: {
+    position: 'absolute',
+    bottom: 4,
+    left: 6,
+    width: 14,
+    height: 8,
+    borderRadius: 7,
+    backgroundColor: 'rgba(255,120,160,0.12)',
+  },
+  wineGrapeMedallion: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(90, 30, 50, 0.75)',
+    borderWidth: 1,
+    borderColor: 'rgba(230, 170, 190, 0.35)',
+    zIndex: 4,
+  },
+  wineGrapeHalo: {
+    position: 'absolute',
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: 'rgba(255, 200, 220, 0.1)',
+  },
+  wineCupShineLeft: {
+    position: 'absolute',
+    top: 8,
+    left: 5,
     width: 4,
     height: 14,
-    backgroundColor: '#6b3050',
-    marginTop: -1,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    zIndex: 5,
   },
-  wineFoot: {
+  wineCupShineRight: {
+    position: 'absolute',
+    top: 12,
+    right: 6,
+    width: 2,
+    height: 8,
+    borderRadius: 1,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    zIndex: 5,
+  },
+  wineStem: {
+    width: 5,
+    height: 12,
+    marginTop: 1,
+    backgroundColor: '#8a4560',
+    borderRadius: 2,
+    alignItems: 'center',
+    zIndex: 1,
+  },
+  wineStemRing: {
+    position: 'absolute',
+    top: 3,
+    width: 9,
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: '#c47a94',
+  },
+  winePlinth: {
     alignItems: 'center',
     marginTop: 1,
   },
-  wineFootTop: {
-    width: 14,
+  winePlinthCap: {
+    width: 18,
     height: 3,
-    backgroundColor: '#5c2840',
-    borderRadius: 1,
+    borderTopLeftRadius: 2,
+    borderTopRightRadius: 2,
+    backgroundColor: '#9a5a72',
   },
-  wineFootBase: {
-    width: 28,
-    height: 7,
-    backgroundColor: '#3d1828',
+  winePlinthBody: {
+    width: 34,
+    height: 9,
     borderRadius: 3,
+    backgroundColor: '#2a1420',
     borderWidth: 1,
-    borderColor: '#5c2840',
+    borderColor: '#5c3048',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  winePlinthInset: {
+    width: 22,
+    height: 2,
+    borderRadius: 1,
+    backgroundColor: 'rgba(255,255,255,0.06)',
   },
   emptyCabinet: {
     alignItems: 'center',
