@@ -1,5 +1,5 @@
 import api, { publicAssetUrl, superuserService } from '../services/api';
-import { resolveStableMediaToLocal } from './stableMediaDiskCache';
+import { resolveMediaLocalFirst } from './stableMediaDiskCache';
 import { logMediaCache } from './mediaCacheDebug';
 
 export async function getLoginBackgroundSettings() {
@@ -9,7 +9,7 @@ export async function getLoginBackgroundSettings() {
     if (path) {
       logMediaCache('login_bg_api_ok', { path, layer: 'api_db', asset: 'login_background' });
       const uri =
-        (await resolveStableMediaToLocal(path, { asset: 'login_background' })) || publicAssetUrl(path);
+        (await resolveMediaLocalFirst(path, { asset: 'login_background' })) || publicAssetUrl(path);
       logMediaCache('login_bg_resolved', { path, uri, layer: 'api_db', asset: 'login_background' });
       return { uri, path };
     }
@@ -36,7 +36,7 @@ export async function saveLoginBackgroundFromPicker(asset) {
   const path = res.data?.path;
   if (!path) return null;
   const uri =
-    (await resolveStableMediaToLocal(path, { asset: 'login_background' })) || publicAssetUrl(path);
+    (await resolveMediaLocalFirst(path, { asset: 'login_background' })) || publicAssetUrl(path);
   return { uri, path };
 }
 

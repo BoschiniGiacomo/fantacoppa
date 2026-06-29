@@ -4,6 +4,7 @@ import {
   getCachedAppLoadingMedia,
   subscribeAppLoadingMedia,
 } from '../utils/appLoadingMediaSettings';
+import { getBundledAppLoading } from '../utils/bundledUploads';
 import { logMediaCache } from '../utils/mediaCacheDebug';
 
 const AppLoadingMediaContext = createContext({
@@ -21,6 +22,11 @@ export function AppLoadingMediaProvider({ children }) {
 
   useEffect(() => {
     let cancelled = false;
+
+    const bundled = getBundledAppLoading();
+    if (bundled?.uri) {
+      setState({ uri: bundled.uri, type: bundled.type });
+    }
 
     // Instant: read cached URI from AsyncStorage (~5ms vs ~1s API)
     getCachedAppLoadingMedia().then((cached) => {

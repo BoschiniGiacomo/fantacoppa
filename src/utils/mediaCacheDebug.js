@@ -21,13 +21,17 @@ const RENDER_REPORT_EVENTS = new Set([
 const recentRenderReports = new Map();
 const RENDER_DEDUPE_MS = 15000;
 
-/** local_disk | remote_network | none */
+/** local_disk | bundled | remote_network | none */
 export function mediaUriSource(uri) {
   if (!uri) return 'none';
   const s = String(uri);
   if (s.startsWith('file://') || s.startsWith('content://')) return 'local_disk';
-  if (/^https?:\/\//i.test(s)) return 'remote_network';
-  return 'unknown';
+  if (s.startsWith('asset://')) return 'bundled';
+  if (/^https?:\/\//i.test(s)) {
+    if (s.includes('/assets/') && (s.includes('uploads%2F') || s.includes('/uploads/'))) return 'bundled';
+    return 'remote_network';
+  }
+  return 'bundled';
 }
 
 function inferAsset(event, payload) {

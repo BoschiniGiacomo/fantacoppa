@@ -15,7 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { matchesService } from '../services/api';
-import { TeamLogoImage } from '../components/StableCachedImage';
+import { TeamLogoImage, OfficialGroupLogoImage } from '../components/StableCachedImage';
 import { EMPTY_OFFICIAL_KNOCKOUT, hasOfficialKnockoutBracket } from '../utils/knockoutBracket';
 import OfficialKnockoutBracket from '../components/OfficialKnockoutBracket';
 import { parseAppDate } from '../utils/dateTime';
@@ -30,7 +30,7 @@ const MATCHES_LIST_INITIAL_RENDER = 14;
 
 function GroupLogo({ logoUrl, logoPath }) {
   return (
-    <TeamLogoImage
+    <OfficialGroupLogoImage
       logoUrl={logoUrl}
       logoPath={logoPath}
       style={styles.logo}

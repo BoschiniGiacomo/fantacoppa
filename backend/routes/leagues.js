@@ -27,6 +27,16 @@ const {
 } = require('../utils/injuryPropagation');
 const { scoreResolvedLineup } = require('../utils/lineupScoring');
 const { normalizeVoteRating } = require('../utils/voteRating');
+const {
+  buildOfficialTeamLogoFilename,
+  buildPlayerClusterPhotoFilename,
+  buildPlayerSoloPhotoFilename,
+  normalizeTeamNameForStorage,
+} = require('../utils/mediaCanonical');
+const {
+  removeOfficialTeamLogoVariants,
+  removePlayerPhotoVariants,
+} = require('../utils/mediaStorageCleanup');
 
 const uploadsRoot = path.resolve(__dirname, '..', 'uploads');
 const userTeamLogosDir = path.join(uploadsRoot, 'team_logos');
@@ -1808,27 +1818,44 @@ router.post('/:id/teams/:teamId/logo', authenticateToken, officialLogoUpload.sin
         message: 'Supabase Storage non configurato: manca SUPABASE_SERVICE_ROLE_KEY nel backend .env',
       });
     }
+
+    const leagueRows = await query(
+      `SELECT official_group_id, COALESCE(is_official, 0) AS is_official FROM leagues WHERE id = ? LIMIT 1`,
+      [leagueId]
+    );
+    const groupId = Number(leagueRows[0]?.official_group_id || 0);
+    const teamRows = await query(`SELECT name FROM teams WHERE id = ? AND league_id = ? LIMIT 1`, [teamId, leagueId]);
+    const teamName = String(teamRows[0]?.name || '').trim();
+    if (!teamName) return res.status(404).json({ message: 'Squadra non trovata' });
+
     const ext = path.extname(String(req.file.originalname || '')).toLowerCase();
     const safeExt = ['.jpg', '.jpeg', '.png', '.webp'].includes(ext) ? ext : '.jpg';
     const ts = Math.floor(Date.now() / 1000);
-    // Naming legacy: official_team_<teamId>_<timestamp>.<ext>
-    const filename = `official_team_${teamId}_${ts}${safeExt}`;
+
+    let filename;
+    let siblingTeamIds = [teamId];
+    if (groupId > 0) {
+      filename = buildOfficialTeamLogoFilename(groupId, teamName, safeExt, ts);
+      const siblings = await query(
+        `SELECT t.id
+         FROM teams t
+         INNER JOIN leagues l ON l.id = t.league_id
+         WHERE l.official_group_id = ?
+           AND LOWER(TRIM(t.name)) = LOWER(TRIM(?))`,
+        [groupId, teamName]
+      );
+      siblingTeamIds = (siblings || []).map((r) => Number(r.id)).filter((id) => id > 0);
+    } else {
+      filename = `official_team_${teamId}_${ts}${safeExt}`;
+    }
     const storagePath = `official_team_logos/${filename}`;
 
-    // Pulisce i vecchi logo del team (anche formato nome fisso precedente) prima del nuovo upload.
     try {
-      const { data: existing, error: listErr } = await supabase.storage.from('uploads').list('official_team_logos', {
-        limit: 2000,
+      await removeOfficialTeamLogoVariants(supabase, {
+        groupId: groupId > 0 ? groupId : null,
+        teamName,
+        teamIds: siblingTeamIds,
       });
-      if (!listErr && Array.isArray(existing)) {
-        const toDelete = existing
-          .map((f) => String(f?.name || '').trim())
-          .filter((name) => name.startsWith(`official_team_${teamId}_`) || /^official_team_\d+\.(jpg|jpeg|png|webp)$/i.test(name) && name.startsWith(`official_team_${teamId}.`))
-          .map((name) => `official_team_logos/${name}`);
-        if (toDelete.length > 0) {
-          const { data: removed, error: removeErr } = await supabase.storage.from('uploads').remove(toDelete);
-        }
-      }
     } catch (_) {
       // best effort cleanup
     }
@@ -1844,16 +1871,30 @@ router.post('/:id/teams/:teamId/logo', authenticateToken, officialLogoUpload.sin
     }
     const logoPath = `uploads/${storagePath}`;
     try {
-      await query(
-        `UPDATE teams
-         SET logo_path = ?
-         WHERE id = ? AND league_id = ?`,
-        [logoPath, teamId, leagueId]
-      );
+      if (groupId > 0) {
+        await query(
+          `UPDATE teams t
+           SET logo_path = ?
+           FROM leagues l
+           WHERE t.league_id = l.id
+             AND l.official_group_id = ?
+             AND LOWER(TRIM(t.name)) = LOWER(TRIM(?))`,
+          [logoPath, groupId, teamName]
+        );
+      } else {
+        await query(
+          `UPDATE teams SET logo_path = ? WHERE id = ? AND league_id = ?`,
+          [logoPath, teamId, leagueId]
+        );
+      }
     } catch (_) {
       // Colonna logo_path non presente: fallback compat.
     }
-    res.json({ message: 'Logo squadra ufficiale aggiornato', logo_path: logoPath });
+    res.json({
+      message: 'Logo squadra ufficiale aggiornato',
+      logo_path: logoPath,
+      teams_updated: siblingTeamIds.length,
+    });
   } catch (error) {
     console.error('Upload official team logo error:', error);
     res.status(500).json({ message: 'Errore upload logo squadra ufficiale' });
@@ -1869,12 +1910,30 @@ router.delete('/:id/teams/:teamId/logo', authenticateToken, async (req, res) => 
       return res.status(400).json({ message: 'Parametri non validi' });
     }
     try {
-      await query(
-        `UPDATE teams
-         SET logo_path = NULL
-         WHERE id = ? AND league_id = ?`,
-        [teamId, leagueId]
+      const leagueRows = await query(
+        `SELECT official_group_id FROM leagues WHERE id = ? LIMIT 1`,
+        [leagueId]
       );
+      const groupId = Number(leagueRows[0]?.official_group_id || 0);
+      const teamRows = await query(`SELECT name FROM teams WHERE id = ? AND league_id = ? LIMIT 1`, [teamId, leagueId]);
+      const teamName = String(teamRows[0]?.name || '').trim();
+
+      if (groupId > 0 && teamName) {
+        await query(
+          `UPDATE teams t
+           SET logo_path = NULL
+           FROM leagues l
+           WHERE t.league_id = l.id
+             AND l.official_group_id = ?
+             AND LOWER(TRIM(t.name)) = LOWER(TRIM(?))`,
+          [groupId, teamName]
+        );
+      } else {
+        await query(
+          `UPDATE teams SET logo_path = NULL WHERE id = ? AND league_id = ?`,
+          [teamId, leagueId]
+        );
+      }
     } catch (_) {
       // Colonna non presente: ignore.
     }
@@ -1900,22 +1959,48 @@ router.post('/:id/teams/:teamId/players/:playerId/photo', authenticateToken, pla
     if (!supabase) {
       return res.status(500).json({ message: 'Supabase Storage non configurato' });
     }
+
+    let clusterId = 0;
+    let memberPlayerIds = [playerId];
+    try {
+      const clusterRows = await query(
+        `SELECT pc.id AS cluster_id
+         FROM player_cluster_members pcm
+         INNER JOIN player_clusters pc ON pc.id = pcm.cluster_id
+         WHERE pcm.player_id = ?
+           AND pc.status = 'approved'
+         LIMIT 1`,
+        [playerId]
+      );
+      clusterId = Number(clusterRows[0]?.cluster_id || 0);
+      if (clusterId > 0) {
+        const members = await query(
+          `SELECT player_id FROM player_cluster_members WHERE cluster_id = ?`,
+          [clusterId]
+        );
+        memberPlayerIds = (members || []).map((r) => Number(r.player_id)).filter((id) => id > 0);
+      }
+    } catch (_) {
+      clusterId = 0;
+      memberPlayerIds = [playerId];
+    }
+
     const ext = path.extname(String(req.file.originalname || '')).toLowerCase();
     const safeExt = ['.jpg', '.jpeg', '.png', '.webp'].includes(ext) ? ext : '.jpg';
     const ts = Math.floor(Date.now() / 1000);
     const rand = Math.random().toString(36).slice(2, 8);
-    const filename = `player_${playerId}_${ts}_${rand}${safeExt}`;
+    const filename =
+      clusterId > 0
+        ? buildPlayerClusterPhotoFilename(clusterId, safeExt, ts, rand)
+        : buildPlayerSoloPhotoFilename(playerId, safeExt, ts, rand);
     const storagePath = `player_photos/${filename}`;
 
     try {
-      const { data: existing } = await supabase.storage.from('uploads').list('player_photos', { limit: 2000 });
-      if (Array.isArray(existing)) {
-        const toDelete = existing
-          .map((f) => String(f?.name || '').trim())
-          .filter((name) => name.startsWith(`player_${playerId}_`))
-          .map((name) => `player_photos/${name}`);
-        if (toDelete.length > 0) await supabase.storage.from('uploads').remove(toDelete);
-      }
+      await removePlayerPhotoVariants(supabase, {
+        clusterId: clusterId > 0 ? clusterId : null,
+        playerId,
+        memberPlayerIds,
+      });
     } catch (_) {}
 
     const { error: storageError } = await supabase.storage
@@ -1929,8 +2014,21 @@ router.post('/:id/teams/:teamId/players/:playerId/photo', authenticateToken, pla
       return res.status(500).json({ message: 'Errore upload foto', error: storageError.message });
     }
     const photoPath = `uploads/${storagePath}`;
-    await query(`UPDATE players SET photo_path = ? WHERE id = ? AND team_id IN (SELECT id FROM teams WHERE league_id = ?)`, [photoPath, playerId, leagueId]);
-    res.json({ message: 'Foto giocatore aggiornata', photo_path: photoPath });
+    if (clusterId > 0 && memberPlayerIds.length > 0) {
+      const ph = memberPlayerIds.map(() => '?').join(', ');
+      await query(`UPDATE players SET photo_path = ? WHERE id IN (${ph})`, [photoPath, ...memberPlayerIds]);
+    } else {
+      await query(
+        `UPDATE players SET photo_path = ? WHERE id = ? AND team_id IN (SELECT id FROM teams WHERE league_id = ?)`,
+        [photoPath, playerId, leagueId]
+      );
+    }
+    res.json({
+      message: 'Foto giocatore aggiornata',
+      photo_path: photoPath,
+      cluster_id: clusterId > 0 ? clusterId : null,
+      players_updated: clusterId > 0 ? memberPlayerIds.length : 1,
+    });
   } catch (error) {
     console.error('Upload player photo error:', error);
     res.status(500).json({ message: 'Errore upload foto giocatore' });
@@ -1946,19 +2044,51 @@ router.delete('/:id/teams/:teamId/players/:playerId/photo', authenticateToken, a
       return res.status(400).json({ message: 'Parametri non validi' });
     }
     const supabase = getSupabaseStorageClient();
+
+    let clusterId = 0;
+    let memberPlayerIds = [playerId];
+    try {
+      const clusterRows = await query(
+        `SELECT pc.id AS cluster_id
+         FROM player_cluster_members pcm
+         INNER JOIN player_clusters pc ON pc.id = pcm.cluster_id
+         WHERE pcm.player_id = ?
+           AND pc.status = 'approved'
+         LIMIT 1`,
+        [playerId]
+      );
+      clusterId = Number(clusterRows[0]?.cluster_id || 0);
+      if (clusterId > 0) {
+        const members = await query(
+          `SELECT player_id FROM player_cluster_members WHERE cluster_id = ?`,
+          [clusterId]
+        );
+        memberPlayerIds = (members || []).map((r) => Number(r.player_id)).filter((id) => id > 0);
+      }
+    } catch (_) {
+      clusterId = 0;
+      memberPlayerIds = [playerId];
+    }
+
     if (supabase) {
       try {
-        const { data: existing } = await supabase.storage.from('uploads').list('player_photos', { limit: 2000 });
-        if (Array.isArray(existing)) {
-          const toDelete = existing
-            .map((f) => String(f?.name || '').trim())
-            .filter((name) => name.startsWith(`player_${playerId}_`))
-            .map((name) => `player_photos/${name}`);
-          if (toDelete.length > 0) await supabase.storage.from('uploads').remove(toDelete);
-        }
+        await removePlayerPhotoVariants(supabase, {
+          clusterId: clusterId > 0 ? clusterId : null,
+          playerId,
+          memberPlayerIds,
+        });
       } catch (_) {}
     }
-    await query(`UPDATE players SET photo_path = NULL WHERE id = ? AND team_id IN (SELECT id FROM teams WHERE league_id = ?)`, [playerId, leagueId]);
+
+    if (clusterId > 0 && memberPlayerIds.length > 0) {
+      const ph = memberPlayerIds.map(() => '?').join(', ');
+      await query(`UPDATE players SET photo_path = NULL WHERE id IN (${ph})`, memberPlayerIds);
+    } else {
+      await query(
+        `UPDATE players SET photo_path = NULL WHERE id = ? AND team_id IN (SELECT id FROM teams WHERE league_id = ?)`,
+        [playerId, leagueId]
+      );
+    }
     res.json({ message: 'Foto giocatore rimossa' });
   } catch (error) {
     console.error('Delete player photo error:', error);

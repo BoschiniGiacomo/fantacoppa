@@ -20,7 +20,8 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import { File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
-import { leagueService, publicAssetUrl } from '../services/api';
+import { leagueService } from '../services/api';
+import { resolveDisplayMediaUri } from '../utils/resolveDisplayMediaUri';
 import { TeamLogoImage } from '../components/StableCachedImage';
 
 /** Preset per colore maglia (formazioni partite). */
@@ -532,7 +533,12 @@ export default function TeamManagementScreen({ route, navigation }) {
     
     const playerWithTeamId = { ...player, teamId };
     setEditingPlayer(playerWithTeamId);
-    setPlayerPhotoUri(player.photo_path ? publicAssetUrl(player.photo_path) : null);
+    setPlayerPhotoUri(null);
+    if (player.photo_path) {
+      resolveDisplayMediaUri({ photoPath: player.photo_path, asset: 'player_photo' }).then(({ uri }) => {
+        setPlayerPhotoUri(uri);
+      });
+    }
     setPlayerPhotoNew(null);
     await loadPlayerOptions();
     setShowEditModal(true);

@@ -70,6 +70,11 @@ export function TeamLogoImage(props) {
   return <StableCachedImage asset="team_logo" {...props} />;
 }
 
+/** Logo gruppo ufficiale (campionato). */
+export function OfficialGroupLogoImage(props) {
+  return <StableCachedImage asset="official_group_logo" {...props} />;
+}
+
 /** Logo squadra fantasy (user_budget.team_logo) */
 export function FantasyTeamLogoImage(props) {
   return <StableCachedImage asset="fantasy_team_logo" {...props} />;

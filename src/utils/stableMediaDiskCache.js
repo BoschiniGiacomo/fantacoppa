@@ -1,7 +1,8 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { publicAssetUrl } from '../services/api';
-import { normalizeUploadPath } from './normalizeUploadPath';
+import { getBundledAssetUri } from './bundledUploads';
+import { normalizeUploadPath, resolveCanonicalUploadPath } from './normalizeUploadPath';
 import { logMediaCache } from './mediaCacheDebug';
 
 const INDEX_KEY = 'stable_media_disk_index_v1';
@@ -48,11 +49,36 @@ async function saveIndex(index) {
 }
 
 /**
- * Scarica su disco solo se il path Supabase è cambiato; altrimenti riusa il file locale.
- * Usato per video splash e logo login (media che cambiano raramente).
+ * Disco → bundle app → download Supabase (solo se path non in bundle e non in cache).
+ */
+export async function resolveMediaLocalFirst(pathOrUrl, meta = {}) {
+  const storagePath = resolveCanonicalUploadPath(pathOrUrl);
+  if (!storagePath) {
+    const remote = publicAssetUrl(pathOrUrl) || (pathOrUrl ? String(pathOrUrl).trim() : null);
+    logMediaCache('media_skip_no_path', { ...meta, uri: remote });
+    return remote || null;
+  }
+
+  const cached = await getCachedLocalUriForPath(storagePath, { ...meta, silent: true });
+  if (cached) {
+    logMediaCache('media_disk_hit', { ...meta, path: storagePath, uri: cached });
+    return cached;
+  }
+
+  const bundled = getBundledAssetUri(storagePath);
+  if (bundled) {
+    logMediaCache('media_bundle_hit', { ...meta, path: storagePath, uri: bundled, layer: 'bundle' });
+    return bundled;
+  }
+
+  return resolveStableMediaToLocal(pathOrUrl, meta);
+}
+
+/**
+ * Scarica su disco solo se il path Supabase non è già in cache locale.
  */
 export async function resolveStableMediaToLocal(pathOrUrl, meta = {}) {
-  const storagePath = normalizeUploadPath(pathOrUrl);
+  const storagePath = resolveCanonicalUploadPath(pathOrUrl);
   if (!storagePath) {
     const remote = publicAssetUrl(pathOrUrl) || (pathOrUrl ? String(pathOrUrl).trim() : null);
     logMediaCache('disk_skip_no_path', { ...meta, uri: remote });
@@ -69,6 +95,12 @@ export async function resolveStableMediaToLocal(pathOrUrl, meta = {}) {
     if (local) {
       logMediaCache('disk_hit', { ...meta, path: storagePath, uri: local });
       return local;
+    }
+
+    const bundled = getBundledAssetUri(storagePath);
+    if (bundled) {
+      logMediaCache('disk_skip_bundle', { ...meta, path: storagePath, uri: bundled, layer: 'bundle' });
+      return bundled;
     }
 
     const remoteUrl = publicAssetUrl(storagePath);
@@ -109,7 +141,7 @@ export async function resolveStableMediaToLocal(pathOrUrl, meta = {}) {
 
 /** URI file locale già presente (nessuna rete). */
 export async function getCachedLocalUriForPath(pathOrUrl, meta = {}) {
-  const storagePath = normalizeUploadPath(pathOrUrl);
+  const storagePath = resolveCanonicalUploadPath(pathOrUrl);
   if (!storagePath) return null;
   const index = await loadIndex();
   const localUri = index[storagePath]?.localUri;

@@ -10,7 +10,13 @@
       "backgroundColor": "#000000"
     },
     "assetBundlePatterns": [
-      "assets/**/*"
+      "assets/**/*",
+      "uploads/app_loading/**/*",
+      "uploads/login_background/**/*",
+      "uploads/login_logo/**/*",
+      "uploads/official_group_logos/**/*",
+      "uploads/official_team_logos/**/*",
+      "uploads/player_photos/**/*"
     ],
     "ios": {
       "supportsTablet": true,

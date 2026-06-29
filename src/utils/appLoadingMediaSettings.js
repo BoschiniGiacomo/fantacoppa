@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import api, { publicAssetUrl, superuserService } from '../services/api';
-import { getCachedLocalUriForPath, resolveStableMediaToLocal } from './stableMediaDiskCache';
+import { getBundledAppLoading } from './bundledUploads';
+import { getCachedLocalUriForPath, resolveMediaLocalFirst } from './stableMediaDiskCache';
 import { logMediaCache } from './mediaCacheDebug';
 
 const LEGACY_STORAGE_URI_KEY = 'app_loading_media_uri';
@@ -77,17 +78,18 @@ export async function getCachedAppLoadingMedia() {
             logLoading('cache_v3_video_disk', r, { layer: 'async_storage' });
             return r;
           }
-          const remote = publicAssetUrl(storagePath);
-          if (remote) {
-            const r = packResult({ uri: remote, type, path: storagePath });
-            logLoading('cache_v3_video_remote', r, { layer: 'async_storage', note: 'path ok, file disco assente' });
+        } else {
+          const local = await getCachedLocalUriForPath(storagePath, { asset: 'loading_image' });
+          if (local) {
+            const r = packResult({ uri: local, type, path: storagePath });
+            logLoading('cache_v3_image_disk', r, { layer: 'async_storage' });
             return r;
           }
         }
-        const uri = parsed.uri || publicAssetUrl(storagePath);
-        if (uri) {
-          const r = packResult({ uri, type, path: storagePath });
-          logLoading('cache_v3_image', r, { layer: 'async_storage' });
+        const bundled = await resolveLoadingUri(storagePath, type);
+        if (bundled?.uri) {
+          const r = packResult({ uri: bundled.uri, type, path: storagePath });
+          logLoading('cache_v3_bundle', r, { layer: 'bundle' });
           return r;
         }
       }
@@ -120,6 +122,12 @@ export async function getCachedAppLoadingMedia() {
     }
 
     logMediaCache('loading_cache_miss', {});
+    const bundled = getBundledAppLoading();
+    if (bundled?.uri) {
+      const r = packResult({ uri: bundled.uri, type: bundled.type, path: bundled.path });
+      logLoading('cache_bundle_default', r, { layer: 'bundle' });
+      return r;
+    }
     return null;
   } catch (e) {
     logMediaCache('loading_cache_error', { error: e?.message || String(e) });
@@ -148,22 +156,21 @@ async function persistMediaCache({ path, type, uri, localUri }) {
 async function resolveLoadingUri(path, type) {
   if (!path) return { uri: null, localUri: null };
   const mediaType = type === 'video' ? 'video' : 'image';
-  if (mediaType === 'video') {
-    const localUri = await resolveStableMediaToLocal(path, { asset: 'loading_video' });
-    const uri = localUri || publicAssetUrl(path);
-    logMediaCache('loading_resolve_video', {
-      path,
-      uri,
-      savedToDisk: !!(localUri && !String(localUri).startsWith('http')),
-    });
-    return {
-      uri,
-      localUri: localUri && !String(localUri).startsWith('http') ? localUri : null,
-    };
-  }
-  const uri = publicAssetUrl(path);
-  logMediaCache('loading_resolve_image', { path, uri, savedToDisk: false });
-  return { uri, localUri: null };
+  const asset = mediaType === 'video' ? 'loading_video' : 'loading_image';
+  const uri = await resolveMediaLocalFirst(path, { asset });
+  const isLocalDisk = uri && (String(uri).startsWith('file://') || String(uri).startsWith('content://'));
+  const isBundle = uri && !isLocalDisk && !/^https?:\/\//i.test(String(uri));
+  logMediaCache('loading_resolve', {
+    path,
+    uri,
+    type: mediaType,
+    savedToDisk: isLocalDisk,
+    fromBundle: isBundle || (!isLocalDisk && uri && !/^https?:\/\//i.test(String(uri))),
+  });
+  return {
+    uri,
+    localUri: isLocalDisk ? uri : null,
+  };
 }
 
 /**
@@ -185,6 +192,19 @@ export async function getAppLoadingMediaSettings() {
       return r;
     }
     await clearLegacyDeviceOnlyKeys();
+    const bundled = getBundledAppLoading();
+    if (bundled?.uri) {
+      await persistMediaCache({
+        path: bundled.path,
+        type: bundled.type,
+        uri: bundled.uri,
+        localUri: null,
+      });
+      const r = packResult({ uri: bundled.uri, type: bundled.type, path: bundled.path });
+      logLoading('api_empty_bundle', r, { layer: 'bundle' });
+      return r;
+    }
+    await clearLegacyDeviceOnlyKeys();
     await persistMediaCache({ path: null, type: null, uri: null, localUri: null });
     logMediaCache('loading_api_empty', { layer: 'api_db' });
     return { uri: null, type: null, name: null, path: null };
@@ -194,6 +214,12 @@ export async function getAppLoadingMediaSettings() {
     if (cached?.uri) {
       logLoading('api_fallback_cache', cached, { layer: 'async_storage' });
       return cached;
+    }
+    const bundled = getBundledAppLoading();
+    if (bundled?.uri) {
+      const r = packResult({ uri: bundled.uri, type: bundled.type, path: bundled.path });
+      logLoading('api_error_bundle', r, { layer: 'bundle' });
+      return r;
     }
     return { uri: null, type: null, name: null, path: null };
   }

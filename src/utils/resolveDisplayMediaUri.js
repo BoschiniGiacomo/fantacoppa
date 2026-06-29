@@ -1,7 +1,7 @@
 import { publicAssetUrl } from '../services/api';
-import { normalizeUploadPath } from './normalizeUploadPath';
+import { normalizeUploadPath, resolveCanonicalUploadPath } from './normalizeUploadPath';
 import { logMediaCache, mediaUriSource } from './mediaCacheDebug';
-import { resolveStableMediaToLocal } from './stableMediaDiskCache';
+import { resolveMediaLocalFirst } from './stableMediaDiskCache';
 
 function pickStorageInput({ logoUrl, logoPath, photoPath, teamLogo }) {
   const candidates = [logoPath, photoPath, teamLogo, logoUrl];
@@ -9,7 +9,7 @@ function pickStorageInput({ logoUrl, logoPath, photoPath, teamLogo }) {
     if (c == null) continue;
     const s = String(c).trim();
     if (!s || s.startsWith('default_')) continue;
-    const normalized = normalizeUploadPath(s);
+    const normalized = resolveCanonicalUploadPath(s) || normalizeUploadPath(s);
     if (normalized) return normalized;
   }
   return null;
@@ -47,8 +47,8 @@ export async function resolveDisplayMediaUri({
     return { uri: remote, path: null };
   }
 
-  const uri = await resolveStableMediaToLocal(storagePath, { asset });
-  const resolved = uri || publicAssetUrl(storagePath);
+  const uri = await resolveMediaLocalFirst(storagePath, { asset });
+  const resolved = uri || publicAssetUrl(resolveCanonicalUploadPath(storagePath) || storagePath);
   logMediaCache(`${asset}_display_resolve`, {
     path: storagePath,
     uri: resolved,

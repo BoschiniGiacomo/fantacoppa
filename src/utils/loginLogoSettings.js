@@ -1,5 +1,5 @@
 import api, { publicAssetUrl, superuserService } from '../services/api';
-import { resolveStableMediaToLocal } from './stableMediaDiskCache';
+import { resolveMediaLocalFirst } from './stableMediaDiskCache';
 import { logMediaCache } from './mediaCacheDebug';
 
 export async function getLoginLogoSettings() {
@@ -8,7 +8,7 @@ export async function getLoginLogoSettings() {
     const path = res.data?.path;
     if (path) {
       logMediaCache('logo_api_ok', { path, layer: 'api_db' });
-      const uri = (await resolveStableMediaToLocal(path, { asset: 'login_logo' })) || publicAssetUrl(path);
+      const uri = (await resolveMediaLocalFirst(path, { asset: 'login_logo' })) || publicAssetUrl(path);
       logMediaCache('logo_resolved', { path, uri, layer: 'api_db' });
       return { uri, path };
     }
@@ -30,7 +30,7 @@ export async function saveLoginLogoFromPicker(asset) {
   const res = await superuserService.uploadLoginLogo(formData);
   const path = res.data?.path;
   if (!path) return null;
-  const uri = (await resolveStableMediaToLocal(path)) || publicAssetUrl(path);
+  const uri = (await resolveMediaLocalFirst(path, { asset: 'login_logo' })) || publicAssetUrl(path);
   return { uri, path };
 }
 

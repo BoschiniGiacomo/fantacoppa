@@ -3,7 +3,10 @@
   "version": "1.0.10",
   "main": "node_modules/expo/AppEntry.js",
   "scripts": {
-    "prestart": "node fix-node-sea.js",
+    "prestart": "node fix-node-sea.js && node scripts/generateBundledUploadsManifest.js",
+    "generate:uploads-manifest": "node scripts/generateBundledUploadsManifest.js",
+    "dedupe:uploads": "node scripts/dedupeUploadsMedia.js",
+    "dedupe:uploads:db": "node scripts/dedupeUploadsMedia.js --db",
     "start": "expo start",
     "start:clean": "expo start -c",
     "start:tunnel": "expo start --tunnel",

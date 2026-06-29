@@ -1,5 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { getCachedAuthBranding, loadAuthBranding } from '../utils/authBrandingSettings';
+import { getBundledLoginBackground, getBundledLoginLogo } from '../utils/bundledUploads';
 import { logMediaCache } from '../utils/mediaCacheDebug';
 
 const AuthBrandingContext = createContext({
@@ -42,6 +43,11 @@ export function AuthBrandingProvider({ children }) {
 
   useEffect(() => {
     let cancelled = false;
+    const bundledLogo = getBundledLoginLogo();
+    const bundledBg = getBundledLoginBackground();
+    if (bundledLogo?.uri) setLogo(bundledLogo);
+    if (bundledBg?.uri) setBackground(bundledBg);
+
     getCachedAuthBranding().then((cached) => {
       if (cancelled) return;
       if (cached.logo) {
