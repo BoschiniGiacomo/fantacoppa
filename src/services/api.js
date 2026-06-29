@@ -728,6 +728,10 @@ export const superuserService = {
   },
   removePlayerFromCluster: (clusterId, playerId) =>
     api.delete(`/superuser/player-clusters/${encodeURIComponent(Number(clusterId))}/players/${encodeURIComponent(Number(playerId))}`),
+  setClusterBirthYear: (clusterId, birthYear) =>
+    api.put(`/superuser/player-clusters/${encodeURIComponent(Number(clusterId))}/birth-year`, {
+      birth_year: birthYear === '' || birthYear == null ? null : Number(birthYear),
+    }),
   getPlayerClusters: (groupId, status) => {
     const gid = encodeURIComponent(Number(groupId));
     const url = `/superuser/player-clusters/${gid}${status ? `?status=${encodeURIComponent(status)}` : ''}`;

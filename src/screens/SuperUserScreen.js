@@ -90,6 +90,13 @@ function summarizeBirthYears(leagues) {
   return years.length === 1 ? years[0] : years.join(' / ');
 }
 
+function getSuggestedClusterBirthYear(leagues) {
+  const years = [...new Set(
+    (leagues || []).map((l) => formatBirthYear(l.birth_year)).filter(Boolean)
+  )];
+  return years.length === 1 ? years[0] : '';
+}
+
 function buildSuggestionPlayerList(suggestion) {
   const entries = [];
   const seen = new Set();
@@ -136,45 +143,42 @@ function hasDuplicateSelectedLeague(players, selected) {
   return false;
 }
 
-function buildApprovedClustersByPlayer(allClusters) {
-  const playersMap = new Map();
-  for (const cluster of allClusters) {
-    if (!cluster.players || !Array.isArray(cluster.players)) continue;
-    cluster.players.forEach((player) => {
-      const playerName = `${player.first_name || ''} ${player.last_name || ''}`.trim();
-      if (!playersMap.has(playerName)) {
-        playersMap.set(playerName, {
-          name: playerName,
-          leagues: [],
-          clusters: [],
-        });
-      }
-      const playerData = playersMap.get(playerName);
-      const playerId = Number(player.id);
+function buildApprovedClustersList(allClusters) {
+  return (allClusters || [])
+    .map((cluster) => {
       const clusterId = Number(cluster.id);
-      if (!playerData.leagues.some((l) => l.player_id === playerId && l.cluster_id === clusterId)) {
-        playerData.leagues.push({
-          id: Number(player.league_id),
-          name: player.league_name || '',
-          group_name: cluster.group_name,
-          group_id: cluster.group_id,
-          player_id: playerId,
-          cluster_id: clusterId,
-          team_name: player.team_name || '',
-          role: player.role || null,
-          birth_year: player.birth_year != null ? Number(player.birth_year) : null,
-        });
-      }
-      if (!playerData.clusters.some((c) => c.id === clusterId)) {
-        playerData.clusters.push({
-          id: clusterId,
-          group_name: cluster.group_name,
-          created_at: cluster.created_at,
-        });
-      }
+      const players = Array.isArray(cluster.players) ? cluster.players : [];
+      const first = players[0];
+      const displayName = first
+        ? `${first.first_name || ''} ${first.last_name || ''}`.trim() || '—'
+        : 'Cluster vuoto';
+      const leagues = players.map((player) => ({
+        id: Number(player.league_id),
+        name: player.league_name || '',
+        group_name: cluster.group_name,
+        group_id: cluster.group_id,
+        player_id: Number(player.id),
+        cluster_id: clusterId,
+        team_name: player.team_name || '',
+        role: player.role || null,
+        birth_year: player.birth_year != null ? Number(player.birth_year) : null,
+      }));
+      return {
+        cluster_id: clusterId,
+        name: displayName,
+        group_name: cluster.group_name || '',
+        group_id: cluster.group_id,
+        players_count: players.length,
+        leagues,
+        clusters: [{ id: clusterId, group_name: cluster.group_name, created_at: cluster.created_at }],
+        created_at: cluster.created_at,
+      };
+    })
+    .sort((a, b) => {
+      const nameCmp = a.name.localeCompare(b.name, 'it');
+      if (nameCmp !== 0) return nameCmp;
+      return Number(b.cluster_id) - Number(a.cluster_id);
     });
-  }
-  return Array.from(playersMap.values()).sort((a, b) => a.name.localeCompare(b.name, 'it'));
 }
 
 export default function SuperUserScreen() {
@@ -245,6 +249,9 @@ export default function SuperUserScreen() {
   const [showAddPlayers, setShowAddPlayers] = useState(false);
   const [hasAvailablePlayers, setHasAvailablePlayers] = useState(false);
   const [removingLeagueKey, setRemovingLeagueKey] = useState(null);
+  const [clusterBirthYearDraft, setClusterBirthYearDraft] = useState('');
+  const [showClusterBirthYearPicker, setShowClusterBirthYearPicker] = useState(false);
+  const [savingClusterBirthYear, setSavingClusterBirthYear] = useState(false);
   const [officialGroupsDisabled, setOfficialGroupsDisabled] = useState(false);
 
   const [appLoadingPreview, setAppLoadingPreview] = useState({ uri: null, type: null, name: null });
@@ -393,7 +400,7 @@ export default function SuperUserScreen() {
     try {
       setLoadingApprovedClusters(true);
       const allClusters = await fetchAllApprovedClusters();
-      setApprovedClustersByPlayer(buildApprovedClustersByPlayer(allClusters));
+      setApprovedClustersByPlayer(buildApprovedClustersList(allClusters));
     } catch (error) {
       if (isFeatureDisabledError(error)) {
         setApprovedClustersByPlayer([]);
@@ -408,17 +415,17 @@ export default function SuperUserScreen() {
     }
   };
 
-  const refreshSelectedPlayerClusterAfterChange = async (playerName) => {
+  const refreshSelectedPlayerClusterAfterChange = async (clusterId) => {
     const allClusters = await fetchAllApprovedClusters();
-    const updatedPlayers = buildApprovedClustersByPlayer(allClusters);
-    setApprovedClustersByPlayer(updatedPlayers);
-    const updatedPlayer = updatedPlayers.find((p) => p.name === playerName);
-    if (updatedPlayer && (updatedPlayer.leagues || []).length > 0) {
-      setSelectedPlayerCluster(updatedPlayer);
-      const groupId = updatedPlayer.leagues[0]?.group_id;
-      const existingLeagueIds = updatedPlayer.leagues.map((l) => l.id);
+    const updatedList = buildApprovedClustersList(allClusters);
+    setApprovedClustersByPlayer(updatedList);
+    const updatedCluster = updatedList.find((c) => Number(c.cluster_id) === Number(clusterId));
+    if (updatedCluster && (updatedCluster.leagues || []).length > 0) {
+      setSelectedPlayerCluster(updatedCluster);
+      const groupId = updatedCluster.leagues[0]?.group_id;
+      const existingLeagueIds = updatedCluster.leagues.map((l) => l.id);
       if (groupId) {
-        await checkAvailablePlayers(updatedPlayer.name, groupId, existingLeagueIds);
+        await checkAvailablePlayers(updatedCluster.name, groupId, existingLeagueIds);
       }
     } else {
       setShowPlayerClusterDetail(false);
@@ -447,7 +454,7 @@ export default function SuperUserScreen() {
         try {
           await superuserService.removePlayerFromCluster(league.cluster_id, league.player_id);
           showToast('Giocatore dissociato dal cluster', 'success');
-          await refreshSelectedPlayerClusterAfterChange(playerName);
+          await refreshSelectedPlayerClusterAfterChange(league.cluster_id);
         } catch (error) {
           console.error('Error removing player from cluster:', error);
           showToast(error.response?.data?.message || 'Errore durante la dissociazione');
@@ -457,7 +464,31 @@ export default function SuperUserScreen() {
       },
     });
   };
-  
+
+  const handleApplyClusterBirthYear = async () => {
+    if (!selectedPlayerCluster?.cluster_id) return;
+    const clusterId = selectedPlayerCluster.cluster_id;
+    const yearStr = String(clusterBirthYearDraft || '').trim();
+    if (yearStr && (!/^\d{4}$/.test(yearStr) || Number(yearStr) < 1900 || Number(yearStr) > new Date().getFullYear())) {
+      showToast('Anno di nascita non valido (4 cifre, es. 1998)');
+      return;
+    }
+    setSavingClusterBirthYear(true);
+    try {
+      await superuserService.setClusterBirthYear(clusterId, yearStr || null);
+      showToast(
+        yearStr ? `Anno ${yearStr} applicato a tutto il cluster` : 'Anno rimosso da tutto il cluster',
+        'success'
+      );
+      await refreshSelectedPlayerClusterAfterChange(clusterId);
+    } catch (error) {
+      console.error('Error setting cluster birth year:', error);
+      showToast(error.response?.data?.message || 'Errore aggiornamento anno di nascita');
+    } finally {
+      setSavingClusterBirthYear(false);
+    }
+  };
+
   const showBirthYearPropagationConfirm = ({ birthYear, missingCount, onApplyAll, onAddOnly }) => {
     const countLabel = missingCount === 1 ? '1 giocatore' : `${missingCount} giocatori`;
     setConfirmModal({
@@ -791,12 +822,8 @@ export default function SuperUserScreen() {
   const handleAddPlayerToApprovedCluster = (playerToAdd) => {
     if (!selectedPlayerCluster || !playerToAdd) return;
 
-    const playerCluster =
-      selectedPlayerCluster.clusters && selectedPlayerCluster.clusters.length > 0
-        ? selectedPlayerCluster.clusters[0]
-        : null;
-
-    if (!playerCluster?.id) {
+    const clusterId = Number(selectedPlayerCluster.cluster_id || selectedPlayerCluster.clusters?.[0]?.id);
+    if (!clusterId) {
       showToast('Cluster non trovato');
       return;
     }
@@ -810,7 +837,7 @@ export default function SuperUserScreen() {
     ).length;
 
     const afterSuccess = async () => {
-      await refreshSelectedPlayerClusterAfterChange(selectedPlayerCluster.name);
+      await refreshSelectedPlayerClusterAfterChange(clusterId);
       setAvailablePlayersToAdd((prev) => {
         const updated = prev.filter((p) => p.id !== playerToAdd.id);
         if (updated.length === 0) {
@@ -824,7 +851,7 @@ export default function SuperUserScreen() {
     const run = async (applyBirthYearToCluster) => {
       try {
         await executeAddPlayerToCluster(
-          playerCluster.id,
+          clusterId,
           playerToAdd.id,
           applyBirthYearToCluster,
           afterSuccess
@@ -1413,6 +1440,13 @@ export default function SuperUserScreen() {
     const nowYear = new Date().getFullYear();
     const years = [];
     for (let y = nowYear + 2; y >= nowYear - 25; y -= 1) years.push(y);
+    return years;
+  }, []);
+
+  const selectableBirthYears = useMemo(() => {
+    const maxY = new Date().getFullYear();
+    const years = [];
+    for (let y = maxY; y >= 1960; y -= 1) years.push(y);
     return years;
   }, []);
   
@@ -2176,17 +2210,17 @@ export default function SuperUserScreen() {
             ) : (
               <FlatList
                 data={filteredApprovedClustersByPlayer}
-                keyExtractor={(item, index) => `player-${index}-${item.name}`}
+                keyExtractor={(item) => `cluster-${item.cluster_id}`}
                 renderItem={({ item }) => (
                   <TouchableOpacity
                     style={styles.playerClusterItem}
                     onPress={async () => {
                       setSelectedPlayerCluster(item);
+                      setClusterBirthYearDraft(getSuggestedClusterBirthYear(item.leagues));
                       setShowPlayerClusterDetail(true);
-                      // Verifica se ci sono giocatori disponibili
                       if (item.leagues.length > 0) {
                         const groupId = item.leagues[0]?.group_id;
-                        const existingLeagueIds = item.leagues.map(l => l.id);
+                        const existingLeagueIds = item.leagues.map((l) => l.id);
                         if (groupId) {
                           await checkAvailablePlayers(item.name, groupId, existingLeagueIds);
                         }
@@ -2201,7 +2235,10 @@ export default function SuperUserScreen() {
                         </Text>
                       ) : null}
                       <Text style={styles.playerClusterLeaguesCount}>
+                        {item.players_count} {item.players_count === 1 ? 'giocatore' : 'giocatori'}
+                        {' · '}
                         {item.leagues.length} {item.leagues.length === 1 ? 'lega' : 'leghe'}
+                        {item.group_name ? ` · ${item.group_name}` : ''}
                       </Text>
                     </View>
                     <Ionicons name="chevron-forward" size={20} color="#999" />
@@ -3133,13 +3170,20 @@ export default function SuperUserScreen() {
                         <ActivityIndicator size="small" color="#667eea" />
                       ) : filteredClusters.length > 0 ? (
                         filteredClusters.map((cluster) => {
-                          const playerName = (cluster.players || [])[0]?.full_name || '-';
-                          const leagues = (cluster.players || []).map((p) => p.league_name).join(', ');
+                          const players = Array.isArray(cluster.players) ? cluster.players : [];
+                          const playerName = players.length
+                            ? `${players[0].first_name || ''} ${players[0].last_name || ''}`.trim() || '—'
+                            : '—';
+                          const leagues = players.map((p) => p.league_name).filter(Boolean).join(', ') || '—';
                           return (
                             <View key={cluster.id} style={styles.clusterItem}>
                               <View style={styles.clusterInfo}>
                                 <Text style={styles.clusterPlayerName}>{playerName}</Text>
-                                <Text style={styles.clusterPlayerLeague}>{leagues}</Text>
+                                <Text style={styles.clusterPlayerLeague}>
+                                  {players.length} {players.length === 1 ? 'giocatore' : 'giocatori'}
+                                  {' · '}
+                                  {leagues}
+                                </Text>
                               </View>
                             </View>
                           );
@@ -3385,6 +3429,17 @@ export default function SuperUserScreen() {
                     Anno di nascita: {summarizeBirthYears(selectedPlayerCluster.leagues)}
                   </Text>
                 ) : null}
+                {selectedPlayerCluster?.group_name ? (
+                  <Text style={styles.modalTitleSub}>
+                    {selectedPlayerCluster.group_name}
+                    {' · '}
+                    {selectedPlayerCluster.players_count ?? selectedPlayerCluster.leagues?.length ?? 0}
+                    {' '}
+                    {(selectedPlayerCluster.players_count ?? selectedPlayerCluster.leagues?.length ?? 0) === 1
+                      ? 'giocatore'
+                      : 'giocatori'}
+                  </Text>
+                ) : null}
               </View>
               <TouchableOpacity
                 onPress={() => {
@@ -3393,6 +3448,8 @@ export default function SuperUserScreen() {
                   setShowAddPlayers(false);
                   setAvailablePlayersToAdd([]);
                   setHasAvailablePlayers(false);
+                  setClusterBirthYearDraft('');
+                  setShowClusterBirthYearPicker(false);
                 }}
               >
                 <Ionicons name="close" size={24} color="#333" />
@@ -3401,6 +3458,55 @@ export default function SuperUserScreen() {
             
             {selectedPlayerCluster && (
               <ScrollView style={styles.modalScrollView} contentContainerStyle={{ paddingBottom: 20 }}>
+                <View style={styles.groupDetailSection}>
+                  <Text style={styles.groupDetailSectionTitle}>Anno di nascita (tutto il cluster)</Text>
+                  {getSuggestedClusterBirthYear(selectedPlayerCluster.leagues) ? (
+                    <Text style={styles.clusterBirthYearHint}>
+                      {clusterBirthYearDraft === getSuggestedClusterBirthYear(selectedPlayerCluster.leagues)
+                        ? 'Suggerito da giocatori già presenti nel cluster'
+                        : `Suggerito: ${getSuggestedClusterBirthYear(selectedPlayerCluster.leagues)}`}
+                    </Text>
+                  ) : summarizeBirthYears(selectedPlayerCluster.leagues) ? (
+                    <Text style={styles.clusterBirthYearHint}>
+                      Anni diversi nel cluster: {summarizeBirthYears(selectedPlayerCluster.leagues)}
+                    </Text>
+                  ) : null}
+                  <View style={styles.groupLeagueReferenceYearRow}>
+                    <TouchableOpacity
+                      style={styles.groupLeagueReferenceYearPickerBtn}
+                      onPress={() => setShowClusterBirthYearPicker(true)}
+                    >
+                      <Ionicons name="calendar-outline" size={18} color="#667eea" />
+                      <Text style={styles.groupLeagueReferenceYearPickerBtnText}>
+                        {clusterBirthYearDraft || 'Seleziona anno'}
+                      </Text>
+                    </TouchableOpacity>
+                    {clusterBirthYearDraft ? (
+                      <TouchableOpacity
+                        style={styles.groupLeagueReferenceYearClearBtn}
+                        onPress={() => setClusterBirthYearDraft('')}
+                      >
+                        <Ionicons name="close" size={18} color="#999" />
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
+                  <TouchableOpacity
+                    style={[styles.modalButton, styles.modalButtonPrimary, styles.clusterBirthYearApplyBtn]}
+                    onPress={handleApplyClusterBirthYear}
+                    disabled={savingClusterBirthYear}
+                  >
+                    {savingClusterBirthYear ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <Text style={styles.modalButtonText}>
+                        {clusterBirthYearDraft
+                          ? `Applica ${clusterBirthYearDraft} a tutti i giocatori`
+                          : 'Rimuovi anno da tutti i giocatori'}
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+
                 {/* Sezione giocatori disponibili da aggiungere */}
                 {showAddPlayers && availablePlayersToAdd.length > 0 && (
                   <View style={styles.groupDetailSection}>
@@ -3508,6 +3614,60 @@ export default function SuperUserScreen() {
                 )}
               </TouchableOpacity>
             )}
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={showClusterBirthYearPicker}
+        animationType="fade"
+        transparent={true}
+        onRequestClose={() => setShowClusterBirthYearPicker(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.yearPickerModalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Anno di nascita</Text>
+              <TouchableOpacity onPress={() => setShowClusterBirthYearPicker(false)}>
+                <Ionicons name="close" size={24} color="#666" />
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.yearPickerModalSubtitle}>
+              {selectedPlayerCluster?.name || 'Cluster'}
+            </Text>
+            <ScrollView style={styles.yearPickerScroll} contentContainerStyle={styles.yearPickerGrid}>
+              {selectableBirthYears.map((year) => {
+                const selected = String(clusterBirthYearDraft) === String(year);
+                return (
+                  <TouchableOpacity
+                    key={year}
+                    style={[styles.yearChip, selected ? styles.yearChipActive : null]}
+                    onPress={() => setClusterBirthYearDraft(String(year))}
+                  >
+                    <Text style={[styles.yearChipText, selected ? styles.yearChipTextActive : null]}>{year}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+            <View style={styles.yearPickerActions}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.modalButtonSecondary, styles.yearPickerActionButton]}
+                onPress={() => {
+                  setClusterBirthYearDraft('');
+                  setShowClusterBirthYearPicker(false);
+                }}
+              >
+                <Text style={[styles.modalButtonText, styles.yearPickerActionButtonText, { color: '#667eea' }]}>
+                  Nessun anno
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.modalButtonPrimary, styles.yearPickerActionButton]}
+                onPress={() => setShowClusterBirthYearPicker(false)}
+              >
+                <Text style={styles.modalButtonText}>Conferma</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -4443,6 +4603,15 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  clusterBirthYearHint: {
+    fontSize: 13,
+    color: '#667eea',
+    marginBottom: 8,
+  },
+  clusterBirthYearApplyBtn: {
+    marginTop: 12,
+    alignSelf: 'stretch',
   },
   yearPickerModalContent: {
     width: '100%',

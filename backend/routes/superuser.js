@@ -425,6 +425,17 @@ async function propagateBirthYearToClusterMembers(clusterId, birthYear) {
   );
 }
 
+function parseClusterBirthYearInput(raw) {
+  if (raw === null || raw === undefined || raw === '') return { value: null };
+  const s = String(raw).trim();
+  if (!s) return { value: null };
+  if (!/^\d{4}$/.test(s)) return { error: 'invalid' };
+  const y = Number(s);
+  const maxY = new Date().getFullYear();
+  if (!Number.isFinite(y) || y < 1900 || y > maxY) return { error: 'range' };
+  return { value: y };
+}
+
 async function loadClusterMeta(clusterId) {
   const rows = await query(
     `SELECT id, official_group_id, status
@@ -1361,6 +1372,47 @@ router.post('/player-clusters/:clusterId/players', authenticateToken, requireSup
     });
   } catch (error) {
     return res.status(500).json({ message: 'Errore aggiunta giocatore al cluster', error: error.message });
+  }
+});
+
+router.put('/player-clusters/:clusterId/birth-year', authenticateToken, requireSuperuser, async (req, res) => {
+  try {
+    const clusterId = Number(req.params.clusterId);
+    if (!clusterId) return res.status(400).json({ message: 'Cluster non valido' });
+
+    const cluster = await loadClusterMeta(clusterId);
+    if (!cluster) return res.status(404).json({ message: 'Cluster non trovato' });
+
+    const parsed = parseClusterBirthYearInput(req.body?.birth_year);
+    if (parsed.error === 'invalid') {
+      return res.status(400).json({ message: 'Anno di nascita non valido (4 cifre, es. 1998)' });
+    }
+    if (parsed.error === 'range') {
+      return res.status(400).json({ message: 'Anno di nascita fuori intervallo consentito' });
+    }
+
+    const birthYear = parsed.value;
+    if (birthYear != null) {
+      await propagateBirthYearToClusterMembers(clusterId, birthYear);
+    } else {
+      await query(
+        `UPDATE players p
+         SET birth_year = NULL
+         FROM player_cluster_members pcm
+         WHERE pcm.cluster_id = ?
+           AND pcm.player_id = p.id`,
+        [clusterId]
+      );
+    }
+
+    return res.json({
+      message: birthYear != null
+        ? `Anno di nascita ${birthYear} applicato a tutto il cluster`
+        : 'Anno di nascita rimosso per tutto il cluster',
+      birth_year: birthYear,
+    });
+  } catch (error) {
+    return res.status(500).json({ message: 'Errore aggiornamento anno di nascita', error: error.message });
   }
 });
 
