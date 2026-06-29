@@ -174,6 +174,9 @@ function mapClusterPlayerRow(p) {
     league_id: Number(p.league_id || 0),
     league_name: p.league_name || '',
     team_name: p.team_name || '',
+    reference_year: p.reference_year != null && Number.isFinite(Number(p.reference_year))
+      ? Number(p.reference_year)
+      : null,
   };
 }
 
@@ -1173,7 +1176,8 @@ router.get('/player-clusters/:groupId', authenticateToken, requireSuperuser, asy
                'birth_year', p.birth_year,
                'league_id', t.league_id,
                'league_name', l.name,
-               'team_name', t.name
+               'team_name', t.name,
+               'reference_year', NULLIF(to_jsonb(l)->>'reference_year','')::int
              )
              ORDER BY l.name NULLS LAST, p.last_name, p.first_name
            ) FILTER (WHERE p.id IS NOT NULL),

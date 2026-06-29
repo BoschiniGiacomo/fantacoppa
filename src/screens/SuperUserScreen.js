@@ -125,6 +125,24 @@ function formatClusterListTitle(name, leagues) {
   return `${name} (${yearSuffix})`;
 }
 
+function clusterMatchesFilters(item, filters) {
+  if (filters.groupId != null && Number(item.group_id) !== Number(filters.groupId)) return false;
+  if (filters.leagueYear != null) {
+    const hasLeagueYear = (item.leagues || []).some(
+      (l) => Number(l.reference_year) === Number(filters.leagueYear)
+    );
+    if (!hasLeagueYear) return false;
+  }
+  if (filters.birthYear != null) {
+    const birthYearStr = String(filters.birthYear);
+    const hasBirthYear = (item.leagues || []).some(
+      (l) => formatBirthYear(l.birth_year) === birthYearStr
+    );
+    if (!hasBirthYear) return false;
+  }
+  return true;
+}
+
 function buildSuggestionPlayerList(suggestion) {
   const entries = [];
   const seen = new Set();
@@ -190,6 +208,9 @@ function buildApprovedClustersList(allClusters) {
         team_name: player.team_name || '',
         role: player.role || null,
         birth_year: player.birth_year != null ? Number(player.birth_year) : null,
+        reference_year: player.reference_year != null && Number.isFinite(Number(player.reference_year))
+          ? Number(player.reference_year)
+          : null,
       }));
       return {
         cluster_id: clusterId,
@@ -258,6 +279,12 @@ export default function SuperUserScreen() {
   const [showClusterModal, setShowClusterModal] = useState(false);
   const [clusterFilterStatus, setClusterFilterStatus] = useState(null); // null, 'pending', 'approved', 'rejected'
   const [clusterTabSearchText, setClusterTabSearchText] = useState('');
+  const [showClusterFilters, setShowClusterFilters] = useState(false);
+  const [clusterFilters, setClusterFilters] = useState({
+    groupId: null,
+    leagueYear: null,
+    birthYear: null,
+  });
   const [clusterModalSearchText, setClusterModalSearchText] = useState('');
   const [suggestionEditModal, setSuggestionEditModal] = useState(null);
   const [showCreateClusterModal, setShowCreateClusterModal] = useState(false);
@@ -1641,9 +1668,52 @@ export default function SuperUserScreen() {
 
   const filteredApprovedClustersByPlayer = useMemo(() => {
     const q = clusterTabSearchText.trim();
-    if (!q) return approvedClustersByPlayer;
-    return approvedClustersByPlayer.filter((item) => matchesNameSearch(item.name, q));
-  }, [approvedClustersByPlayer, clusterTabSearchText]);
+    const hasFilters = clusterFilters.groupId != null
+      || clusterFilters.leagueYear != null
+      || clusterFilters.birthYear != null;
+    return approvedClustersByPlayer.filter((item) => {
+      if (q && !matchesNameSearch(item.name, q)) return false;
+      if (hasFilters && !clusterMatchesFilters(item, clusterFilters)) return false;
+      return true;
+    });
+  }, [approvedClustersByPlayer, clusterTabSearchText, clusterFilters]);
+
+  const clusterFilterOptions = useMemo(() => {
+    const groups = new Map();
+    const leagueYears = new Set();
+    const birthYears = new Set();
+    for (const item of approvedClustersByPlayer) {
+      if (item.group_id != null) groups.set(item.group_id, item.group_name || '—');
+      for (const l of item.leagues || []) {
+        const ref = Number(l.reference_year);
+        if (Number.isFinite(ref)) leagueYears.add(ref);
+        const by = formatBirthYear(l.birth_year);
+        if (by) birthYears.add(Number(by));
+      }
+    }
+    return {
+      groups: [...groups.entries()]
+        .map(([id, name]) => ({ id: Number(id), name }))
+        .sort((a, b) => a.name.localeCompare(b.name, 'it')),
+      leagueYears: [...leagueYears].sort((a, b) => b - a),
+      birthYears: [...birthYears].sort((a, b) => b - a),
+    };
+  }, [approvedClustersByPlayer]);
+
+  const hasActiveClusterFilters = clusterFilters.groupId != null
+    || clusterFilters.leagueYear != null
+    || clusterFilters.birthYear != null;
+
+  const toggleClusterFilter = (key, value) => {
+    setClusterFilters((prev) => ({
+      ...prev,
+      [key]: prev[key] === value ? null : value,
+    }));
+  };
+
+  const clearClusterFilters = () => {
+    setClusterFilters({ groupId: null, leagueYear: null, birthYear: null });
+  };
 
   const filteredSuggestions = useMemo(() => {
     const q = clusterModalSearchText.trim();
@@ -2218,22 +2288,35 @@ export default function SuperUserScreen() {
 
         {activeTab === 'clusters' && (
           <>
-            <View style={styles.searchContainer}>
-              <Ionicons name="search" size={20} color="#999" style={styles.searchIcon} />
-              <TextInput
-                style={styles.searchInput}
-                placeholder="Cerca per nome o cognome..."
-                placeholderTextColor="#999"
-                value={clusterTabSearchText}
-                onChangeText={setClusterTabSearchText}
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
-              {clusterTabSearchText.length > 0 && (
-                <TouchableOpacity onPress={() => setClusterTabSearchText('')} style={styles.clearButton}>
-                  <Ionicons name="close-circle" size={20} color="#999" />
-                </TouchableOpacity>
-              )}
+            <View style={styles.clusterSearchRow}>
+              <View style={[styles.searchContainer, styles.clusterSearchContainer]}>
+                <Ionicons name="search" size={20} color="#999" style={styles.searchIcon} />
+                <TextInput
+                  style={styles.searchInput}
+                  placeholder="Cerca per nome o cognome..."
+                  placeholderTextColor="#999"
+                  value={clusterTabSearchText}
+                  onChangeText={setClusterTabSearchText}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+                {clusterTabSearchText.length > 0 && (
+                  <TouchableOpacity onPress={() => setClusterTabSearchText('')} style={styles.clearButton}>
+                    <Ionicons name="close-circle" size={20} color="#999" />
+                  </TouchableOpacity>
+                )}
+              </View>
+              <TouchableOpacity
+                style={[styles.clusterFilterBtn, hasActiveClusterFilters && styles.clusterFilterBtnActive]}
+                onPress={() => setShowClusterFilters(true)}
+                activeOpacity={0.7}
+              >
+                <Ionicons
+                  name="options-outline"
+                  size={20}
+                  color={hasActiveClusterFilters ? '#667eea' : '#94a3b8'}
+                />
+              </TouchableOpacity>
             </View>
             {loadingApprovedClusters ? (
               <View style={styles.loadingContainer}>
@@ -2276,13 +2359,13 @@ export default function SuperUserScreen() {
                   <View style={styles.emptyContainer}>
                     <Ionicons name="people-outline" size={64} color="#ccc" />
                     <Text style={styles.emptyText}>
-                      {clusterTabSearchText.trim()
-                        ? 'Nessun giocatore trovato'
+                      {clusterTabSearchText.trim() || hasActiveClusterFilters
+                        ? 'Nessun cluster trovato'
                         : 'Nessun cluster approvato'}
                     </Text>
                     <Text style={styles.emptySubtext}>
-                      {clusterTabSearchText.trim()
-                        ? 'Prova con un altro nome o cognome'
+                      {clusterTabSearchText.trim() || hasActiveClusterFilters
+                        ? 'Prova con altri criteri di ricerca o filtri'
                         : 'I giocatori approvati come cluster appariranno qui'}
                     </Text>
                   </View>
@@ -2301,6 +2384,102 @@ export default function SuperUserScreen() {
             )}
           </>
         )}
+
+      <Modal
+        visible={showClusterFilters}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowClusterFilters(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.clusterFiltersSheet}>
+            <View style={styles.clusterFiltersHeader}>
+              <Text style={styles.clusterFiltersTitle}>Filtri</Text>
+              <TouchableOpacity
+                onPress={() => setShowClusterFilters(false)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Ionicons name="close" size={22} color="#94a3b8" />
+              </TouchableOpacity>
+            </View>
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.clusterFiltersBody}>
+              <Text style={styles.clusterFilterSectionLabel}>Gruppo ufficiale</Text>
+              <View style={styles.clusterFilterChips}>
+                {clusterFilterOptions.groups.length > 0 ? (
+                  clusterFilterOptions.groups.map((group) => {
+                    const active = clusterFilters.groupId === group.id;
+                    return (
+                      <TouchableOpacity
+                        key={group.id}
+                        style={[styles.clusterFilterChip, active && styles.clusterFilterChipActive]}
+                        onPress={() => toggleClusterFilter('groupId', group.id)}
+                      >
+                        <Text
+                          style={[styles.clusterFilterChipText, active && styles.clusterFilterChipTextActive]}
+                          numberOfLines={1}
+                        >
+                          {group.name}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })
+                ) : (
+                  <Text style={styles.clusterFilterEmpty}>Nessun gruppo</Text>
+                )}
+              </View>
+
+              <Text style={styles.clusterFilterSectionLabel}>Anno lega</Text>
+              <View style={styles.clusterFilterChips}>
+                {clusterFilterOptions.leagueYears.length > 0 ? (
+                  clusterFilterOptions.leagueYears.map((year) => {
+                    const active = clusterFilters.leagueYear === year;
+                    return (
+                      <TouchableOpacity
+                        key={`ly-${year}`}
+                        style={[styles.clusterFilterChip, styles.clusterFilterChipCompact, active && styles.clusterFilterChipActive]}
+                        onPress={() => toggleClusterFilter('leagueYear', year)}
+                      >
+                        <Text style={[styles.clusterFilterChipText, active && styles.clusterFilterChipTextActive]}>
+                          {year}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })
+                ) : (
+                  <Text style={styles.clusterFilterEmpty}>Nessun anno</Text>
+                )}
+              </View>
+
+              <Text style={styles.clusterFilterSectionLabel}>Anno di nascita</Text>
+              <View style={styles.clusterFilterChips}>
+                {clusterFilterOptions.birthYears.length > 0 ? (
+                  clusterFilterOptions.birthYears.map((year) => {
+                    const active = clusterFilters.birthYear === year;
+                    return (
+                      <TouchableOpacity
+                        key={`by-${year}`}
+                        style={[styles.clusterFilterChip, styles.clusterFilterChipCompact, active && styles.clusterFilterChipActive]}
+                        onPress={() => toggleClusterFilter('birthYear', year)}
+                      >
+                        <Text style={[styles.clusterFilterChipText, active && styles.clusterFilterChipTextActive]}>
+                          {formatClusterBirthYearShort(year)}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })
+                ) : (
+                  <Text style={styles.clusterFilterEmpty}>Nessun anno</Text>
+                )}
+              </View>
+            </ScrollView>
+            {hasActiveClusterFilters ? (
+              <TouchableOpacity style={styles.clusterFiltersReset} onPress={clearClusterFilters}>
+                <Text style={styles.clusterFiltersResetText}>Azzera filtri</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        </View>
+      </Modal>
 
         {activeTab === 'appSettings' && (
           <ScrollView
@@ -3804,6 +3983,117 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
     borderColor: '#e0e0e0',
+  },
+  clusterSearchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 16,
+    marginTop: 12,
+    marginBottom: 8,
+    gap: 8,
+  },
+  clusterSearchContainer: {
+    flex: 1,
+    marginHorizontal: 0,
+    marginTop: 0,
+    marginBottom: 0,
+  },
+  clusterFilterBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  clusterFilterBtnActive: {
+    borderColor: '#c7d2fe',
+    backgroundColor: '#f8f9ff',
+  },
+  clusterFiltersSheet: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    maxHeight: '72%',
+    paddingBottom: 8,
+  },
+  clusterFiltersHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#e8e8e8',
+  },
+  clusterFiltersTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#334155',
+  },
+  clusterFiltersBody: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 16,
+  },
+  clusterFilterSectionLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#94a3b8',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+    marginBottom: 8,
+    marginTop: 4,
+  },
+  clusterFilterChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 12,
+  },
+  clusterFilterChip: {
+    maxWidth: '100%',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 20,
+    backgroundColor: '#f1f5f9',
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  clusterFilterChipCompact: {
+    paddingHorizontal: 10,
+    minWidth: 48,
+    alignItems: 'center',
+  },
+  clusterFilterChipActive: {
+    backgroundColor: '#eef2ff',
+    borderColor: '#c7d2fe',
+  },
+  clusterFilterChipText: {
+    fontSize: 14,
+    color: '#475569',
+  },
+  clusterFilterChipTextActive: {
+    color: '#4f46e5',
+    fontWeight: '600',
+  },
+  clusterFilterEmpty: {
+    fontSize: 13,
+    color: '#cbd5e1',
+    fontStyle: 'italic',
+  },
+  clusterFiltersReset: {
+    alignSelf: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    marginBottom: 4,
+  },
+  clusterFiltersResetText: {
+    fontSize: 13,
+    color: '#94a3b8',
   },
   searchIcon: {
     marginRight: 8,
