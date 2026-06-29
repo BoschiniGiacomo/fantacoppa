@@ -196,6 +196,7 @@ function buildSuggestionLeagueEntry(player) {
     player_id: Number(player.id),
     league_id: Number(player.league_id),
     league_name: player.league_name || '-',
+    team_name: player.team_name || '-',
     role: player.role || null,
     birth_year: normalizePlayerBirthYear(player),
   };
@@ -871,7 +872,7 @@ router.get('/player-clusters/suggestions/:groupId', authenticateToken, requireSu
 
     // All players in the group's leagues with their league info
     const allPlayers = await query(
-      `SELECT p.id, p.first_name, p.last_name, p.role, p.birth_year, t.league_id, l.name AS league_name
+      `SELECT p.id, p.first_name, p.last_name, p.role, p.birth_year, t.league_id, t.name AS team_name, l.name AS league_name
        FROM players p
        JOIN teams t ON p.team_id = t.id
        JOIN leagues l ON t.league_id = l.id

@@ -90,6 +90,28 @@ function summarizeBirthYears(leagues) {
   return years.length === 1 ? years[0] : years.join(' / ');
 }
 
+function buildSuggestionPlayerList(suggestion) {
+  const entries = [];
+  const seen = new Set();
+  const existingIds = new Set(
+    (suggestion?.existing_leagues || []).map((l) => Number(l.player_id)).filter((id) => id > 0)
+  );
+  for (const l of [...(suggestion?.existing_leagues || []), ...(suggestion?.new_leagues || [])]) {
+    const pid = Number(l.player_id);
+    if (!pid || seen.has(pid)) continue;
+    seen.add(pid);
+    entries.push({
+      player_id: pid,
+      league_name: l.league_name || '-',
+      team_name: l.team_name || '-',
+      role: l.role || null,
+      birth_year: l.birth_year ?? null,
+      in_cluster: existingIds.has(pid),
+    });
+  }
+  return entries;
+}
+
 function buildApprovedClustersByPlayer(allClusters) {
   const playersMap = new Map();
   for (const cluster of allClusters) {
@@ -181,6 +203,7 @@ export default function SuperUserScreen() {
   const [clusterFilterStatus, setClusterFilterStatus] = useState(null); // null, 'pending', 'approved', 'rejected'
   const [clusterTabSearchText, setClusterTabSearchText] = useState('');
   const [clusterModalSearchText, setClusterModalSearchText] = useState('');
+  const [suggestionEditModal, setSuggestionEditModal] = useState(null);
   const [showCreateClusterModal, setShowCreateClusterModal] = useState(false);
   const [searchPlayersQuery, setSearchPlayersQuery] = useState('');
   const [searchedPlayers, setSearchedPlayers] = useState([]);
@@ -432,11 +455,13 @@ export default function SuperUserScreen() {
     });
   };
 
-  const executeApproveSuggestion = async (suggestion, groupId, applyBirthYearToCluster) => {
-    const allPlayerIds = [
-      ...(suggestion.existing_leagues || []).map((l) => l.player_id),
-      ...(suggestion.all_new_player_ids || []),
-    ];
+  const executeApproveSuggestion = async (suggestion, groupId, applyBirthYearToCluster, playerIdsOverride = null) => {
+    const allPlayerIds = Array.isArray(playerIdsOverride) && playerIdsOverride.length
+      ? playerIdsOverride.map(Number).filter((id) => id > 0)
+      : [
+        ...(suggestion.existing_leagues || []).map((l) => l.player_id),
+        ...(suggestion.all_new_player_ids || []),
+      ];
     const payload = {
       official_group_id: groupId,
       cluster_id: suggestion.cluster_id || null,
@@ -451,7 +476,7 @@ export default function SuperUserScreen() {
     await loadClusters(groupId, clusterFilterStatus);
   };
 
-  const handleApproveSuggestion = (suggestion, groupId) => {
+  const handleApproveSuggestion = (suggestion, groupId, playerIdsOverride = null) => {
     const birthYear = suggestion.birth_year;
     const missingInCluster = (suggestion.missing_birth_year_in_cluster || []).length;
     const missingInNew = (suggestion.missing_birth_year_new || []).length;
@@ -463,7 +488,7 @@ export default function SuperUserScreen() {
 
     const run = async (applyBirthYearToCluster) => {
       try {
-        await executeApproveSuggestion(suggestion, groupId, applyBirthYearToCluster);
+        await executeApproveSuggestion(suggestion, groupId, applyBirthYearToCluster, playerIdsOverride);
       } catch (error) {
         const data = error.response?.data;
         if (error.response?.status === 409 && data?.code === 'CONFIRM_BIRTH_YEAR_PROPAGATION') {
@@ -507,6 +532,56 @@ export default function SuperUserScreen() {
     } catch (error) {
       showToast(error.response?.data?.message || 'Errore');
     }
+  };
+
+  const openSuggestionEditModal = (suggestion) => {
+    const players = buildSuggestionPlayerList(suggestion);
+    const selected = {};
+    players.forEach((p) => {
+      selected[p.player_id] = false;
+    });
+    setSuggestionEditModal({ suggestion, players, selected });
+  };
+
+  const closeSuggestionEditModal = () => {
+    setSuggestionEditModal(null);
+  };
+
+  const toggleSuggestionEditPlayer = (playerId, value) => {
+    setSuggestionEditModal((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        selected: { ...prev.selected, [playerId]: value },
+      };
+    });
+  };
+
+  const handleSaveSuggestionEdit = () => {
+    if (!suggestionEditModal || !selectedGroupForEdit?.id) return;
+    const { suggestion, selected } = suggestionEditModal;
+    const playerIds = Object.entries(selected)
+      .filter(([, on]) => on)
+      .map(([id]) => Number(id))
+      .filter((id) => id > 0);
+
+    if (suggestion.cluster_id) {
+      const existingIds = new Set(
+        (suggestion.existing_leagues || []).map((l) => Number(l.player_id)).filter((id) => id > 0)
+      );
+      const newSelected = playerIds.filter((id) => !existingIds.has(id));
+      if (newSelected.length === 0) {
+        showToast('Seleziona almeno un giocatore non ancora nel cluster');
+        return;
+      }
+    } else if (playerIds.length < 2) {
+      showToast('Seleziona almeno 2 giocatori per creare il cluster');
+      return;
+    }
+
+    const groupId = Number(selectedGroupForEdit.id);
+    setSuggestionEditModal(null);
+    handleApproveSuggestion(suggestion, groupId, playerIds);
   };
   
   // Approva cluster
@@ -1340,6 +1415,14 @@ export default function SuperUserScreen() {
     setReferenceYearDrafts({});
     setGironiTeamsByLeague({});
     setExpandedGroupLeagueIds({});
+  };
+
+  const handleOpenGroupClusters = async () => {
+    const gid = Number(selectedGroupForEdit?.id);
+    if (!gid) return;
+    setShowClusterModal(true);
+    setClusterFilterStatus(null);
+    await loadClusterSuggestions(gid);
   };
 
   const toggleGroupLeagueExpanded = (leagueId) => {
@@ -2430,10 +2513,16 @@ export default function SuperUserScreen() {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={[styles.modalHeader, styles.groupDetailModalHeader]}>
-              <View style={styles.groupDetailModalHeaderSpacer} />
+              <TouchableOpacity
+                style={styles.groupDetailHeaderIconBtn}
+                onPress={() => void handleOpenGroupClusters()}
+                accessibilityLabel="Gestisci cluster giocatori"
+              >
+                <Ionicons name="people-outline" size={22} color="#667eea" />
+              </TouchableOpacity>
               <Text style={styles.groupDetailModalHeaderTitle}>Gruppo ufficiale</Text>
-              <TouchableOpacity onPress={closeGroupDetailModal}>
-                <Ionicons name="close" size={24} color="#666" />
+              <TouchableOpacity style={styles.groupDetailHeaderIconBtn} onPress={closeGroupDetailModal}>
+                <Ionicons name="close" size={22} color="#64748b" />
               </TouchableOpacity>
             </View>
             
@@ -2689,19 +2778,6 @@ export default function SuperUserScreen() {
                   </Text>
                 )}
                 
-                <TouchableOpacity
-                  style={[styles.modalButton, styles.modalButtonSecondary]}
-                  onPress={async () => {
-                    const gid = Number(selectedGroupForEdit.id);
-                    setShowClusterModal(true);
-                    setClusterFilterStatus(null);
-                    await loadClusterSuggestions(gid);
-                  }}
-                >
-                  <Ionicons name="people" size={18} color="#667eea" />
-                  <Text style={[styles.modalButtonText, { color: '#667eea' }]}>Gestisci Cluster Giocatori</Text>
-                </TouchableOpacity>
-                
                 <View style={styles.groupDetailActions}>
                   <TouchableOpacity
                     style={[styles.modalButton, styles.modalButtonDanger]}
@@ -2814,6 +2890,7 @@ export default function SuperUserScreen() {
           setShowClusterModal(false);
           setClusterFilterStatus(null);
           setClusterModalSearchText('');
+          setSuggestionEditModal(null);
         }}
       >
         <View style={styles.modalOverlay}>
@@ -2825,6 +2902,7 @@ export default function SuperUserScreen() {
                   setShowClusterModal(false);
                   setClusterFilterStatus(null);
                   setClusterModalSearchText('');
+                  setSuggestionEditModal(null);
                 }}
               >
                 <Ionicons name="close" size={24} color="#666" />
@@ -2920,6 +2998,12 @@ export default function SuperUserScreen() {
                             </View>
                             <View style={styles.suggestionActions}>
                               <TouchableOpacity
+                                style={styles.suggestionEdit}
+                                onPress={() => openSuggestionEditModal(suggestion)}
+                              >
+                                <Ionicons name="create-outline" size={18} color="#667eea" />
+                              </TouchableOpacity>
+                              <TouchableOpacity
                                 style={styles.suggestionApprove}
                                 onPress={() => handleApproveSuggestion(suggestion, selectedGroupForEdit.id)}
                               >
@@ -2992,6 +3076,84 @@ export default function SuperUserScreen() {
                 </ScrollView>
               </View>
             )}
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={!!suggestionEditModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={closeSuggestionEditModal}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.suggestionEditModalContent}>
+            <View style={styles.suggestionEditHeader}>
+              <View style={styles.suggestionEditHeaderText}>
+                <Text style={styles.suggestionEditTitle}>Associa giocatori</Text>
+                <Text style={styles.suggestionEditSubtitle} numberOfLines={2}>
+                  {suggestionEditModal?.suggestion?.name || '—'}
+                </Text>
+              </View>
+              <TouchableOpacity style={styles.groupDetailHeaderIconBtn} onPress={closeSuggestionEditModal}>
+                <Ionicons name="close" size={20} color="#64748b" />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.suggestionEditHint}>
+              Attiva gli switch per i giocatori da includere nel cluster.
+            </Text>
+
+            <ScrollView
+              style={styles.suggestionEditList}
+              contentContainerStyle={styles.suggestionEditListContent}
+              showsVerticalScrollIndicator={false}
+            >
+              {(suggestionEditModal?.players || []).map((player) => {
+                const pid = Number(player.player_id);
+                const isOn = !!suggestionEditModal?.selected?.[pid];
+                return (
+                  <View key={`sug-edit-${pid}`} style={styles.suggestionEditRow}>
+                    <View style={styles.suggestionEditRowInfo}>
+                      <Text style={styles.suggestionEditLeague} numberOfLines={1}>
+                        {player.league_name}
+                      </Text>
+                      <Text style={styles.suggestionEditMeta}>
+                        {player.team_name || '—'}
+                        {' • '}
+                        {formatClusterPlayerRole(player.role)}
+                        {player.birth_year ? ` • ${player.birth_year}` : ' • Anno n.d.'}
+                      </Text>
+                      {player.in_cluster ? (
+                        <Text style={styles.suggestionEditInCluster}>Già nel cluster</Text>
+                      ) : null}
+                    </View>
+                    <Switch
+                      value={isOn}
+                      onValueChange={(value) => toggleSuggestionEditPlayer(pid, value)}
+                      trackColor={{ false: '#d1d5db', true: '#a5b4fc' }}
+                      thumbColor={isOn ? '#667eea' : '#f4f3f4'}
+                    />
+                  </View>
+                );
+              })}
+            </ScrollView>
+
+            <View style={styles.suggestionEditFooter}>
+              <TouchableOpacity
+                style={[styles.suggestionEditFooterBtn, styles.suggestionEditFooterBtnCancel]}
+                onPress={closeSuggestionEditModal}
+              >
+                <Text style={styles.suggestionEditFooterBtnCancelText}>Annulla</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.suggestionEditFooterBtn, styles.suggestionEditFooterBtnSave]}
+                onPress={handleSaveSuggestionEdit}
+              >
+                <Ionicons name="checkmark" size={18} color="#fff" />
+                <Text style={styles.suggestionEditFooterBtnSaveText}>Salva</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -3979,8 +4141,18 @@ const styles = StyleSheet.create({
   groupDetailModalHeader: {
     borderBottomWidth: 0,
     paddingBottom: 8,
+    paddingTop: 14,
   },
-  groupDetailModalHeaderSpacer: { width: 24 },
+  groupDetailHeaderIconBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e8ecf1',
+  },
   groupDetailModalHeaderTitle: {
     fontSize: 14,
     fontWeight: '700',
@@ -4346,7 +4518,17 @@ const styles = StyleSheet.create({
   suggestionActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 8,
+  },
+  suggestionEdit: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#eef2ff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#dbe4ff',
   },
   suggestionApprove: {
     width: 36,
@@ -4363,6 +4545,123 @@ const styles = StyleSheet.create({
     backgroundColor: '#fce4ec',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  suggestionEditModalContent: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: '78%',
+    minHeight: 320,
+    paddingBottom: 12,
+  },
+  suggestionEditHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    paddingHorizontal: 18,
+    paddingTop: 18,
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eef2f7',
+    gap: 12,
+  },
+  suggestionEditHeaderText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  suggestionEditTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#1e293b',
+  },
+  suggestionEditSubtitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#667eea',
+    marginTop: 4,
+  },
+  suggestionEditHint: {
+    fontSize: 12,
+    color: '#64748b',
+    paddingHorizontal: 18,
+    paddingTop: 12,
+    paddingBottom: 8,
+  },
+  suggestionEditList: {
+    flexGrow: 0,
+    maxHeight: 360,
+  },
+  suggestionEditListContent: {
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+  },
+  suggestionEditRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    marginBottom: 8,
+    borderRadius: 12,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e8ecf1',
+    gap: 12,
+  },
+  suggestionEditRowInfo: {
+    flex: 1,
+    minWidth: 0,
+  },
+  suggestionEditLeague: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#1e293b',
+  },
+  suggestionEditMeta: {
+    fontSize: 12,
+    color: '#64748b',
+    marginTop: 3,
+  },
+  suggestionEditInCluster: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#4f46e5',
+    marginTop: 4,
+  },
+  suggestionEditFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#eef2f7',
+  },
+  suggestionEditFooterBtn: {
+    flex: 1,
+    minHeight: 46,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 6,
+  },
+  suggestionEditFooterBtnCancel: {
+    backgroundColor: '#f1f5f9',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  suggestionEditFooterBtnCancelText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#475569',
+  },
+  suggestionEditFooterBtnSave: {
+    backgroundColor: '#667eea',
+  },
+  suggestionEditFooterBtnSaveText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#fff',
   },
   clusterItem: {
     padding: 16,
