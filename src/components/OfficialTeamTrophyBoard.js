@@ -21,17 +21,35 @@ function YearPlaque({ year }) {
 function ChampionshipTrophyVisual() {
   return (
     <View style={styles.champVisual}>
-      <View style={styles.champHalo} />
-      <Ionicons name="star" size={11} color="#fff8dc" style={styles.champStar} />
-      <View style={styles.champHandleLeft} />
-      <View style={styles.champHandleRight} />
-      <View style={styles.champBowl}>
-        <View style={styles.champBowlShine} />
+      <View style={styles.champAura} />
+      <View style={styles.champCupWrap}>
+        <View style={styles.champHandleLeft} />
+        <View style={styles.champHandleRight} />
+        <View style={styles.champCupOuter}>
+          <View style={styles.champCupLid} />
+          <View style={styles.champCupRim} />
+          <View style={styles.champCupInner}>
+            <View style={styles.champCupGoldFill}>
+              <View style={styles.champCupGoldBand} />
+              <View style={styles.champCupGoldDepth} />
+            </View>
+            <View style={styles.champStarMedallion}>
+              <View style={styles.champStarHalo} />
+              <Ionicons name="star" size={16} color="#fff6cc" />
+            </View>
+            <View style={styles.champCupShineLeft} />
+            <View style={styles.champCupShineRight} />
+          </View>
+        </View>
       </View>
-      <View style={styles.champNeck} />
-      <View style={styles.champPedestal}>
-        <View style={styles.champPedestalTop} />
-        <View style={styles.champPedestalBase} />
+      <View style={styles.champStem}>
+        <View style={styles.champStemRing} />
+      </View>
+      <View style={styles.champPlinth}>
+        <View style={styles.champPlinthCap} />
+        <View style={styles.champPlinthBody}>
+          <View style={styles.champPlinthInset} />
+        </View>
       </View>
     </View>
   );
@@ -77,42 +95,49 @@ function TrophySlot({ type, year }) {
   const isWine = type === 'wine';
   return (
     <View style={styles.slot}>
-      <View style={[styles.slotPedestal, isWine ? styles.slotPedestalWine : styles.slotPedestalChamp]}>
-        {isWine ? <WineTrophyVisual /> : <ChampionshipTrophyVisual />}
+      <View style={[styles.slotAlcove, isWine ? styles.slotAlcoveWine : styles.slotAlcoveChamp]}>
+        <View style={[styles.slotSpotlight, isWine ? styles.slotSpotlightWine : styles.slotSpotlightChamp]} />
+        <View style={styles.slotHook} />
+        <View style={[styles.slotPedestal, isWine ? styles.slotPedestalWine : styles.slotPedestalChamp]}>
+          {isWine ? <WineTrophyVisual /> : <ChampionshipTrophyVisual />}
+        </View>
       </View>
-      <YearPlaque year={year} />
+      <View style={styles.plaqueRow}>
+        <View style={styles.plaquePin} />
+        <YearPlaque year={year} />
+        <View style={styles.plaquePin} />
+      </View>
     </View>
   );
 }
 
-function TrophyShelf({ title, subtitle, icon, iconColor, trophies, type, emptyHint, useMciIcon = false }) {
+function TrophyShelf({ title, trophies, type, emptyHint }) {
+  const isWine = type === 'wine';
   return (
     <View style={styles.shelfBlock}>
-      <View style={styles.shelfHeader}>
-        <View style={[styles.shelfIconWrap, type === 'wine' ? styles.shelfIconWrapWine : styles.shelfIconWrapChamp]}>
-          {useMciIcon ? (
-            <MaterialCommunityIcons name={icon} size={16} color={iconColor} />
+      <View style={[styles.shelfNameplate, isWine ? styles.shelfNameplateWine : styles.shelfNameplateChamp]}>
+        <Text style={styles.shelfNameplateText}>{title}</Text>
+        {trophies.length > 0 ? (
+          <View style={styles.shelfNameplateCount}>
+            <Text style={styles.shelfNameplateCountText}>{trophies.length}</Text>
+          </View>
+        ) : null}
+      </View>
+      <View style={styles.shelfRecess}>
+        <View style={[styles.shelfBackdrop, isWine ? styles.shelfBackdropWine : styles.shelfBackdropChamp]} />
+        <View style={[styles.shelfPlank, isWine ? styles.shelfPlankWine : styles.shelfPlankChamp]}>
+          <View style={styles.shelfPlankLip} />
+          {trophies.length > 0 ? (
+            <View style={styles.shelfGrid}>
+              {trophies.map((t) => (
+                <TrophySlot key={`${type}-${t.year}`} type={type} year={t.year} />
+              ))}
+            </View>
           ) : (
-            <Ionicons name={icon} size={16} color={iconColor} />
+            <Text style={styles.shelfEmpty}>{emptyHint}</Text>
           )}
         </View>
-        <View style={styles.shelfHeaderText}>
-          <Text style={styles.shelfTitle}>{title}</Text>
-          <Text style={styles.shelfSubtitle}>{subtitle}</Text>
-        </View>
-        <Text style={styles.shelfCount}>{trophies.length}</Text>
-      </View>
-      <View style={[styles.shelfSurface, type === 'wine' ? styles.shelfSurfaceWine : styles.shelfSurfaceChamp]}>
-        <View style={styles.shelfLip} />
-        {trophies.length > 0 ? (
-          <View style={styles.shelfGrid}>
-            {trophies.map((t) => (
-              <TrophySlot key={`${type}-${t.year}`} type={type} year={t.year} />
-            ))}
-          </View>
-        ) : (
-          <Text style={styles.shelfEmpty}>{emptyHint}</Text>
-        )}
+        <View style={styles.shelfUndershadow} />
       </View>
     </View>
   );
@@ -125,165 +150,330 @@ export default function OfficialTeamTrophyBoard({ championships = [], wineTrophi
 
   if (total === 0) {
     return (
-      <View style={styles.emptyCabinet}>
-        <View style={styles.emptyGlow} />
-        <MaterialCommunityIcons name="trophy-outline" size={48} color="#5c4a3a" />
-        <Text style={styles.emptyTitle}>Bacheca vuota</Text>
-        <Text style={styles.emptyText}>I trofei conquistati appariranno qui,{'\n'}sopra la targhetta dell&apos;anno.</Text>
+      <View style={styles.boardWall}>
+        <View style={styles.boardFrame}>
+          <View style={styles.boardFrameInner}>
+            <View style={styles.boardTitlePlate}>
+              <Text style={styles.boardTitle}>Bacheca trofei</Text>
+            </View>
+            <View style={styles.emptyCabinet}>
+              <View style={styles.emptyGlow} />
+              <MaterialCommunityIcons name="trophy-outline" size={48} color="#5c4a3a" />
+              <Text style={styles.emptyTitle}>Bacheca vuota</Text>
+              <Text style={styles.emptyText}>
+                I trofei conquistati verranno esposti qui,{'\n'}sulla mensola con la targhetta dell&apos;anno.
+              </Text>
+            </View>
+          </View>
+        </View>
       </View>
     );
   }
 
   return (
-    <View style={styles.cabinet}>
-      <View style={styles.cabinetTopTrim} />
-      <View style={styles.cabinetInner}>
-        <TrophyShelf
-          title="Campionato"
-          subtitle="Vittoria in finale"
-          icon="trophy"
-          iconColor="#f5d76e"
-          trophies={champList}
-          type="championship"
-          emptyHint="Nessun titolo in bacheca"
-        />
-        <TrophyShelf
-          title="Trofeo del vino"
-          subtitle="Coppa enologica"
-          icon="glass-wine"
-          iconColor="#e8b4bc"
-          trophies={wineList}
-          type="wine"
-          emptyHint="Nessun trofeo del vino"
-          useMciIcon
-        />
+    <View style={styles.boardWall}>
+      <View style={styles.boardFrame}>
+        <View style={styles.boardFrameBevelTop} />
+        <View style={styles.boardFrameInner}>
+          <View style={styles.boardTitlePlate}>
+            <View style={styles.boardTitlePlateInset} />
+            <Text style={styles.boardTitle}>Bacheca trofei</Text>
+          </View>
+          <View style={styles.boardVelvet} />
+          <View style={styles.boardGlass} pointerEvents="none" />
+          <View style={styles.cabinetInner}>
+            <TrophyShelf
+              title="Campionato"
+              trophies={champList}
+              type="championship"
+              emptyHint="Nessun titolo esposto"
+            />
+            <View style={styles.shelfDivider} />
+            <TrophyShelf
+              title="Trofeo del vino"
+              trophies={wineList}
+              type="wine"
+              emptyHint="Nessun trofeo del vino"
+            />
+          </View>
+        </View>
+        <View style={styles.boardFrameBevelBottom} />
       </View>
-      <View style={styles.cabinetBottomTrim} />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  cabinet: {
-    borderRadius: 16,
+  boardWall: {
+    padding: 4,
+    backgroundColor: '#14100c',
+    borderRadius: 18,
+  },
+  boardFrame: {
+    borderRadius: 14,
+    borderWidth: 3,
+    borderColor: '#5c4028',
+    backgroundColor: '#3d2818',
     overflow: 'hidden',
-    backgroundColor: '#1a120c',
-    borderWidth: 1,
-    borderColor: '#3d2e1f',
+    shadowColor: '#000',
+    shadowOpacity: 0.45,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 8,
   },
-  cabinetTopTrim: {
-    height: 4,
-    backgroundColor: '#8b6914',
+  boardFrameBevelTop: {
+    height: 5,
+    backgroundColor: '#7a5535',
+    borderBottomWidth: 1,
+    borderBottomColor: '#2a1c10',
   },
-  cabinetBottomTrim: {
-    height: 3,
-    backgroundColor: '#2a1f14',
+  boardFrameBevelBottom: {
+    height: 6,
+    backgroundColor: '#2a1c10',
+    borderTopWidth: 1,
+    borderTopColor: '#6b4a2e',
   },
-  cabinetInner: {
-    padding: 14,
-    gap: 18,
-    backgroundColor: '#221810',
-  },
-  shelfBlock: {
-    gap: 8,
-  },
-  shelfHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  shelfIconWrap: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-  },
-  shelfIconWrapChamp: {
-    backgroundColor: '#3d3018',
-    borderColor: '#6b5420',
-  },
-  shelfIconWrapWine: {
-    backgroundColor: '#3a1824',
-    borderColor: '#6b2a40',
-  },
-  shelfHeaderText: {
-    flex: 1,
-  },
-  shelfTitle: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: '#f5e6c8',
-    letterSpacing: 0.3,
-  },
-  shelfSubtitle: {
-    fontSize: 11,
-    color: '#8a7358',
-    marginTop: 1,
-  },
-  shelfCount: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: '#5c4a38',
-    fontVariant: ['tabular-nums'],
-  },
-  shelfSurface: {
-    borderRadius: 12,
-    paddingVertical: 16,
-    paddingHorizontal: 10,
-    minHeight: 130,
-    borderWidth: 1,
+  boardFrameInner: {
+    backgroundColor: '#1f1610',
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 14,
     position: 'relative',
     overflow: 'hidden',
   },
-  shelfSurfaceChamp: {
-    backgroundColor: '#2e2418',
-    borderColor: '#4a3a24',
+  boardTitlePlate: {
+    alignSelf: 'center',
+    marginBottom: 14,
+    paddingHorizontal: 18,
+    paddingVertical: 6,
+    borderRadius: 4,
+    backgroundColor: '#8b6914',
+    borderWidth: 1.5,
+    borderColor: '#c9a227',
+    position: 'relative',
+    zIndex: 3,
   },
-  shelfSurfaceWine: {
-    backgroundColor: '#261418',
-    borderColor: '#4a2030',
+  boardTitlePlateInset: {
+    ...StyleSheet.absoluteFillObject,
+    margin: 2,
+    borderRadius: 2,
+    borderWidth: 1,
+    borderColor: 'rgba(255,230,160,0.25)',
   },
-  shelfLip: {
-    position: 'absolute',
+  boardTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#fff3d4',
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+  },
+  boardVelvet: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#241a14',
+    opacity: 0.92,
+  },
+  boardGlass: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+    zIndex: 2,
+  },
+  cabinetInner: {
+    gap: 16,
+    zIndex: 1,
+  },
+  shelfDivider: {
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#3d2818',
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: '#5c4028',
+    marginVertical: 2,
+  },
+  shelfBlock: {
+    gap: 0,
+  },
+  shelfNameplate: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderTopLeftRadius: 4,
+    borderTopRightRadius: 4,
+    borderWidth: 1,
+    borderBottomWidth: 0,
+    marginLeft: 8,
+  },
+  shelfNameplateChamp: {
+    backgroundColor: '#4a3818',
+    borderColor: '#7a5a20',
+  },
+  shelfNameplateWine: {
+    backgroundColor: '#3a1828',
+    borderColor: '#6b3050',
+  },
+  shelfNameplateText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#e8d4b0',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+  },
+  shelfNameplateCount: {
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: 'rgba(0,0,0,0.25)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+  },
+  shelfNameplateCountText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#f5e6c8',
+    fontVariant: ['tabular-nums'],
+  },
+  shelfRecess: {
+    position: 'relative',
+    paddingBottom: 8,
+  },
+  shelfBackdrop: {
+    ...StyleSheet.absoluteFillObject,
     top: 0,
-    left: 12,
-    right: 12,
-    height: 2,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    borderRadius: 1,
+    bottom: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  shelfBackdropChamp: {
+    backgroundColor: '#1a140e',
+    borderColor: '#3d3018',
+  },
+  shelfBackdropWine: {
+    backgroundColor: '#160e12',
+    borderColor: '#3d2030',
+  },
+  shelfPlank: {
+    marginTop: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+    paddingTop: 10,
+    paddingBottom: 14,
+    paddingHorizontal: 8,
+    position: 'relative',
+    overflow: 'visible',
+  },
+  shelfPlankChamp: {
+    backgroundColor: '#4a3820',
+    borderColor: '#6b5428',
+  },
+  shelfPlankWine: {
+    backgroundColor: '#3d2030',
+    borderColor: '#5c3048',
+  },
+  shelfPlankLip: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: -5,
+    height: 6,
+    backgroundColor: '#2a2014',
+    borderBottomLeftRadius: 3,
+    borderBottomRightRadius: 3,
+    borderWidth: 1,
+    borderTopWidth: 0,
+    borderColor: '#1a120c',
+  },
+  shelfUndershadow: {
+    position: 'absolute',
+    left: 10,
+    right: 10,
+    bottom: 0,
+    height: 8,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    borderRadius: 4,
   },
   shelfGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'center',
-    gap: 14,
+    gap: 12,
   },
   shelfEmpty: {
     textAlign: 'center',
     color: '#6b5a48',
     fontSize: 12,
     fontStyle: 'italic',
-    paddingVertical: 24,
+    paddingVertical: 28,
   },
   slot: {
     alignItems: 'center',
-    width: 78,
-    gap: 8,
+    width: 82,
+    gap: 6,
   },
-  slotPedestal: {
-    width: 72,
-    height: 88,
-    borderRadius: 10,
+  slotAlcove: {
+    width: 76,
+    height: 96,
+    borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'flex-end',
-    paddingBottom: 6,
+    paddingBottom: 4,
     borderWidth: 1,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  slotAlcoveChamp: {
+    backgroundColor: '#120e08',
+    borderColor: '#3d3018',
+  },
+  slotAlcoveWine: {
+    backgroundColor: '#10080c',
+    borderColor: '#3d2030',
+  },
+  slotSpotlight: {
+    position: 'absolute',
+    top: -8,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    opacity: 0.9,
+  },
+  slotSpotlightChamp: {
+    backgroundColor: 'rgba(245, 215, 110, 0.12)',
+  },
+  slotSpotlightWine: {
+    backgroundColor: 'rgba(200, 90, 120, 0.12)',
+  },
+  slotHook: {
+    position: 'absolute',
+    top: 6,
+    width: 14,
+    height: 6,
+    borderTopLeftRadius: 3,
+    borderTopRightRadius: 3,
+    backgroundColor: '#6b5420',
+    borderWidth: 1,
+    borderBottomWidth: 0,
+    borderColor: '#8b6914',
+    zIndex: 2,
+  },
+  slotPedestal: {
+    width: 68,
+    height: 84,
+    borderRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    paddingBottom: 4,
+    borderWidth: 1,
+    marginTop: 8,
   },
   slotPedestalChamp: {
-    backgroundColor: '#1f1810',
-    borderColor: '#3d3018',
+    backgroundColor: '#18140c',
+    borderColor: '#4a3a18',
   },
   slotPedestalWine: {
     backgroundColor: '#140c10',
@@ -314,98 +504,222 @@ const styles = StyleSheet.create({
     fontVariant: ['tabular-nums'],
     letterSpacing: 0.5,
   },
+  plaqueRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  plaquePin: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#5c4a38',
+    borderWidth: 0.5,
+    borderColor: '#8b7358',
+  },
   champVisual: {
-    width: 52,
-    height: 72,
+    width: 56,
+    height: 76,
     alignItems: 'center',
     justifyContent: 'flex-end',
   },
-  champHalo: {
+  champAura: {
     position: 'absolute',
-    top: 2,
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: 'rgba(245, 215, 110, 0.15)',
+    top: 10,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(212, 175, 55, 0.2)',
+    shadowColor: '#f5d76e',
+    shadowOpacity: 0.4,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 0 },
   },
-  champStar: {
-    position: 'absolute',
-    top: 8,
-    zIndex: 3,
+  champCupWrap: {
+    width: 50,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    zIndex: 2,
   },
   champHandleLeft: {
     position: 'absolute',
-    top: 22,
-    left: 4,
-    width: 8,
-    height: 18,
-    borderWidth: 2,
-    borderColor: '#d4af37',
+    left: 0,
+    top: 10,
+    width: 11,
+    height: 24,
+    borderWidth: 2.5,
+    borderColor: '#e8c547',
     borderRightWidth: 0,
-    borderTopLeftRadius: 8,
-    borderBottomLeftRadius: 8,
+    borderTopLeftRadius: 14,
+    borderBottomLeftRadius: 14,
+    opacity: 0.9,
   },
   champHandleRight: {
     position: 'absolute',
-    top: 22,
-    right: 4,
-    width: 8,
-    height: 18,
-    borderWidth: 2,
-    borderColor: '#d4af37',
+    right: 0,
+    top: 10,
+    width: 11,
+    height: 24,
+    borderWidth: 2.5,
+    borderColor: '#e8c547',
     borderLeftWidth: 0,
+    borderTopRightRadius: 14,
+    borderBottomRightRadius: 14,
+    opacity: 0.9,
+  },
+  champCupOuter: {
+    width: 34,
+    height: 36,
+    borderTopLeftRadius: 8,
     borderTopRightRadius: 8,
-    borderBottomRightRadius: 8,
-  },
-  champBowl: {
-    width: 38,
-    height: 22,
-    borderTopLeftRadius: 18,
-    borderTopRightRadius: 18,
-    borderBottomLeftRadius: 4,
-    borderBottomRightRadius: 4,
-    backgroundColor: '#e8c547',
-    borderWidth: 1,
-    borderColor: '#b8860b',
+    borderBottomLeftRadius: 6,
+    borderBottomRightRadius: 6,
+    borderWidth: 1.5,
+    borderColor: '#f0d060',
+    backgroundColor: '#a88420',
     overflow: 'hidden',
-    zIndex: 2,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
   },
-  champBowlShine: {
+  champCupLid: {
     position: 'absolute',
-    top: 3,
-    left: 6,
-    width: 10,
-    height: 8,
-    borderRadius: 5,
-    backgroundColor: 'rgba(255,255,255,0.35)',
-  },
-  champNeck: {
-    width: 10,
+    top: -3,
+    width: 14,
     height: 6,
+    borderTopLeftRadius: 4,
+    borderTopRightRadius: 4,
+    backgroundColor: '#f5d76e',
+    borderWidth: 1,
+    borderColor: '#d4af37',
+    zIndex: 3,
+  },
+  champCupRim: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 5,
+    backgroundColor: 'rgba(255,245,200,0.25)',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.15)',
+  },
+  champCupInner: {
+    flex: 1,
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingTop: 5,
+    paddingBottom: 3,
+  },
+  champCupGoldFill: {
+    ...StyleSheet.absoluteFillObject,
+    top: 6,
     backgroundColor: '#c9a227',
-    marginTop: -1,
+  },
+  champCupGoldBand: {
+    position: 'absolute',
+    top: 8,
+    left: 4,
+    right: 4,
+    height: 2,
+    borderRadius: 1,
+    backgroundColor: 'rgba(255,230,150,0.35)',
+  },
+  champCupGoldDepth: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 10,
+    backgroundColor: 'rgba(90, 60, 10, 0.25)',
+  },
+  champStarMedallion: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(120, 85, 15, 0.8)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 230, 160, 0.45)',
+    zIndex: 4,
+  },
+  champStarHalo: {
+    position: 'absolute',
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: 'rgba(255, 240, 180, 0.15)',
+  },
+  champCupShineLeft: {
+    position: 'absolute',
+    top: 8,
+    left: 5,
+    width: 4,
+    height: 16,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255,255,255,0.22)',
+    zIndex: 5,
+  },
+  champCupShineRight: {
+    position: 'absolute',
+    top: 12,
+    right: 6,
+    width: 2,
+    height: 9,
+    borderRadius: 1,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    zIndex: 5,
+  },
+  champStem: {
+    width: 5,
+    height: 11,
+    marginTop: 1,
+    backgroundColor: '#c9a227',
+    borderRadius: 2,
+    alignItems: 'center',
     zIndex: 1,
   },
-  champPedestal: {
-    alignItems: 'center',
-    marginTop: 2,
+  champStemRing: {
+    position: 'absolute',
+    top: 3,
+    width: 9,
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: '#f0d060',
   },
-  champPedestalTop: {
-    width: 22,
-    height: 5,
-    backgroundColor: '#d4af37',
+  champPlinth: {
+    alignItems: 'center',
+    marginTop: 1,
+  },
+  champPlinthCap: {
+    width: 18,
+    height: 3,
     borderTopLeftRadius: 2,
     borderTopRightRadius: 2,
+    backgroundColor: '#d4af37',
   },
-  champPedestalBase: {
-    width: 32,
-    height: 8,
-    backgroundColor: '#8b6914',
-    borderBottomLeftRadius: 3,
-    borderBottomRightRadius: 3,
+  champPlinthBody: {
+    width: 34,
+    height: 9,
+    borderRadius: 3,
+    backgroundColor: '#3d3010',
     borderWidth: 1,
     borderColor: '#6b5420',
-    borderTopWidth: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  champPlinthInset: {
+    width: 22,
+    height: 2,
+    borderRadius: 1,
+    backgroundColor: 'rgba(255,255,255,0.08)',
   },
   wineVisual: {
     width: 56,
@@ -603,13 +917,14 @@ const styles = StyleSheet.create({
   emptyCabinet: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 48,
-    paddingHorizontal: 24,
-    borderRadius: 16,
-    backgroundColor: '#221810',
+    paddingVertical: 40,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    backgroundColor: '#1a120c',
     borderWidth: 1,
-    borderColor: '#3d2e1f',
+    borderColor: '#3d3018',
     overflow: 'hidden',
+    minHeight: 200,
   },
   emptyGlow: {
     position: 'absolute',

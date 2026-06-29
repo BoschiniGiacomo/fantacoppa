@@ -1404,12 +1404,14 @@ const styles = StyleSheet.create({
   trophiesCard: {
     flex: 1,
     minHeight: 0,
-    backgroundColor: 'transparent',
+    backgroundColor: '#12100e',
     borderWidth: 0,
-    padding: 0,
+    padding: 8,
+    borderRadius: 0,
   },
   trophiesScrollContent: {
-    paddingBottom: 12,
+    paddingBottom: 16,
+    flexGrow: 1,
   },
   seasonCard: {
     flex: 1,
