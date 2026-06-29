@@ -2786,6 +2786,16 @@ async function buildOfficialGroupHallOfFame(competitionId) {
   const winnersByYear = [];
   const titleBuckets = new Map();
 
+  const setBucketTeamId = (bucket, teamId, year) => {
+    const tid = Number(teamId);
+    const y = Number(year);
+    if (!Number.isFinite(tid) || tid <= 0 || !Number.isFinite(y)) return;
+    if (bucket.team_id_year == null || y >= bucket.team_id_year) {
+      bucket.team_id = tid;
+      bucket.team_id_year = y;
+    }
+  };
+
   const ensureTeamBucket = (norm, teamName, logoPath) => {
     if (!titleBuckets.has(norm)) {
       titleBuckets.set(norm, {
@@ -2795,6 +2805,8 @@ async function buildOfficialGroupHallOfFame(competitionId) {
         wine_trophies: 0,
         wine_years: [],
         team_logo_path: logoPath,
+        team_id: null,
+        team_id_year: null,
       });
     }
     const bucket = titleBuckets.get(norm);
@@ -2828,6 +2840,7 @@ async function buildOfficialGroupHallOfFame(competitionId) {
         const prev = ensureTeamBucket(norm, winner.team_name, logoPath);
         prev.titles += 1;
         prev.years.push(year);
+        setBucketTeamId(prev, winner.team_id, year);
       }
     }
 
@@ -2840,6 +2853,7 @@ async function buildOfficialGroupHallOfFame(competitionId) {
         const wineBucket = ensureTeamBucket(wineNorm, wineWinner.team_name, wineLogoPath);
         wineBucket.wine_trophies += 1;
         wineBucket.wine_years.push(year);
+        setBucketTeamId(wineBucket, wineWinner.team_id, year);
       }
     }
   }
@@ -2848,6 +2862,7 @@ async function buildOfficialGroupHallOfFame(competitionId) {
   const ranking = [...titleBuckets.values()]
     .filter((r) => Number(r.titles) > 0 || Number(r.wine_trophies) > 0)
     .map((r) => ({
+      team_id: r.team_id != null ? Number(r.team_id) : null,
       team_name: r.team_name,
       titles: r.titles,
       years: [...r.years].sort((a, b) => b - a),

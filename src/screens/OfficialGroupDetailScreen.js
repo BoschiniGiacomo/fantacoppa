@@ -521,6 +521,16 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
     }
   }, [competitionId]);
 
+  const openOfficialTeamDetail = useCallback((teamId, teamName) => {
+    const tid = Number(teamId);
+    if (!tid || tid <= 0 || !competitionId) return;
+    navigation.navigate('OfficialTeamDetail', {
+      teamId: tid,
+      competitionId,
+      teamName: String(teamName || '').trim() || '-',
+    });
+  }, [navigation, competitionId]);
+
   useEffect(() => {
     if (activeTab !== 'hall') return;
     void loadHallOfFame();
@@ -1130,7 +1140,9 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
                       </Text>
                     </TouchableOpacity>
                   </View>
-                  {sortedHallRanking.map((r, i) => (
+                  {sortedHallRanking.map((r, i) => {
+                    const rowTeamId = Number(r?.team_id);
+                    return (
                     <View
                       key={`hall-rank-${String(r.team_name || i)}`}
                       style={[styles.seasonTableRow, styles.hallTableRow, i === sortedHallRanking.length - 1 && styles.seasonTableRowLast]}
@@ -1138,7 +1150,12 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
                       <View style={styles.hallPosCol}>
                         <Text style={[styles.seasonTd, styles.hallTdPos]}>{i + 1}</Text>
                       </View>
-                      <View style={[styles.teamCell, styles.hallTeamCell, { flex: 1 }]}>
+                      <TouchableOpacity
+                        style={[styles.teamCell, styles.hallTeamCell, { flex: 1 }]}
+                        activeOpacity={0.75}
+                        disabled={!rowTeamId || rowTeamId <= 0}
+                        onPress={() => openOfficialTeamDetail(rowTeamId, r.team_name)}
+                      >
                         <TeamRowLogo
                           logoUrl={r.team_logo_url}
                           logoPath={r.team_logo_path}
@@ -1156,7 +1173,7 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
                             </Text>
                           ) : null}
                         </View>
-                      </View>
+                      </TouchableOpacity>
                       <View style={styles.hallMetricCol}>
                         <Text style={[styles.seasonTd, styles.hallTdTitoli]}>{r.titles ?? 0}</Text>
                       </View>
@@ -1164,20 +1181,29 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
                         <Text style={[styles.seasonTd, styles.hallTdWine]}>{r.wine_trophies ?? 0}</Text>
                       </View>
                     </View>
-                  ))}
+                    );
+                  })}
                 </View>
                 {hallWinnersByYear.length > 0 ? (
                   <>
                     <Text style={[styles.hallSectionTitle, styles.hallSectionTitleSpaced]}>Vincitori per stagione</Text>
-                    {hallWinnersByYear.map((w) => (
+                    {hallWinnersByYear.map((w) => {
+                      const rowTeamId = Number(w?.team_id);
+                      return (
                       <View key={`hall-year-${w.year}`} style={styles.hallYearRow}>
                         <Text style={styles.hallYearLabel}>{w.year}</Text>
-                        <View style={styles.hallYearTeam}>
+                        <TouchableOpacity
+                          style={styles.hallYearTeam}
+                          activeOpacity={0.75}
+                          disabled={!rowTeamId || rowTeamId <= 0}
+                          onPress={() => openOfficialTeamDetail(rowTeamId, w.team_name)}
+                        >
                           <TeamRowLogo logoUrl={w.team_logo_url} logoPath={w.team_logo_path} />
                           <Text style={styles.hallYearTeamName} numberOfLines={1}>{w.team_name || '-'}</Text>
-                        </View>
+                        </TouchableOpacity>
                       </View>
-                    ))}
+                      );
+                    })}
                   </>
                 ) : null}
               </ScrollView>
