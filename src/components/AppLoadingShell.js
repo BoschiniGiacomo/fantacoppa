@@ -36,7 +36,7 @@ export default function AppLoadingShell({ uri, mediaType, progress = 0 }) {
         />
       ) : null}
       {hasMedia && isVideo ? (
-        <LoopingVideoView uri={uri} style={styles.mediaFull} contentFit="cover" />
+        <LoopingVideoView key={uri} uri={uri} style={styles.mediaFull} contentFit="cover" />
       ) : null}
       {!hasMedia ? (
         <View style={styles.fallbackWrap}>
