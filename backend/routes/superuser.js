@@ -192,10 +192,12 @@ function normalizePlayerBirthYear(player) {
 }
 
 function buildSuggestionLeagueEntry(player) {
+  const refYear = player.reference_year != null ? Number(player.reference_year) : null;
   return {
     player_id: Number(player.id),
     league_id: Number(player.league_id),
     league_name: player.league_name || '-',
+    reference_year: Number.isFinite(refYear) ? refYear : null,
     team_name: player.team_name || '-',
     role: player.role || null,
     birth_year: normalizePlayerBirthYear(player),
@@ -872,7 +874,9 @@ router.get('/player-clusters/suggestions/:groupId', authenticateToken, requireSu
 
     // All players in the group's leagues with their league info
     const allPlayers = await query(
-      `SELECT p.id, p.first_name, p.last_name, p.role, p.birth_year, t.league_id, t.name AS team_name, l.name AS league_name
+      `SELECT p.id, p.first_name, p.last_name, p.role, p.birth_year, t.league_id, t.name AS team_name,
+              l.name AS league_name,
+              NULLIF(to_jsonb(l)->>'reference_year','')::int AS reference_year
        FROM players p
        JOIN teams t ON p.team_id = t.id
        JOIN leagues l ON t.league_id = l.id

@@ -100,16 +100,40 @@ function buildSuggestionPlayerList(suggestion) {
     const pid = Number(l.player_id);
     if (!pid || seen.has(pid)) continue;
     seen.add(pid);
+    const refYear = l.reference_year != null ? Number(l.reference_year) : null;
     entries.push({
       player_id: pid,
+      league_id: Number(l.league_id) || null,
       league_name: l.league_name || '-',
+      reference_year: Number.isFinite(refYear) ? refYear : null,
       team_name: l.team_name || '-',
       role: l.role || null,
       birth_year: l.birth_year ?? null,
       in_cluster: existingIds.has(pid),
     });
   }
-  return entries;
+  return entries.sort((a, b) => {
+    const ya = Number(a.reference_year);
+    const yb = Number(b.reference_year);
+    const aHasYear = Number.isFinite(ya);
+    const bHasYear = Number.isFinite(yb);
+    if (aHasYear && bHasYear && ya !== yb) return yb - ya;
+    if (aHasYear && !bHasYear) return -1;
+    if (!aHasYear && bHasYear) return 1;
+    return String(a.league_name).localeCompare(String(b.league_name), 'it');
+  });
+}
+
+function hasDuplicateSelectedLeague(players, selected) {
+  const leagueCounts = new Map();
+  for (const p of players || []) {
+    if (!selected?.[p.player_id]) continue;
+    const lid = Number(p.league_id);
+    if (!Number.isFinite(lid) || lid <= 0) continue;
+    leagueCounts.set(lid, (leagueCounts.get(lid) || 0) + 1);
+    if (leagueCounts.get(lid) > 1) return true;
+  }
+  return false;
 }
 
 function buildApprovedClustersByPlayer(allClusters) {
@@ -548,6 +572,22 @@ export default function SuperUserScreen() {
   };
 
   const toggleSuggestionEditPlayer = (playerId, value) => {
+    if (value && suggestionEditModal) {
+      const target = (suggestionEditModal.players || []).find((p) => Number(p.player_id) === Number(playerId));
+      const targetLeagueId = Number(target?.league_id);
+      if (Number.isFinite(targetLeagueId) && targetLeagueId > 0) {
+        const conflict = (suggestionEditModal.players || []).some(
+          (p) =>
+            suggestionEditModal.selected?.[p.player_id]
+            && Number(p.league_id) === targetLeagueId
+            && Number(p.player_id) !== Number(playerId)
+        );
+        if (conflict) {
+          showToast('C\'è già un giocatore selezionato per questa lega/stagione');
+          return;
+        }
+      }
+    }
     setSuggestionEditModal((prev) => {
       if (!prev) return prev;
       return {
@@ -576,6 +616,11 @@ export default function SuperUserScreen() {
       }
     } else if (playerIds.length < 2) {
       showToast('Seleziona almeno 2 giocatori per creare il cluster');
+      return;
+    }
+
+    if (hasDuplicateSelectedLeague(suggestionEditModal.players, selected)) {
+      showToast('Non puoi associare due giocatori della stessa lega/stagione');
       return;
     }
 
@@ -3116,6 +3161,7 @@ export default function SuperUserScreen() {
                   <View key={`sug-edit-${pid}`} style={styles.suggestionEditRow}>
                     <View style={styles.suggestionEditRowInfo}>
                       <Text style={styles.suggestionEditLeague} numberOfLines={1}>
+                        {player.reference_year ? `${player.reference_year} · ` : ''}
                         {player.league_name}
                       </Text>
                       <Text style={styles.suggestionEditMeta}>
