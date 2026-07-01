@@ -11,7 +11,7 @@ const {
 } = require('../utils/lineupResolver');
 const {
   ensureMatchdaysGhostSchema,
-  userCanSeeGhostMatchdays,
+  isGhostMatchday,
   filterGhostMatchdaysForUser,
 } = require('../utils/matchdayGhost');
 
@@ -219,7 +219,6 @@ router.get('/:leagueId/matchdays', authenticateToken, async (req, res) => {
     const userId = Number(req.user.userId);
     await ensureMatchdaysGhostSchema();
     const effectiveLeagueId = await getEffectiveLeagueId(leagueId);
-    const canSeeGhost = await userCanSeeGhostMatchdays(userId, leagueId);
     const [rows, lineupRows] = await Promise.all([
       query(
         `SELECT giornata,
@@ -237,7 +236,7 @@ router.get('/:leagueId/matchdays', authenticateToken, async (req, res) => {
       ),
     ]);
     const lineupSet = new Set(lineupRows.map(r => Number(r.giornata)));
-    const enriched = filterGhostMatchdaysForUser(rows, canSeeGhost).map(r => ({
+    const enriched = filterGhostMatchdaysForUser(rows, false).map(r => ({
       ...r,
       has_formation: lineupSet.has(Number(r.giornata)),
     }));
@@ -253,6 +252,9 @@ router.get('/:leagueId/:giornata/deadline', authenticateToken, async (req, res) 
     const leagueId = Number(req.params.leagueId);
     const effectiveLeagueId = await getEffectiveLeagueId(leagueId);
     const giornata = Number(req.params.giornata);
+    if (await isGhostMatchday(effectiveLeagueId, giornata)) {
+      return res.status(404).json({ message: 'Giornata non disponibile' });
+    }
     const rows = await query(
       `SELECT to_char((deadline AT TIME ZONE 'Europe/Rome'), 'YYYY-MM-DD HH24:MI:SS') AS deadline
        FROM matchdays
@@ -275,9 +277,13 @@ router.get('/:leagueId/:giornata', authenticateToken, async (req, res) => {
     const giornata = Number(req.params.giornata);
     const userId = Number(req.user.userId);
 
+    const effectiveLeagueId = await getEffectiveLeagueId(leagueId);
+    if (await isGhostMatchday(effectiveLeagueId, giornata)) {
+      return res.status(404).json({ message: 'Giornata non disponibile' });
+    }
+
     // Phase 1: all independent queries in parallel
-    const [effectiveLeagueId, injuryMap, lineupRows] = await Promise.all([
-      getEffectiveLeagueId(leagueId),
+    const [injuryMap, lineupRows] = await Promise.all([
       getInjuryReplacementMap(leagueId),
       query(
         `SELECT modulo, titolari, panchina
@@ -521,6 +527,9 @@ router.post('/:leagueId/:giornata', authenticateToken, async (req, res) => {
     if (!modulo) return res.status(400).json({ message: 'Modulo obbligatorio' });
 
     const effectiveLeagueId = await getEffectiveLeagueId(leagueId);
+    if (await isGhostMatchday(effectiveLeagueId, giornata)) {
+      return res.status(400).json({ message: 'Le giornate fantasma non richiedono formazione' });
+    }
     const dRows = await query(
       `SELECT to_char((deadline AT TIME ZONE 'Europe/Rome'), 'YYYY-MM-DD HH24:MI:SS') AS deadline
        FROM matchdays

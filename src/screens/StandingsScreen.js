@@ -65,11 +65,15 @@ function matchesStandingsSearch(item, query) {
   return haystack.includes(q);
 }
 
+function excludeGhostMatchdays(list) {
+  return (Array.isArray(list) ? list : []).filter((md) => Number(md?.is_ghost) !== 1);
+}
+
 function pickDefaultMatchday(matchdays, matchdayStatuses = []) {
-  const mdList = Array.isArray(matchdays) ? matchdays : [];
+  const mdList = excludeGhostMatchdays(matchdays);
   if (mdList.length <= 0) return null;
 
-  const statusList = Array.isArray(matchdayStatuses) ? matchdayStatuses : [];
+  const statusList = excludeGhostMatchdays(matchdayStatuses);
   if (statusList.length <= 0) {
     return Number(mdList[mdList.length - 1]?.giornata || null);
   }
@@ -220,8 +224,8 @@ export default function StandingsScreen({ route, navigation }) {
       if (Array.isArray(standingsData)) setStandings(standingsData);
       else if (standingsData && typeof standingsData === 'object') setStandings(Object.values(standingsData));
       else setStandings([]);
-      setMatchdays(Array.isArray(warmMd) ? warmMd : []);
-      const mdArr = Array.isArray(warmMd) ? warmMd : [];
+      setMatchdays(excludeGhostMatchdays(warmMd));
+      const mdArr = excludeGhostMatchdays(warmMd);
       if (mdArr.length > 0 && !selectedMatchday) {
         setSelectedMatchday(mdArr[mdArr.length - 1].giornata);
       }
@@ -248,7 +252,7 @@ export default function StandingsScreen({ route, navigation }) {
       setStandingsFull(leagueId, standingsRes.data);
 
       const matchdaysData = matchdaysRes.data;
-      const mdList = Array.isArray(matchdaysData) ? matchdaysData : [];
+      const mdList = excludeGhostMatchdays(matchdaysData);
       setMatchdays(mdList);
       setFormationMatchdays(leagueId, mdList);
       const defaultMatchday = pickDefaultMatchday(mdList, statusRes?.data || []);

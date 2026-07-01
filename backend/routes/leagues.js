@@ -3425,8 +3425,6 @@ router.get('/:id/matchday-status', authenticateToken, async (req, res) => {
     if (!leagueId) return res.status(400).json({ message: 'League ID non valido' });
     await ensureMatchdaysGhostSchema();
     const effectiveLeagueId = await getEffectiveLeagueId(leagueId);
-    const userId = Number(req.user.userId);
-    const canSeeGhost = await userCanSeeGhostMatchdays(userId, leagueId);
     let rows = await query(
       `SELECT m.giornata,
               to_char((m.deadline AT TIME ZONE 'Europe/Rome'), 'YYYY-MM-DD HH24:MI:SS') AS deadline,
@@ -3479,7 +3477,7 @@ router.get('/:id/matchday-status', authenticateToken, async (req, res) => {
         [effectiveLeagueId, effectiveLeagueId, leagueId, leagueId, effectiveLeagueId, leagueId]
       );
     }
-    res.json(filterGhostMatchdaysForUser(rows, canSeeGhost));
+    res.json(filterGhostMatchdaysForUser(rows, false));
   } catch (_) {
     res.json([]);
   }
