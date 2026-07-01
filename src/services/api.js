@@ -686,6 +686,10 @@ export const superuserService = {
   getOfficialGroups: () => api.get('/superuser/official-groups'),
   createOfficialGroup: (data) => api.post('/superuser/official-groups', data),
   updateOfficialGroup: (groupId, data) => api.put(`/superuser/official-groups/${groupId}`, data),
+  setOfficialGroupMainMenu: (groupId, showInMainMenu) =>
+    api.put(`/superuser/official-groups/${groupId}/main-menu`, {
+      show_in_main_menu: !!showInMainMenu,
+    }),
   deleteOfficialGroup: (groupId) => api.delete(`/superuser/official-groups/${groupId}`),
   getOfficialGroupLeagues: (groupId) => api.get(`/superuser/official-groups/${groupId}/leagues`),
   updateOfficialLeagueReferenceYear: (groupId, leagueId, referenceYear) =>

@@ -77,6 +77,13 @@ async function ensureSuperuserTables() {
   } catch (_) {}
 }
 
+async function ensureOfficialGroupMenuSchema() {
+  await query(`ALTER TABLE official_league_groups ADD COLUMN IF NOT EXISTS logo_path TEXT`);
+  await query(
+    `ALTER TABLE official_league_groups ADD COLUMN IF NOT EXISTS show_in_main_menu SMALLINT NOT NULL DEFAULT 0`
+  );
+}
+
 async function requireSuperuser(req, res, next) {
   try {
     const rows = await query(`SELECT COALESCE(is_superuser, 0) AS is_superuser FROM users WHERE id = ? LIMIT 1`, [Number(req.user?.userId)]);
@@ -670,16 +677,17 @@ router.put('/leagues/:id/hidden-from-discovery', authenticateToken, requireSuper
 
 router.get('/official-groups', authenticateToken, requireSuperuser, async (_req, res) => {
   try {
-    await query(`ALTER TABLE official_league_groups ADD COLUMN IF NOT EXISTS logo_path TEXT`);
+    await ensureOfficialGroupMenuSchema();
     const rows = await query(
       `SELECT og.id, og.name, og.description, og.created_by, og.created_at,
               COALESCE(NULLIF(to_jsonb(og)->>'logo_path',''), NULLIF(og.logo_path, '')) AS logo_path,
+              COALESCE(og.show_in_main_menu, 0)::int AS show_in_main_menu,
               COALESCE(u.username, '') AS created_by_username,
               COUNT(l.id)::int AS league_count
        FROM official_league_groups og
        LEFT JOIN leagues l ON l.official_group_id = og.id
        LEFT JOIN users u ON u.id = og.created_by
-       GROUP BY og.id, og.name, og.description, og.created_by, og.created_at, og.logo_path, u.username
+       GROUP BY og.id, og.name, og.description, og.created_by, og.created_at, og.logo_path, og.show_in_main_menu, u.username
        ORDER BY og.created_at DESC, og.id DESC`
     );
     return res.json(rows);
@@ -738,6 +746,34 @@ router.put('/official-groups/:id', authenticateToken, requireSuperuser, async (r
     return res.json({ success: true });
   } catch (error) {
     return res.status(500).json({ message: 'Errore aggiornamento gruppo ufficiale', error: error.message });
+  }
+});
+
+router.put('/official-groups/:id/main-menu', authenticateToken, requireSuperuser, async (req, res) => {
+  try {
+    const groupId = Number(req.params.id);
+    const enabled =
+      req.body?.show_in_main_menu === true ||
+      req.body?.show_in_main_menu === 1 ||
+      req.body?.enabled === true;
+
+    if (!groupId || groupId <= 0) return res.status(400).json({ message: 'ID gruppo non valido' });
+
+    await ensureOfficialGroupMenuSchema();
+
+    const exists = await query(`SELECT id FROM official_league_groups WHERE id = ? LIMIT 1`, [groupId]);
+    if (!exists.length) return res.status(404).json({ message: 'Gruppo non trovato' });
+
+    if (enabled) {
+      await query(`UPDATE official_league_groups SET show_in_main_menu = 0`);
+      await query(`UPDATE official_league_groups SET show_in_main_menu = 1 WHERE id = ?`, [groupId]);
+    } else {
+      await query(`UPDATE official_league_groups SET show_in_main_menu = 0 WHERE id = ?`, [groupId]);
+    }
+
+    return res.json({ success: true, show_in_main_menu: enabled ? 1 : 0 });
+  } catch (error) {
+    return res.status(500).json({ message: 'Errore aggiornamento menu principale', error: error.message });
   }
 });
 

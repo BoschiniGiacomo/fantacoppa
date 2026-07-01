@@ -9,8 +9,6 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { StatusBar } from 'expo-status-bar';
 import { View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
 
 // Context
 import { AuthProvider, useAuth } from './src/context/AuthContext';
@@ -54,6 +52,7 @@ import LiveScoresScreen from './src/screens/LiveScoresScreen';
 import UpdateRequiredScreen from './src/screens/UpdateRequiredScreen';
 
 // Components
+import MainTabBar from './src/components/MainTabBar';
 import LeagueHamburgerMenu from './src/components/LeagueHamburgerMenu';
 import LeagueBottomMenu from './src/components/LeagueBottomMenu';
 import { OnboardingProvider } from './src/context/OnboardingContext';
@@ -140,28 +139,10 @@ function MainTabs() {
 
   return (
     <Tab.Navigator
-      screenOptions={({ route }) => ({
-        tabBarIcon: ({ focused, color, size }) => {
-          let iconName;
-
-          if (route.name === 'Partite') {
-            return <MaterialCommunityIcons name="soccer-field" size={size} color={color} />;
-          }
-
-          if (route.name === 'Dashboard') {
-            iconName = focused ? 'home' : 'home-outline';
-          } else if (route.name === 'Leghe') {
-            iconName = focused ? 'trophy' : 'trophy-outline';
-          } else if (route.name === 'Profilo') {
-            iconName = focused ? 'person' : 'person-outline';
-          }
-
-          return <Ionicons name={iconName} size={size} color={color} />;
-        },
-        tabBarActiveTintColor: '#667eea',
-        tabBarInactiveTintColor: 'gray',
+      tabBar={(props) => <MainTabBar {...props} />}
+      screenOptions={{
         headerShown: false,
-      })}
+      }}
     >
       <Tab.Screen 
         name="Dashboard" 

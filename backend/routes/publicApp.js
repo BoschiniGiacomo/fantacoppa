@@ -65,6 +65,30 @@ router.post('/media-cache-event', (req, res) => {
 });
 
 /**
+ * GET /api/public/menu-official-group
+ * Gruppo ufficiale da mostrare nel pulsante centrale del menu principale (se impostato).
+ */
+router.get('/menu-official-group', async (_req, res) => {
+  try {
+    await query(
+      `ALTER TABLE official_league_groups ADD COLUMN IF NOT EXISTS show_in_main_menu SMALLINT NOT NULL DEFAULT 0`
+    );
+    const rows = await query(
+      `SELECT og.id, og.name,
+              COALESCE(NULLIF(to_jsonb(og)->>'logo_path',''), NULLIF(og.logo_path, '')) AS logo_path
+       FROM official_league_groups og
+       WHERE COALESCE(og.show_in_main_menu, 0) = 1
+       ORDER BY og.id ASC
+       LIMIT 1`
+    );
+    if (!rows.length) return res.json(null);
+    return res.json(rows[0]);
+  } catch (error) {
+    return res.status(500).json({ message: 'Errore lettura gruppo menu', error: error.message });
+  }
+});
+
+/**
  * GET /api/public/login-background
  * Pubblico (nessun token): sfondo pagina di login.
  */

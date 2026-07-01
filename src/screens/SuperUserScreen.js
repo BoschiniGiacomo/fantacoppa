@@ -257,6 +257,7 @@ export default function SuperUserScreen() {
   const [selectedGroupForEdit, setSelectedGroupForEdit] = useState(null);
   const [showGroupDetailModal, setShowGroupDetailModal] = useState(false);
   const [uploadingGroupLogo, setUploadingGroupLogo] = useState(false);
+  const [togglingMenuGroupId, setTogglingMenuGroupId] = useState(null);
   const [referenceYearDrafts, setReferenceYearDrafts] = useState({});
   const [expandedGroupLeagueIds, setExpandedGroupLeagueIds] = useState({});
   /** @type {Record<string, Array<{id:number,name:string,girone_index?:number|null}>>} */
@@ -386,6 +387,29 @@ export default function SuperUserScreen() {
     } finally {
       setLoadingOfficialGroups(false);
       setRefreshingOfficialGroups(false);
+    }
+  };
+
+  const handleToggleMainMenuGroup = async (item) => {
+    const isSelected = Number(item.show_in_main_menu) === 1;
+    setTogglingMenuGroupId(item.id);
+    try {
+      await superuserService.setOfficialGroupMainMenu(item.id, !isSelected);
+      setOfficialGroups((prev) =>
+        prev.map((group) => ({
+          ...group,
+          show_in_main_menu: group.id === item.id ? (isSelected ? 0 : 1) : 0,
+        }))
+      );
+      showToast(
+        isSelected ? 'Gruppo rimosso dal menu principale' : `"${item.name}" mostrato nel menu principale`,
+        'success'
+      );
+    } catch (error) {
+      console.error('Error toggling main menu group:', error);
+      showToast('Impossibile aggiornare il menu principale');
+    } finally {
+      setTogglingMenuGroupId(null);
     }
   };
   
@@ -2217,9 +2241,20 @@ export default function SuperUserScreen() {
               <FlatList
                 data={officialGroups}
                 keyExtractor={(item) => item.id.toString()}
+                ListHeaderComponent={
+                  <View style={styles.officialMenuHint}>
+                    <Ionicons name="ellipse" size={16} color="#667eea" />
+                    <Text style={styles.officialMenuHintText}>
+                      Scegli quale gruppo mostrare nel pulsante centrale del menu principale. Solo un gruppo alla volta.
+                    </Text>
+                  </View>
+                }
                 renderItem={({ item }) => (
                   <TouchableOpacity
-                    style={styles.officialGroupItem}
+                    style={[
+                      styles.officialGroupItem,
+                      Number(item.show_in_main_menu) === 1 && styles.officialGroupItemMenuActive,
+                    ]}
                     onPress={async () => {
                       try {
                         const response = await superuserService.getOfficialGroupLeagues(item.id);
@@ -2264,7 +2299,33 @@ export default function SuperUserScreen() {
                       <Text style={styles.officialGroupStats}>
                         {item.league_count} leghe • Creato da {item.created_by_username} • {formatDateTime(item.created_at)}
                       </Text>
+                      {Number(item.show_in_main_menu) === 1 ? (
+                        <Text style={styles.officialGroupMenuBadge}>Nel menu principale</Text>
+                      ) : null}
                     </View>
+                    <TouchableOpacity
+                      style={[
+                        styles.menuGroupPinBtn,
+                        Number(item.show_in_main_menu) === 1 && styles.menuGroupPinBtnActive,
+                      ]}
+                      onPress={() => handleToggleMainMenuGroup(item)}
+                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                      accessibilityLabel={
+                        Number(item.show_in_main_menu) === 1
+                          ? `Rimuovi ${item.name} dal menu principale`
+                          : `Mostra ${item.name} nel menu principale`
+                      }
+                    >
+                      {togglingMenuGroupId === item.id ? (
+                        <ActivityIndicator size="small" color="#667eea" />
+                      ) : (
+                        <Ionicons
+                          name={Number(item.show_in_main_menu) === 1 ? 'radio-button-on' : 'radio-button-off'}
+                          size={24}
+                          color={Number(item.show_in_main_menu) === 1 ? '#667eea' : '#c8ced8'}
+                        />
+                      )}
+                    </TouchableOpacity>
                     <Ionicons name="chevron-forward" size={20} color="#ccc" />
                   </TouchableOpacity>
                 )}
@@ -4518,6 +4579,47 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 2,
     elevation: 2,
+  },
+  officialGroupItemMenuActive: {
+    borderWidth: 1.5,
+    borderColor: '#c7d2fe',
+    backgroundColor: '#f8f9ff',
+  },
+  officialMenuHint: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    marginHorizontal: 16,
+    marginBottom: 14,
+    padding: 14,
+    backgroundColor: '#f4f6ff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e4e9ff',
+  },
+  officialMenuHintText: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 18,
+    color: '#5b6478',
+  },
+  menuGroupPinBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 6,
+    backgroundColor: '#f5f6fa',
+  },
+  menuGroupPinBtnActive: {
+    backgroundColor: '#eef1ff',
+  },
+  officialGroupMenuBadge: {
+    marginTop: 6,
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#667eea',
   },
   officialGroupInfo: {
     flex: 1,
