@@ -31,6 +31,7 @@ import {
   KNOCKOUT_BRACKET_LOGO_SIZE,
 } from '../utils/knockoutBracket';
 import OfficialKnockoutBracket from '../components/OfficialKnockoutBracket';
+import MatchVotesTab from '../components/MatchVotesTab';
 import {
   computeLiveHeroClock,
   continuationCumulativeMinute,
@@ -1129,6 +1130,7 @@ export default function MatchDetailScreen({ navigation, route }) {
   const { user } = useAuth();
   const superuserLevel = Number(user?.is_superuser || 0);
   const canManageLive = superuserLevel === 1 || superuserLevel === 2;
+  const canManageVoteLinks = superuserLevel === 1;
   const matchId = route?.params?.matchId;
   const from = String(route?.params?.from || '').trim();
   const fromTeamId = Number(route?.params?.teamId);
@@ -1197,6 +1199,22 @@ export default function MatchDetailScreen({ navigation, route }) {
   const [confirmDeleteEvent, setConfirmDeleteEvent] = useState(null);
   const [deletingLiveEventId, setDeletingLiveEventId] = useState(null);
   const [confirmTimerAdjust, setConfirmTimerAdjust] = useState(null);
+  const [votesTabMeta, setVotesTabMeta] = useState(null);
+
+  const loadVotesTabMeta = useCallback(async () => {
+    if (!matchId || !canManageLive) {
+      setVotesTabMeta(null);
+      return;
+    }
+    try {
+      const res = await adminMatchesService.getVotesTabMeta(matchId);
+      setVotesTabMeta(res?.data || { visible: false });
+    } catch {
+      setVotesTabMeta({ visible: false });
+    }
+  }, [matchId, canManageLive]);
+
+  const showVotesTab = !!(votesTabMeta?.visible);
 
   /** showLoading: solo al primo caricamento; refresh in background per focus/polling. */
   const loadDetail = useCallback(
@@ -1244,6 +1262,10 @@ export default function MatchDetailScreen({ navigation, route }) {
   useEffect(() => {
     void loadDetail({ showLoading: true });
   }, [matchId, loadDetail]);
+
+  useEffect(() => {
+    void loadVotesTabMeta();
+  }, [loadVotesTabMeta]);
 
   const DETAIL_POLL_MS = 8000;
   useFocusEffect(
@@ -1629,7 +1651,9 @@ export default function MatchDetailScreen({ navigation, route }) {
           ? Math.max(insets.bottom, 28) + 88
           : activeTab === 'standings'
             ? Math.max(insets.bottom, 28) + 18
-            : undefined;
+            : activeTab === 'votes'
+              ? Math.max(insets.bottom, 28) + 18
+              : undefined;
 
   const loadOverviewEditorOptions = useCallback(async () => {
     try {
@@ -2554,6 +2578,11 @@ export default function MatchDetailScreen({ navigation, route }) {
         <TouchableOpacity style={[styles.tabBtn, activeTab === 'live' && styles.tabBtnActive]} onPress={() => setActiveTab('live')}><Text style={[styles.tabText, activeTab === 'live' && styles.tabTextActive]}>Diretta</Text></TouchableOpacity>
         <TouchableOpacity style={[styles.tabBtn, activeTab === 'lineup' && styles.tabBtnActive]} onPress={() => setActiveTab('lineup')}><Text style={[styles.tabText, activeTab === 'lineup' && styles.tabTextActive]}>Formazione</Text></TouchableOpacity>
         <TouchableOpacity style={[styles.tabBtn, activeTab === 'standings' && styles.tabBtnActive]} onPress={() => setActiveTab('standings')}><Text style={[styles.tabText, activeTab === 'standings' && styles.tabTextActive]}>Classifica</Text></TouchableOpacity>
+        {showVotesTab ? (
+          <TouchableOpacity style={[styles.tabBtn, activeTab === 'votes' && styles.tabBtnActive]} onPress={() => setActiveTab('votes')}>
+            <Text style={[styles.tabText, activeTab === 'votes' && styles.tabTextActive]}>Voti</Text>
+          </TouchableOpacity>
+        ) : null}
       </ScrollView>
 
       <ScrollView
@@ -2980,6 +3009,22 @@ export default function MatchDetailScreen({ navigation, route }) {
             )}
           </>
         )}
+        {activeTab === 'votes' && showVotesTab ? (
+          <View style={styles.card}>
+            <MatchVotesTab
+              matchId={matchId}
+              canManageLinks={canManageVoteLinks}
+              onLinksUpdated={(data) => {
+                setVotesTabMeta((prev) => ({
+                  ...(prev || {}),
+                  visible: true,
+                  has_links: !!data?.has_links,
+                  can_manage_links: canManageVoteLinks,
+                }));
+              }}
+            />
+          </View>
+        ) : null}
       </ScrollView>
 
       {activeTab === 'overview' && canManageLive ? (

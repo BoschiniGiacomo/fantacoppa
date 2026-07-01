@@ -640,6 +640,11 @@ export const adminMatchesService = {
   getStandingsTies: (competitionId) => api.get(`admin/matches/standings/ties?competition_id=${encodeURIComponent(competitionId)}`),
   resolveStandingsTie: (payload) => api.post('admin/matches/standings/ties/resolve', payload),
   remove: (matchId) => api.delete(`admin/matches/${matchId}`),
+  getVotesTabMeta: (matchId) => api.get(`admin/matches/${matchId}/votes-tab-meta`),
+  getMatchdayLinks: (matchId) => api.get(`admin/matches/${matchId}/matchday-links`),
+  setMatchdayLinks: (matchId, payload) => api.put(`admin/matches/${matchId}/matchday-links`, payload),
+  getMatchVotes: (matchId) => api.get(`admin/matches/${matchId}/votes`),
+  saveMatchVotes: (matchId, payload) => api.post(`admin/matches/${matchId}/votes`, payload),
 };
 
 export const adminCompetitionsService = {

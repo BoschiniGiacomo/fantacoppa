@@ -7,6 +7,14 @@ const {
   ensureLeagueOfficialGironiSchema,
   assertOfficialGironiTeamsSameGroup,
 } = require('../utils/leagueOfficialGironi');
+const {
+  getMatchdayLinkOptions,
+  setMatchdayLinks,
+  getMatchVotesBundle,
+  saveMatchVotes,
+  getMatchLinkContext,
+  isOfficialLeague,
+} = require('../utils/officialMatchMatchdayLinks');
 
 function isMissingDbObjectError(err) {
   return err && (err.code === '42P01' || err.code === '42703'); // undefined_table / undefined_column
@@ -5367,5 +5375,131 @@ router.delete('/admin/match-details/stages/:id', authenticateToken, requireSuper
     return res.status(500).json({ message: 'Errore eliminazione stage', error: err.message });
   }
 });
+
+// --- Collegamento partite ufficiali ↔ giornate calendario lega ---
+
+router.get(
+  '/admin/matches/:matchId/matchday-links',
+  authenticateToken,
+  requireSuperuserLevels([1, 2]),
+  async (req, res) => {
+    try {
+      const matchId = Number(req.params.matchId);
+      if (!matchId || matchId <= 0) return res.status(400).json({ message: 'matchId non valido' });
+      const level = await getSuperuserLevel(req.user?.userId);
+      const data = await getMatchdayLinkOptions(matchId);
+      return res.json({
+        ...data,
+        can_manage_links: level === 1,
+      });
+    } catch (err) {
+      if (err?.status) return res.status(err.status).json({ message: err.message });
+      if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
+      return res.status(500).json({ message: 'Errore caricamento collegamenti', error: err.message });
+    }
+  }
+);
+
+router.put(
+  '/admin/matches/:matchId/matchday-links',
+  authenticateToken,
+  requireSuperuserLevels([1]),
+  async (req, res) => {
+    try {
+      const matchId = Number(req.params.matchId);
+      if (!matchId || matchId <= 0) return res.status(400).json({ message: 'matchId non valido' });
+      const userId = Number(req.user?.userId);
+      const data = await setMatchdayLinks(matchId, userId, {
+        home_matchday_id: req.body?.home_matchday_id,
+        away_matchday_id: req.body?.away_matchday_id,
+      });
+      return res.json({
+        ...data,
+        can_manage_links: true,
+        message: 'Collegamenti aggiornati',
+      });
+    } catch (err) {
+      if (err?.status) return res.status(err.status).json({ message: err.message });
+      if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
+      return res.status(500).json({ message: 'Errore aggiornamento collegamenti', error: err.message });
+    }
+  }
+);
+
+router.get(
+  '/admin/matches/:matchId/votes',
+  authenticateToken,
+  requireSuperuserLevels([1, 2]),
+  async (req, res) => {
+    try {
+      const matchId = Number(req.params.matchId);
+      if (!matchId || matchId <= 0) return res.status(400).json({ message: 'matchId non valido' });
+      const level = await getSuperuserLevel(req.user?.userId);
+      const data = await getMatchVotesBundle(matchId);
+      return res.json({ ...data, can_manage_links: level === 1 });
+    } catch (err) {
+      if (err?.status) return res.status(err.status).json({ message: err.message });
+      if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
+      return res.status(500).json({ message: 'Errore caricamento voti partita', error: err.message });
+    }
+  }
+);
+
+router.post(
+  '/admin/matches/:matchId/votes',
+  authenticateToken,
+  requireSuperuserLevels([1, 2]),
+  async (req, res) => {
+    try {
+      const matchId = Number(req.params.matchId);
+      if (!matchId || matchId <= 0) return res.status(400).json({ message: 'matchId non valido' });
+      const result = await saveMatchVotes(matchId, req.body || {});
+      return res.json(result);
+    } catch (err) {
+      if (err?.status) return res.status(err.status).json({ message: err.message });
+      if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
+      return res.status(500).json({ message: 'Errore salvataggio voti', error: err.message });
+    }
+  }
+);
+
+router.get(
+  '/admin/matches/:matchId/votes-tab-meta',
+  authenticateToken,
+  requireSuperuserLevels([1, 2]),
+  async (req, res) => {
+    try {
+      const matchId = Number(req.params.matchId);
+      if (!matchId || matchId <= 0) return res.status(400).json({ message: 'matchId non valido' });
+      const level = await getSuperuserLevel(req.user?.userId);
+      const ctx = await getMatchLinkContext(matchId);
+      if (!ctx || ctx.leagueId <= 0) {
+        return res.json({ visible: false, is_official: false, has_links: false });
+      }
+      const official = await isOfficialLeague(ctx.leagueId);
+      if (!official) {
+        return res.json({ visible: false, is_official: false, has_links: false });
+      }
+      let hasLinks = false;
+      try {
+        const opts = await getMatchdayLinkOptions(matchId);
+        hasLinks = !!opts.has_links;
+      } catch (_) {
+        hasLinks = false;
+      }
+      const visible = level === 1 || hasLinks;
+      return res.json({
+        visible,
+        is_official: true,
+        has_links: hasLinks,
+        can_manage_links: level === 1,
+        league_id: ctx.leagueId,
+      });
+    } catch (err) {
+      if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
+      return res.json({ visible: false, is_official: false, has_links: false });
+    }
+  }
+);
 
 module.exports = router;
