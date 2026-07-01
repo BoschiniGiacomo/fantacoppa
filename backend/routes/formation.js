@@ -9,6 +9,11 @@ const {
   persistUserLineup,
   canMutateLineupForInjury,
 } = require('../utils/lineupResolver');
+const {
+  ensureMatchdaysGhostSchema,
+  userCanSeeGhostMatchdays,
+  filterGhostMatchdaysForUser,
+} = require('../utils/matchdayGhost');
 
 const AUTO_MODULES = {
   '1-1-1': [1, 1, 1],
@@ -212,10 +217,13 @@ router.get('/:leagueId/matchdays', authenticateToken, async (req, res) => {
   try {
     const leagueId = Number(req.params.leagueId);
     const userId = Number(req.user.userId);
+    await ensureMatchdaysGhostSchema();
     const effectiveLeagueId = await getEffectiveLeagueId(leagueId);
+    const canSeeGhost = await userCanSeeGhostMatchdays(userId, leagueId);
     const [rows, lineupRows] = await Promise.all([
       query(
         `SELECT giornata,
+                COALESCE(is_ghost, 0)::int AS is_ghost,
                 to_char((deadline AT TIME ZONE 'Europe/Rome'), 'YYYY-MM-DD HH24:MI:SS') AS deadline
          FROM matchdays
          WHERE league_id = ?
@@ -229,7 +237,7 @@ router.get('/:leagueId/matchdays', authenticateToken, async (req, res) => {
       ),
     ]);
     const lineupSet = new Set(lineupRows.map(r => Number(r.giornata)));
-    const enriched = rows.map(r => ({
+    const enriched = filterGhostMatchdaysForUser(rows, canSeeGhost).map(r => ({
       ...r,
       has_formation: lineupSet.has(Number(r.giornata)),
     }));

@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   Modal,
   RefreshControl,
+  Switch,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -22,6 +23,7 @@ export default function CalendarManagementScreen({ route, navigation }) {
   const { leagueId } = route.params || {};
   const insets = useSafeAreaInsets();
   const [leagueRole, setLeagueRole] = useState('');
+  const [isOfficialLeague, setIsOfficialLeague] = useState(false);
   const isReadOnlyObserver = leagueRole === 'superuser_viewer';
   const [matchdays, setMatchdays] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -39,6 +41,7 @@ export default function CalendarManagementScreen({ route, navigation }) {
   const [defaultTime, setDefaultTime] = useState('20:00');
   const [toastMsg, setToastMsg] = useState(null);
   const [confirmModal, setConfirmModal] = useState(null);
+  const [ghostDraft, setGhostDraft] = useState(false);
 
   const showToast = (text, type = 'error') => {
     setToastMsg({ text, type });
@@ -75,6 +78,7 @@ export default function CalendarManagementScreen({ route, navigation }) {
         const leagueRes = await leagueService.getById(leagueId);
         const leagueData = Array.isArray(leagueRes?.data) ? leagueRes.data[0] : leagueRes?.data;
         setLeagueRole(String(leagueData?.role || ''));
+        setIsOfficialLeague(Number(leagueData?.is_official) === 1);
       } catch (_) {}
       const res = await leagueService.getMatchdays(leagueId);
       setMatchdays(res.data || []);
@@ -92,18 +96,22 @@ export default function CalendarManagementScreen({ route, navigation }) {
     const marked = {};
     matchdays.forEach((matchday) => {
       const date = matchday.deadline_date;
+      const isGhost = Number(matchday.is_ghost) === 1;
       marked[date] = {
         marked: true,
-        dotColor: '#667eea',
+        dotColor: isGhost ? '#a78bfa' : '#667eea',
         selected: false,
-        selectedColor: '#667eea',
+        selectedColor: isGhost ? '#a78bfa' : '#667eea',
         customStyles: {
           container: {
-            backgroundColor: '#f0f0ff',
+            backgroundColor: isGhost ? '#f3f0ff' : '#f0f0ff',
             borderRadius: 8,
+            borderWidth: isGhost ? 1 : 0,
+            borderColor: isGhost ? '#d8ccf8' : 'transparent',
+            borderStyle: isGhost ? 'dashed' : 'solid',
           },
           text: {
-            color: '#667eea',
+            color: isGhost ? '#7c6fd6' : '#667eea',
             fontWeight: 'bold',
           },
         },
@@ -119,6 +127,7 @@ export default function CalendarManagementScreen({ route, navigation }) {
       const deadline = parseDeadlineDate(matchday.deadline);
       setSelectedDeadline(deadline);
       setEditingMatchday(matchday);
+      setGhostDraft(Number(matchday.is_ghost) === 1);
       setShowModal(true);
     } else {
       // Nuova giornata - usa l'orario di default dalle impostazioni
@@ -127,6 +136,7 @@ export default function CalendarManagementScreen({ route, navigation }) {
       date.setHours(hours || 20, minutes || 0, 0, 0);
       setSelectedDeadline(date);
       setEditingMatchday(null);
+      setGhostDraft(false);
       setShowModal(true);
     }
   };
@@ -141,6 +151,7 @@ export default function CalendarManagementScreen({ route, navigation }) {
       const matchdayData = {
         deadline_date: deadlineDate,
         deadline_time: deadlineTime,
+        ...(isOfficialLeague ? { is_ghost: ghostDraft ? 1 : 0 } : {}),
       };
 
       if (editingMatchday) {
@@ -292,24 +303,38 @@ export default function CalendarManagementScreen({ route, navigation }) {
           ) : (
             matchdays.map((matchday) => {
               const deadline = parseDeadlineDate(matchday.deadline);
+              const isGhost = Number(matchday.is_ghost) === 1;
               const deadlineTimeText = !deadline || Number.isNaN(deadline.getTime())
                 ? (matchday.deadline_time || '--:--')
                 : deadline.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
               return (
                 <TouchableOpacity
                   key={matchday.id}
-                  style={styles.matchdayItem}
+                  style={[styles.matchdayItem, isGhost && styles.matchdayItemGhost]}
                   onPress={() => handleDayPress({ dateString: matchday.deadline_date })}
                 >
                   <View style={styles.matchdayInfo}>
-                    <View style={styles.matchdayNumber}>
-                      <Text style={styles.matchdayNumberText}>{matchday.giornata}</Text>
+                    <View style={[styles.matchdayNumber, isGhost && styles.matchdayNumberGhost]}>
+                      <Text style={[styles.matchdayNumberText, isGhost && styles.matchdayNumberTextGhost]}>
+                        {matchday.giornata}
+                      </Text>
                     </View>
                     <View style={styles.matchdayDetails}>
-                      <Text style={styles.matchdayDate}>{formatDate(matchday.deadline_date)}</Text>
+                      <View style={styles.matchdayTitleRow}>
+                        <Text style={styles.matchdayDate}>{formatDate(matchday.deadline_date)}</Text>
+                        {isGhost ? (
+                          <View style={styles.ghostBadge}>
+                            <Ionicons name="moon-outline" size={11} color="#7c6fd6" />
+                            <Text style={styles.ghostBadgeText}>Fantasma</Text>
+                          </View>
+                        ) : null}
+                      </View>
                       <Text style={styles.matchdayTime}>
                         <Ionicons name="time-outline" size={14} color="#666" /> {deadlineTimeText}
                       </Text>
+                      {isGhost ? (
+                        <Text style={styles.ghostHint}>Solo statistiche, non in classifica né live</Text>
+                      ) : null}
                     </View>
                   </View>
                   <TouchableOpacity
@@ -402,6 +427,27 @@ export default function CalendarManagementScreen({ route, navigation }) {
                   }}
                 />
               )}
+
+              {isOfficialLeague ? (
+                <View style={[styles.ghostToggleCard, ghostDraft && styles.ghostToggleCardActive]}>
+                  <View style={styles.ghostToggleCopy}>
+                    <View style={styles.ghostToggleTitleRow}>
+                      <Ionicons name="moon-outline" size={18} color={ghostDraft ? '#7c6fd6' : '#94a3b8'} />
+                      <Text style={styles.ghostToggleTitle}>Giornata fantasma</Text>
+                    </View>
+                    <Text style={styles.ghostToggleSubtitle}>
+                      Voti e statistiche giocatore sì, classifica e live no
+                    </Text>
+                  </View>
+                  <Switch
+                    value={ghostDraft}
+                    onValueChange={setGhostDraft}
+                    disabled={isReadOnlyObserver}
+                    trackColor={{ false: '#e2e8f0', true: '#d8ccf8' }}
+                    thumbColor={ghostDraft ? '#7c6fd6' : '#f8fafc'}
+                  />
+                </View>
+              ) : null}
 
               <View style={styles.modalActions}>
                 <TouchableOpacity
@@ -584,6 +630,80 @@ const styles = StyleSheet.create({
   matchdayTime: {
     fontSize: 14,
     color: '#666',
+  },
+  matchdayItemGhost: {
+    backgroundColor: '#faf8ff',
+    borderColor: '#e4dcfa',
+    borderStyle: 'dashed',
+  },
+  matchdayNumberGhost: {
+    backgroundColor: '#ede9fe',
+  },
+  matchdayNumberTextGhost: {
+    color: '#7c6fd6',
+  },
+  matchdayTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 4,
+  },
+  ghostBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+    backgroundColor: '#f3f0ff',
+  },
+  ghostBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#7c6fd6',
+    letterSpacing: 0.2,
+  },
+  ghostHint: {
+    fontSize: 11,
+    color: '#9b8fd9',
+    marginTop: 4,
+  },
+  ghostToggleCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 8,
+    marginBottom: 4,
+    padding: 14,
+    borderRadius: 14,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e8edf5',
+  },
+  ghostToggleCardActive: {
+    backgroundColor: '#f7f4ff',
+    borderColor: '#ddd6fe',
+  },
+  ghostToggleCopy: {
+    flex: 1,
+    paddingRight: 12,
+  },
+  ghostToggleTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 4,
+  },
+  ghostToggleTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#334155',
+  },
+  ghostToggleSubtitle: {
+    fontSize: 12,
+    lineHeight: 17,
+    color: '#94a3b8',
   },
   deleteButton: {
     padding: 8,

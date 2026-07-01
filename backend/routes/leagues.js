@@ -37,6 +37,16 @@ const {
   removeOfficialTeamLogoVariants,
   removePlayerPhotoVariants,
 } = require('../utils/mediaStorageCleanup');
+const {
+  ensureMatchdaysGhostSchema,
+  userCanSeeGhostMatchdays,
+  isOfficialLeague,
+  isGhostMatchday,
+  filterGhostMatchdaysForUser,
+  CURRENT_MATCHDAY_SUBQUERY,
+} = require('../utils/matchdayGhost');
+
+const MR_EXCLUDE_GHOST_JOIN = `INNER JOIN matchdays md_ghost ON md_ghost.league_id = ? AND md_ghost.giornata = mr.giornata AND COALESCE(md_ghost.is_ghost, 0) = 0`;
 
 const uploadsRoot = path.resolve(__dirname, '..', 'uploads');
 const userTeamLogosDir = path.join(uploadsRoot, 'team_logos');
@@ -813,6 +823,7 @@ async function getLeagueByIdForSuperuserViewer(leagueId, userId) {
 // GET /api/leagues - leghe dell'utente loggato
 router.get('/', authenticateToken, async (req, res) => {
   try {
+    await ensureMatchdaysGhostSchema();
     const userId = Number(req.user.userId);
     const leagues = await query(
       `SELECT l.id, l.name, l.access_code, l.creator_id, l.created_at,
@@ -835,11 +846,7 @@ router.get('/', authenticateToken, async (req, res) => {
                 WHERE lms.league_id = l.id
                 LIMIT 1
               ), 0) AS market_locked,
-              (
-                SELECT (MAX(mr.giornata) + 1)::int
-                FROM matchday_results mr
-                WHERE mr.league_id = l.id
-              ) AS current_matchday
+              ${CURRENT_MATCHDAY_SUBQUERY}
        FROM leagues l
        JOIN league_members lm ON lm.league_id = l.id
        LEFT JOIN leagues ll ON ll.id = l.linked_to_league_id
@@ -864,6 +871,7 @@ router.get('/', authenticateToken, async (req, res) => {
 // GET /api/leagues/all - elenco leghe disponibili (con stato iscrizione utente)
 router.get('/all', authenticateToken, async (req, res) => {
   try {
+    await ensureMatchdaysGhostSchema();
     const userId = Number(req.user.userId);
     const leagues = await query(
       `SELECT l.id, l.name, l.access_code, l.creator_id, l.created_at,
@@ -884,11 +892,7 @@ router.get('/all', authenticateToken, async (req, res) => {
                 WHERE lms.league_id = l.id
                 LIMIT 1
               ), 0) AS market_locked,
-              (
-                SELECT (MAX(mr.giornata) + 1)::int
-                FROM matchday_results mr
-                WHERE mr.league_id = l.id
-              ) AS current_matchday
+              ${CURRENT_MATCHDAY_SUBQUERY}
        FROM leagues l
        LEFT JOIN leagues ll ON ll.id = l.linked_to_league_id
        LEFT JOIN league_members my ON my.league_id = l.id AND my.user_id = ?
@@ -908,6 +912,7 @@ router.get('/all', authenticateToken, async (req, res) => {
 // GET /api/leagues/search?q=...
 router.get('/search', authenticateToken, async (req, res) => {
   try {
+    await ensureMatchdaysGhostSchema();
     const userId = Number(req.user.userId);
     const q = String(req.query.q || '').trim();
     if (!q) return res.json([]);
@@ -926,11 +931,7 @@ router.get('/search', authenticateToken, async (req, res) => {
                 WHERE lms.league_id = l.id
                 LIMIT 1
               ), 0) AS market_locked,
-              (
-                SELECT (MAX(mr.giornata) + 1)::int
-                FROM matchday_results mr
-                WHERE mr.league_id = l.id
-              ) AS current_matchday
+              ${CURRENT_MATCHDAY_SUBQUERY}
        FROM leagues l
        LEFT JOIN leagues ll ON ll.id = l.linked_to_league_id
        LEFT JOIN league_members my ON my.league_id = l.id AND my.user_id = ?
@@ -995,6 +996,7 @@ router.get('/:id/dashboard-data', authenticateToken, async (req, res) => {
       })(),
       getEffectiveLeagueId(leagueId),
     ]);
+    await ensureMatchdaysGhostSchema();
     const league = leagueResult;
     if (!league) {
       return res.status(404).json({ message: 'Lega non trovata o accesso negato' });
@@ -1028,6 +1030,7 @@ router.get('/:id/dashboard-data', authenticateToken, async (req, res) => {
                 SUM(mr.punteggio)::float AS punteggio,
                 AVG(mr.punteggio)::float AS media_punti
          FROM matchday_results mr
+         ${MR_EXCLUDE_GHOST_JOIN}
          JOIN users u ON u.id = mr.user_id
          LEFT JOIN user_budget ub ON ub.user_id = mr.user_id AND ub.league_id = mr.league_id
          WHERE mr.league_id = ?
@@ -1035,14 +1038,15 @@ router.get('/:id/dashboard-data', authenticateToken, async (req, res) => {
          ORDER BY punteggio DESC,
                   LOWER(COALESCE(ub.team_name, u.username)) ASC,
                   LOWER(u.username) ASC`,
-        [leagueId]
+        [effectiveLeagueId, leagueId]
       ),
       query(
-        `SELECT giornata, punteggio
-         FROM matchday_results
-         WHERE league_id = ? AND user_id = ?
-         ORDER BY giornata ASC`,
-        [leagueId, userId]
+        `SELECT mr.giornata, mr.punteggio
+         FROM matchday_results mr
+         ${MR_EXCLUDE_GHOST_JOIN}
+         WHERE mr.league_id = ? AND mr.user_id = ?
+         ORDER BY mr.giornata ASC`,
+        [effectiveLeagueId, leagueId, userId]
       ).catch(() => []),
       query(
         `SELECT COUNT(*)::int AS c
@@ -1076,6 +1080,7 @@ router.get('/:id/dashboard-data', authenticateToken, async (req, res) => {
         `SELECT m.giornata
          FROM matchdays m
          WHERE m.league_id = ?
+           AND COALESCE(m.is_ghost, 0) = 0
            AND m.deadline < NOW()
            AND EXISTS (
              SELECT 1
@@ -1100,6 +1105,7 @@ router.get('/:id/dashboard-data', authenticateToken, async (req, res) => {
                     to_char((deadline AT TIME ZONE 'Europe/Rome'), 'YYYY-MM-DD HH24:MI:SS') AS deadline
              FROM matchdays
              WHERE league_id = ?
+               AND COALESCE(is_ghost, 0) = 0
                AND deadline > NOW()
              ORDER BY deadline ASC
              LIMIT 1`,
@@ -1495,6 +1501,8 @@ router.get('/:id/standings', authenticateToken, async (req, res) => {
     const limitRaw = Number(req.query?.limit || 5);
     const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 100) : 5;
     if (!leagueId) return res.status(400).json({ message: 'League ID non valido' });
+    await ensureMatchdaysGhostSchema();
+    const effectiveLeagueId = await getEffectiveLeagueId(leagueId);
 
     let rows = [];
     try {
@@ -1503,6 +1511,7 @@ router.get('/:id/standings', authenticateToken, async (req, res) => {
                 SUM(mr.punteggio)::float AS punteggio,
                 AVG(mr.punteggio)::float AS media_punti
          FROM matchday_results mr
+         ${MR_EXCLUDE_GHOST_JOIN}
          JOIN users u ON u.id = mr.user_id
          LEFT JOIN user_budget ub ON ub.user_id = mr.user_id AND ub.league_id = mr.league_id
          WHERE mr.league_id = ?
@@ -1511,7 +1520,7 @@ router.get('/:id/standings', authenticateToken, async (req, res) => {
                   LOWER(COALESCE(ub.team_name, u.username)) ASC,
                   LOWER(u.username) ASC
          LIMIT ?`,
-        [leagueId, limit]
+        [effectiveLeagueId, leagueId, limit]
       );
     } catch (_) {
       rows = await query(
@@ -2598,6 +2607,8 @@ router.get('/:id/standings/full', authenticateToken, async (req, res) => {
   try {
     const leagueId = toValidLeagueId(req.params.id);
     if (!leagueId) return res.status(400).json({ message: 'League ID non valido' });
+    await ensureMatchdaysGhostSchema();
+    const effectiveLeagueId = await getEffectiveLeagueId(leagueId);
 
     try {
       const rows = await query(
@@ -2608,6 +2619,7 @@ router.get('/:id/standings/full', authenticateToken, async (req, res) => {
                 SUM(mr.punteggio)::float AS punteggio,
                 AVG(mr.punteggio)::float AS media_punti
          FROM matchday_results mr
+         ${MR_EXCLUDE_GHOST_JOIN}
          JOIN users u ON u.id = mr.user_id
          LEFT JOIN user_budget ub ON ub.user_id = mr.user_id AND ub.league_id = mr.league_id
          WHERE mr.league_id = ?
@@ -2615,7 +2627,7 @@ router.get('/:id/standings/full', authenticateToken, async (req, res) => {
          ORDER BY punteggio DESC,
                   LOWER(COALESCE(ub.team_name, u.username)) ASC,
                   LOWER(u.username) ASC`,
-        [leagueId]
+        [effectiveLeagueId, leagueId]
       );
       return res.json(rows);
     } catch (_) {
@@ -2950,19 +2962,21 @@ router.get('/:id/statistics', authenticateToken, async (req, res) => {
                 COALESCE(ub.team_name, u.username) AS team_name,
                 COALESCE(ub.team_logo, 'default_1') AS team_logo
          FROM matchday_results mr
+         ${MR_EXCLUDE_GHOST_JOIN}
          JOIN users u ON u.id = mr.user_id
          LEFT JOIN user_budget ub ON ub.user_id = mr.user_id AND ub.league_id = mr.league_id
          WHERE mr.league_id = ?
          ORDER BY mr.punteggio DESC, mr.giornata ASC,
                   LOWER(COALESCE(ub.team_name, u.username)) ASC
          LIMIT 1`,
-        [leagueId]
+        [effectiveLeagueId, leagueId]
       ).catch(() => []),
       query(
         `SELECT mr.giornata, mr.user_id, mr.punteggio::float AS total_fantavoto,
                 COALESCE(ub.team_name, u.username) AS team_name,
                 COALESCE(ub.team_logo, 'default_1') AS team_logo
          FROM matchday_results mr
+         ${MR_EXCLUDE_GHOST_JOIN}
          JOIN users u ON u.id = mr.user_id
          LEFT JOIN user_budget ub ON ub.user_id = mr.user_id AND ub.league_id = mr.league_id
          WHERE mr.league_id = ?
@@ -2970,7 +2984,7 @@ router.get('/:id/statistics', authenticateToken, async (req, res) => {
          ORDER BY mr.punteggio ASC, mr.giornata ASC,
                   LOWER(COALESCE(ub.team_name, u.username)) ASC
          LIMIT 1`,
-        [leagueId]
+        [effectiveLeagueId, leagueId]
       ).catch(() => []),
       fetchLeagueStatRanking('top_fantavoti', leagueId, effectiveLeagueId, previewLimit),
       fetchLeagueStatRanking('bottom_fantavoti', leagueId, effectiveLeagueId, previewLimit),
@@ -3003,13 +3017,16 @@ router.get('/:id/user-stats', authenticateToken, async (req, res) => {
     const leagueId = toValidLeagueId(req.params.id);
     const userId = Number(req.user.userId);
     if (!leagueId) return res.status(400).json({ message: 'League ID non valido' });
+    await ensureMatchdaysGhostSchema();
+    const effectiveLeagueId = await getEffectiveLeagueId(leagueId);
     try {
       const rows = await query(
-        `SELECT giornata, punteggio
-         FROM matchday_results
-         WHERE league_id = ? AND user_id = ?
-         ORDER BY giornata ASC`,
-        [leagueId, userId]
+        `SELECT mr.giornata, mr.punteggio
+         FROM matchday_results mr
+         ${MR_EXCLUDE_GHOST_JOIN}
+         WHERE mr.league_id = ? AND mr.user_id = ?
+         ORDER BY mr.giornata ASC`,
+        [effectiveLeagueId, leagueId, userId]
       );
       const scores = rows.map((r) => ({
         giornata: Number(r.giornata || 0),
@@ -3366,6 +3383,12 @@ router.get('/:id/standings/matchday/:giornata', authenticateToken, async (req, r
     const leagueId = toValidLeagueId(req.params.id);
     const giornata = Number(req.params.giornata);
     if (!leagueId || !Number.isFinite(giornata)) return res.status(400).json({ message: 'Parametri non validi' });
+    const effectiveLeagueId = await getEffectiveLeagueId(leagueId);
+    const userId = Number(req.user.userId);
+    if (await isGhostMatchday(effectiveLeagueId, giornata)) {
+      const canSee = await userCanSeeGhostMatchdays(userId, leagueId);
+      if (!canSee) return res.json([]);
+    }
 
     try {
       const rows = await query(
@@ -3396,10 +3419,14 @@ router.get('/:id/matchday-status', authenticateToken, async (req, res) => {
   try {
     const leagueId = toValidLeagueId(req.params.id);
     if (!leagueId) return res.status(400).json({ message: 'League ID non valido' });
+    await ensureMatchdaysGhostSchema();
     const effectiveLeagueId = await getEffectiveLeagueId(leagueId);
+    const userId = Number(req.user.userId);
+    const canSeeGhost = await userCanSeeGhostMatchdays(userId, leagueId);
     let rows = await query(
       `SELECT m.giornata,
               to_char((m.deadline AT TIME ZONE 'Europe/Rome'), 'YYYY-MM-DD HH24:MI:SS') AS deadline,
+              COALESCE(m.is_ghost, 0)::int AS is_ghost,
               CASE WHEN EXISTS (
                 SELECT 1 FROM player_ratings pr
                 WHERE pr.league_id = m.league_id AND pr.giornata = m.giornata
@@ -3424,7 +3451,7 @@ router.get('/:id/matchday-status', authenticateToken, async (req, res) => {
     // Se mancano matchdays ma esistono risultati/voti, restituisce comunque uno stato minimo.
     if (!rows.length) {
       rows = await query(
-        `SELECT g.giornata, NULL AS deadline,
+        `SELECT g.giornata, NULL AS deadline, 0::int AS is_ghost,
                 CASE WHEN EXISTS (
                   SELECT 1 FROM player_ratings pr
                   WHERE pr.league_id = ? AND pr.giornata = g.giornata
@@ -3448,7 +3475,7 @@ router.get('/:id/matchday-status', authenticateToken, async (req, res) => {
         [effectiveLeagueId, effectiveLeagueId, leagueId, leagueId, effectiveLeagueId, leagueId]
       );
     }
-    res.json(rows);
+    res.json(filterGhostMatchdaysForUser(rows, canSeeGhost));
   } catch (_) {
     res.json([]);
   }
@@ -3726,6 +3753,12 @@ router.post('/:id/calculate/:giornata', authenticateToken, async (req, res) => {
     );
     if (!roleRows[0] || String(roleRows[0].role) !== 'admin') {
       return res.status(403).json({ message: 'Solo gli amministratori possono calcolare la giornata' });
+    }
+
+    if (await isGhostMatchday(effectiveLeagueId, giornata)) {
+      return res.status(400).json({
+        message: 'Le giornate fantasma non si calcolano in classifica: i voti restano solo nelle statistiche giocatore',
+      });
     }
 
     const existing = await query(
@@ -4119,6 +4152,9 @@ router.get('/:id/live/:giornata', authenticateToken, async (req, res) => {
     const giornata = Number(req.params.giornata);
     if (!leagueId || !Number.isFinite(giornata)) return res.status(400).json({ message: 'Parametri non validi' });
     const effectiveLeagueId = await getEffectiveLeagueId(leagueId);
+    if (await isGhostMatchday(effectiveLeagueId, giornata)) {
+      return res.status(404).json({ message: 'Giornata non disponibile' });
+    }
 
     const members = await query(
       `SELECT lm.user_id, u.username, ub.team_name, ub.coach_name, ub.team_logo
@@ -4471,16 +4507,20 @@ router.get('/:id/matchdays', authenticateToken, async (req, res) => {
   try {
     const leagueId = toValidLeagueId(req.params.id);
     if (!leagueId) return res.status(400).json({ message: 'League ID non valido' });
+    await ensureMatchdaysGhostSchema();
     const effectiveLeagueId = await getEffectiveLeagueId(leagueId);
+    const userId = Number(req.user.userId);
+    const canSeeGhost = await userCanSeeGhostMatchdays(userId, leagueId);
     const rows = await query(
       `SELECT id, giornata,
+              COALESCE(is_ghost, 0)::int AS is_ghost,
               to_char((deadline AT TIME ZONE 'Europe/Rome'), 'YYYY-MM-DD HH24:MI:SS') AS deadline
        FROM matchdays
        WHERE league_id = ?
        ORDER BY deadline ASC`,
       [effectiveLeagueId]
     );
-    const enriched = rows.map((r) => {
+    const enriched = filterGhostMatchdaysForUser(rows, canSeeGhost).map((r) => {
       const d = new Date(r.deadline);
       const y = d.getFullYear();
       const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -4499,6 +4539,8 @@ router.post('/:id/matchdays', authenticateToken, async (req, res) => {
   try {
     const leagueId = toValidLeagueId(req.params.id);
     if (!leagueId) return res.status(400).json({ message: 'League ID non valido' });
+    await ensureMatchdaysGhostSchema();
+    const currentUserId = Number(req.user.userId);
     const effectiveLeagueId = await getEffectiveLeagueId(leagueId);
     const leagueIds = await getLeagueIdsForMatchdayDataCleanup(leagueId);
     const inPh = leagueIds.map(() => '?').join(', ');
@@ -4507,17 +4549,37 @@ router.post('/:id/matchdays', authenticateToken, async (req, res) => {
     if (!deadlineDate) return res.status(400).json({ message: 'deadline_date obbligatoria' });
 
     const deadline = `${deadlineDate} ${deadlineTime}:00`;
-    // Intenzionale: input locale "Europe/Rome" (senza TZ) -> timestamptz UTC in DB.
-    // Usare direttamente ::timestamptz qui sarebbe ambiguo perché dipende dal timezone della sessione DB.
     const matchdayId = req.body?.matchday_id ? Number(req.body.matchday_id) : null;
+    const hasGhostFlag = req.body?.is_ghost !== undefined && req.body?.is_ghost !== null;
+    const wantsGhost = hasGhostFlag && Number(req.body.is_ghost ? 1 : 0) === 1;
+
+    if (wantsGhost) {
+      const official = await isOfficialLeague(effectiveLeagueId);
+      if (!official) {
+        return res.status(400).json({ message: 'Le giornate fantasma sono disponibili solo per leghe ufficiali' });
+      }
+      if (!(await isLeagueAdmin(currentUserId, leagueId))) {
+        return res.status(403).json({ message: 'Solo gli admin possono impostare giornate fantasma' });
+      }
+    }
 
     if (matchdayId && Number.isFinite(matchdayId)) {
-      await query(
-        `UPDATE matchdays
-         SET deadline = (?::timestamp AT TIME ZONE 'Europe/Rome')
-         WHERE id = ? AND league_id IN (${inPh})`,
-        [deadline, matchdayId, ...leagueIds]
-      );
+      if (hasGhostFlag) {
+        await query(
+          `UPDATE matchdays
+           SET deadline = (?::timestamp AT TIME ZONE 'Europe/Rome'),
+               is_ghost = ?
+           WHERE id = ? AND league_id IN (${inPh})`,
+          [deadline, wantsGhost ? 1 : 0, matchdayId, ...leagueIds]
+        );
+      } else {
+        await query(
+          `UPDATE matchdays
+           SET deadline = (?::timestamp AT TIME ZONE 'Europe/Rome')
+           WHERE id = ? AND league_id IN (${inPh})`,
+          [deadline, matchdayId, ...leagueIds]
+        );
+      }
     } else {
       const maxRows = await query(
         `SELECT COALESCE(MAX(giornata), 0) AS max_giornata
@@ -4527,9 +4589,9 @@ router.post('/:id/matchdays', authenticateToken, async (req, res) => {
       );
       const nextGiornata = Number(maxRows[0]?.max_giornata || 0) + 1;
       await query(
-        `INSERT INTO matchdays (league_id, giornata, deadline)
-         VALUES (?, ?, (?::timestamp AT TIME ZONE 'Europe/Rome'))`,
-        [effectiveLeagueId, nextGiornata, deadline]
+        `INSERT INTO matchdays (league_id, giornata, deadline, is_ghost)
+         VALUES (?, ?, (?::timestamp AT TIME ZONE 'Europe/Rome'), ?)`,
+        [effectiveLeagueId, nextGiornata, deadline, wantsGhost ? 1 : 0]
       );
     }
     res.json({ message: 'Giornata salvata' });

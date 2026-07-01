@@ -128,7 +128,7 @@ export default function LiveScoresScreen({ route, navigation }) {
       const liveDays = statuses
         .filter((m) => {
           const d = parseDeadlineDate(m?.deadline);
-          return m.has_votes && !m.is_calculated && d && d < now;
+          return m.has_votes && !m.is_calculated && d && d < now && Number(m.is_ghost) !== 1;
         })
         .sort((a, b) => a.giornata - b.giornata); // ordine crescente G1, G2, G3...
       setAvailableMatchdays(liveDays);

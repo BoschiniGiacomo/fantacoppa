@@ -681,13 +681,13 @@ export default function SettingsScreen({ route, navigation }) {
       const calculable = (res.data || []).filter(m => {
         const d = parseDeadlineDate(m?.deadline);
         const deadlinePassed = !d || d < now;
-        return m.has_votes && deadlinePassed && !m.is_calculated;
+        return m.has_votes && deadlinePassed && !m.is_calculated && Number(m.is_ghost) !== 1;
       });
       if (calculable.length > 0 && !selectedCalcMatchday) {
         setSelectedCalcMatchday(calculable[0].giornata);
       } else if (!selectedCalcMatchday && (res.data || []).length > 0) {
         // Se nessuna calcolabile, seleziona l'ultima con voti
-        const withVotes = (res.data || []).filter(m => m.has_votes);
+        const withVotes = (res.data || []).filter((m) => m.has_votes && Number(m.is_ghost) !== 1);
         if (withVotes.length > 0) {
           setSelectedCalcMatchday(withVotes[withVotes.length - 1].giornata);
         }
@@ -1744,7 +1744,7 @@ export default function SettingsScreen({ route, navigation }) {
                 {/* Selettore giornata */}
                 <Text style={{ fontWeight: '600', color: '#333', marginBottom: 8 }}>Seleziona giornata</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
-                  {matchdayStatuses.map(m => {
+                  {matchdayStatuses.filter((m) => Number(m.is_ghost) !== 1).map(m => {
                     const now = new Date();
                     const isCalculated = Number(m?.is_calculated) === 1;
                     const hasVotes = Number(m?.has_votes) === 1;
