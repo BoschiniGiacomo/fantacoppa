@@ -339,9 +339,6 @@ export default function CalendarManagementScreen({ route, navigation }) {
                       <Text style={styles.matchdayTime}>
                         <Ionicons name="time-outline" size={14} color="#666" /> {deadlineTimeText}
                       </Text>
-                      {isGhost ? (
-                        <Text style={styles.ghostHint}>Solo statistiche, non in classifica né live</Text>
-                      ) : null}
                     </View>
                   </View>
                   <TouchableOpacity
