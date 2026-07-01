@@ -29,10 +29,21 @@ async function userCanSeeGhostMatchdays(userId, leagueId) {
 
 async function isOfficialLeague(leagueId) {
   const rows = await query(
-    `SELECT COALESCE(is_official, 0)::int AS is_official FROM leagues WHERE id = ? LIMIT 1`,
+    `SELECT COALESCE(l.is_official, 0)::int AS is_official,
+            l.official_group_id,
+            COALESCE(pl.is_official, 0)::int AS parent_is_official,
+            pl.official_group_id AS parent_official_group_id
+     FROM leagues l
+     LEFT JOIN leagues pl ON pl.id = l.linked_to_league_id
+     WHERE l.id = ?
+     LIMIT 1`,
     [leagueId]
   );
-  return Number(rows[0]?.is_official) === 1;
+  const row = rows[0];
+  if (!row) return false;
+  if (Number(row.is_official) === 1 || Number(row.parent_is_official) === 1) return true;
+  const groupId = Number(row.official_group_id || row.parent_official_group_id || 0);
+  return Number.isFinite(groupId) && groupId > 0;
 }
 
 async function isGhostMatchday(effectiveLeagueId, giornata) {

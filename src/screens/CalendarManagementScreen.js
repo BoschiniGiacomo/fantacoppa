@@ -17,6 +17,13 @@ import { leagueService } from '../services/api';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { parseAppDate } from '../utils/dateTime';
 
+function leagueSupportsGhostMatchdays(league) {
+  if (!league || typeof league !== 'object') return false;
+  if (Number(league.is_official) === 1 || league.is_official === true) return true;
+  const groupId = Number(league.official_group_id || 0);
+  return Number.isFinite(groupId) && groupId > 0;
+}
+
 export default function CalendarManagementScreen({ route, navigation }) {
   const parseDeadlineDate = (value) => parseAppDate(value);
 
@@ -78,7 +85,7 @@ export default function CalendarManagementScreen({ route, navigation }) {
         const leagueRes = await leagueService.getById(leagueId);
         const leagueData = Array.isArray(leagueRes?.data) ? leagueRes.data[0] : leagueRes?.data;
         setLeagueRole(String(leagueData?.role || ''));
-        setIsOfficialLeague(Number(leagueData?.is_official) === 1);
+        setIsOfficialLeague(leagueSupportsGhostMatchdays(leagueData));
       } catch (_) {}
       const res = await leagueService.getMatchdays(leagueId);
       setMatchdays(res.data || []);
