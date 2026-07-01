@@ -18,7 +18,7 @@ import * as ImagePicker from 'expo-image-picker';
 import LoopingVideoView from '../components/LoopingVideoView';
 import AppLoadingFullScreenModal from '../components/AppLoadingFullScreenModal';
 import { useAuth } from '../context/AuthContext';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { superuserService, publicAssetUrl } from '../services/api';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -391,15 +391,20 @@ export default function SuperUserScreen() {
   };
 
   const handleToggleMainMenuGroup = async (item) => {
+    if (!item?.id) return;
     const isSelected = Number(item.show_in_main_menu) === 1;
     setTogglingMenuGroupId(item.id);
     try {
       await superuserService.setOfficialGroupMainMenu(item.id, !isSelected);
+      const nextFlag = isSelected ? 0 : 1;
       setOfficialGroups((prev) =>
         prev.map((group) => ({
           ...group,
-          show_in_main_menu: group.id === item.id ? (isSelected ? 0 : 1) : 0,
+          show_in_main_menu: group.id === item.id ? nextFlag : 0,
         }))
+      );
+      setSelectedGroupForEdit((prev) =>
+        prev && prev.id === item.id ? { ...prev, show_in_main_menu: nextFlag } : prev
       );
       showToast(
         isSelected ? 'Gruppo rimosso dal menu principale' : `"${item.name}" mostrato nel menu principale`,
@@ -2241,20 +2246,9 @@ export default function SuperUserScreen() {
               <FlatList
                 data={officialGroups}
                 keyExtractor={(item) => item.id.toString()}
-                ListHeaderComponent={
-                  <View style={styles.officialMenuHint}>
-                    <Ionicons name="ellipse" size={16} color="#667eea" />
-                    <Text style={styles.officialMenuHintText}>
-                      Scegli quale gruppo mostrare nel pulsante centrale del menu principale. Solo un gruppo alla volta.
-                    </Text>
-                  </View>
-                }
                 renderItem={({ item }) => (
                   <TouchableOpacity
-                    style={[
-                      styles.officialGroupItem,
-                      Number(item.show_in_main_menu) === 1 && styles.officialGroupItemMenuActive,
-                    ]}
+                    style={styles.officialGroupItem}
                     onPress={async () => {
                       try {
                         const response = await superuserService.getOfficialGroupLeagues(item.id);
@@ -2299,33 +2293,7 @@ export default function SuperUserScreen() {
                       <Text style={styles.officialGroupStats}>
                         {item.league_count} leghe • Creato da {item.created_by_username} • {formatDateTime(item.created_at)}
                       </Text>
-                      {Number(item.show_in_main_menu) === 1 ? (
-                        <Text style={styles.officialGroupMenuBadge}>Nel menu principale</Text>
-                      ) : null}
                     </View>
-                    <TouchableOpacity
-                      style={[
-                        styles.menuGroupPinBtn,
-                        Number(item.show_in_main_menu) === 1 && styles.menuGroupPinBtnActive,
-                      ]}
-                      onPress={() => handleToggleMainMenuGroup(item)}
-                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                      accessibilityLabel={
-                        Number(item.show_in_main_menu) === 1
-                          ? `Rimuovi ${item.name} dal menu principale`
-                          : `Mostra ${item.name} nel menu principale`
-                      }
-                    >
-                      {togglingMenuGroupId === item.id ? (
-                        <ActivityIndicator size="small" color="#667eea" />
-                      ) : (
-                        <Ionicons
-                          name={Number(item.show_in_main_menu) === 1 ? 'radio-button-on' : 'radio-button-off'}
-                          size={24}
-                          color={Number(item.show_in_main_menu) === 1 ? '#667eea' : '#c8ced8'}
-                        />
-                      )}
-                    </TouchableOpacity>
                     <Ionicons name="chevron-forward" size={20} color="#ccc" />
                   </TouchableOpacity>
                 )}
@@ -2885,13 +2853,47 @@ export default function SuperUserScreen() {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={[styles.modalHeader, styles.groupDetailModalHeader]}>
-              <TouchableOpacity
-                style={styles.groupDetailHeaderIconBtn}
-                onPress={() => void handleOpenGroupClusters()}
-                accessibilityLabel="Gestisci cluster giocatori"
-              >
-                <Ionicons name="people-outline" size={22} color="#667eea" />
-              </TouchableOpacity>
+              <View style={styles.groupDetailHeaderActions}>
+                <TouchableOpacity
+                  style={styles.groupDetailHeaderIconBtn}
+                  onPress={() => void handleOpenGroupClusters()}
+                  accessibilityLabel="Gestisci cluster giocatori"
+                >
+                  <Ionicons name="people-outline" size={22} color="#667eea" />
+                </TouchableOpacity>
+                {selectedGroupForEdit ? (
+                  <TouchableOpacity
+                    style={[
+                      styles.groupDetailHeaderIconBtn,
+                      Number(selectedGroupForEdit.show_in_main_menu) === 1 &&
+                        styles.groupDetailHeaderIconBtnActive,
+                    ]}
+                    onPress={() => handleToggleMainMenuGroup(selectedGroupForEdit)}
+                    disabled={togglingMenuGroupId === selectedGroupForEdit.id}
+                    accessibilityRole="switch"
+                    accessibilityState={{
+                      checked: Number(selectedGroupForEdit.show_in_main_menu) === 1,
+                    }}
+                    accessibilityLabel={
+                      Number(selectedGroupForEdit.show_in_main_menu) === 1
+                        ? 'Rimuovi dal pulsante del menu principale'
+                        : 'Mostra nel pulsante del menu principale'
+                    }
+                  >
+                    {togglingMenuGroupId === selectedGroupForEdit.id ? (
+                      <ActivityIndicator size="small" color="#667eea" />
+                    ) : (
+                      <MaterialCommunityIcons
+                        name="dock-bottom"
+                        size={22}
+                        color={
+                          Number(selectedGroupForEdit.show_in_main_menu) === 1 ? '#667eea' : '#94a3b8'
+                        }
+                      />
+                    )}
+                  </TouchableOpacity>
+                ) : null}
+              </View>
               <Text style={styles.groupDetailModalHeaderTitle}>Gruppo ufficiale</Text>
               <TouchableOpacity style={styles.groupDetailHeaderIconBtn} onPress={closeGroupDetailModal}>
                 <Ionicons name="close" size={22} color="#64748b" />
@@ -4580,47 +4582,6 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     elevation: 2,
   },
-  officialGroupItemMenuActive: {
-    borderWidth: 1.5,
-    borderColor: '#c7d2fe',
-    backgroundColor: '#f8f9ff',
-  },
-  officialMenuHint: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 10,
-    marginHorizontal: 16,
-    marginBottom: 14,
-    padding: 14,
-    backgroundColor: '#f4f6ff',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#e4e9ff',
-  },
-  officialMenuHintText: {
-    flex: 1,
-    fontSize: 13,
-    lineHeight: 18,
-    color: '#5b6478',
-  },
-  menuGroupPinBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 6,
-    backgroundColor: '#f5f6fa',
-  },
-  menuGroupPinBtnActive: {
-    backgroundColor: '#eef1ff',
-  },
-  officialGroupMenuBadge: {
-    marginTop: 6,
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#667eea',
-  },
   officialGroupInfo: {
     flex: 1,
   },
@@ -4795,6 +4756,15 @@ const styles = StyleSheet.create({
     backgroundColor: '#f8fafc',
     borderWidth: 1,
     borderColor: '#e8ecf1',
+  },
+  groupDetailHeaderActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  groupDetailHeaderIconBtnActive: {
+    backgroundColor: '#eef1ff',
+    borderColor: '#c7d2fe',
   },
   groupDetailModalHeaderTitle: {
     fontSize: 14,

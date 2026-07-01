@@ -6,11 +6,12 @@ import { OfficialGroupLogoImage } from './StableCachedImage';
 import { getMenuOfficialGroup } from '../utils/menuOfficialGroupSettings';
 
 const ACTIVE = '#667eea';
-const INACTIVE = '#9aa3b2';
+const INACTIVE = 'gray';
 
 export default function MainTabBar({ state, descriptors, navigation }) {
   const insets = useSafeAreaInsets();
   const [menuGroup, setMenuGroup] = useState(null);
+  const bottomInset = insets.bottom;
 
   const loadMenuGroup = useCallback(() => {
     getMenuOfficialGroup().then(setMenuGroup);
@@ -35,7 +36,9 @@ export default function MainTabBar({ state, descriptors, navigation }) {
   const renderTab = (route, index) => {
     const { options } = descriptors[route.key];
     const isFocused = state.index === index;
-    const color = isFocused ? ACTIVE : INACTIVE;
+    const activeColor = options.tabBarActiveTintColor ?? ACTIVE;
+    const inactiveColor = options.tabBarInactiveTintColor ?? INACTIVE;
+    const color = isFocused ? activeColor : inactiveColor;
     const label = route.name === 'Dashboard' ? 'Home' : route.name;
 
     const onPress = () => {
@@ -77,91 +80,96 @@ export default function MainTabBar({ state, descriptors, navigation }) {
   };
 
   return (
-    <View
-      style={[
-        styles.container,
-        {
-          paddingBottom: Math.max(insets.bottom, 6),
-        },
-      ]}
-    >
-      <View style={styles.row}>
-        {state.routes.map((route, index) => (
-          <React.Fragment key={route.key}>
-            {index === 2 && menuGroup ? (
-              <View style={styles.centerSlot}>
-                <TouchableOpacity
-                  activeOpacity={0.88}
-                  onPress={goToOfficialGroup}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Gruppo ufficiale ${menuGroup.name}`}
-                  style={styles.floatingButton}
-                >
-                  <View style={styles.floatingButtonInner}>
-                    <OfficialGroupLogoImage
-                      logoPath={menuGroup.logo_path}
-                      style={styles.floatingLogo}
-                      fallbackStyle={styles.floatingLogoFallback}
-                      fallbackIcon="ribbon-outline"
-                      fallbackIconSize={22}
-                      fallbackColor={ACTIVE}
-                    />
-                  </View>
-                </TouchableOpacity>
-              </View>
-            ) : null}
-            {renderTab(route, index)}
-          </React.Fragment>
-        ))}
+    <View style={styles.wrapper} pointerEvents="box-none">
+      {menuGroup ? (
+        <TouchableOpacity
+          activeOpacity={0.88}
+          onPress={goToOfficialGroup}
+          accessibilityRole="button"
+          accessibilityLabel={`Gruppo ufficiale ${menuGroup.name}`}
+          style={[
+            styles.floatingButton,
+            { bottom: bottomInset + 5 },
+          ]}
+        >
+          <View style={styles.floatingButtonInner}>
+            <OfficialGroupLogoImage
+              logoPath={menuGroup.logo_path}
+              style={styles.floatingLogo}
+              fallbackStyle={styles.floatingLogoFallback}
+              fallbackIcon="ribbon-outline"
+              fallbackIconSize={26}
+              fallbackColor={ACTIVE}
+            />
+          </View>
+        </TouchableOpacity>
+      ) : null}
+
+      <View
+        style={[
+          styles.container,
+          { paddingBottom: bottomInset },
+        ]}
+      >
+        <View style={styles.row}>
+          {state.routes.map((route, index) => (
+            <React.Fragment key={route.key}>
+              {index === 2 && menuGroup ? <View style={styles.centerSpacer} /> : null}
+              {renderTab(route, index)}
+            </React.Fragment>
+          ))}
+        </View>
       </View>
     </View>
   );
 }
 
+const FLOATING_SIZE = 70;
+
 const styles = StyleSheet.create({
+  wrapper: {
+    position: 'relative',
+    overflow: 'visible',
+  },
   container: {
     backgroundColor: '#fff',
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: '#e6eaf2',
-    paddingTop: 6,
-    shadowColor: '#1a2b4a',
-    shadowOffset: { width: 0, height: -3 },
-    shadowOpacity: 0.05,
-    shadowRadius: 10,
-    elevation: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#e0e0e0',
+    paddingTop: 8,
+    minHeight: 60,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 5,
   },
   row: {
     flexDirection: 'row',
-    alignItems: 'flex-end',
-    minHeight: 50,
+    alignItems: 'center',
+    justifyContent: 'space-around',
   },
   tabItem: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingTop: 4,
-    paddingBottom: 2,
   },
   tabLabel: {
     fontSize: 10,
     marginTop: 4,
-    fontWeight: '500',
   },
-  centerSlot: {
-    width: 64,
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-    marginBottom: 2,
+  centerSpacer: {
+    width: 76,
   },
   floatingButton: {
     position: 'absolute',
-    top: -24,
-    width: 58,
-    height: 58,
-    borderRadius: 29,
+    alignSelf: 'center',
+    width: FLOATING_SIZE,
+    height: FLOATING_SIZE,
+    borderRadius: FLOATING_SIZE / 2,
     backgroundColor: '#fff',
     alignItems: 'center',
     justifyContent: 'center',
+    zIndex: 20,
     shadowColor: '#667eea',
     shadowOffset: { width: 0, height: 5 },
     shadowOpacity: 0.28,
@@ -169,9 +177,9 @@ const styles = StyleSheet.create({
     elevation: 12,
   },
   floatingButtonInner: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
     borderWidth: 2,
     borderColor: '#eef1f8',
     alignItems: 'center',
@@ -180,14 +188,14 @@ const styles = StyleSheet.create({
     backgroundColor: '#fafbfe',
   },
   floatingLogo: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 54,
+    height: 54,
+    borderRadius: 24,
   },
   floatingLogoFallback: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     backgroundColor: '#f0f3fa',
     alignItems: 'center',
     justifyContent: 'center',

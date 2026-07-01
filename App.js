@@ -142,6 +142,8 @@ function MainTabs() {
       tabBar={(props) => <MainTabBar {...props} />}
       screenOptions={{
         headerShown: false,
+        tabBarActiveTintColor: '#667eea',
+        tabBarInactiveTintColor: 'gray',
       }}
     >
       <Tab.Screen 
