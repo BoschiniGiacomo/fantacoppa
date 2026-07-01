@@ -39,6 +39,97 @@ async function getEffectiveLeagueId(leagueId) {
   return Number.isFinite(eff) && eff > 0 ? eff : Number(leagueId);
 }
 
+async function getTeamLinkMeta(teamId) {
+  const rows = await query(
+    `SELECT t.id, t.name,
+            COALESCE(NULLIF(to_jsonb(t)->>'logo_path',''), NULLIF(t.logo_path, '')) AS logo_path
+     FROM teams t
+     WHERE t.id = ?
+     LIMIT 1`,
+    [teamId]
+  );
+  const row = rows[0];
+  if (!row) return { id: teamId, name: '', logo_path: null };
+  return {
+    id: Number(row.id),
+    name: row.name || '',
+    logo_path: row.logo_path || null,
+  };
+}
+
+async function getTeamOfficialMatchesChronology(ctx, effectiveLeagueId, teamId) {
+  const rows = await query(
+    `SELECT m.id, m.kickoff_at,
+            to_char((m.kickoff_at AT TIME ZONE 'Europe/Rome'), 'DD/MM') AS kickoff_short
+     FROM official_matches m
+     WHERE m.competition_id = ?
+       AND (m.home_team_id = ? OR m.away_team_id = ?)
+       AND (
+         m.league_id = ?
+         OR (
+           COALESCE(m.league_id, 0) = 0
+           AND EXISTS (
+             SELECT 1 FROM teams t
+             WHERE t.id IN (m.home_team_id, m.away_team_id) AND t.league_id = ?
+           )
+         )
+       )
+     ORDER BY m.kickoff_at ASC NULLS LAST, m.id ASC`,
+    [ctx.competitionId, teamId, teamId, ctx.leagueId, effectiveLeagueId]
+  );
+  return rows.map((r) => ({
+    id: Number(r.id),
+    kickoff_at: r.kickoff_at,
+    kickoff_short: r.kickoff_short || null,
+  }));
+}
+
+function buildMatchdaySuggestion(matchId, teamId, teamMatches, matchdays, occupiedSlots) {
+  const total = teamMatches.length;
+  const idx = teamMatches.findIndex((m) => Number(m.id) === Number(matchId));
+  if (idx < 0 || !matchdays.length) {
+    return {
+      matchday_id: null,
+      giornata: null,
+      is_ghost: false,
+      match_index: null,
+      total_matches: total,
+      available: false,
+    };
+  }
+  const occupiedIds = new Set(
+    (occupiedSlots || [])
+      .filter((s) => Number(s.team_id) === Number(teamId))
+      .map((s) => Number(s.matchday_id))
+  );
+  for (let offset = 0; offset < matchdays.length; offset += 1) {
+    const mdIdx = idx + offset;
+    if (mdIdx >= matchdays.length) break;
+    const md = matchdays[mdIdx];
+    const mdId = Number(md.id);
+    if (!occupiedIds.has(mdId)) {
+      return {
+        matchday_id: mdId,
+        giornata: Number(md.giornata),
+        is_ghost: Number(md.is_ghost) === 1,
+        deadline_date: md.deadline_date || null,
+        match_index: idx + 1,
+        total_matches: total,
+        available: true,
+        is_ideal: offset === 0,
+      };
+    }
+  }
+  return {
+    matchday_id: null,
+    giornata: null,
+    is_ghost: false,
+    match_index: idx + 1,
+    total_matches: total,
+    available: false,
+  };
+}
+
 async function getMatchLinkContext(matchId) {
   await ensureOfficialMatchMatchdayLinksSchema();
   const rows = await query(
@@ -179,7 +270,7 @@ async function getMatchdayLinkOptions(matchId) {
     ctx.homeTeamId,
     ctx.awayTeamId
   );
-  const [matchdays, links, occupied] = await Promise.all([
+  const [matchdays, links, occupied, homeMeta, awayMeta, homeMatches, awayMatches] = await Promise.all([
     query(
       `SELECT id, giornata,
               COALESCE(is_ghost, 0)::int AS is_ghost,
@@ -191,17 +282,47 @@ async function getMatchdayLinkOptions(matchId) {
     ),
     getLinksForMatch(matchId),
     getOccupiedSlots(ctx.leagueId, matchId),
+    getTeamLinkMeta(ctx.homeTeamId),
+    getTeamLinkMeta(ctx.awayTeamId),
+    getTeamOfficialMatchesChronology(ctx, effectiveLeagueId, ctx.homeTeamId),
+    getTeamOfficialMatchesChronology(ctx, effectiveLeagueId, ctx.awayTeamId),
   ]);
   const sides = linksToSides(links, ctx);
+  const homeSuggestion = buildMatchdaySuggestion(
+    matchId,
+    ctx.homeTeamId,
+    homeMatches,
+    matchdays,
+    occupied
+  );
+  const awaySuggestion = buildMatchdaySuggestion(
+    matchId,
+    ctx.awayTeamId,
+    awayMatches,
+    matchdays,
+    occupied
+  );
   return {
     league_id: ctx.leagueId,
     effective_league_id: effectiveLeagueId,
-    home_team: { id: ctx.homeTeamId, name: ctx.homeTeamName },
-    away_team: { id: ctx.awayTeamId, name: ctx.awayTeamName },
+    home_team: {
+      id: ctx.homeTeamId,
+      name: homeMeta.name || ctx.homeTeamName,
+      logo_path: homeMeta.logo_path,
+    },
+    away_team: {
+      id: ctx.awayTeamId,
+      name: awayMeta.name || ctx.awayTeamName,
+      logo_path: awayMeta.logo_path,
+    },
     matchdays,
     current: {
       home_matchday_id: sides.home?.matchday_id ?? null,
       away_matchday_id: sides.away?.matchday_id ?? null,
+    },
+    suggestions: {
+      home: homeSuggestion,
+      away: awaySuggestion,
     },
     occupied_slots: occupied,
     links: sides,

@@ -11,10 +11,24 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { adminMatchesService } from '../services/api';
+import { TeamLogoImage } from './StableCachedImage';
 import { formatVoteRating, normalizeVoteRating } from '../utils/voteRating';
 
+function pickInitialDraft(links, side) {
+  const current = links?.current?.[`${side}_matchday_id`];
+  if (current != null && current !== '') return current;
+  const sug = links?.suggestions?.[side];
+  if (sug?.available && sug?.matchday_id) return sug.matchday_id;
+  return null;
+}
+
+function findMatchday(matchdays, id) {
+  if (id == null) return null;
+  return (matchdays || []).find((m) => Number(m.id) === Number(id)) || null;
+}
+
 function VotePlayerRow({ player, vote, onSetRating, onUpdateRating, onToggleSV }) {
-  const pv = vote || { rating: 0, goals: 0, assists: 0, yellow_cards: 0, red_cards: 0 };
+  const pv = vote || { rating: 0 };
   const isSV = pv.rating === 0;
   const [editingText, setEditingText] = useState(null);
   const isEditing = editingText !== null;
@@ -74,7 +88,96 @@ function VotePlayerRow({ player, vote, onSetRating, onUpdateRating, onToggleSV }
   );
 }
 
-function MatchdayPickerModal({ visible, title, matchdays, occupiedSlots, teamId, selectedId, onSelect, onClose }) {
+function GiornataChip({ matchday, isSuggested, compact }) {
+  if (!matchday) {
+    return (
+      <View style={[styles.gChip, styles.gChipEmpty, compact && styles.gChipCompact]}>
+        <Ionicons name="calendar-outline" size={14} color="#94a3b8" />
+        <Text style={styles.gChipEmptyText}>—</Text>
+      </View>
+    );
+  }
+  const isGhost = Number(matchday.is_ghost) === 1;
+  return (
+    <View style={[styles.gChip, isSuggested && styles.gChipSuggested, compact && styles.gChipCompact]}>
+      {isSuggested ? <Ionicons name="sparkles" size={11} color="#667eea" style={styles.gChipSparkle} /> : null}
+      <Ionicons name="calendar" size={13} color={isSuggested ? '#667eea' : '#64748b'} />
+      <Text style={[styles.gChipNum, isSuggested && styles.gChipNumSuggested]}>{matchday.giornata}</Text>
+      {isGhost ? <Ionicons name="moon-outline" size={11} color="#7c6fd6" /> : null}
+    </View>
+  );
+}
+
+function TeamLinkRow({
+  team,
+  side,
+  selectedId,
+  suggestion,
+  matchdays,
+  onPressChip,
+  onClear,
+}) {
+  const md = findMatchday(matchdays, selectedId);
+  const isSuggested =
+    suggestion?.available &&
+    suggestion?.matchday_id != null &&
+    Number(selectedId) === Number(suggestion.matchday_id);
+
+  return (
+    <View style={styles.teamLinkRow}>
+      <View style={styles.teamLinkLeft}>
+        <View style={styles.logoWrap}>
+          <TeamLogoImage
+            logoPath={team?.logo_path}
+            style={styles.teamLogo}
+            fallbackStyle={styles.teamLogoFallback}
+            fallbackIconSize={16}
+          />
+        </View>
+        <View style={styles.teamLinkMeta}>
+          <Text style={styles.teamLinkName} numberOfLines={1}>{team?.name || '—'}</Text>
+          {suggestion?.match_index ? (
+            <View style={styles.matchIndexBadge}>
+              <Ionicons name="football-outline" size={10} color="#94a3b8" />
+              <Text style={styles.matchIndexText}>
+                {suggestion.match_index}/{suggestion.total_matches}
+              </Text>
+            </View>
+          ) : null}
+        </View>
+      </View>
+
+      <Ionicons name="arrow-forward" size={14} color="#cbd5e1" style={styles.teamLinkArrow} />
+
+      <TouchableOpacity
+        style={styles.chipTap}
+        onPress={onPressChip}
+        activeOpacity={0.7}
+      >
+        <GiornataChip matchday={md} isSuggested={isSuggested} compact />
+        <Ionicons name="chevron-down" size={14} color="#94a3b8" />
+      </TouchableOpacity>
+
+      {selectedId != null ? (
+        <TouchableOpacity style={styles.clearLinkBtn} onPress={onClear} hitSlop={8}>
+          <Ionicons name="close-circle" size={18} color="#cbd5e1" />
+        </TouchableOpacity>
+      ) : null}
+    </View>
+  );
+}
+
+function MatchdayPickerModal({
+  visible,
+  team,
+  matchdays,
+  occupiedSlots,
+  teamId,
+  selectedId,
+  suggestion,
+  onSelect,
+  onClose,
+}) {
   const occupiedForTeam = new Set(
     (occupiedSlots || [])
       .filter((s) => Number(s.team_id) === Number(teamId))
@@ -85,18 +188,47 @@ function MatchdayPickerModal({ visible, title, matchdays, occupiedSlots, teamId,
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.modalOverlay}>
         <View style={styles.modalCard}>
-          <Text style={styles.modalTitle}>{title}</Text>
+          <View style={styles.modalHeader}>
+            <View style={styles.modalTeamRow}>
+              <TeamLogoImage
+                logoPath={team?.logo_path}
+                style={styles.modalTeamLogo}
+                fallbackStyle={styles.modalTeamLogoFb}
+                fallbackIconSize={14}
+              />
+              <Text style={styles.modalTeamName} numberOfLines={1}>{team?.name}</Text>
+            </View>
+            <TouchableOpacity onPress={onClose} hitSlop={10}>
+              <Ionicons name="close" size={22} color="#94a3b8" />
+            </TouchableOpacity>
+          </View>
+
+          {suggestion?.available && suggestion?.matchday_id ? (
+            <TouchableOpacity
+              style={styles.suggestBanner}
+              onPress={() => onSelect(suggestion.matchday_id)}
+            >
+              <Ionicons name="sparkles" size={16} color="#667eea" />
+              <Text style={styles.suggestBannerText}>
+                Consigliata · G.{suggestion.giornata}
+                {suggestion.match_index ? ` (${suggestion.match_index}ª partita)` : ''}
+              </Text>
+            </TouchableOpacity>
+          ) : null}
+
           <ScrollView style={styles.modalList} keyboardShouldPersistTaps="handled">
             <TouchableOpacity
               style={[styles.mdOption, selectedId == null && styles.mdOptionSelected]}
               onPress={() => onSelect(null)}
             >
-              <Text style={styles.mdOptionText}>Nessuna giornata</Text>
+              <Ionicons name="remove-circle-outline" size={18} color="#94a3b8" />
+              <Text style={styles.mdOptionText}>Nessuna</Text>
             </TouchableOpacity>
             {(matchdays || []).map((md) => {
               const id = Number(md.id);
               const occupied = occupiedForTeam.has(id);
               const isGhost = Number(md.is_ghost) === 1;
+              const isRec = suggestion?.available && Number(suggestion.matchday_id) === id;
               return (
                 <TouchableOpacity
                   key={id}
@@ -104,32 +236,31 @@ function MatchdayPickerModal({ visible, title, matchdays, occupiedSlots, teamId,
                     styles.mdOption,
                     selectedId === id && styles.mdOptionSelected,
                     occupied && styles.mdOptionDisabled,
+                    isRec && styles.mdOptionRec,
                   ]}
                   disabled={occupied}
                   onPress={() => onSelect(id)}
                 >
-                  <View style={styles.mdOptionRow}>
+                  <View style={styles.mdOptionLeft}>
+                    <Ionicons
+                      name={isRec ? 'sparkles' : 'calendar-outline'}
+                      size={17}
+                      color={occupied ? '#cbd5e1' : isRec ? '#667eea' : '#64748b'}
+                    />
                     <Text style={[styles.mdOptionText, occupied && styles.mdOptionTextDisabled]}>
-                      Giornata {md.giornata}
-                      {md.deadline_date ? ` · ${md.deadline_date}` : ''}
+                      G.{md.giornata}
                     </Text>
-                    {isGhost ? (
-                      <View style={styles.ghostPill}>
-                        <Ionicons name="moon-outline" size={11} color="#7c6fd6" />
-                        <Text style={styles.ghostPillText}>Fantasma</Text>
-                      </View>
-                    ) : null}
+                    {isGhost ? <Ionicons name="moon-outline" size={13} color="#7c6fd6" /> : null}
                   </View>
                   {occupied ? (
-                    <Text style={styles.mdOccupiedHint}>Squadra già collegata su questa giornata</Text>
+                    <Ionicons name="lock-closed" size={14} color="#fca5a5" />
+                  ) : selectedId === id ? (
+                    <Ionicons name="checkmark-circle" size={18} color="#667eea" />
                   ) : null}
                 </TouchableOpacity>
               );
             })}
           </ScrollView>
-          <TouchableOpacity style={styles.modalCloseBtn} onPress={onClose}>
-            <Text style={styles.modalCloseBtnText}>Chiudi</Text>
-          </TouchableOpacity>
         </View>
       </View>
     </Modal>
@@ -151,6 +282,11 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated 
   const [feedback, setFeedback] = useState('');
   const savedSnapshot = useRef('');
 
+  const applySuggestionsToDraft = useCallback((links) => {
+    setDraftHomeMd(pickInitialDraft(links, 'home'));
+    setDraftAwayMd(pickInitialDraft(links, 'away'));
+  }, []);
+
   const loadAll = useCallback(async () => {
     if (!matchId) return;
     try {
@@ -159,8 +295,7 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated 
       const linksRes = await adminMatchesService.getMatchdayLinks(matchId);
       const links = linksRes.data || {};
       setLinkData(links);
-      setDraftHomeMd(links.current?.home_matchday_id ?? null);
-      setDraftAwayMd(links.current?.away_matchday_id ?? null);
+      applySuggestionsToDraft(links);
 
       if (links.has_links) {
         const votesRes = await adminMatchesService.getMatchVotes(matchId);
@@ -182,17 +317,17 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated 
     } finally {
       setLoading(false);
     }
-  }, [matchId]);
+  }, [matchId, applySuggestionsToDraft]);
 
   useEffect(() => {
     void loadAll();
   }, [loadAll]);
 
-  const matchdayLabel = (id) => {
-    const md = (linkData?.matchdays || []).find((m) => Number(m.id) === Number(id));
-    if (!md) return 'Seleziona giornata';
-    const ghost = Number(md.is_ghost) === 1 ? ' · Fantasma' : '';
-    return `Giornata ${md.giornata}${ghost}`;
+  const applySuggestions = () => {
+    const h = linkData?.suggestions?.home;
+    const a = linkData?.suggestions?.away;
+    setDraftHomeMd(h?.available ? h.matchday_id : null);
+    setDraftAwayMd(a?.available ? a.matchday_id : null);
   };
 
   const handleSaveLinks = async () => {
@@ -208,11 +343,11 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated 
       setDraftHomeMd(data.current?.home_matchday_id ?? null);
       setDraftAwayMd(data.current?.away_matchday_id ?? null);
       if (onLinksUpdated) onLinksUpdated(data);
-      setFeedback('Collegamenti salvati');
-      setTimeout(() => setFeedback(''), 2500);
+      setFeedback('Salvato');
+      setTimeout(() => setFeedback(''), 2000);
       if (data.has_links) await loadAll();
     } catch (e) {
-      setError(e?.response?.data?.message || 'Errore salvataggio collegamenti');
+      setError(e?.response?.data?.message || 'Errore salvataggio');
     } finally {
       setSavingLinks(false);
     }
@@ -260,10 +395,10 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated 
       const fresh = res.data?.votes || votes;
       setVotes(fresh);
       savedSnapshot.current = JSON.stringify(fresh);
-      setFeedback('Voti salvati');
-      setTimeout(() => setFeedback(''), 2500);
+      setFeedback('Salvato');
+      setTimeout(() => setFeedback(''), 2000);
     } catch (e) {
-      setError(e?.response?.data?.message || 'Errore salvataggio voti');
+      setError(e?.response?.data?.message || 'Errore salvataggio');
     } finally {
       setSaving(false);
     }
@@ -277,10 +412,10 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated 
       const fresh = res.data?.votes || votes;
       setVotes(fresh);
       savedSnapshot.current = JSON.stringify(fresh);
-      setFeedback('Tutti i voti salvati');
-      setTimeout(() => setFeedback(''), 2500);
+      setFeedback('Salvato');
+      setTimeout(() => setFeedback(''), 2000);
     } catch (e) {
-      setError(e?.response?.data?.message || 'Errore salvataggio voti');
+      setError(e?.response?.data?.message || 'Errore salvataggio');
     } finally {
       setSaving(false);
     }
@@ -298,149 +433,172 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated 
   const linksChanged =
     draftHomeMd !== (linkData?.current?.home_matchday_id ?? null) ||
     draftAwayMd !== (linkData?.current?.away_matchday_id ?? null);
+  const hasAnySuggestion =
+    linkData?.suggestions?.home?.available || linkData?.suggestions?.away?.available;
 
   return (
     <View style={styles.wrap}>
       {canManageLinks ? (
         <View style={styles.linkCard}>
-          <View style={styles.linkCardHeader}>
-            <Ionicons name="link-outline" size={20} color="#667eea" />
-            <Text style={styles.linkCardTitle}>Collega alle giornate del calendario</Text>
+          <View style={styles.linkToolbar}>
+            <View style={styles.linkToolbarLeft}>
+              <Ionicons name="git-branch-outline" size={18} color="#667eea" />
+            </View>
+            <View style={styles.linkToolbarActions}>
+              {hasAnySuggestion ? (
+                <TouchableOpacity style={styles.toolBtn} onPress={applySuggestions} hitSlop={6}>
+                  <Ionicons name="sparkles" size={18} color="#667eea" />
+                </TouchableOpacity>
+              ) : null}
+              <TouchableOpacity
+                style={[styles.toolBtn, styles.toolBtnSave, (!linksChanged || savingLinks) && styles.toolBtnDisabled]}
+                disabled={!linksChanged || savingLinks}
+                onPress={handleSaveLinks}
+              >
+                {savingLinks ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Ionicons name="checkmark" size={18} color="#fff" />
+                )}
+              </TouchableOpacity>
+            </View>
           </View>
-          <Text style={styles.linkCardHint}>
-            Ogni squadra può essere associata a una giornata diversa. Una squadra non può avere due partite sulla stessa giornata.
-          </Text>
 
-          <Text style={styles.teamLinkLabel}>{linkData?.home_team?.name || 'Casa'}</Text>
-          <TouchableOpacity
-            style={styles.mdSelectBtn}
-            onPress={() => setPicker({ side: 'home', teamId: linkData?.home_team?.id })}
-          >
-            <Text style={styles.mdSelectBtnText}>{matchdayLabel(draftHomeMd)}</Text>
-            <Ionicons name="chevron-down" size={18} color="#667eea" />
-          </TouchableOpacity>
+          <TeamLinkRow
+            team={linkData?.home_team}
+            side="home"
+            selectedId={draftHomeMd}
+            suggestion={linkData?.suggestions?.home}
+            matchdays={linkData?.matchdays}
+            onPressChip={() => setPicker({ side: 'home', teamId: linkData?.home_team?.id })}
+            onClear={() => setDraftHomeMd(null)}
+          />
 
-          <Text style={[styles.teamLinkLabel, { marginTop: 12 }]}>{linkData?.away_team?.name || 'Trasferta'}</Text>
-          <TouchableOpacity
-            style={styles.mdSelectBtn}
-            onPress={() => setPicker({ side: 'away', teamId: linkData?.away_team?.id })}
-          >
-            <Text style={styles.mdSelectBtnText}>{matchdayLabel(draftAwayMd)}</Text>
-            <Ionicons name="chevron-down" size={18} color="#667eea" />
-          </TouchableOpacity>
+          <View style={styles.linkDivider} />
 
-          <TouchableOpacity
-            style={[styles.saveLinksBtn, (!linksChanged || savingLinks) && styles.saveLinksBtnDisabled]}
-            disabled={!linksChanged || savingLinks}
-            onPress={handleSaveLinks}
-          >
-            {savingLinks ? (
-              <ActivityIndicator color="#fff" size="small" />
-            ) : (
-              <>
-                <Ionicons name="checkmark-circle-outline" size={18} color="#fff" />
-                <Text style={styles.saveLinksBtnText}>Salva collegamenti</Text>
-              </>
-            )}
-          </TouchableOpacity>
+          <TeamLinkRow
+            team={linkData?.away_team}
+            side="away"
+            selectedId={draftAwayMd}
+            suggestion={linkData?.suggestions?.away}
+            matchdays={linkData?.matchdays}
+            onPressChip={() => setPicker({ side: 'away', teamId: linkData?.away_team?.id })}
+            onClear={() => setDraftAwayMd(null)}
+          />
         </View>
       ) : null}
 
       {error ? (
         <View style={styles.errorBox}>
-          <Ionicons name="alert-circle-outline" size={18} color="#dc3545" />
+          <Ionicons name="alert-circle-outline" size={16} color="#dc3545" />
           <Text style={styles.errorText}>{error}</Text>
         </View>
       ) : null}
 
       {feedback ? (
         <View style={styles.feedbackBox}>
-          <Ionicons name="checkmark-circle" size={18} color="#198754" />
+          <Ionicons name="checkmark-circle" size={16} color="#198754" />
           <Text style={styles.feedbackText}>{feedback}</Text>
         </View>
       ) : null}
 
-      {!linkData?.has_links ? (
+      {!linkData?.has_links && !linksChanged ? (
         <View style={styles.emptyBox}>
-          <Ionicons name="calendar-outline" size={40} color="#cbd5e1" />
-          <Text style={styles.emptyTitle}>Nessun collegamento attivo</Text>
-          <Text style={styles.emptySub}>
-            {canManageLinks
-              ? 'Collega almeno una squadra a una giornata del calendario ufficiale per abilitare l\'inserimento voti.'
-              : 'Il superamministratore deve collegare questa partita a una giornata del calendario.'}
-          </Text>
+          <Ionicons name="link-outline" size={36} color="#e2e8f0" />
+          {!canManageLinks ? (
+            <Text style={styles.emptySub}>In attesa del collegamento</Text>
+          ) : null}
         </View>
-      ) : (
-        <>
-          <View style={styles.votesHeader}>
-            <Text style={styles.votesHeaderTitle}>Inserisci voti</Text>
-            <TouchableOpacity
-              style={[styles.saveAllBtn, saving && { opacity: 0.6 }]}
-              onPress={handleSaveAll}
-              disabled={saving}
-            >
-              <Ionicons name="save-outline" size={16} color="#fff" />
-              <Text style={styles.saveAllBtnText}>Salva tutto</Text>
-            </TouchableOpacity>
-          </View>
+      ) : null}
 
-          {teams.map((team) => {
-            const isOpen = !!expandedTeams[team.id];
-            const voted = team.players.filter((p) => (votes[p.id]?.rating || 0) > 0).length;
-            return (
-              <View key={team.id} style={styles.teamCard}>
+      {(linkData?.has_links || (canManageLinks && (draftHomeMd || draftAwayMd))) ? (
+        <>
+          {linkData?.has_links ? (
+            <>
+              <View style={styles.votesHeader}>
+                <Ionicons name="create-outline" size={18} color="#334155" />
                 <TouchableOpacity
-                  style={styles.teamHeader}
-                  onPress={() => setExpandedTeams((e) => ({ ...e, [team.id]: !e[team.id] }))}
+                  style={[styles.saveAllBtn, saving && { opacity: 0.6 }]}
+                  onPress={handleSaveAll}
+                  disabled={saving}
                 >
-                  <View style={styles.teamHeaderLeft}>
-                    <Text style={styles.teamName}>{team.name}</Text>
-                    <View style={styles.giornataPill}>
-                      <Text style={styles.giornataPillText}>G.{team.giornata}</Text>
-                      {team.is_ghost ? (
-                        <Ionicons name="moon-outline" size={12} color="#7c6fd6" style={{ marginLeft: 4 }} />
-                      ) : null}
-                    </View>
-                  </View>
-                  <View style={styles.teamHeaderRight}>
-                    <Text style={styles.votedCount}>{voted}/{team.players.length}</Text>
-                    <TouchableOpacity
-                      style={styles.teamSaveBtn}
-                      onPress={(e) => { e.stopPropagation(); void handleSaveTeam(team.id); }}
-                      disabled={saving}
-                    >
-                      <Ionicons name="save-outline" size={15} color="#fff" />
-                    </TouchableOpacity>
-                    <Ionicons name={isOpen ? 'chevron-up' : 'chevron-down'} size={18} color="#94a3b8" />
-                  </View>
+                  <Ionicons name="save-outline" size={16} color="#fff" />
                 </TouchableOpacity>
-                {isOpen ? (
-                  <View style={styles.playersList}>
-                    {team.players.map((p) => (
-                      <VotePlayerRow
-                        key={p.id}
-                        player={p}
-                        vote={votes[p.id]}
-                        onSetRating={setRatingValue}
-                        onUpdateRating={updateRating}
-                        onToggleSV={toggleSV}
-                      />
-                    ))}
-                  </View>
-                ) : null}
               </View>
-            );
-          })}
+
+              {teams.map((team) => {
+                const isOpen = !!expandedTeams[team.id];
+                const voted = team.players.filter((p) => (votes[p.id]?.rating || 0) > 0).length;
+                const linkTeam =
+                  team.side === 'home' ? linkData?.home_team : linkData?.away_team;
+                return (
+                  <View key={team.id} style={styles.teamCard}>
+                    <TouchableOpacity
+                      style={styles.teamHeader}
+                      onPress={() => setExpandedTeams((e) => ({ ...e, [team.id]: !e[team.id] }))}
+                    >
+                      <View style={styles.teamHeaderLeft}>
+                        <TeamLogoImage
+                          logoPath={linkTeam?.logo_path}
+                          style={styles.votesTeamLogo}
+                          fallbackStyle={styles.votesTeamLogoFb}
+                          fallbackIconSize={12}
+                        />
+                        <GiornataChip
+                          matchday={findMatchday(linkData?.matchdays, team.matchday_id) || {
+                            giornata: team.giornata,
+                            is_ghost: team.is_ghost,
+                          }}
+                          compact
+                        />
+                        <Text style={styles.votedCount}>{voted}/{team.players.length}</Text>
+                      </View>
+                      <View style={styles.teamHeaderRight}>
+                        <TouchableOpacity
+                          style={styles.teamSaveBtn}
+                          onPress={(e) => { e.stopPropagation(); void handleSaveTeam(team.id); }}
+                          disabled={saving}
+                        >
+                          <Ionicons name="save-outline" size={15} color="#fff" />
+                        </TouchableOpacity>
+                        <Ionicons name={isOpen ? 'chevron-up' : 'chevron-down'} size={18} color="#94a3b8" />
+                      </View>
+                    </TouchableOpacity>
+                    {isOpen ? (
+                      <View style={styles.playersList}>
+                        {team.players.map((p) => (
+                          <VotePlayerRow
+                            key={p.id}
+                            player={p}
+                            vote={votes[p.id]}
+                            onSetRating={setRatingValue}
+                            onUpdateRating={updateRating}
+                            onToggleSV={toggleSV}
+                          />
+                        ))}
+                      </View>
+                    ) : null}
+                  </View>
+                );
+              })}
+            </>
+          ) : canManageLinks && linksChanged ? (
+            <View style={styles.pendingHint}>
+              <Ionicons name="information-circle-outline" size={16} color="#667eea" />
+              <Text style={styles.pendingHintText}>Conferma i collegamenti per inserire i voti</Text>
+            </View>
+          ) : null}
         </>
-      )}
+      ) : null}
 
       <MatchdayPickerModal
         visible={!!picker}
-        title={picker?.side === 'home' ? 'Giornata squadra casa' : 'Giornata squadra trasferta'}
+        team={picker?.side === 'home' ? linkData?.home_team : linkData?.away_team}
         matchdays={linkData?.matchdays}
         occupiedSlots={linkData?.occupied_slots}
         teamId={picker?.teamId}
         selectedId={picker?.side === 'home' ? draftHomeMd : draftAwayMd}
+        suggestion={picker?.side === 'home' ? linkData?.suggestions?.home : linkData?.suggestions?.away}
         onClose={() => setPicker(null)}
         onSelect={(id) => {
           if (picker?.side === 'home') setDraftHomeMd(id);
@@ -453,88 +611,140 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated 
 }
 
 const styles = StyleSheet.create({
-  wrap: { paddingBottom: 24 },
+  wrap: { paddingBottom: 16 },
   centered: { paddingVertical: 40, alignItems: 'center' },
   linkCard: {
-    backgroundColor: '#f8f9ff',
+    backgroundColor: '#fff',
     borderRadius: 14,
-    padding: 16,
-    marginBottom: 14,
+    padding: 12,
+    marginBottom: 12,
     borderWidth: 1,
-    borderColor: '#e0e7ff',
+    borderColor: '#eef2ff',
   },
-  linkCardHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
-  linkCardTitle: { fontSize: 16, fontWeight: '700', color: '#334155' },
-  linkCardHint: { fontSize: 13, color: '#64748b', lineHeight: 18, marginBottom: 14 },
-  teamLinkLabel: { fontSize: 13, fontWeight: '600', color: '#475569', marginBottom: 6 },
-  mdSelectBtn: {
+  linkToolbar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    marginBottom: 10,
   },
-  mdSelectBtnText: { fontSize: 14, color: '#1e293b', fontWeight: '500' },
-  saveLinksBtn: {
-    marginTop: 16,
-    flexDirection: 'row',
+  linkToolbarLeft: {},
+  linkToolbarActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  toolBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    backgroundColor: '#f1f5f9',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
-    backgroundColor: '#667eea',
-    borderRadius: 10,
-    paddingVertical: 12,
   },
-  saveLinksBtnDisabled: { opacity: 0.45 },
-  saveLinksBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+  toolBtnSave: { backgroundColor: '#667eea' },
+  toolBtnDisabled: { opacity: 0.4 },
+  teamLinkRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 6,
+  },
+  teamLinkLeft: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, minWidth: 0 },
+  logoWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#f8fafc',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  teamLogo: { width: 30, height: 30 },
+  teamLogoFallback: {
+    width: 30,
+    height: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  teamLinkMeta: { flex: 1, minWidth: 0 },
+  teamLinkName: { fontSize: 14, fontWeight: '700', color: '#1e293b' },
+  matchIndexBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    marginTop: 2,
+  },
+  matchIndexText: { fontSize: 11, color: '#94a3b8', fontWeight: '600' },
+  teamLinkArrow: { marginHorizontal: 6 },
+  chipTap: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  clearLinkBtn: { marginLeft: 6 },
+  linkDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: '#f1f5f9',
+    marginVertical: 4,
+    marginLeft: 46,
+  },
+  gChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#f1f5f9',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  gChipCompact: { paddingHorizontal: 8, paddingVertical: 4 },
+  gChipSuggested: {
+    backgroundColor: '#eef2ff',
+    borderColor: '#c7d2fe',
+  },
+  gChipEmpty: { opacity: 0.7 },
+  gChipEmptyText: { fontSize: 13, color: '#94a3b8', fontWeight: '600' },
+  gChipSparkle: { marginRight: -2 },
+  gChipNum: { fontSize: 14, fontWeight: '800', color: '#475569' },
+  gChipNumSuggested: { color: '#667eea' },
   errorBox: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
     backgroundColor: '#fef2f2',
     borderRadius: 10,
-    padding: 12,
-    marginBottom: 12,
+    padding: 10,
+    marginBottom: 10,
   },
-  errorText: { flex: 1, color: '#dc3545', fontSize: 13 },
+  errorText: { flex: 1, color: '#dc3545', fontSize: 12 },
   feedbackBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    backgroundColor: '#ecfdf3',
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 12,
+    gap: 6,
+    marginBottom: 10,
   },
-  feedbackText: { color: '#198754', fontWeight: '600', fontSize: 13 },
-  emptyBox: { alignItems: 'center', paddingVertical: 36, paddingHorizontal: 24 },
-  emptyTitle: { fontSize: 16, fontWeight: '700', color: '#64748b', marginTop: 12 },
-  emptySub: { fontSize: 13, color: '#94a3b8', textAlign: 'center', marginTop: 8, lineHeight: 19 },
+  feedbackText: { color: '#198754', fontWeight: '600', fontSize: 12 },
+  emptyBox: { alignItems: 'center', paddingVertical: 20 },
+  emptySub: { fontSize: 12, color: '#94a3b8', marginTop: 8 },
+  pendingHint: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    justifyContent: 'center',
+  },
+  pendingHintText: { fontSize: 12, color: '#667eea', fontWeight: '500' },
   votesHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 10,
+    marginBottom: 8,
   },
-  votesHeaderTitle: { fontSize: 17, fontWeight: '700', color: '#1e293b' },
   saveAllBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
+    width: 36,
+    height: 36,
+    borderRadius: 10,
     backgroundColor: '#198754',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  saveAllBtnText: { color: '#fff', fontWeight: '700', fontSize: 13 },
   teamCard: {
     backgroundColor: '#fff',
     borderRadius: 12,
-    marginBottom: 10,
+    marginBottom: 8,
     borderWidth: 1,
     borderColor: '#e2e8f0',
     overflow: 'hidden',
@@ -543,70 +753,62 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     backgroundColor: '#f8fafc',
   },
-  teamHeaderLeft: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, marginRight: 8 },
-  teamName: { fontSize: 15, fontWeight: '700', color: '#1e293b', flexShrink: 1 },
-  giornataPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#eef2ff',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-  },
-  giornataPillText: { fontSize: 11, fontWeight: '700', color: '#667eea' },
+  teamHeaderLeft: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 },
+  votesTeamLogo: { width: 22, height: 22 },
+  votesTeamLogoFb: { width: 22, height: 22, alignItems: 'center', justifyContent: 'center' },
   teamHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  votedCount: { fontSize: 12, color: '#64748b', fontWeight: '600' },
+  votedCount: { fontSize: 11, color: '#94a3b8', fontWeight: '600' },
   teamSaveBtn: {
     backgroundColor: '#667eea',
-    width: 32,
-    height: 32,
+    width: 30,
+    height: 30,
     borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  playersList: { paddingHorizontal: 10, paddingBottom: 8 },
+  playersList: { paddingHorizontal: 8, paddingBottom: 6 },
   playerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
+    paddingVertical: 7,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: '#f1f5f9',
-    gap: 6,
+    gap: 5,
   },
-  roleBadge: { width: 24, height: 24, borderRadius: 6, alignItems: 'center', justifyContent: 'center' },
-  roleBadgeText: { color: '#fff', fontSize: 10, fontWeight: '800' },
+  roleBadge: { width: 22, height: 22, borderRadius: 5, alignItems: 'center', justifyContent: 'center' },
+  roleBadgeText: { color: '#fff', fontSize: 9, fontWeight: '800' },
   playerName: { flex: 1, fontSize: 13, color: '#334155' },
   svBtn: {
-    paddingHorizontal: 6,
-    paddingVertical: 4,
-    borderRadius: 6,
+    paddingHorizontal: 5,
+    paddingVertical: 3,
+    borderRadius: 5,
     borderWidth: 1,
     borderColor: '#e2e8f0',
   },
   svBtnActive: { backgroundColor: '#fef2f2', borderColor: '#fecaca' },
-  svBtnText: { fontSize: 10, fontWeight: '700', color: '#94a3b8' },
+  svBtnText: { fontSize: 9, fontWeight: '700', color: '#94a3b8' },
   svBtnTextActive: { color: '#dc3545' },
   ratingBtn: {
-    width: 28,
-    height: 28,
+    width: 26,
+    height: 26,
     borderRadius: 6,
     backgroundColor: '#f1f5f9',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  ratingBtnText: { fontSize: 16, fontWeight: '700', color: '#475569' },
+  ratingBtnText: { fontSize: 15, fontWeight: '700', color: '#475569' },
   ratingInput: {
-    width: 44,
-    height: 32,
+    width: 40,
+    height: 30,
     borderWidth: 1,
     borderColor: '#e2e8f0',
     borderRadius: 6,
     textAlign: 'center',
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '700',
     color: '#1e293b',
     backgroundColor: '#fff',
@@ -614,48 +816,52 @@ const styles = StyleSheet.create({
   ratingInputSV: { borderColor: '#fecaca', color: '#dc3545' },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.45)',
-    justifyContent: 'center',
-    padding: 20,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'flex-end',
   },
   modalCard: {
     backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 18,
-    maxHeight: '80%',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 18,
+    paddingTop: 16,
+    paddingBottom: 28,
+    maxHeight: '75%',
   },
-  modalTitle: { fontSize: 17, fontWeight: '700', color: '#1e293b', marginBottom: 12 },
-  modalList: { maxHeight: 360 },
-  mdOption: {
-    paddingVertical: 12,
-    paddingHorizontal: 10,
-    borderRadius: 10,
-    marginBottom: 4,
-    borderWidth: 1,
-    borderColor: 'transparent',
-  },
-  mdOptionSelected: { backgroundColor: '#eef2ff', borderColor: '#c7d2fe' },
-  mdOptionDisabled: { opacity: 0.5 },
-  mdOptionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  mdOptionText: { fontSize: 14, color: '#334155', fontWeight: '500' },
-  mdOptionTextDisabled: { color: '#94a3b8' },
-  mdOccupiedHint: { fontSize: 11, color: '#dc3545', marginTop: 4 },
-  ghostPill: {
+  modalHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 3,
-    backgroundColor: '#f3f0ff',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
+    justifyContent: 'space-between',
+    marginBottom: 12,
   },
-  ghostPillText: { fontSize: 10, color: '#7c6fd6', fontWeight: '700' },
-  modalCloseBtn: {
-    marginTop: 12,
-    paddingVertical: 12,
+  modalTeamRow: { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 },
+  modalTeamLogo: { width: 28, height: 28 },
+  modalTeamLogoFb: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
+  modalTeamName: { fontSize: 16, fontWeight: '700', color: '#1e293b', flex: 1 },
+  suggestBanner: {
+    flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f1f5f9',
-    borderRadius: 10,
+    gap: 8,
+    backgroundColor: '#eef2ff',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 10,
   },
-  modalCloseBtnText: { fontWeight: '700', color: '#475569' },
+  suggestBannerText: { fontSize: 13, fontWeight: '600', color: '#667eea', flex: 1 },
+  modalList: { maxHeight: 320 },
+  mdOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    borderRadius: 10,
+    marginBottom: 2,
+  },
+  mdOptionSelected: { backgroundColor: '#eef2ff' },
+  mdOptionRec: { borderWidth: 1, borderColor: '#c7d2fe' },
+  mdOptionDisabled: { opacity: 0.45 },
+  mdOptionLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  mdOptionText: { fontSize: 15, fontWeight: '600', color: '#334155' },
+  mdOptionTextDisabled: { color: '#94a3b8' },
 });
