@@ -1652,7 +1652,7 @@ export default function MatchDetailScreen({ navigation, route }) {
           : activeTab === 'standings'
             ? Math.max(insets.bottom, 28) + 18
             : activeTab === 'votes'
-              ? Math.max(insets.bottom, 28) + 18
+              ? Math.max(insets.bottom, 28) + 120
               : undefined;
 
   const loadOverviewEditorOptions = useCallback(async () => {

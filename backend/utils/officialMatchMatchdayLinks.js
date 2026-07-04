@@ -572,7 +572,12 @@ async function getBonusSettings(leagueId) {
   try {
     const rows = await query(
       `SELECT enable_bonus_malus, enable_goal, bonus_goal, enable_assist, bonus_assist,
-              enable_yellow_card, malus_yellow_card, enable_red_card, malus_red_card
+              enable_yellow_card, malus_yellow_card, enable_red_card, malus_red_card,
+              enable_goals_conceded, malus_goals_conceded, enable_own_goal, malus_own_goal,
+              enable_penalty_missed, malus_penalty_missed, enable_penalty_saved, bonus_penalty_saved,
+              enable_clean_sheet, bonus_clean_sheet,
+              enable_pallone_fuori, malus_pallone_fuori, enable_briso, bonus_briso,
+              enable_no_divisa, malus_no_divisa
        FROM league_bonus_settings
        WHERE league_id = ?
        LIMIT 1`,

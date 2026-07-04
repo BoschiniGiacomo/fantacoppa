@@ -3,16 +3,17 @@ import {
   View,
   Text,
   TouchableOpacity,
-  TextInput,
   ActivityIndicator,
   StyleSheet,
   Modal,
   ScrollView,
+  Pressable,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { adminMatchesService } from '../services/api';
 import { TeamLogoImage } from './StableCachedImage';
-import { formatVoteRating, normalizeVoteRating } from '../utils/voteRating';
+import VotesPlayerRow, { EMPTY_VOTE, buildRatingsPayload, DEFAULT_BONUS_SETTINGS } from './VotesPlayerRow';
+import { normalizeVoteRating } from '../utils/voteRating';
 
 function pickInitialDraft(links, side) {
   const current = links?.current?.[`${side}_matchday_id`];
@@ -27,68 +28,7 @@ function findMatchday(matchdays, id) {
   return (matchdays || []).find((m) => Number(m.id) === Number(id)) || null;
 }
 
-function VotePlayerRow({ player, vote, onSetRating, onUpdateRating, onToggleSV }) {
-  const pv = vote || { rating: 0 };
-  const isSV = pv.rating === 0;
-  const [editingText, setEditingText] = useState(null);
-  const isEditing = editingText !== null;
-  const roleColors = { P: '#0d6efd', D: '#198754', C: '#e6a800', A: '#dc3545' };
-
-  const handleBlur = () => {
-    if (editingText !== null) {
-      onSetRating(player.id, editingText);
-      setEditingText(null);
-    }
-  };
-
-  const displayValue = isEditing
-    ? editingText
-    : isSV
-      ? ''
-      : formatVoteRating(pv.rating, { empty: '' });
-
-  return (
-    <View style={styles.playerRow}>
-      <View style={[styles.roleBadge, { backgroundColor: roleColors[player.role] || '#6c757d' }]}>
-        <Text style={styles.roleBadgeText}>{player.role}</Text>
-      </View>
-      <Text style={styles.playerName} numberOfLines={1}>
-        {player.first_name} {player.last_name}
-      </Text>
-      <TouchableOpacity
-        style={[styles.svBtn, isSV && styles.svBtnActive]}
-        onPress={() => onToggleSV(player.id)}
-      >
-        <Text style={[styles.svBtnText, isSV && styles.svBtnTextActive]}>S.V.</Text>
-      </TouchableOpacity>
-      <TouchableOpacity style={styles.ratingBtn} onPress={() => onUpdateRating(player.id, -0.25)}>
-        <Text style={styles.ratingBtnText}>−</Text>
-      </TouchableOpacity>
-      <TextInput
-        style={[styles.ratingInput, isSV && styles.ratingInputSV]}
-        value={displayValue}
-        onFocus={() => {
-          if (isSV) setEditingText('');
-          else setEditingText(pv.rating % 1 === 0 ? String(pv.rating) : String(pv.rating));
-        }}
-        onChangeText={(text) => {
-          const t = text.replace(',', '.');
-          if (t === '' || /^\d*\.?\d{0,2}$/.test(t)) setEditingText(t);
-        }}
-        onBlur={handleBlur}
-        placeholder={isSV ? 'S.V.' : '6'}
-        placeholderTextColor={isSV ? '#dc3545' : '#bbb'}
-        keyboardType="decimal-pad"
-        selectTextOnFocus
-      />
-      <TouchableOpacity style={styles.ratingBtn} onPress={() => onUpdateRating(player.id, 0.25)}>
-        <Text style={styles.ratingBtnText}>+</Text>
-      </TouchableOpacity>
-    </View>
-  );
-}
-
-function GiornataChip({ matchday, isSuggested, compact }) {
+function GiornataChip({ matchday, compact }) {
   if (!matchday) {
     return (
       <View style={[styles.gChip, styles.gChipEmpty, compact && styles.gChipCompact]}>
@@ -99,10 +39,9 @@ function GiornataChip({ matchday, isSuggested, compact }) {
   }
   const isGhost = Number(matchday.is_ghost) === 1;
   return (
-    <View style={[styles.gChip, isSuggested && styles.gChipSuggested, compact && styles.gChipCompact]}>
-      {isSuggested ? <Ionicons name="sparkles" size={11} color="#667eea" style={styles.gChipSparkle} /> : null}
-      <Ionicons name="calendar" size={13} color={isSuggested ? '#667eea' : '#64748b'} />
-      <Text style={[styles.gChipNum, isSuggested && styles.gChipNumSuggested]}>{matchday.giornata}</Text>
+    <View style={[styles.gChip, compact && styles.gChipCompact]}>
+      <Ionicons name="calendar" size={13} color="#64748b" />
+      <Text style={styles.gChipNum}>{matchday.giornata}</Text>
       {isGhost ? <Ionicons name="moon-outline" size={11} color="#7c6fd6" /> : null}
     </View>
   );
@@ -118,10 +57,6 @@ function TeamLinkRow({
   onClear,
 }) {
   const md = findMatchday(matchdays, selectedId);
-  const isSuggested =
-    suggestion?.available &&
-    suggestion?.matchday_id != null &&
-    Number(selectedId) === Number(suggestion.matchday_id);
 
   return (
     <View style={styles.teamLinkRow}>
@@ -154,7 +89,7 @@ function TeamLinkRow({
         onPress={onPressChip}
         activeOpacity={0.7}
       >
-        <GiornataChip matchday={md} isSuggested={isSuggested} compact />
+        <GiornataChip matchday={md} compact />
         <Ionicons name="chevron-down" size={14} color="#94a3b8" />
       </TouchableOpacity>
 
@@ -208,7 +143,7 @@ function MatchdayPickerModal({
               style={styles.suggestBanner}
               onPress={() => onSelect(suggestion.matchday_id)}
             >
-              <Ionicons name="sparkles" size={16} color="#667eea" />
+              <Ionicons name="calendar" size={16} color="#667eea" />
               <Text style={styles.suggestBannerText}>
                 Consigliata · G.{suggestion.giornata}
                 {suggestion.match_index ? ` (${suggestion.match_index}ª partita)` : ''}
@@ -243,7 +178,7 @@ function MatchdayPickerModal({
                 >
                   <View style={styles.mdOptionLeft}>
                     <Ionicons
-                      name={isRec ? 'sparkles' : 'calendar-outline'}
+                      name="calendar-outline"
                       size={17}
                       color={occupied ? '#cbd5e1' : isRec ? '#667eea' : '#64748b'}
                     />
@@ -267,6 +202,69 @@ function MatchdayPickerModal({
   );
 }
 
+function LinkEditorPanel({
+  linkData,
+  draftHomeMd,
+  draftAwayMd,
+  linksChanged,
+  savingLinks,
+  onPressHomeChip,
+  onPressAwayChip,
+  onClearHome,
+  onClearAway,
+  onSave,
+  onClose,
+  inModal,
+}) {
+  return (
+    <View style={[styles.linkCard, inModal && styles.linkCardModal]}>
+      <View style={styles.linkToolbar}>
+        <View style={styles.linkToolbarLeft}>
+          <Ionicons name="git-branch-outline" size={18} color="#667eea" />
+        </View>
+        <View style={styles.linkToolbarActions}>
+          {inModal && onClose ? (
+            <TouchableOpacity style={styles.toolBtn} onPress={onClose}>
+              <Ionicons name="close" size={18} color="#64748b" />
+            </TouchableOpacity>
+          ) : null}
+          <TouchableOpacity
+            style={[styles.toolBtn, styles.toolBtnSave, (!linksChanged || savingLinks) && styles.toolBtnDisabled]}
+            disabled={!linksChanged || savingLinks}
+            onPress={onSave}
+          >
+            {savingLinks ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <Ionicons name="checkmark" size={18} color="#fff" />
+            )}
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      <TeamLinkRow
+        team={linkData?.home_team}
+        selectedId={draftHomeMd}
+        suggestion={linkData?.suggestions?.home}
+        matchdays={linkData?.matchdays}
+        onPressChip={onPressHomeChip}
+        onClear={onClearHome}
+      />
+
+      <View style={styles.linkDivider} />
+
+      <TeamLinkRow
+        team={linkData?.away_team}
+        selectedId={draftAwayMd}
+        suggestion={linkData?.suggestions?.away}
+        matchdays={linkData?.matchdays}
+        onPressChip={onPressAwayChip}
+        onClear={onClearAway}
+      />
+    </View>
+  );
+}
+
 export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -275,11 +273,13 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated 
   const [linkData, setLinkData] = useState(null);
   const [votesData, setVotesData] = useState(null);
   const [votes, setVotes] = useState({});
+  const [bonusSettings, setBonusSettings] = useState(DEFAULT_BONUS_SETTINGS);
   const [expandedTeams, setExpandedTeams] = useState({});
   const [picker, setPicker] = useState(null);
   const [draftHomeMd, setDraftHomeMd] = useState(null);
   const [draftAwayMd, setDraftAwayMd] = useState(null);
   const [feedback, setFeedback] = useState('');
+  const [linkEditorOpen, setLinkEditorOpen] = useState(false);
   const savedSnapshot = useRef('');
 
   const applySuggestionsToDraft = useCallback((links) => {
@@ -303,6 +303,7 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated 
         setVotesData(vd);
         const v = vd.votes || {};
         setVotes(v);
+        setBonusSettings(vd.bonus_settings || DEFAULT_BONUS_SETTINGS);
         savedSnapshot.current = JSON.stringify(v);
         const exp = {};
         (vd.teams || []).forEach((t) => { exp[t.id] = true; });
@@ -323,13 +324,6 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated 
     void loadAll();
   }, [loadAll]);
 
-  const applySuggestions = () => {
-    const h = linkData?.suggestions?.home;
-    const a = linkData?.suggestions?.away;
-    setDraftHomeMd(h?.available ? h.matchday_id : null);
-    setDraftAwayMd(a?.available ? a.matchday_id : null);
-  };
-
   const handleSaveLinks = async () => {
     try {
       setSavingLinks(true);
@@ -345,7 +339,10 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated 
       if (onLinksUpdated) onLinksUpdated(data);
       setFeedback('Salvato');
       setTimeout(() => setFeedback(''), 2000);
-      if (data.has_links) await loadAll();
+      if (data.has_links) {
+        setLinkEditorOpen(false);
+        await loadAll();
+      }
     } catch (e) {
       setError(e?.response?.data?.message || 'Errore salvataggio');
     } finally {
@@ -353,9 +350,25 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated 
     }
   };
 
+  const openLinkEditor = () => {
+    if (linkData) {
+      setDraftHomeMd(linkData.current?.home_matchday_id ?? pickInitialDraft(linkData, 'home'));
+      setDraftAwayMd(linkData.current?.away_matchday_id ?? pickInitialDraft(linkData, 'away'));
+    }
+    setLinkEditorOpen(true);
+  };
+
+  const closeLinkEditor = () => {
+    if (linkData) {
+      setDraftHomeMd(linkData.current?.home_matchday_id ?? null);
+      setDraftAwayMd(linkData.current?.away_matchday_id ?? null);
+    }
+    setLinkEditorOpen(false);
+  };
+
   const updateRating = useCallback((playerId, change) => {
     setVotes((prev) => {
-      const current = prev[playerId] || { rating: 0 };
+      const current = prev[playerId] || { ...EMPTY_VOTE };
       if (current.rating === 0) {
         if (change < 0) return prev;
         return { ...prev, [playerId]: { ...current, rating: 6 } };
@@ -363,7 +376,17 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated 
       let nr = normalizeVoteRating(current.rating + change);
       if (nr < 1) nr = 0;
       if (nr > 10) nr = 10;
-      return { ...prev, [playerId]: { ...current, rating: nr } };
+      return {
+        ...prev,
+        [playerId]: {
+          ...current,
+          rating: nr,
+          goals: nr === 0 ? 0 : current.goals,
+          assists: nr === 0 ? 0 : current.assists,
+          yellow_cards: nr === 0 ? 0 : current.yellow_cards,
+          red_cards: nr === 0 ? 0 : current.red_cards,
+        },
+      };
     });
   }, []);
 
@@ -373,25 +396,80 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated 
     if (rating < 1) rating = 0;
     if (rating > 10) rating = 10;
     rating = normalizeVoteRating(rating);
-    setVotes((prev) => ({
-      ...prev,
-      [playerId]: { ...(prev[playerId] || {}), rating },
-    }));
+    setVotes((prev) => {
+      const current = prev[playerId] || { ...EMPTY_VOTE };
+      return {
+        ...prev,
+        [playerId]: {
+          ...current,
+          rating,
+          goals: rating === 0 ? 0 : current.goals,
+          assists: rating === 0 ? 0 : current.assists,
+          yellow_cards: rating === 0 ? 0 : current.yellow_cards,
+          red_cards: rating === 0 ? 0 : current.red_cards,
+        },
+      };
+    });
   }, []);
 
   const toggleSV = useCallback((playerId) => {
     setVotes((prev) => {
-      const current = prev[playerId] || { rating: 0 };
-      const next = current.rating === 0 ? 6 : 0;
-      return { ...prev, [playerId]: { ...current, rating: next } };
+      const current = prev[playerId] || { ...EMPTY_VOTE };
+      const isSV = current.rating === 0;
+      return {
+        ...prev,
+        [playerId]: isSV
+          ? { ...current, rating: 6 }
+          : { ...EMPTY_VOTE },
+      };
     });
   }, []);
+
+  const updateBonus = useCallback((playerId, field, value) => {
+    setVotes((prev) => {
+      const current = prev[playerId] || { ...EMPTY_VOTE };
+      if (current.rating === 0) return prev;
+      return { ...prev, [playerId]: { ...current, [field]: value } };
+    });
+  }, []);
+
+  const incrementBonus = useCallback((playerId, field) => {
+    setVotes((prev) => {
+      const current = prev[playerId] || { ...EMPTY_VOTE };
+      if (current.rating === 0) return prev;
+      return { ...prev, [playerId]: { ...current, [field]: (current[field] || 0) + 1 } };
+    });
+  }, []);
+
+  const decrementBonus = useCallback((playerId, field) => {
+    setVotes((prev) => {
+      const current = prev[playerId] || { ...EMPTY_VOTE };
+      if (current.rating === 0) return prev;
+      const val = (current[field] || 0) - 1;
+      return { ...prev, [playerId]: { ...current, [field]: val < 0 ? 0 : val } };
+    });
+  }, []);
+
+  const buildSavePayload = useCallback((teamId = null) => {
+    const teamList = votesData?.teams || [];
+    const players = [];
+    if (teamId) {
+      const team = teamList.find((t) => t.id === teamId);
+      if (team) players.push(...team.players);
+    } else {
+      teamList.forEach((t) => players.push(...t.players));
+    }
+    return buildRatingsPayload(players, votes);
+  }, [votesData?.teams, votes]);
 
   const handleSaveTeam = async (teamId) => {
     try {
       setSaving(true);
       setError('');
-      const res = await adminMatchesService.saveMatchVotes(matchId, { ratings: votes, team_id: teamId });
+      const res = await adminMatchesService.saveMatchVotes(matchId, {
+        ratings: buildSavePayload(teamId),
+        team_id: teamId,
+      });
       const fresh = res.data?.votes || votes;
       setVotes(fresh);
       savedSnapshot.current = JSON.stringify(fresh);
@@ -408,7 +486,9 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated 
     try {
       setSaving(true);
       setError('');
-      const res = await adminMatchesService.saveMatchVotes(matchId, { ratings: votes });
+      const res = await adminMatchesService.saveMatchVotes(matchId, {
+        ratings: buildSavePayload(),
+      });
       const fresh = res.data?.votes || votes;
       setVotes(fresh);
       savedSnapshot.current = JSON.stringify(fresh);
@@ -430,62 +510,43 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated 
   }
 
   const teams = votesData?.teams || [];
+  const bonusEnabled = bonusSettings && Number(bonusSettings.enable_bonus_malus) === 1 && (
+    Number(bonusSettings.enable_goal) === 1
+    || Number(bonusSettings.enable_assist) === 1
+    || Number(bonusSettings.enable_yellow_card) === 1
+    || Number(bonusSettings.enable_red_card) === 1
+    || Number(bonusSettings.enable_goals_conceded) === 1
+    || Number(bonusSettings.enable_own_goal) === 1
+    || Number(bonusSettings.enable_penalty_missed) === 1
+    || Number(bonusSettings.enable_penalty_saved) === 1
+    || Number(bonusSettings.enable_clean_sheet) === 1
+    || Number(bonusSettings.enable_pallone_fuori) === 1
+    || Number(bonusSettings.enable_briso) === 1
+    || Number(bonusSettings.enable_no_divisa) === 1
+  );
   const linksChanged =
     draftHomeMd !== (linkData?.current?.home_matchday_id ?? null) ||
     draftAwayMd !== (linkData?.current?.away_matchday_id ?? null);
-  const hasAnySuggestion =
-    linkData?.suggestions?.home?.available || linkData?.suggestions?.away?.available;
+  const showInlineLinkEditor = canManageLinks && !linkData?.has_links;
+  const showCompactLinkBtn = canManageLinks && !!linkData?.has_links;
+
+  const linkEditorProps = {
+    linkData,
+    draftHomeMd,
+    draftAwayMd,
+    linksChanged,
+    savingLinks,
+    onPressHomeChip: () => setPicker({ side: 'home', teamId: linkData?.home_team?.id }),
+    onPressAwayChip: () => setPicker({ side: 'away', teamId: linkData?.away_team?.id }),
+    onClearHome: () => setDraftHomeMd(null),
+    onClearAway: () => setDraftAwayMd(null),
+    onSave: handleSaveLinks,
+  };
 
   return (
     <View style={styles.wrap}>
-      {canManageLinks ? (
-        <View style={styles.linkCard}>
-          <View style={styles.linkToolbar}>
-            <View style={styles.linkToolbarLeft}>
-              <Ionicons name="git-branch-outline" size={18} color="#667eea" />
-            </View>
-            <View style={styles.linkToolbarActions}>
-              {hasAnySuggestion ? (
-                <TouchableOpacity style={styles.toolBtn} onPress={applySuggestions} hitSlop={6}>
-                  <Ionicons name="sparkles" size={18} color="#667eea" />
-                </TouchableOpacity>
-              ) : null}
-              <TouchableOpacity
-                style={[styles.toolBtn, styles.toolBtnSave, (!linksChanged || savingLinks) && styles.toolBtnDisabled]}
-                disabled={!linksChanged || savingLinks}
-                onPress={handleSaveLinks}
-              >
-                {savingLinks ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Ionicons name="checkmark" size={18} color="#fff" />
-                )}
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          <TeamLinkRow
-            team={linkData?.home_team}
-            side="home"
-            selectedId={draftHomeMd}
-            suggestion={linkData?.suggestions?.home}
-            matchdays={linkData?.matchdays}
-            onPressChip={() => setPicker({ side: 'home', teamId: linkData?.home_team?.id })}
-            onClear={() => setDraftHomeMd(null)}
-          />
-
-          <View style={styles.linkDivider} />
-
-          <TeamLinkRow
-            team={linkData?.away_team}
-            side="away"
-            selectedId={draftAwayMd}
-            suggestion={linkData?.suggestions?.away}
-            matchdays={linkData?.matchdays}
-            onPressChip={() => setPicker({ side: 'away', teamId: linkData?.away_team?.id })}
-            onClear={() => setDraftAwayMd(null)}
-          />
-        </View>
+      {showInlineLinkEditor ? (
+        <LinkEditorPanel {...linkEditorProps} />
       ) : null}
 
       {error ? (
@@ -516,7 +577,13 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated 
           {linkData?.has_links ? (
             <>
               <View style={styles.votesHeader}>
-                <Ionicons name="create-outline" size={18} color="#334155" />
+                {showCompactLinkBtn ? (
+                  <TouchableOpacity style={styles.linkCompactBtn} onPress={openLinkEditor} activeOpacity={0.7}>
+                    <Ionicons name="git-branch-outline" size={18} color="#667eea" />
+                  </TouchableOpacity>
+                ) : (
+                  <View style={styles.linkCompactBtnSpacer} />
+                )}
                 <TouchableOpacity
                   style={[styles.saveAllBtn, saving && { opacity: 0.6 }]}
                   onPress={handleSaveAll}
@@ -567,13 +634,18 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated 
                     {isOpen ? (
                       <View style={styles.playersList}>
                         {team.players.map((p) => (
-                          <VotePlayerRow
+                          <VotesPlayerRow
                             key={p.id}
                             player={p}
-                            vote={votes[p.id]}
+                            playerVote={votes[p.id] || EMPTY_VOTE}
+                            bonusSettings={bonusSettings}
+                            bonusEnabled={bonusEnabled}
                             onSetRating={setRatingValue}
                             onUpdateRating={updateRating}
                             onToggleSV={toggleSV}
+                            onUpdateBonus={updateBonus}
+                            onIncrementBonus={incrementBonus}
+                            onDecrementBonus={decrementBonus}
                           />
                         ))}
                       </View>
@@ -590,6 +662,15 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated 
           ) : null}
         </>
       ) : null}
+
+      <Modal visible={linkEditorOpen} transparent animationType="slide" onRequestClose={closeLinkEditor}>
+        <View style={styles.linkModalOverlay}>
+          <Pressable style={styles.linkModalBackdrop} onPress={closeLinkEditor} />
+          <View style={styles.linkModalSheet}>
+            <LinkEditorPanel {...linkEditorProps} inModal onClose={closeLinkEditor} />
+          </View>
+        </View>
+      </Modal>
 
       <MatchdayPickerModal
         visible={!!picker}
@@ -621,6 +702,38 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#eef2ff',
   },
+  linkCardModal: {
+    marginBottom: 0,
+    borderWidth: 0,
+    padding: 0,
+  },
+  linkModalOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  linkModalBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+  linkModalSheet: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 28,
+  },
+  linkCompactBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: '#f1f5f9',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#e0e7ff',
+  },
+  linkCompactBtnSpacer: { width: 36 },
   linkToolbar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -691,15 +804,9 @@ const styles = StyleSheet.create({
     borderColor: '#e2e8f0',
   },
   gChipCompact: { paddingHorizontal: 8, paddingVertical: 4 },
-  gChipSuggested: {
-    backgroundColor: '#eef2ff',
-    borderColor: '#c7d2fe',
-  },
   gChipEmpty: { opacity: 0.7 },
   gChipEmptyText: { fontSize: 13, color: '#94a3b8', fontWeight: '600' },
-  gChipSparkle: { marginRight: -2 },
   gChipNum: { fontSize: 14, fontWeight: '800', color: '#475569' },
-  gChipNumSuggested: { color: '#667eea' },
   errorBox: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -770,50 +877,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  playersList: { paddingHorizontal: 8, paddingBottom: 6 },
-  playerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 7,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#f1f5f9',
-    gap: 5,
-  },
-  roleBadge: { width: 22, height: 22, borderRadius: 5, alignItems: 'center', justifyContent: 'center' },
-  roleBadgeText: { color: '#fff', fontSize: 9, fontWeight: '800' },
-  playerName: { flex: 1, fontSize: 13, color: '#334155' },
-  svBtn: {
-    paddingHorizontal: 5,
-    paddingVertical: 3,
-    borderRadius: 5,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-  },
-  svBtnActive: { backgroundColor: '#fef2f2', borderColor: '#fecaca' },
-  svBtnText: { fontSize: 9, fontWeight: '700', color: '#94a3b8' },
-  svBtnTextActive: { color: '#dc3545' },
-  ratingBtn: {
-    width: 26,
-    height: 26,
-    borderRadius: 6,
-    backgroundColor: '#f1f5f9',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  ratingBtnText: { fontSize: 15, fontWeight: '700', color: '#475569' },
-  ratingInput: {
-    width: 40,
-    height: 30,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 6,
-    textAlign: 'center',
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#1e293b',
-    backgroundColor: '#fff',
-  },
-  ratingInputSV: { borderColor: '#fecaca', color: '#dc3545' },
+  playersList: { paddingBottom: 8 },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.4)',
