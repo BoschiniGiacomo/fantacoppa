@@ -21,7 +21,7 @@ import VotesPlayerRow, {
 } from './VotesPlayerRow';
 import ConfirmAlertModal from './ConfirmAlertModal';
 import { normalizeVoteRating } from '../utils/voteRating';
-import { useScrollInputAboveKeyboard } from '../utils/scrollInputAboveKeyboard';
+import { useScrollInputAboveKeyboard, VOTE_INPUT_FIXED_ABOVE_KEYBOARD } from '../utils/scrollInputAboveKeyboard';
 
 function pickInitialDraft(links, side) {
   const current = links?.current?.[`${side}_matchday_id`];
@@ -333,9 +333,14 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
   }, []);
 
   const scrollToPlayer = useCallback((playerId) => {
+    const row = playerRowRefsMap.current[playerId];
     const input = inputRefsMap.current[playerId];
-    if (!input) return;
-    scrollInputIntoView(input, { extraMargin: 28 });
+    const node = row || input;
+    if (!node) return;
+    scrollInputIntoView(node, {
+      fixedAboveKeyboard: VOTE_INPUT_FIXED_ABOVE_KEYBOARD,
+      fallbackHeight: 52,
+    });
   }, [scrollInputIntoView]);
 
   const focusNextPlayer = useCallback((currentPlayerId) => {

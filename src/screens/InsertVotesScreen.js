@@ -19,7 +19,7 @@ import BonusIcon from '../components/BonusIcon';
 import ConfirmAlertModal from '../components/ConfirmAlertModal';
 import { leagueService } from '../services/api';
 import { formatVoteRating, normalizeVoteRating } from '../utils/voteRating';
-import { useScrollInputAboveKeyboard } from '../utils/scrollInputAboveKeyboard';
+import { useScrollInputAboveKeyboard, VOTE_INPUT_FIXED_ABOVE_KEYBOARD } from '../utils/scrollInputAboveKeyboard';
 
 // ==========================================
 // Componente PlayerRow memoizzato
@@ -645,9 +645,14 @@ export default function InsertVotesScreen({ route, navigation }) {
   }, []);
 
   const scrollToPlayer = useCallback((playerId) => {
+    const row = playerRowRefsMap.current[playerId];
     const input = inputRefsMap.current[playerId];
-    if (!input) return;
-    scrollInputIntoView(input, { extraMargin: 28 });
+    const node = row || input;
+    if (!node) return;
+    scrollInputIntoView(node, {
+      fixedAboveKeyboard: VOTE_INPUT_FIXED_ABOVE_KEYBOARD,
+      fallbackHeight: 52,
+    });
   }, [scrollInputIntoView]);
 
   const focusNextPlayer = useCallback((currentPlayerId) => {
