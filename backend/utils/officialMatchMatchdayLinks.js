@@ -744,7 +744,10 @@ async function getMatchVotesBundle(matchId) {
      FROM players p
      INNER JOIN teams t ON t.id = p.team_id
      WHERE p.team_id IN (?, ?)
-     ORDER BY p.team_id ASC, p.role ASC, p.last_name ASC`,
+     ORDER BY p.team_id ASC,
+              CASE p.role WHEN 'P' THEN 0 WHEN 'D' THEN 1 WHEN 'C' THEN 2 WHEN 'A' THEN 3 ELSE 9 END,
+              p.last_name ASC,
+              p.first_name ASC`,
     teamIds
   );
   const giornate = new Set();
