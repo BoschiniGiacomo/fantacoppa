@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,7 @@ import {
   Modal,
   ScrollView,
   Pressable,
+  Keyboard,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { adminMatchesService } from '../services/api';
@@ -280,7 +281,7 @@ function LinkEditorPanel({
   );
 }
 
-export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated, onVotesSaved }) {
+export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated, onVotesSaved, scrollViewRef }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savingLinks, setSavingLinks] = useState(false);
@@ -299,6 +300,75 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
   const [linkEditorOpen, setLinkEditorOpen] = useState(false);
   const [confirmModal, setConfirmModal] = useState(null);
   const savedSnapshot = useRef('');
+  const inputRefsMap = useRef({});
+  const playerRowRefsMap = useRef({});
+  const scrollViewLayoutHeight = useRef(0);
+
+  const focusablePlayerEntries = useMemo(() => {
+    const entries = [];
+    (votesData?.teams || []).forEach((team) => {
+      (team.players || []).forEach((p) => {
+        const playerVote = votes[p.id] || votes[String(p.id)] || EMPTY_VOTE;
+        const mode = getVoteUiMode(p.id, playerVote, savedVotePlayerIds, explicitSvPlayerIds);
+        if (mode === 'saved_sv' || mode === 'draft_sv') return;
+        entries.push({ playerId: Number(p.id), teamId: Number(team.id) });
+      });
+    });
+    return entries;
+  }, [votesData?.teams, votes, savedVotePlayerIds, explicitSvPlayerIds]);
+
+  const focusablePlayerEntriesRef = useRef(focusablePlayerEntries);
+  focusablePlayerEntriesRef.current = focusablePlayerEntries;
+
+  const expandedTeamsRef = useRef(expandedTeams);
+  expandedTeamsRef.current = expandedTeams;
+
+  const getInputRef = useCallback((playerId) => (ref) => {
+    inputRefsMap.current[playerId] = ref;
+  }, []);
+
+  const getRowRef = useCallback((playerId) => (ref) => {
+    playerRowRefsMap.current[playerId] = ref;
+  }, []);
+
+  const scrollToPlayer = useCallback((playerId) => {
+    const rowView = playerRowRefsMap.current[playerId];
+    const scrollRef = scrollViewRef?.current;
+    if (!rowView || !scrollRef) return;
+    setTimeout(() => {
+      const innerRef = scrollRef.getInnerViewRef ? scrollRef.getInnerViewRef() : scrollRef;
+      rowView.measureLayout(
+        innerRef,
+        (x, y) => {
+          const visibleH = scrollViewLayoutHeight.current || 300;
+          const rowHeight = 60;
+          const margin = 30;
+          const scrollTarget = y - visibleH + rowHeight + margin;
+          scrollRef.scrollTo({ y: Math.max(0, scrollTarget), animated: true });
+        },
+        () => {}
+      );
+    }, 350);
+  }, [scrollViewRef]);
+
+  const focusNextPlayer = useCallback((currentPlayerId) => {
+    const entries = focusablePlayerEntriesRef.current;
+    const idx = entries.findIndex((e) => e.playerId === Number(currentPlayerId));
+    if (idx < 0) return;
+    if (idx >= entries.length - 1) {
+      Keyboard.dismiss();
+      return;
+    }
+    const next = entries[idx + 1];
+    const needsExpand = !expandedTeamsRef.current[next.teamId];
+    if (needsExpand) {
+      setExpandedTeams((prev) => ({ ...prev, [next.teamId]: true }));
+    }
+    setTimeout(() => {
+      inputRefsMap.current[next.playerId]?.focus();
+      scrollToPlayer(next.playerId);
+    }, needsExpand ? 80 : 0);
+  }, [scrollToPlayer]);
 
   const applySuggestionsToDraft = useCallback((links) => {
     setDraftHomeMd(pickInitialDraft(links, 'home'));
@@ -621,6 +691,9 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
     draftAwayMd !== (linkData?.current?.away_matchday_id ?? null);
   const showInlineLinkEditor = canManageLinks && !linkData?.has_links;
   const showCompactLinkBtn = canManageLinks && !!linkData?.has_links;
+  const lastFocusablePlayerId = focusablePlayerEntries.length
+    ? focusablePlayerEntries[focusablePlayerEntries.length - 1].playerId
+    : null;
 
   const linkEditorProps = {
     linkData,
@@ -758,6 +831,11 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
                             onUpdateBonus={updateBonus}
                             onIncrementBonus={incrementBonus}
                             onDecrementBonus={decrementBonus}
+                            inputRef={getInputRef(p.id)}
+                            rowRef={getRowRef(p.id)}
+                            onSubmitNext={() => focusNextPlayer(p.id)}
+                            onInputFocus={scrollToPlayer}
+                            isLastInput={Number(p.id) === lastFocusablePlayerId}
                           />
                           );
                         })}

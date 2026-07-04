@@ -645,35 +645,38 @@ export default function InsertVotesScreen({ route, navigation }) {
   const focusNextPlayer = useCallback((currentPlayerId) => {
     const ids = allPlayerIdsRef.current;
     const idx = ids.indexOf(currentPlayerId);
-    if (idx < 0 || idx >= ids.length - 1) return;
+    if (idx < 0 || idx >= ids.length - 1) {
+      Keyboard.dismiss();
+      return;
+    }
 
-    // Cerca il prossimo giocatore che appartiene a una squadra aperta
-    let targetId = null;
-    for (let i = idx + 1; i < ids.length; i++) {
-      const team = findTeamForPlayer(ids[i]);
-      if (team && expandedTeamsRef.current[team.id]) {
-        targetId = ids[i];
-        break;
+    const targetId = ids[idx + 1];
+    const team = findTeamForPlayer(targetId);
+    if (!team) return;
+
+    const needsExpand = !expandedTeamsRef.current[team.id];
+    if (needsExpand) {
+      setExpandedTeams((prev) => ({ ...prev, [team.id]: true }));
+    }
+
+    setTimeout(() => {
+      const nextInput = inputRefsMap.current[targetId];
+      if (nextInput) nextInput.focus();
+      const nextRowView = playerRowRefsMap.current[targetId];
+      if (nextRowView && scrollViewRef.current) {
+        nextRowView.measureLayout(
+          scrollViewRef.current.getInnerViewRef ? scrollViewRef.current.getInnerViewRef() : scrollViewRef.current,
+          (x, y) => {
+            const visibleH = scrollViewLayoutHeight.current || 300;
+            const rowHeight = 60;
+            const margin = 30;
+            const scrollTarget = y - visibleH + rowHeight + margin;
+            scrollViewRef.current.scrollTo({ y: Math.max(0, scrollTarget), animated: true });
+          },
+          () => {}
+        );
       }
-    }
-    if (!targetId) return;
-
-    const nextInput = inputRefsMap.current[targetId];
-    if (nextInput) nextInput.focus();
-    const nextRowView = playerRowRefsMap.current[targetId];
-    if (nextRowView && scrollViewRef.current) {
-      nextRowView.measureLayout(
-        scrollViewRef.current.getInnerViewRef ? scrollViewRef.current.getInnerViewRef() : scrollViewRef.current,
-        (x, y) => {
-          const visibleH = scrollViewLayoutHeight.current || 300;
-          const rowHeight = 60;
-          const margin = 30;
-          const scrollTarget = y - visibleH + rowHeight + margin;
-          scrollViewRef.current.scrollTo({ y: Math.max(0, scrollTarget), animated: true });
-        },
-        () => {}
-      );
-    }
+    }, needsExpand ? 80 : 0);
   }, [findTeamForPlayer]);
 
   // Funzioni per creare/ottenere ref per un player

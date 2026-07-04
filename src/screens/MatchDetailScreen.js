@@ -1169,6 +1169,7 @@ export default function MatchDetailScreen({ navigation, route }) {
   const [shootoutWizardStep, setShootoutWizardStep] = useState(1);
   const [shootoutPlayerSearch, setShootoutPlayerSearch] = useState('');
   const eventWizardScrollRef = useRef(null);
+  const matchDetailScrollRef = useRef(null);
   const [matchEndClock, setMatchEndClock] = useState('');
   const [timingOpen, setTimingOpen] = useState(false);
   const [showOverviewEditor, setShowOverviewEditor] = useState(false);
@@ -2586,6 +2587,7 @@ export default function MatchDetailScreen({ navigation, route }) {
       </ScrollView>
 
       <ScrollView
+        ref={matchDetailScrollRef}
         style={styles.content}
         contentContainerStyle={mainScrollPaddingBottom != null ? { paddingBottom: mainScrollPaddingBottom } : undefined}
         keyboardShouldPersistTaps="handled"
@@ -3014,6 +3016,7 @@ export default function MatchDetailScreen({ navigation, route }) {
             <MatchVotesTab
               matchId={matchId}
               canManageLinks={canManageVoteLinks}
+              scrollViewRef={matchDetailScrollRef}
               onLinksUpdated={(data) => {
                 setVotesTabMeta((prev) => ({
                   ...(prev || {}),

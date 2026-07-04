@@ -279,6 +279,11 @@ function VotesPlayerRow({
   onUpdateBonus,
   onIncrementBonus,
   onDecrementBonus,
+  inputRef,
+  rowRef,
+  onSubmitNext,
+  onInputFocus,
+  isLastInput = false,
 }) {
   const pv = playerVote || { rating: 0 };
   const liveDirect = new Set(liveDirectFields || LIVE_DIRECT_VOTE_FIELDS);
@@ -309,12 +314,26 @@ function VotesPlayerRow({
     }
   };
 
+  const handleSubmitEditing = () => {
+    handleBlur();
+    if (onSubmitNext) onSubmitNext();
+  };
+
+  const handleFocus = () => {
+    if (isUnset) {
+      setEditingText('');
+    } else {
+      setEditingText(pv.rating % 1 === 0 ? String(pv.rating) : String(pv.rating));
+    }
+    if (onInputFocus) onInputFocus(player.id);
+  };
+
   const displayValue = isEditing
     ? editingText
     : (isUnset ? 'S.V.' : ratingDisplay);
 
   return (
-    <View style={styles.playerRow}>
+    <View ref={rowRef} style={styles.playerRow}>
       <View style={styles.playerTopRow}>
         <View style={[styles.roleBadgeMini, { backgroundColor: roleColor }]}>
           <Text style={styles.roleBadgeMiniText}>{player.role}</Text>
@@ -351,15 +370,10 @@ function VotesPlayerRow({
                 <Text style={styles.ratingBtnText}>−</Text>
               </TouchableOpacity>
               <TextInput
+                ref={inputRef}
                 style={[styles.ratingInput, isUnset && !isEditing && styles.ratingInputUnset]}
                 value={displayValue}
-                onFocus={() => {
-                  if (isUnset) {
-                    setEditingText('');
-                  } else {
-                    setEditingText(pv.rating % 1 === 0 ? String(pv.rating) : String(pv.rating));
-                  }
-                }}
+                onFocus={handleFocus}
                 onChangeText={(text) => {
                   const t = text.replace(',', '.');
                   if (t === '' || /^\d*\.?\d{0,2}$/.test(t)) setEditingText(t);
@@ -368,6 +382,9 @@ function VotesPlayerRow({
                 placeholder={isUnset ? undefined : '6.00'}
                 placeholderTextColor="#bbb"
                 keyboardType="decimal-pad"
+                returnKeyType={isLastInput ? 'done' : 'next'}
+                onSubmitEditing={handleSubmitEditing}
+                blurOnSubmit={false}
                 selectTextOnFocus
               />
               <TouchableOpacity
@@ -401,6 +418,7 @@ export default memo(VotesPlayerRow, (prev, next) => (
   && prev.voteUiMode === next.voteUiMode
   && prev.bonusEnabled === next.bonusEnabled
   && prev.liveDirectFields === next.liveDirectFields
+  && prev.isLastInput === next.isLastInput
 ));
 
 export const EMPTY_VOTE = {
