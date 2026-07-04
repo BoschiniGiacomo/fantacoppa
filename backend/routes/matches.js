@@ -5453,7 +5453,10 @@ router.post(
     try {
       const matchId = Number(req.params.matchId);
       if (!matchId || matchId <= 0) return res.status(400).json({ message: 'matchId non valido' });
-      const result = await saveMatchVotes(matchId, req.body || {});
+      const result = await saveMatchVotes(matchId, {
+        ...(req.body || {}),
+        created_by: req.user?.userId ?? null,
+      });
       return res.json(result);
     } catch (err) {
       if (err?.status) return res.status(err.status).json({ message: err.message });

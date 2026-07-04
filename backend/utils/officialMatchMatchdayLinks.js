@@ -29,6 +29,107 @@ async function ensureOfficialMatchMatchdayLinksSchema() {
   schemaReady = true;
 }
 
+let unavailablePlayersTableReady = false;
+
+async function ensureUnavailablePlayersTable() {
+  if (unavailablePlayersTableReady) return;
+  await query(
+    `CREATE TABLE IF NOT EXISTS official_match_unavailable_players (
+       id BIGSERIAL PRIMARY KEY,
+       match_id INTEGER NOT NULL REFERENCES official_matches(id) ON DELETE CASCADE,
+       player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+       created_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+       UNIQUE (match_id, player_id)
+     )`
+  );
+  await query(
+    `CREATE INDEX IF NOT EXISTS idx_off_match_unavailable_match
+     ON official_match_unavailable_players (match_id)`
+  );
+  unavailablePlayersTableReady = true;
+}
+
+async function loadUnavailablePlayerIds(matchId) {
+  await ensureUnavailablePlayersTable();
+  const ctx = await getMatchLinkContext(matchId);
+  if (!ctx) return { home: [], away: [], all: [] };
+  const rows = await query(
+    `SELECT player_id FROM official_match_unavailable_players WHERE match_id = ?`,
+    [matchId]
+  );
+  const homeRoster = new Set(
+    (await query(`SELECT id FROM players WHERE team_id = ?`, [ctx.homeTeamId])).map((r) => Number(r.id))
+  );
+  const awayRoster = new Set(
+    (await query(`SELECT id FROM players WHERE team_id = ?`, [ctx.awayTeamId])).map((r) => Number(r.id))
+  );
+  const home = [];
+  const away = [];
+  for (const r of rows || []) {
+    const pid = Number(r.player_id);
+    if (!Number.isFinite(pid) || pid <= 0) continue;
+    if (homeRoster.has(pid)) home.push(pid);
+    else if (awayRoster.has(pid)) away.push(pid);
+  }
+  return { home, away, all: [...home, ...away] };
+}
+
+async function saveUnavailablePlayerIds(matchId, homeIds, awayIds, createdBy = null) {
+  await ensureUnavailablePlayersTable();
+  const home = [...new Set((homeIds || []).map(Number).filter((n) => n > 0))];
+  const away = [...new Set((awayIds || []).map(Number).filter((n) => n > 0))];
+  await query(`DELETE FROM official_match_unavailable_players WHERE match_id = ?`, [matchId]);
+  for (const pid of [...home, ...away]) {
+    await query(
+      `INSERT INTO official_match_unavailable_players (match_id, player_id, created_by)
+       VALUES (?, ?, ?)
+       ON CONFLICT (match_id, player_id) DO NOTHING`,
+      [matchId, pid, createdBy]
+    );
+  }
+  return { home_player_ids: home, away_player_ids: away };
+}
+
+function applyUnavailableSvDefaults(votes, unavailableIds, rawVotesFromDb, playerIds) {
+  const unavailable = new Set((unavailableIds || []).map(Number).filter((n) => n > 0));
+  for (const pid of playerIds || []) {
+    if (!unavailable.has(Number(pid))) continue;
+    const key = String(pid);
+    const raw = rawVotesFromDb[key] || rawVotesFromDb[pid];
+    if (raw && Number(raw.rating) > 0) continue;
+    const current = votes[key] || votes[pid] || {};
+    votes[key] = { ...mapRatingRow(current), rating: 0 };
+  }
+  return votes;
+}
+
+async function syncUnavailableFromTeamVotes(matchId, team, teamRatings, createdBy = null) {
+  const ctx = await getMatchLinkContext(matchId);
+  if (!ctx || !team) return null;
+  const isHome = Number(team.id) === Number(ctx.homeTeamId);
+  const isAway = Number(team.id) === Number(ctx.awayTeamId);
+  if (!isHome && !isAway) return null;
+
+  const current = await loadUnavailablePlayerIds(matchId);
+  const homeSet = new Set(current.home);
+  const awaySet = new Set(current.away);
+  const rosterIds = (team.players || []).map((p) => Number(p.id)).filter((n) => n > 0);
+
+  for (const pid of rosterIds) {
+    homeSet.delete(pid);
+    awaySet.delete(pid);
+  }
+  for (const pid of rosterIds) {
+    const rating = Number(teamRatings[pid]?.rating || 0);
+    if (rating > 0) continue;
+    if (isHome) homeSet.add(pid);
+    else awaySet.add(pid);
+  }
+
+  return saveUnavailablePlayerIds(matchId, [...homeSet], [...awaySet], createdBy);
+}
+
 async function getEffectiveLeagueId(leagueId) {
   const rows = await query(
     `SELECT COALESCE(NULLIF(linked_to_league_id, 0), id) AS eff
@@ -754,10 +855,10 @@ async function getMatchVotesBundle(matchId) {
   if (options.links.home) giornate.add(options.links.home.giornata);
   if (options.links.away) giornate.add(options.links.away.giornata);
 
-  const votes = {};
+  const votesFromDb = {};
   for (const g of giornate) {
     const chunk = await loadRatingsForGiornata(effectiveLeagueId, g);
-    Object.assign(votes, chunk);
+    Object.assign(votesFromDb, chunk);
   }
 
   const teams = teamIds.map((tid) => {
@@ -778,7 +879,9 @@ async function getMatchVotesBundle(matchId) {
   const allPlayerIds = players.map((p) => Number(p.id));
   const liveEvents = await fetchMatchLiveDirectEvents(matchId);
   const liveByPlayer = buildLiveDirectBonusFromEvents(liveEvents, bonusSettings, allPlayerIds);
-  const mergedVotes = applyLiveDirectToVotesMap(votes, liveByPlayer, allPlayerIds);
+  const mergedVotes = applyLiveDirectToVotesMap({ ...votesFromDb }, liveByPlayer, allPlayerIds);
+  const unavailable = await loadUnavailablePlayerIds(matchId);
+  applyUnavailableSvDefaults(mergedVotes, unavailable.all, votesFromDb, allPlayerIds);
   const liveLockedFields = buildLiveLockedFieldsMap(liveByPlayer);
 
   return {
@@ -788,6 +891,7 @@ async function getMatchVotesBundle(matchId) {
     teams,
     votes: mergedVotes,
     live_locked_fields: liveLockedFields,
+    unavailable_player_ids: unavailable.all,
     bonus_settings: bonusSettings,
     has_links: true,
   };
@@ -800,6 +904,7 @@ async function saveMatchVotes(matchId, body) {
   const effectiveLeagueId = bundle.effective_league_id;
   const bonusSettings = bundle.bonus_settings || (await getBonusSettings(bundle.league_id));
   const liveEvents = await fetchMatchLiveDirectEvents(matchId);
+  const createdBy = body?.created_by != null ? Number(body.created_by) : null;
 
   const teamsToSave = saveTeamId
     ? bundle.teams.filter((t) => t.id === saveTeamId)
@@ -812,6 +917,7 @@ async function saveMatchVotes(matchId, body) {
   }
 
   const giornateTouched = new Set();
+  let lastUnavailable = null;
   for (const team of teamsToSave) {
     const playerIds = team.players.map((p) => Number(p.id));
     const liveByPlayer = buildLiveDirectBonusFromEvents(liveEvents, bonusSettings, playerIds);
@@ -822,6 +928,7 @@ async function saveMatchVotes(matchId, body) {
     });
     await upsertPlayerRatings(effectiveLeagueId, team.giornata, teamRatings);
     giornateTouched.add(team.giornata);
+    lastUnavailable = await syncUnavailableFromTeamVotes(matchId, team, teamRatings, createdBy);
   }
 
   const freshVotes = {};
@@ -831,11 +938,15 @@ async function saveMatchVotes(matchId, body) {
   const savedPlayerIds = teamsToSave.flatMap((t) => t.players.map((p) => Number(p.id)));
   const liveByPlayerSaved = buildLiveDirectBonusFromEvents(liveEvents, bonusSettings, savedPlayerIds);
   const mergedFreshVotes = applyLiveDirectToVotesMap(freshVotes, liveByPlayerSaved, savedPlayerIds);
+  const unavailableAfter = await loadUnavailablePlayerIds(matchId);
+  applyUnavailableSvDefaults(mergedFreshVotes, unavailableAfter.all, freshVotes, savedPlayerIds);
 
   return {
     message: 'Voti salvati',
     votes: mergedFreshVotes,
     live_locked_fields: buildLiveLockedFieldsMap(liveByPlayerSaved),
+    unavailable: lastUnavailable,
+    unavailable_player_ids: unavailableAfter.all,
     giornate: [...giornateTouched],
   };
 }

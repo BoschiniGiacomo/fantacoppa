@@ -3022,6 +3022,7 @@ export default function MatchDetailScreen({ navigation, route }) {
                   can_manage_links: canManageVoteLinks,
                 }));
               }}
+              onVotesSaved={() => { void loadDetail({ showLoading: false }); }}
             />
           </View>
         ) : null}

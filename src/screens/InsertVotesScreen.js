@@ -16,6 +16,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import BonusIcon from '../components/BonusIcon';
+import ConfirmAlertModal from '../components/ConfirmAlertModal';
 import { leagueService } from '../services/api';
 import { formatVoteRating, normalizeVoteRating } from '../utils/voteRating';
 
@@ -261,6 +262,7 @@ export default function InsertVotesScreen({ route, navigation }) {
   const [unsavedModal, setUnsavedModal] = useState(false);
   const [savingAndLeaving, setSavingAndLeaving] = useState(false);
   const [toastMsg, setToastMsg] = useState(null);
+  const [confirmModal, setConfirmModal] = useState(null);
   const pendingNavAction = useRef(null);
   const isInitialLoadRef = useRef(true);
   const inputRefsMap = useRef({}); // { playerId: TextInput ref }
@@ -756,6 +758,23 @@ export default function InsertVotesScreen({ route, navigation }) {
     } catch { return false; }
   }, []);
 
+  const requestSaveTeam = useCallback((team) => {
+    if (!team?.id || saving) return;
+    if (teamHasSavedVotes(team)) {
+      setConfirmModal({
+        title: 'Conferma salvataggio',
+        message: `La squadra "${team.name}" ha già voti salvati. Vuoi sovrascriverli con i voti attuali?`,
+        confirmText: 'Salva',
+        onConfirm: () => {
+          setConfirmModal(null);
+          void handleSave(team.id);
+        },
+      });
+      return;
+    }
+    void handleSave(team.id);
+  }, [saving, teamHasSavedVotes, handleSave]);
+
   // --- Render team ---
   const renderTeam = (team) => {
     const votedCount = getTeamVotedCount(team);
@@ -780,7 +799,7 @@ export default function InsertVotesScreen({ route, navigation }) {
                 { backgroundColor: hasSaved ? '#198754' : '#e6a800' },
                 saving && { opacity: 0.5 },
               ]}
-              onPress={(e) => { e.stopPropagation(); handleSave(team.id); }}
+              onPress={(e) => { e.stopPropagation(); requestSaveTeam(team); }}
               disabled={saving}
             >
               <Ionicons name={hasSaved ? 'checkmark' : 'save-outline'} size={15} color="#fff" />
@@ -983,6 +1002,15 @@ export default function InsertVotesScreen({ route, navigation }) {
           <Text style={styles.toastText}>{toastMsg.text}</Text>
         </View>
       )}
+
+      <ConfirmAlertModal
+        visible={!!confirmModal}
+        title={confirmModal?.title}
+        message={confirmModal?.message}
+        confirmText={confirmModal?.confirmText}
+        onCancel={() => setConfirmModal(null)}
+        onConfirm={() => confirmModal?.onConfirm?.()}
+      />
     </View>
   );
 }

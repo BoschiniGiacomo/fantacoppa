@@ -18,6 +18,7 @@ import VotesPlayerRow, {
   DEFAULT_BONUS_SETTINGS,
   LIVE_DIRECT_VOTE_FIELDS,
 } from './VotesPlayerRow';
+import ConfirmAlertModal from './ConfirmAlertModal';
 import { normalizeVoteRating } from '../utils/voteRating';
 
 function pickInitialDraft(links, side) {
@@ -270,7 +271,7 @@ function LinkEditorPanel({
   );
 }
 
-export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated }) {
+export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated, onVotesSaved }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savingLinks, setSavingLinks] = useState(false);
@@ -285,6 +286,7 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated 
   const [draftAwayMd, setDraftAwayMd] = useState(null);
   const [feedback, setFeedback] = useState('');
   const [linkEditorOpen, setLinkEditorOpen] = useState(false);
+  const [confirmModal, setConfirmModal] = useState(null);
   const savedSnapshot = useRef('');
 
   const applySuggestionsToDraft = useCallback((links) => {
@@ -497,6 +499,7 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated 
       savedSnapshot.current = JSON.stringify(fresh);
       setFeedback('Salvato');
       setTimeout(() => setFeedback(''), 2000);
+      if (onVotesSaved) onVotesSaved();
     } catch (e) {
       setError(e?.response?.data?.message || 'Errore salvataggio');
     } finally {
@@ -515,6 +518,25 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated 
       return false;
     }
   }, []);
+
+  const requestSaveTeam = useCallback((team) => {
+    if (!team?.id || saving) return;
+    const linkTeam = team.side === 'home' ? linkData?.home_team : linkData?.away_team;
+    const teamName = linkTeam?.name || team.name || 'Squadra';
+    if (teamHasSavedVotes(team)) {
+      setConfirmModal({
+        title: 'Conferma salvataggio',
+        message: `La squadra "${teamName}" ha già voti salvati. Vuoi sovrascriverli con i voti attuali?`,
+        confirmText: 'Salva',
+        onConfirm: () => {
+          setConfirmModal(null);
+          void handleSaveTeam(team.id);
+        },
+      });
+      return;
+    }
+    void handleSaveTeam(team.id);
+  }, [saving, linkData, teamHasSavedVotes, handleSaveTeam]);
 
   if (loading) {
     return (
@@ -647,7 +669,7 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated 
                             { backgroundColor: hasSaved ? '#198754' : '#e6a800' },
                             saving && { opacity: 0.5 },
                           ]}
-                          onPress={(e) => { e.stopPropagation(); void handleSaveTeam(team.id); }}
+                          onPress={(e) => { e.stopPropagation(); requestSaveTeam(team); }}
                           disabled={saving}
                         >
                           <Ionicons name={hasSaved ? 'checkmark' : 'save-outline'} size={16} color="#fff" />
@@ -711,6 +733,15 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated 
           else setDraftAwayMd(id);
           setPicker(null);
         }}
+      />
+
+      <ConfirmAlertModal
+        visible={!!confirmModal}
+        title={confirmModal?.title}
+        message={confirmModal?.message}
+        confirmText={confirmModal?.confirmText}
+        onCancel={() => setConfirmModal(null)}
+        onConfirm={() => confirmModal?.onConfirm?.()}
       />
     </View>
   );
