@@ -99,6 +99,57 @@ const SQL_WALKOVER_MATCHES_CTE = `
         )
       )`;
 
+/** Conteggio gol casa/trasferta: team_side ha priorità (come computeLiveScoreFromEvents), poi team_id. */
+const SQL_OFFICIAL_MATCH_HOME_GOAL_POINT = `
+      CASE
+        WHEN e.event_type IN ('goal','penalty_goal') THEN
+          CASE LOWER(TRIM(COALESCE(e.team_side, '')))
+            WHEN 'home' THEN 1
+            WHEN 'away' THEN 0
+            ELSE CASE
+              WHEN e.team_id = om.home_team_id THEN 1
+              WHEN e.team_id = om.away_team_id THEN 0
+              ELSE 0
+            END
+          END
+        WHEN e.event_type = 'own_goal' THEN
+          CASE LOWER(TRIM(COALESCE(e.team_side, '')))
+            WHEN 'home' THEN 0
+            WHEN 'away' THEN 1
+            ELSE CASE
+              WHEN e.team_id = om.home_team_id THEN 0
+              WHEN e.team_id = om.away_team_id THEN 1
+              ELSE 0
+            END
+          END
+        ELSE 0
+      END`;
+
+const SQL_OFFICIAL_MATCH_AWAY_GOAL_POINT = `
+      CASE
+        WHEN e.event_type IN ('goal','penalty_goal') THEN
+          CASE LOWER(TRIM(COALESCE(e.team_side, '')))
+            WHEN 'home' THEN 0
+            WHEN 'away' THEN 1
+            ELSE CASE
+              WHEN e.team_id = om.home_team_id THEN 0
+              WHEN e.team_id = om.away_team_id THEN 1
+              ELSE 0
+            END
+          END
+        WHEN e.event_type = 'own_goal' THEN
+          CASE LOWER(TRIM(COALESCE(e.team_side, '')))
+            WHEN 'home' THEN 1
+            WHEN 'away' THEN 0
+            ELSE CASE
+              WHEN e.team_id = om.home_team_id THEN 1
+              WHEN e.team_id = om.away_team_id THEN 0
+              ELSE 0
+            END
+          END
+        ELSE 0
+      END`;
+
 function parseBooleanishInt(value, fallback = 0) {
   if (value == null || value === '') return fallback ? 1 : 0;
   if (typeof value === 'boolean') return value ? 1 : 0;
@@ -1728,24 +1779,8 @@ router.get('/matches/teams/:teamId/matches', authenticateToken, async (req, res)
       ev_scores AS (
         SELECT
           e.match_id,
-          SUM(CASE
-                WHEN e.event_type IN ('goal','penalty_goal') AND (
-                  e.team_id = om.home_team_id OR (e.team_id IS NULL AND e.team_side = 'home')
-                ) THEN 1
-                WHEN e.event_type = 'own_goal' AND (
-                  e.team_id = om.away_team_id OR (e.team_id IS NULL AND e.team_side = 'away')
-                ) THEN 1
-                ELSE 0
-              END)::int AS ev_home,
-          SUM(CASE
-                WHEN e.event_type IN ('goal','penalty_goal') AND (
-                  e.team_id = om.away_team_id OR (e.team_id IS NULL AND e.team_side = 'away')
-                ) THEN 1
-                WHEN e.event_type = 'own_goal' AND (
-                  e.team_id = om.home_team_id OR (e.team_id IS NULL AND e.team_side = 'home')
-                ) THEN 1
-                ELSE 0
-              END)::int AS ev_away,
+          SUM(${SQL_OFFICIAL_MATCH_HOME_GOAL_POINT})::int AS ev_home,
+          SUM(${SQL_OFFICIAL_MATCH_AWAY_GOAL_POINT})::int AS ev_away,
           SUM(CASE
                 WHEN e.event_type = 'shootout_goal' AND (
                   e.team_id = om.home_team_id OR (e.team_id IS NULL AND e.team_side = 'home')
@@ -3316,7 +3351,7 @@ async function queryOfficialGroupMatchesRows({ userId, groupId, kickoffYear = nu
     params.push(Math.trunc(Number(kickoffYear)));
   }
 
-  // Lista partite: colonne DB, poi gol da eventi (anche se finite), poi live in corso, infine 0-0 se chiusa senza dati.
+  // Lista partite: gol da eventi (priorità), poi colonne DB, infine 0-0 se chiusa senza dati.
   return await query(
     `
     WITH scoped_matches AS (
@@ -3339,60 +3374,15 @@ async function queryOfficialGroupMatchesRows({ userId, groupId, kickoffYear = nu
       )
       ORDER BY e.match_id, e.id DESC
     ),
-    goal_scores_all AS (
+    ev_scores AS (
       SELECT
         e.match_id,
-        SUM(CASE
-              WHEN e.event_type IN ('goal','penalty_goal') AND (
-                e.team_id = om.home_team_id OR (e.team_id IS NULL AND e.team_side = 'home')
-              ) THEN 1
-              WHEN e.event_type = 'own_goal' AND (
-                e.team_id = om.away_team_id OR (e.team_id IS NULL AND e.team_side = 'away')
-              ) THEN 1
-              ELSE 0
-            END)::int AS ev_home,
-        SUM(CASE
-              WHEN e.event_type IN ('goal','penalty_goal') AND (
-                e.team_id = om.away_team_id OR (e.team_id IS NULL AND e.team_side = 'away')
-              ) THEN 1
-              WHEN e.event_type = 'own_goal' AND (
-                e.team_id = om.home_team_id OR (e.team_id IS NULL AND e.team_side = 'home')
-              ) THEN 1
-              ELSE 0
-            END)::int AS ev_away
+        SUM(${SQL_OFFICIAL_MATCH_HOME_GOAL_POINT})::int AS ev_home,
+        SUM(${SQL_OFFICIAL_MATCH_AWAY_GOAL_POINT})::int AS ev_away
       FROM official_match_events e
       INNER JOIN official_matches om ON om.id = e.match_id
       INNER JOIN scoped_matches sm ON sm.id = e.match_id
       WHERE e.event_type IN ('goal','penalty_goal','own_goal')
-      GROUP BY e.match_id
-    ),
-    live_scores AS (
-      SELECT
-        e.match_id,
-        SUM(CASE
-              WHEN e.event_type IN ('goal','penalty_goal') AND (
-                e.team_id = om.home_team_id OR (e.team_id IS NULL AND e.team_side = 'home')
-              ) THEN 1
-              WHEN e.event_type = 'own_goal' AND (
-                e.team_id = om.away_team_id OR (e.team_id IS NULL AND e.team_side = 'away')
-              ) THEN 1
-              ELSE 0
-            END)::int AS ev_home,
-        SUM(CASE
-              WHEN e.event_type IN ('goal','penalty_goal') AND (
-                e.team_id = om.away_team_id OR (e.team_id IS NULL AND e.team_side = 'away')
-              ) THEN 1
-              WHEN e.event_type = 'own_goal' AND (
-                e.team_id = om.home_team_id OR (e.team_id IS NULL AND e.team_side = 'home')
-              ) THEN 1
-              ELSE 0
-            END)::int AS ev_away
-      FROM official_match_events e
-      INNER JOIN official_matches om ON om.id = e.match_id
-      INNER JOIN scoped_matches sm ON sm.id = e.match_id
-      LEFT JOIN last_phase lp ON lp.match_id = sm.id
-      WHERE e.event_type IN ('goal','penalty_goal','own_goal')
-        AND COALESCE(lp.last_phase_type, '') <> 'match_end'
       GROUP BY e.match_id
     ),
     shootout_scores AS (
@@ -3457,18 +3447,8 @@ async function queryOfficialGroupMatchesRows({ userId, groupId, kickoffYear = nu
       m.away_team_id,
       at.name AS away_team_name,
       at.logo_path AS away_team_logo_path,
-      COALESCE(
-        m.home_score,
-        CASE WHEN lp.last_phase_type = 'match_end' THEN gsa.ev_home END,
-        ls.ev_home,
-        CASE WHEN lp.last_phase_type = 'match_end' THEN 0 END
-      ) AS home_score,
-      COALESCE(
-        m.away_score,
-        CASE WHEN lp.last_phase_type = 'match_end' THEN gsa.ev_away END,
-        ls.ev_away,
-        CASE WHEN lp.last_phase_type = 'match_end' THEN 0 END
-      ) AS away_score,
+      COALESCE(evs.ev_home, m.home_score, CASE WHEN lp.last_phase_type = 'match_end' THEN 0 END) AS home_score,
+      COALESCE(evs.ev_away, m.away_score, CASE WHEN lp.last_phase_type = 'match_end' THEN 0 END) AS away_score,
       CASE WHEN COALESCE(so.has_shootout, false) THEN COALESCE(so.ev_home_shootout, 0) ELSE NULL END AS home_shootout_score,
       CASE WHEN COALESCE(so.has_shootout, false) THEN COALESCE(so.ev_away_shootout, 0) ELSE NULL END AS away_shootout_score,
       lp.last_phase_type,
@@ -3479,8 +3459,7 @@ async function queryOfficialGroupMatchesRows({ userId, groupId, kickoffYear = nu
     INNER JOIN teams at ON at.id = m.away_team_id
     LEFT JOIN official_match_stages ms ON ms.id = NULLIF(to_jsonb(m)->>'match_stage_id','')::int
     LEFT JOIN last_phase lp ON lp.match_id = m.id
-    LEFT JOIN goal_scores_all gsa ON gsa.match_id = m.id
-    LEFT JOIN live_scores ls ON ls.match_id = m.id
+    LEFT JOIN ev_scores evs ON evs.match_id = m.id
     LEFT JOIN shootout_scores so ON so.match_id = m.id
     LEFT JOIN walkover_matches wo ON wo.match_id = m.id
     ORDER BY m.kickoff_at ASC, m.id ASC
