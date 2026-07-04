@@ -19,6 +19,7 @@ import BonusIcon from '../components/BonusIcon';
 import ConfirmAlertModal from '../components/ConfirmAlertModal';
 import { leagueService } from '../services/api';
 import { formatVoteRating, normalizeVoteRating } from '../utils/voteRating';
+import { useScrollInputAboveKeyboard } from '../utils/scrollInputAboveKeyboard';
 
 // ==========================================
 // Componente PlayerRow memoizzato
@@ -268,8 +269,9 @@ export default function InsertVotesScreen({ route, navigation }) {
   const inputRefsMap = useRef({}); // { playerId: TextInput ref }
   const playerRowRefsMap = useRef({}); // { playerId: View ref }
   const scrollViewRef = useRef(null);
+  const scrollYRef = useRef(0);
+  const scrollInputIntoView = useScrollInputAboveKeyboard(scrollViewRef, scrollYRef);
   const savedVotesSnapshot = useRef(''); // JSON snapshot of last saved votes
-  const scrollViewLayoutHeight = useRef(0); // altezza visibile dello ScrollView
 
   useEffect(() => {
     isInitialLoadRef.current = true;
@@ -642,6 +644,12 @@ export default function InsertVotesScreen({ route, navigation }) {
     return teamsRef.current.find(t => t.players.some(p => p.id === playerId));
   }, []);
 
+  const scrollToPlayer = useCallback((playerId) => {
+    const input = inputRefsMap.current[playerId];
+    if (!input) return;
+    scrollInputIntoView(input, { extraMargin: 28 });
+  }, [scrollInputIntoView]);
+
   const focusNextPlayer = useCallback((currentPlayerId) => {
     const ids = allPlayerIdsRef.current;
     const idx = ids.indexOf(currentPlayerId);
@@ -662,22 +670,9 @@ export default function InsertVotesScreen({ route, navigation }) {
     setTimeout(() => {
       const nextInput = inputRefsMap.current[targetId];
       if (nextInput) nextInput.focus();
-      const nextRowView = playerRowRefsMap.current[targetId];
-      if (nextRowView && scrollViewRef.current) {
-        nextRowView.measureLayout(
-          scrollViewRef.current.getInnerViewRef ? scrollViewRef.current.getInnerViewRef() : scrollViewRef.current,
-          (x, y) => {
-            const visibleH = scrollViewLayoutHeight.current || 300;
-            const rowHeight = 60;
-            const margin = 30;
-            const scrollTarget = y - visibleH + rowHeight + margin;
-            scrollViewRef.current.scrollTo({ y: Math.max(0, scrollTarget), animated: true });
-          },
-          () => {}
-        );
-      }
-    }, needsExpand ? 80 : 0);
-  }, [findTeamForPlayer]);
+      scrollToPlayer(targetId);
+    }, needsExpand ? 150 : 50);
+  }, [findTeamForPlayer, scrollToPlayer]);
 
   // Funzioni per creare/ottenere ref per un player
   const getInputRef = useCallback((playerId) => {
@@ -686,28 +681,6 @@ export default function InsertVotesScreen({ route, navigation }) {
 
   const getRowRef = useCallback((playerId) => {
     return (ref) => { playerRowRefsMap.current[playerId] = ref; };
-  }, []);
-
-  // Scrolla per rendere visibile l'input del giocatore appena sopra la tastiera
-  const scrollToPlayer = useCallback((playerId) => {
-    const rowView = playerRowRefsMap.current[playerId];
-    if (rowView && scrollViewRef.current) {
-      // Delay per aspettare che la tastiera si apra e il layout si aggiorni
-      setTimeout(() => {
-        rowView.measureLayout(
-          scrollViewRef.current.getInnerViewRef ? scrollViewRef.current.getInnerViewRef() : scrollViewRef.current,
-          (x, y) => {
-            // Posiziona la riga nella parte bassa dell'area visibile (appena sopra la tastiera)
-            const visibleH = scrollViewLayoutHeight.current || 300;
-            const rowHeight = 60; // altezza approssimativa di una riga giocatore
-            const margin = 30; // margine dal bordo inferiore
-            const scrollTarget = y - visibleH + rowHeight + margin;
-            scrollViewRef.current.scrollTo({ y: Math.max(0, scrollTarget), animated: true });
-          },
-          () => {}
-        );
-      }, 350);
-    }
   }, []);
 
   const toggleTeam = useCallback((teamId) => {
@@ -925,7 +898,8 @@ export default function InsertVotesScreen({ route, navigation }) {
           contentContainerStyle={{ paddingBottom: insets.bottom + 80 }}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
-          onLayout={(e) => { scrollViewLayoutHeight.current = e.nativeEvent.layout.height; }}
+          onScroll={(e) => { scrollYRef.current = e.nativeEvent.contentOffset.y; }}
+          scrollEventThrottle={16}
         >
           {selectedMatchday && teams.length > 0 ? (
             <View style={styles.teamsWrapper}>

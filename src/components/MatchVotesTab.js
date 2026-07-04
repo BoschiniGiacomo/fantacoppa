@@ -21,6 +21,7 @@ import VotesPlayerRow, {
 } from './VotesPlayerRow';
 import ConfirmAlertModal from './ConfirmAlertModal';
 import { normalizeVoteRating } from '../utils/voteRating';
+import { useScrollInputAboveKeyboard } from '../utils/scrollInputAboveKeyboard';
 
 function pickInitialDraft(links, side) {
   const current = links?.current?.[`${side}_matchday_id`];
@@ -281,7 +282,7 @@ function LinkEditorPanel({
   );
 }
 
-export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated, onVotesSaved, scrollViewRef }) {
+export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated, onVotesSaved, scrollViewRef, scrollYRef }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savingLinks, setSavingLinks] = useState(false);
@@ -302,7 +303,7 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
   const savedSnapshot = useRef('');
   const inputRefsMap = useRef({});
   const playerRowRefsMap = useRef({});
-  const scrollViewLayoutHeight = useRef(0);
+  const scrollInputIntoView = useScrollInputAboveKeyboard(scrollViewRef, scrollYRef);
 
   const focusablePlayerEntries = useMemo(() => {
     const entries = [];
@@ -332,24 +333,10 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
   }, []);
 
   const scrollToPlayer = useCallback((playerId) => {
-    const rowView = playerRowRefsMap.current[playerId];
-    const scrollRef = scrollViewRef?.current;
-    if (!rowView || !scrollRef) return;
-    setTimeout(() => {
-      const innerRef = scrollRef.getInnerViewRef ? scrollRef.getInnerViewRef() : scrollRef;
-      rowView.measureLayout(
-        innerRef,
-        (x, y) => {
-          const visibleH = scrollViewLayoutHeight.current || 300;
-          const rowHeight = 60;
-          const margin = 30;
-          const scrollTarget = y - visibleH + rowHeight + margin;
-          scrollRef.scrollTo({ y: Math.max(0, scrollTarget), animated: true });
-        },
-        () => {}
-      );
-    }, 350);
-  }, [scrollViewRef]);
+    const input = inputRefsMap.current[playerId];
+    if (!input) return;
+    scrollInputIntoView(input, { extraMargin: 28 });
+  }, [scrollInputIntoView]);
 
   const focusNextPlayer = useCallback((currentPlayerId) => {
     const entries = focusablePlayerEntriesRef.current;
@@ -367,7 +354,7 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
     setTimeout(() => {
       inputRefsMap.current[next.playerId]?.focus();
       scrollToPlayer(next.playerId);
-    }, needsExpand ? 80 : 0);
+    }, needsExpand ? 150 : 50);
   }, [scrollToPlayer]);
 
   const applySuggestionsToDraft = useCallback((links) => {
