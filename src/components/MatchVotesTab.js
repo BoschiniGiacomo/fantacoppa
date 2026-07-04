@@ -12,7 +12,12 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { adminMatchesService } from '../services/api';
 import { TeamLogoImage } from './StableCachedImage';
-import VotesPlayerRow, { EMPTY_VOTE, buildRatingsPayload, DEFAULT_BONUS_SETTINGS } from './VotesPlayerRow';
+import VotesPlayerRow, {
+  EMPTY_VOTE,
+  buildRatingsPayload,
+  DEFAULT_BONUS_SETTINGS,
+  LIVE_DIRECT_VOTE_FIELDS,
+} from './VotesPlayerRow';
 import { normalizeVoteRating } from '../utils/voteRating';
 
 function pickInitialDraft(links, side) {
@@ -280,7 +285,6 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated 
   const [draftAwayMd, setDraftAwayMd] = useState(null);
   const [feedback, setFeedback] = useState('');
   const [linkEditorOpen, setLinkEditorOpen] = useState(false);
-  const [liveLockedFields, setLiveLockedFields] = useState({});
   const savedSnapshot = useRef('');
 
   const applySuggestionsToDraft = useCallback((links) => {
@@ -308,7 +312,6 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated 
           normalizedVotes[Number(k)] = vote;
         });
         setVotes(normalizedVotes);
-        setLiveLockedFields(vd.live_locked_fields || {});
         setBonusSettings(vd.bonus_settings || DEFAULT_BONUS_SETTINGS);
         savedSnapshot.current = JSON.stringify(v);
         const exp = {};
@@ -317,7 +320,6 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated 
       } else {
         setVotesData(null);
         setVotes({});
-        setLiveLockedFields({});
         savedSnapshot.current = '{}';
       }
     } catch (e) {
@@ -373,13 +375,9 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated 
     setLinkEditorOpen(false);
   };
 
-  const getPlayerLockedFields = useCallback((playerId) => (
-    liveLockedFields[String(playerId)] || liveLockedFields[playerId] || []
-  ), [liveLockedFields]);
-
-  const isFieldLocked = useCallback((playerId, field) => (
-    getPlayerLockedFields(playerId).includes(field)
-  ), [getPlayerLockedFields]);
+  const isLiveDirectField = useCallback((field) => (
+    LIVE_DIRECT_VOTE_FIELDS.includes(field)
+  ), []);
 
   const updateRating = useCallback((playerId, change) => {
     setVotes((prev) => {
@@ -435,40 +433,40 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated 
         return { ...prev, [playerId]: { ...current, rating: 6 } };
       }
       const cleared = { ...EMPTY_VOTE };
-      getPlayerLockedFields(playerId).forEach((field) => {
+      LIVE_DIRECT_VOTE_FIELDS.forEach((field) => {
         cleared[field] = current[field];
       });
       return { ...prev, [playerId]: cleared };
     });
-  }, [getPlayerLockedFields]);
+  }, []);
 
   const updateBonus = useCallback((playerId, field, value) => {
-    if (isFieldLocked(playerId, field)) return;
+    if (isLiveDirectField(field)) return;
     setVotes((prev) => {
       const current = prev[playerId] || prev[String(playerId)] || { ...EMPTY_VOTE };
       if (current.rating === 0) return prev;
       return { ...prev, [playerId]: { ...current, [field]: value } };
     });
-  }, [isFieldLocked]);
+  }, [isLiveDirectField]);
 
   const incrementBonus = useCallback((playerId, field) => {
-    if (isFieldLocked(playerId, field)) return;
+    if (isLiveDirectField(field)) return;
     setVotes((prev) => {
       const current = prev[playerId] || prev[String(playerId)] || { ...EMPTY_VOTE };
       if (current.rating === 0) return prev;
       return { ...prev, [playerId]: { ...current, [field]: (current[field] || 0) + 1 } };
     });
-  }, [isFieldLocked]);
+  }, [isLiveDirectField]);
 
   const decrementBonus = useCallback((playerId, field) => {
-    if (isFieldLocked(playerId, field)) return;
+    if (isLiveDirectField(field)) return;
     setVotes((prev) => {
       const current = prev[playerId] || prev[String(playerId)] || { ...EMPTY_VOTE };
       if (current.rating === 0) return prev;
       const val = (current[field] || 0) - 1;
       return { ...prev, [playerId]: { ...current, [field]: val < 0 ? 0 : val } };
     });
-  }, [isFieldLocked]);
+  }, [isLiveDirectField]);
 
   const buildSavePayload = useCallback((teamId = null) => {
     const teamList = votesData?.teams || [];
@@ -496,9 +494,6 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated 
         fresh[Number(k)] = vote;
       });
       setVotes(fresh);
-      if (res.data?.live_locked_fields) {
-        setLiveLockedFields(res.data.live_locked_fields);
-      }
       savedSnapshot.current = JSON.stringify(fresh);
       setFeedback('Salvato');
       setTimeout(() => setFeedback(''), 2000);
@@ -669,7 +664,7 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated 
                             playerVote={votes[p.id] || votes[String(p.id)] || EMPTY_VOTE}
                             bonusSettings={bonusSettings}
                             bonusEnabled={bonusEnabled}
-                            lockedFields={getPlayerLockedFields(p.id)}
+                            liveDirectFields={LIVE_DIRECT_VOTE_FIELDS}
                             onSetRating={setRatingValue}
                             onUpdateRating={updateRating}
                             onToggleSV={toggleSV}

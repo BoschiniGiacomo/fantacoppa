@@ -451,6 +451,15 @@ const LIVE_DIRECT_EVENT_TYPES = new Set([
   'penalty_missed',
 ]);
 
+const ALL_LIVE_DIRECT_FIELDS = [
+  'goals',
+  'assists',
+  'own_goals',
+  'yellow_cards',
+  'red_cards',
+  'penalty_missed',
+];
+
 const LIVE_EVENT_TO_RATING = {
   goal: { field: 'goals', enableKey: 'enable_goal', kind: 'counter' },
   penalty_goal: { field: 'goals', enableKey: 'enable_goal', kind: 'counter' },
@@ -474,6 +483,27 @@ function resolveEventPlayerId(event) {
   const payload = parseEventPayload(event);
   const pid = Number(event?.player_id) || Number(payload?.player_id) || 0;
   return Number.isFinite(pid) && pid > 0 ? pid : 0;
+}
+
+function resolveEventAssistPlayerId(event) {
+  const payload = parseEventPayload(event);
+  const aid = Number(event?.assist_player_id) || Number(payload?.assist_player_id) || 0;
+  return Number.isFinite(aid) && aid > 0 ? aid : 0;
+}
+
+function ensureLivePlayerRow(byPlayer, pid) {
+  if (!byPlayer[pid]) {
+    byPlayer[pid] = {
+      goals: 0,
+      assists: 0,
+      own_goals: 0,
+      yellow_cards: 0,
+      red_cards: 0,
+      penalty_missed: 0,
+      locked_fields: new Set(),
+    };
+  }
+  return byPlayer[pid];
 }
 
 function isLiveBonusEnabled(bonusSettings, enableKey) {
@@ -503,22 +533,24 @@ function buildLiveDirectBonusFromEvents(events, bonusSettings, allowedPlayerIds)
     if (!pid || !allowed.has(pid)) continue;
     if (type === 'yellow_card' && redCardPlayers.has(pid)) continue;
 
-    if (!byPlayer[pid]) {
-      byPlayer[pid] = {
-        goals: 0,
-        own_goals: 0,
-        yellow_cards: 0,
-        red_cards: 0,
-        penalty_missed: 0,
-        locked_fields: new Set(),
-      };
-    }
-    const row = byPlayer[pid];
+    const row = ensureLivePlayerRow(byPlayer, pid);
     row.locked_fields.add(mapping.field);
     if (mapping.kind === 'toggle') {
       row[mapping.field] = 1;
     } else {
       row[mapping.field] = Number(row[mapping.field] || 0) + 1;
+    }
+
+    if (
+      type === 'goal'
+      && isLiveBonusEnabled(bonusSettings, 'enable_assist')
+    ) {
+      const aid = resolveEventAssistPlayerId(e);
+      if (aid && allowed.has(aid)) {
+        const assistRow = ensureLivePlayerRow(byPlayer, aid);
+        assistRow.assists = Number(assistRow.assists || 0) + 1;
+        assistRow.locked_fields.add('assists');
+      }
     }
   }
 
@@ -526,6 +558,7 @@ function buildLiveDirectBonusFromEvents(events, bonusSettings, allowedPlayerIds)
   for (const [pidRaw, row] of Object.entries(byPlayer)) {
     result[Number(pidRaw)] = {
       goals: row.goals,
+      assists: row.assists,
       own_goals: row.own_goals,
       yellow_cards: row.yellow_cards,
       red_cards: row.red_cards,
@@ -538,6 +571,9 @@ function buildLiveDirectBonusFromEvents(events, bonusSettings, allowedPlayerIds)
 
 function mergeVoteWithLiveDirect(vote, liveRow) {
   const base = mapRatingRow(vote || {});
+  for (const field of ALL_LIVE_DIRECT_FIELDS) {
+    base[field] = 0;
+  }
   if (!liveRow) return base;
   for (const field of liveRow.locked_fields || []) {
     if (field === 'yellow_cards' || field === 'red_cards') {
@@ -570,7 +606,7 @@ function applyLiveDirectToVotesMap(votes, liveByPlayer, playerIds) {
 async function fetchMatchLiveDirectEvents(matchId) {
   try {
     const rows = await query(
-      `SELECT event_type, player_id, payload_json
+      `SELECT event_type, player_id, assist_player_id, payload_json
        FROM official_match_events
        WHERE match_id = ?
          AND event_type IN ('goal','penalty_goal','own_goal','yellow_card','red_card','penalty_missed')

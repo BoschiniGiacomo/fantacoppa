@@ -4,12 +4,21 @@ import { Ionicons } from '@expo/vector-icons';
 import BonusIcon from './BonusIcon';
 import { formatVoteRating } from '../utils/voteRating';
 
+export const LIVE_DIRECT_VOTE_FIELDS = [
+  'goals',
+  'assists',
+  'own_goals',
+  'yellow_cards',
+  'red_cards',
+  'penalty_missed',
+];
+
 function VotesPlayerRow({
   player,
   playerVote,
   bonusSettings,
   bonusEnabled,
-  lockedFields,
+  liveDirectFields,
   onUpdateRating,
   onSetRating,
   onToggleSV,
@@ -18,7 +27,7 @@ function VotesPlayerRow({
   onDecrementBonus,
 }) {
   const pv = playerVote || { rating: 0 };
-  const locked = new Set(lockedFields || []);
+  const liveDirect = new Set(liveDirectFields || LIVE_DIRECT_VOTE_FIELDS);
   const isSV = pv.rating === 0;
   const ratingDisplay = isSV ? '' : formatVoteRating(pv.rating, { empty: '' });
   const [editingText, setEditingText] = useState(null);
@@ -125,10 +134,10 @@ function VotesPlayerRow({
         const row2 = enabled.slice(MAX_ON_ROW1);
 
         const renderItem = (item) => {
-          const isLocked = locked.has(item.field);
+          const fromLive = liveDirect.has(item.field);
           const hasValue = item.type === 'toggle' ? !!pv[item.field] : (pv[item.field] || 0) > 0;
-          if (isLocked) {
-            if (!hasValue) return null;
+          if (fromLive && !hasValue) return null;
+          if (fromLive) {
             if (item.type === 'toggle') {
               return (
                 <View
@@ -160,10 +169,14 @@ function VotesPlayerRow({
           return (
             <View key={item.key} style={styles.bonusInlineItem}>
               <BonusIcon type={item.icon} size={14} />
-              <TouchableOpacity style={styles.bonusMiniBtn} onPress={() => onDecrementBonus(player.id, item.field)}>
-                <Text style={styles.bonusMiniBtnText}>−</Text>
-              </TouchableOpacity>
-              <Text style={styles.bonusInlineValue}>{pv[item.field] || 0}</Text>
+              {(pv[item.field] || 0) > 0 ? (
+                <>
+                  <TouchableOpacity style={styles.bonusMiniBtn} onPress={() => onDecrementBonus(player.id, item.field)}>
+                    <Text style={styles.bonusMiniBtnText}>−</Text>
+                  </TouchableOpacity>
+                  <Text style={styles.bonusInlineValue}>{pv[item.field] || 0}</Text>
+                </>
+              ) : null}
               <TouchableOpacity style={styles.bonusMiniBtn} onPress={() => onIncrementBonus(player.id, item.field)}>
                 <Text style={styles.bonusMiniBtnText}>+</Text>
               </TouchableOpacity>
@@ -171,8 +184,14 @@ function VotesPlayerRow({
           );
         };
 
-        const row2HasValues = row2.some((item) => pv[item.field] > 0);
-        const row3HasValues = row3.some((item) => pv[item.field] > 0);
+        const itemVisible = (item) => {
+          const hasValue = item.type === 'toggle' ? !!pv[item.field] : (pv[item.field] || 0) > 0;
+          if (liveDirect.has(item.field)) return hasValue;
+          return true;
+        };
+
+        const row2HasValues = row2.some((item) => itemVisible(item) && (pv[item.field] || 0) > 0);
+        const row3HasValues = row3.some((item) => (pv[item.field] || 0) > 0);
         const hasExpandable = row2.length > 0 || row3.length > 0;
 
         return (
@@ -210,7 +229,7 @@ function VotesPlayerRow({
 export default memo(VotesPlayerRow, (prev, next) => (
   prev.playerVote === next.playerVote
   && prev.bonusEnabled === next.bonusEnabled
-  && prev.lockedFields === next.lockedFields
+  && prev.liveDirectFields === next.liveDirectFields
 ));
 
 export const EMPTY_VOTE = {
