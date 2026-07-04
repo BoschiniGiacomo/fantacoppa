@@ -482,24 +482,17 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated 
     }
   };
 
-  const handleSaveAll = async () => {
+  const teamHasSavedVotes = useCallback((team) => {
     try {
-      setSaving(true);
-      setError('');
-      const res = await adminMatchesService.saveMatchVotes(matchId, {
-        ratings: buildSavePayload(),
+      const saved = JSON.parse(savedSnapshot.current || '{}');
+      return (team?.players || []).some((p) => {
+        const sv = saved[p.id];
+        return sv && sv.rating > 0;
       });
-      const fresh = res.data?.votes || votes;
-      setVotes(fresh);
-      savedSnapshot.current = JSON.stringify(fresh);
-      setFeedback('Salvato');
-      setTimeout(() => setFeedback(''), 2000);
-    } catch (e) {
-      setError(e?.response?.data?.message || 'Errore salvataggio');
-    } finally {
-      setSaving(false);
+    } catch {
+      return false;
     }
-  };
+  }, []);
 
   if (loading) {
     return (
@@ -576,41 +569,42 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated 
         <>
           {linkData?.has_links ? (
             <>
-              <View style={styles.votesHeader}>
-                {showCompactLinkBtn ? (
+              {showCompactLinkBtn ? (
+                <View style={styles.votesToolbar}>
                   <TouchableOpacity style={styles.linkCompactBtn} onPress={openLinkEditor} activeOpacity={0.7}>
                     <Ionicons name="git-branch-outline" size={18} color="#667eea" />
                   </TouchableOpacity>
-                ) : (
-                  <View style={styles.linkCompactBtnSpacer} />
-                )}
-                <TouchableOpacity
-                  style={[styles.saveAllBtn, saving && { opacity: 0.6 }]}
-                  onPress={handleSaveAll}
-                  disabled={saving}
-                >
-                  <Ionicons name="save-outline" size={16} color="#fff" />
-                </TouchableOpacity>
-              </View>
+                </View>
+              ) : null}
 
               {teams.map((team) => {
                 const isOpen = !!expandedTeams[team.id];
                 const voted = team.players.filter((p) => (votes[p.id]?.rating || 0) > 0).length;
                 const linkTeam =
                   team.side === 'home' ? linkData?.home_team : linkData?.away_team;
+                const hasSaved = teamHasSavedVotes(team);
                 return (
-                  <View key={team.id} style={styles.teamCard}>
+                  <View
+                    key={team.id}
+                    style={[styles.teamCard, hasSaved ? styles.teamCardSaved : styles.teamCardUnsaved]}
+                  >
                     <TouchableOpacity
                       style={styles.teamHeader}
                       onPress={() => setExpandedTeams((e) => ({ ...e, [team.id]: !e[team.id] }))}
+                      activeOpacity={0.7}
                     >
                       <View style={styles.teamHeaderLeft}>
-                        <TeamLogoImage
-                          logoPath={linkTeam?.logo_path}
-                          style={styles.votesTeamLogo}
-                          fallbackStyle={styles.votesTeamLogoFb}
-                          fallbackIconSize={12}
-                        />
+                        <View style={styles.votesTeamLogoWrap}>
+                          <TeamLogoImage
+                            logoPath={linkTeam?.logo_path}
+                            style={styles.votesTeamLogo}
+                            fallbackStyle={styles.votesTeamLogoFb}
+                            fallbackIconSize={16}
+                          />
+                        </View>
+                        <Text style={styles.teamName} numberOfLines={1}>
+                          {linkTeam?.name || team.name}
+                        </Text>
                         <GiornataChip
                           matchday={findMatchday(linkData?.matchdays, team.matchday_id) || {
                             giornata: team.giornata,
@@ -618,15 +612,23 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated 
                           }}
                           compact
                         />
-                        <Text style={styles.votedCount}>{voted}/{team.players.length}</Text>
+                        <View style={[styles.progressBadge, hasSaved && styles.progressBadgeSaved]}>
+                          <Text style={[styles.progressText, hasSaved && styles.progressTextSaved]}>
+                            {voted}/{team.players.length}
+                          </Text>
+                        </View>
                       </View>
                       <View style={styles.teamHeaderRight}>
                         <TouchableOpacity
-                          style={styles.teamSaveBtn}
+                          style={[
+                            styles.teamSaveBtn,
+                            { backgroundColor: hasSaved ? '#198754' : '#e6a800' },
+                            saving && { opacity: 0.5 },
+                          ]}
                           onPress={(e) => { e.stopPropagation(); void handleSaveTeam(team.id); }}
                           disabled={saving}
                         >
-                          <Ionicons name="save-outline" size={15} color="#fff" />
+                          <Ionicons name={hasSaved ? 'checkmark' : 'save-outline'} size={16} color="#fff" />
                         </TouchableOpacity>
                         <Ionicons name={isOpen ? 'chevron-up' : 'chevron-down'} size={18} color="#94a3b8" />
                       </View>
@@ -692,7 +694,7 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated 
 }
 
 const styles = StyleSheet.create({
-  wrap: { paddingBottom: 16 },
+  wrap: { paddingBottom: 16, width: '100%' },
   centered: { paddingVertical: 40, alignItems: 'center' },
   linkCard: {
     backgroundColor: '#fff',
@@ -834,50 +836,92 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   pendingHintText: { fontSize: 12, color: '#667eea', fontWeight: '500' },
-  votesHeader: {
+  votesToolbar: {
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
     marginBottom: 8,
   },
-  saveAllBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: '#198754',
-    alignItems: 'center',
-    justifyContent: 'center',
+  teamCardSaved: {
+    borderLeftWidth: 3,
+    borderLeftColor: '#198754',
+  },
+  teamCardUnsaved: {
+    borderLeftWidth: 3,
+    borderLeftColor: '#e6a800',
   },
   teamCard: {
     backgroundColor: '#fff',
-    borderRadius: 12,
+    borderRadius: 10,
     marginBottom: 8,
     borderWidth: 1,
     borderColor: '#e2e8f0',
-    overflow: 'hidden',
+    width: '100%',
   },
   teamHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
     backgroundColor: '#f8fafc',
+    minHeight: 44,
   },
-  teamHeaderLeft: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 },
-  votesTeamLogo: { width: 22, height: 22 },
-  votesTeamLogoFb: { width: 22, height: 22, alignItems: 'center', justifyContent: 'center' },
-  teamHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  votedCount: { fontSize: 11, color: '#94a3b8', fontWeight: '600' },
+  teamHeaderLeft: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    minWidth: 0,
+    marginRight: 6,
+  },
+  votesTeamLogoWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    flexShrink: 0,
+  },
+  votesTeamLogo: { width: 28, height: 28 },
+  votesTeamLogoFb: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
+  teamName: {
+    flex: 1,
+    flexShrink: 1,
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#1e293b',
+    minWidth: 0,
+  },
+  progressBadge: {
+    backgroundColor: '#fff8e1',
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 8,
+    flexShrink: 0,
+  },
+  progressBadgeSaved: {
+    backgroundColor: '#e8f5e9',
+  },
+  progressText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#e6a800',
+  },
+  progressTextSaved: {
+    color: '#198754',
+  },
+  teamHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 0 },
   teamSaveBtn: {
-    backgroundColor: '#667eea',
     width: 30,
     height: 30,
     borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  playersList: { paddingBottom: 8 },
+  playersList: { paddingBottom: 8, width: '100%' },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.4)',

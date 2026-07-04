@@ -3010,7 +3010,7 @@ export default function MatchDetailScreen({ navigation, route }) {
           </>
         )}
         {activeTab === 'votes' && showVotesTab ? (
-          <View style={styles.card}>
+          <View style={[styles.card, styles.knockoutCard, styles.votesTabCard]}>
             <MatchVotesTab
               matchId={matchId}
               canManageLinks={canManageVoteLinks}
@@ -5129,6 +5129,7 @@ const styles = StyleSheet.create({
     borderBottomColor: '#f3f3f3',
   },
   knockoutCard: { marginHorizontal: -8, paddingHorizontal: 5, paddingBottom: 6 },
+  votesTabCard: { paddingHorizontal: 4, paddingTop: 8 },
   knockoutTitle: { fontSize: 16, fontWeight: '800', color: '#111827', textAlign: 'center', marginBottom: 6 },
   knockoutHeaderRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
   knockoutColumnTitle: { flex: 1.2, fontSize: 12, fontWeight: '800', color: '#6b7280', textTransform: 'uppercase' },

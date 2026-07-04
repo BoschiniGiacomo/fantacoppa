@@ -115,27 +115,12 @@ function VotesPlayerRow({
           { type: 'toggle', key: 'no_divisa', enable: 'enable_no_divisa', field: 'no_divisa', icon: 'no_divisa', activeStyle: styles.cardToggleRedActive },
         ];
 
-        const enabled = standardItems.filter((item) => Number(bonusSettings[item.enable]) === 1);
-        const row3 = extraItems.filter((item) => Number(bonusSettings[item.enable]) === 1);
+        const enabled = standardItems.filter((item) => !!Number(bonusSettings[item.enable]));
+        const row3 = extraItems.filter((item) => !!Number(bonusSettings[item.enable]));
 
-        const COUNTER_W = 71;
-        const TOGGLE_W = 31;
-        const EXPAND_W = 27;
-        const MAX_ROW_W = 310;
-        const MAX_ROW_ITEMS = 5;
-        let row1Count = 0;
-        let usedWidth = 0;
-        for (let i = 0; i < enabled.length && row1Count < MAX_ROW_ITEMS; i += 1) {
-          const itemW = enabled[i].type === 'counter' ? COUNTER_W : TOGGLE_W;
-          const widthWithExpand = usedWidth + itemW + (i < enabled.length - 1 ? EXPAND_W : 0);
-          if (i > 0 && widthWithExpand > MAX_ROW_W) break;
-          usedWidth += itemW;
-          row1Count += 1;
-        }
-        if (row1Count >= enabled.length) row1Count = enabled.length;
-
-        const row1 = enabled.slice(0, row1Count);
-        const row2 = enabled.slice(row1Count);
+        const MAX_ON_ROW1 = 4;
+        const row1 = enabled.slice(0, MAX_ON_ROW1);
+        const row2 = enabled.slice(MAX_ON_ROW1);
 
         const renderItem = (item) => {
           if (item.type === 'toggle') {
@@ -168,12 +153,20 @@ function VotesPlayerRow({
         const hasExpandable = row2.length > 0 || row3.length > 0;
 
         return (
-          <View>
+          <View style={styles.bonusBlock}>
             <View style={styles.bonusInlineRow}>
               {row1.map(renderItem)}
               {hasExpandable ? (
-                <TouchableOpacity style={styles.bonusExpandBtn} onPress={() => setShowRow2(!showRow2)}>
-                  <Ionicons name={showRow2 ? 'chevron-up' : 'ellipsis-horizontal'} size={14} color="#999" />
+                <TouchableOpacity
+                  style={styles.bonusExpandBtn}
+                  onPress={() => setShowRow2(!showRow2)}
+                  hitSlop={6}
+                >
+                  <Ionicons
+                    name={showRow2 ? 'chevron-up' : 'ellipsis-horizontal'}
+                    size={16}
+                    color="#667eea"
+                  />
                   {!showRow2 && (row2HasValues || row3HasValues) ? <View style={styles.bonusExpandDot} /> : null}
                 </TouchableOpacity>
               ) : null}
@@ -253,10 +246,11 @@ export const DEFAULT_BONUS_SETTINGS = {
 
 const styles = StyleSheet.create({
   playerRow: {
-    paddingHorizontal: 10,
+    paddingHorizontal: 4,
     paddingVertical: 10,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: '#f2f2f2',
+    width: '100%',
   },
   playerTopRow: {
     flexDirection: 'row',
@@ -328,13 +322,13 @@ const styles = StyleSheet.create({
     marginTop: -1,
   },
   ratingInput: {
-    width: 52,
-    height: 28,
+    width: 56,
+    height: 30,
     borderWidth: 1,
     borderColor: '#ddd',
     borderRadius: 6,
     textAlign: 'center',
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '700',
     backgroundColor: '#f9f9f9',
     paddingVertical: 0,
@@ -345,13 +339,18 @@ const styles = StyleSheet.create({
     backgroundColor: '#fef0ef',
     borderColor: '#f5c6cb',
   },
+  bonusBlock: {
+    width: '100%',
+    marginTop: 2,
+  },
   bonusInlineRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     alignItems: 'center',
     justifyContent: 'flex-start',
-    marginTop: 8,
-    gap: 4,
+    marginTop: 6,
+    gap: 5,
+    width: '100%',
   },
   bonusInlineItem: {
     flexDirection: 'row',
@@ -386,12 +385,15 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   bonusExpandBtn: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: '#f0f0f0',
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#eef2ff',
+    borderWidth: 1,
+    borderColor: '#c7d2fe',
     alignItems: 'center',
     justifyContent: 'center',
+    marginLeft: 2,
   },
   bonusExpandDot: {
     position: 'absolute',

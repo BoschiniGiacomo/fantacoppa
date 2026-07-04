@@ -709,32 +709,6 @@ async function deleteAllDataForLeagueGiornata(leagueId, giornata, extraSeedLeagu
   }
 }
 
-/**
- * Dopo modifica voti, invalida eventuali risultati già calcolati
- * per evitare classifica/somme stale.
- */
-async function invalidateCalculatedForLeagueGiornata(leagueId, giornata) {
-  const g = Number(giornata);
-  if (!Number.isFinite(g) || g <= 0) return;
-  const leagueIds = await getLeagueIdsForMatchdayDataCleanup(leagueId, null);
-  if (!leagueIds.length) return;
-  const inPh = leagueIds.map(() => '?').join(', ');
-  const params = [...leagueIds, g];
-  const optionalStatements = [
-    `DELETE FROM matchday_player_scores WHERE league_id IN (${inPh}) AND giornata::numeric = ?::numeric`,
-    `DELETE FROM matchday_results WHERE league_id IN (${inPh}) AND giornata::numeric = ?::numeric`,
-    `DELETE FROM push_notification_sends WHERE league_id IN (${inPh}) AND giornata::numeric = ?::numeric AND notification_type = 'matchday_calculated'`,
-  ];
-  for (const sql of optionalStatements) {
-    try {
-      const result = await query(sql, params);
-      void result;
-    } catch (_) {
-      // tabelle opzionali
-    }
-  }
-}
-
 let joinRequestsTableReady = false;
 async function ensureJoinRequestsTable() {
   if (joinRequestsTableReady) return true;
@@ -3724,8 +3698,7 @@ router.post('/:id/votes/:giornata', authenticateToken, async (req, res) => {
         ]
       );
     }
-    await invalidateCalculatedForLeagueGiornata(leagueId, giornata);
-    res.json({ message: 'Voti salvati con successo', recalculation_invalidated: true });
+    res.json({ message: 'Voti salvati con successo' });
   } catch (error) {
     console.error('Save votes error:', error);
     res.status(500).json({ message: 'Errore salvataggio voti' });

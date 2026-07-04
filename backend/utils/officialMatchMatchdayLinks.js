@@ -442,41 +442,6 @@ async function setMatchdayLinks(matchId, userId, { home_matchday_id, away_matchd
   return getMatchdayLinkOptions(matchId);
 }
 
-async function getLeagueIdsForMatchdayDataCleanup(leagueId) {
-  const ids = new Set([Number(leagueId)]);
-  try {
-    const children = await query(
-      `SELECT id FROM leagues WHERE linked_to_league_id = ?`,
-      [leagueId]
-    );
-    children.forEach((r) => ids.add(Number(r.id)));
-  } catch (_) {
-    /* optional */
-  }
-  return [...ids].filter((n) => Number.isFinite(n) && n > 0);
-}
-
-async function invalidateCalculatedForLeagueGiornata(leagueId, giornata) {
-  const g = Number(giornata);
-  if (!Number.isFinite(g) || g <= 0) return;
-  const leagueIds = await getLeagueIdsForMatchdayDataCleanup(leagueId);
-  if (!leagueIds.length) return;
-  const inPh = leagueIds.map(() => '?').join(', ');
-  const params = [...leagueIds, g];
-  const optionalStatements = [
-    `DELETE FROM matchday_player_scores WHERE league_id IN (${inPh}) AND giornata::numeric = ?::numeric`,
-    `DELETE FROM matchday_results WHERE league_id IN (${inPh}) AND giornata::numeric = ?::numeric`,
-    `DELETE FROM push_notification_sends WHERE league_id IN (${inPh}) AND giornata::numeric = ?::numeric AND notification_type = 'matchday_calculated'`,
-  ];
-  for (const sql of optionalStatements) {
-    try {
-      await query(sql, params);
-    } catch (_) {
-      /* optional tables */
-    }
-  }
-}
-
 function mapRatingRow(v) {
   return {
     rating: normalizeVoteRating(v?.rating || 0),
@@ -543,7 +508,6 @@ async function upsertPlayerRatings(leagueId, giornata, ratings) {
       ]
     );
   }
-  await invalidateCalculatedForLeagueGiornata(leagueId, giornata);
 }
 
 async function loadRatingsForGiornata(leagueId, giornata, playerIds = null) {
