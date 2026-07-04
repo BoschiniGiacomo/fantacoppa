@@ -4,7 +4,7 @@ import { Dimensions, Keyboard, Platform } from 'react-native';
 const DEFAULT_KEYBOARD_HEIGHT = Platform.OS === 'ios' ? 320 : 280;
 
 /** Distanza fissa tra il bordo superiore della tastiera e il bordo inferiore della riga voto. */
-export const VOTE_INPUT_FIXED_ABOVE_KEYBOARD = 72;
+export const VOTE_INPUT_FIXED_ABOVE_KEYBOARD = 50;
 
 const ALIGN_TOLERANCE_PX = 6;
 

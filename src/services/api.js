@@ -641,8 +641,9 @@ export const adminMatchesService = {
   resolveStandingsTie: (payload) => api.post('admin/matches/standings/ties/resolve', payload),
   remove: (matchId) => api.delete(`admin/matches/${matchId}`),
   getVotesTabMeta: (matchId) => api.get(`admin/matches/${matchId}/votes-tab-meta`),
-  getMatchdayLinks: (matchId) => api.get(`admin/matches/${matchId}/matchday-links`),
+  getMatchdayLinks: (matchId, params) => api.get(`admin/matches/${matchId}/matchday-links`, { params }),
   setMatchdayLinks: (matchId, payload) => api.put(`admin/matches/${matchId}/matchday-links`, payload),
+  getVotesTab: (matchId) => api.get(`admin/matches/${matchId}/votes-tab`),
   getMatchVotes: (matchId) => api.get(`admin/matches/${matchId}/votes`),
   saveMatchVotes: (matchId, payload) => api.post(`admin/matches/${matchId}/votes`, payload),
 };

@@ -367,48 +367,50 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
     setDraftAwayMd(pickInitialDraft(links, 'away'));
   }, []);
 
+  const applyTabPayload = useCallback((payload) => {
+    const data = payload || {};
+    setLinkData(data);
+    applySuggestionsToDraft(data);
+
+    if (data.has_links) {
+      setVotesData(data);
+      const v = data.votes || {};
+      const normalizedVotes = {};
+      Object.entries(v).forEach(([k, vote]) => {
+        normalizedVotes[Number(k)] = vote;
+      });
+      setVotes(normalizedVotes);
+      setBonusSettings(data.bonus_settings || DEFAULT_BONUS_SETTINGS);
+      setSavedVotePlayerIds(
+        new Set((data.saved_vote_player_ids || []).map(Number).filter((n) => Number.isFinite(n) && n > 0))
+      );
+      setExplicitSvPlayerIds(new Set());
+      savedSnapshot.current = JSON.stringify(v);
+      const exp = {};
+      (data.teams || []).forEach((t) => { exp[t.id] = true; });
+      setExpandedTeams(exp);
+    } else {
+      setVotesData(null);
+      setVotes({});
+      setSavedVotePlayerIds(new Set());
+      setExplicitSvPlayerIds(new Set());
+      savedSnapshot.current = '{}';
+    }
+  }, [applySuggestionsToDraft]);
+
   const loadAll = useCallback(async () => {
     if (!matchId) return;
     try {
       setLoading(true);
       setError('');
-      const linksRes = await adminMatchesService.getMatchdayLinks(matchId);
-      const links = linksRes.data || {};
-      setLinkData(links);
-      applySuggestionsToDraft(links);
-
-      if (links.has_links) {
-        const votesRes = await adminMatchesService.getMatchVotes(matchId);
-        const vd = votesRes.data || {};
-        setVotesData(vd);
-        const v = vd.votes || {};
-        const normalizedVotes = {};
-        Object.entries(v).forEach(([k, vote]) => {
-          normalizedVotes[Number(k)] = vote;
-        });
-        setVotes(normalizedVotes);
-        setBonusSettings(vd.bonus_settings || DEFAULT_BONUS_SETTINGS);
-        setSavedVotePlayerIds(
-          new Set((vd.saved_vote_player_ids || []).map(Number).filter((n) => Number.isFinite(n) && n > 0))
-        );
-        setExplicitSvPlayerIds(new Set());
-        savedSnapshot.current = JSON.stringify(v);
-        const exp = {};
-        (vd.teams || []).forEach((t) => { exp[t.id] = true; });
-        setExpandedTeams(exp);
-      } else {
-        setVotesData(null);
-        setVotes({});
-        setSavedVotePlayerIds(new Set());
-        setExplicitSvPlayerIds(new Set());
-        savedSnapshot.current = '{}';
-      }
+      const res = await adminMatchesService.getVotesTab(matchId);
+      applyTabPayload(res.data);
     } catch (e) {
       setError(e?.response?.data?.message || 'Errore caricamento');
     } finally {
       setLoading(false);
     }
-  }, [matchId, applySuggestionsToDraft]);
+  }, [matchId, applyTabPayload]);
 
   useEffect(() => {
     void loadAll();
@@ -440,12 +442,22 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
     }
   };
 
-  const openLinkEditor = () => {
-    if (linkData) {
-      setDraftHomeMd(linkData.current?.home_matchday_id ?? pickInitialDraft(linkData, 'home'));
-      setDraftAwayMd(linkData.current?.away_matchday_id ?? pickInitialDraft(linkData, 'away'));
+  const openLinkEditor = async () => {
+    try {
+      if (linkData?.links_lite) {
+        const res = await adminMatchesService.getMatchdayLinks(matchId, { full: '1' });
+        const data = res.data || {};
+        setLinkData(data);
+        setDraftHomeMd(data.current?.home_matchday_id ?? pickInitialDraft(data, 'home'));
+        setDraftAwayMd(data.current?.away_matchday_id ?? pickInitialDraft(data, 'away'));
+      } else if (linkData) {
+        setDraftHomeMd(linkData.current?.home_matchday_id ?? pickInitialDraft(linkData, 'home'));
+        setDraftAwayMd(linkData.current?.away_matchday_id ?? pickInitialDraft(linkData, 'away'));
+      }
+      setLinkEditorOpen(true);
+    } catch (e) {
+      setError(e?.response?.data?.message || 'Errore caricamento collegamenti');
     }
-    setLinkEditorOpen(true);
   };
 
   const closeLinkEditor = () => {

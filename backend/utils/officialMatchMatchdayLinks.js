@@ -50,29 +50,32 @@ async function ensureUnavailablePlayersTable() {
   unavailablePlayersTableReady = true;
 }
 
-async function loadUnavailablePlayerIds(matchId) {
+async function loadUnavailablePlayerIds(matchId, teamIds = null) {
   await ensureUnavailablePlayersTable();
+  const homeTeamId = Array.isArray(teamIds) ? Number(teamIds[0]) : null;
+  const awayTeamId = Array.isArray(teamIds) ? Number(teamIds[1]) : null;
+  if (homeTeamId > 0 && awayTeamId > 0) {
+    const rows = await query(
+      `SELECT u.player_id, p.team_id
+       FROM official_match_unavailable_players u
+       INNER JOIN players p ON p.id = u.player_id
+       WHERE u.match_id = ? AND p.team_id IN (?, ?)`,
+      [matchId, homeTeamId, awayTeamId]
+    );
+    const home = [];
+    const away = [];
+    for (const r of rows || []) {
+      const pid = Number(r.player_id);
+      if (!Number.isFinite(pid) || pid <= 0) continue;
+      if (Number(r.team_id) === homeTeamId) home.push(pid);
+      else if (Number(r.team_id) === awayTeamId) away.push(pid);
+    }
+    return { home, away, all: [...home, ...away] };
+  }
+
   const ctx = await getMatchLinkContext(matchId);
   if (!ctx) return { home: [], away: [], all: [] };
-  const rows = await query(
-    `SELECT player_id FROM official_match_unavailable_players WHERE match_id = ?`,
-    [matchId]
-  );
-  const homeRoster = new Set(
-    (await query(`SELECT id FROM players WHERE team_id = ?`, [ctx.homeTeamId])).map((r) => Number(r.id))
-  );
-  const awayRoster = new Set(
-    (await query(`SELECT id FROM players WHERE team_id = ?`, [ctx.awayTeamId])).map((r) => Number(r.id))
-  );
-  const home = [];
-  const away = [];
-  for (const r of rows || []) {
-    const pid = Number(r.player_id);
-    if (!Number.isFinite(pid) || pid <= 0) continue;
-    if (homeRoster.has(pid)) home.push(pid);
-    else if (awayRoster.has(pid)) away.push(pid);
-  }
-  return { home, away, all: [...home, ...away] };
+  return loadUnavailablePlayerIds(matchId, [ctx.homeTeamId, ctx.awayTeamId]);
 }
 
 async function saveUnavailablePlayerIds(matchId, homeIds, awayIds, createdBy = null) {
@@ -364,7 +367,18 @@ async function getOccupiedSlots(leagueId, excludeMatchId = null) {
   }));
 }
 
-async function getMatchdayLinkOptions(matchId) {
+function emptyMatchdaySuggestion() {
+  return {
+    matchday_id: null,
+    giornata: null,
+    is_ghost: false,
+    match_index: null,
+    total_matches: null,
+    available: false,
+  };
+}
+
+async function getMatchdayLinkOptions(matchId, opts = {}) {
   const ctx = await getMatchLinkContext(matchId);
   if (!ctx || ctx.leagueId <= 0) {
     const err = new Error('Partita senza lega ufficiale associata');
@@ -377,7 +391,7 @@ async function getMatchdayLinkOptions(matchId) {
     ctx.homeTeamId,
     ctx.awayTeamId
   );
-  const [matchdays, links, occupied, homeMeta, awayMeta, homeMatches, awayMatches] = await Promise.all([
+  const [matchdays, links, occupied, homeMeta, awayMeta] = await Promise.all([
     query(
       `SELECT id, giornata,
               COALESCE(is_ghost, 0)::int AS is_ghost,
@@ -391,24 +405,24 @@ async function getMatchdayLinkOptions(matchId) {
     getOccupiedSlots(ctx.leagueId, matchId),
     getTeamLinkMeta(ctx.homeTeamId),
     getTeamLinkMeta(ctx.awayTeamId),
-    getTeamOfficialMatchesChronology(ctx, effectiveLeagueId, ctx.homeTeamId),
-    getTeamOfficialMatchesChronology(ctx, effectiveLeagueId, ctx.awayTeamId),
   ]);
   const sides = linksToSides(links, ctx);
-  const homeSuggestion = buildMatchdaySuggestion(
-    matchId,
-    ctx.homeTeamId,
-    homeMatches,
-    matchdays,
-    occupied
-  );
-  const awaySuggestion = buildMatchdaySuggestion(
-    matchId,
-    ctx.awayTeamId,
-    awayMatches,
-    matchdays,
-    occupied
-  );
+  const has_links = !!(sides.home || sides.away);
+  const needSuggestions = !has_links || opts.full === true;
+  let homeMatches = [];
+  let awayMatches = [];
+  if (needSuggestions) {
+    [homeMatches, awayMatches] = await Promise.all([
+      getTeamOfficialMatchesChronology(ctx, effectiveLeagueId, ctx.homeTeamId),
+      getTeamOfficialMatchesChronology(ctx, effectiveLeagueId, ctx.awayTeamId),
+    ]);
+  }
+  const homeSuggestion = needSuggestions
+    ? buildMatchdaySuggestion(matchId, ctx.homeTeamId, homeMatches, matchdays, occupied)
+    : emptyMatchdaySuggestion();
+  const awaySuggestion = needSuggestions
+    ? buildMatchdaySuggestion(matchId, ctx.awayTeamId, awayMatches, matchdays, occupied)
+    : emptyMatchdaySuggestion();
   return {
     league_id: ctx.leagueId,
     effective_league_id: effectiveLeagueId,
@@ -433,7 +447,8 @@ async function getMatchdayLinkOptions(matchId) {
     },
     occupied_slots: occupied,
     links: sides,
-    has_links: !!(sides.home || sides.away),
+    has_links,
+    links_lite: has_links && !needSuggestions,
   };
 }
 
@@ -837,35 +852,52 @@ async function getBonusSettings(leagueId) {
   }
 }
 
-async function getMatchVotesBundle(matchId) {
-  const options = await getMatchdayLinkOptions(matchId);
-  if (!options.has_links) {
-    const err = new Error('Nessuna giornata collegata a questa partita');
-    err.status = 404;
-    throw err;
-  }
+async function buildVotesBundleFromOptions(matchId, options) {
   const effectiveLeagueId = options.effective_league_id;
   const teamIds = [options.home_team.id, options.away_team.id];
-  const players = await query(
-    `SELECT p.id, p.first_name, p.last_name, p.role, p.team_id, t.name AS team_name
-     FROM players p
-     INNER JOIN teams t ON t.id = p.team_id
-     WHERE p.team_id IN (?, ?)
-     ORDER BY p.team_id ASC,
-              CASE p.role WHEN 'P' THEN 0 WHEN 'D' THEN 1 WHEN 'C' THEN 2 WHEN 'A' THEN 3 ELSE 9 END,
-              p.last_name ASC,
-              p.first_name ASC`,
-    teamIds
-  );
-  const giornate = new Set();
-  if (options.links.home) giornate.add(options.links.home.giornata);
-  if (options.links.away) giornate.add(options.links.away.giornata);
+  const homeTeamId = Number(options.home_team.id);
+  const awayTeamId = Number(options.away_team.id);
 
-  const votesFromDb = {};
-  for (const g of giornate) {
-    const chunk = await loadRatingsForGiornata(effectiveLeagueId, g);
-    Object.assign(votesFromDb, chunk);
+  const [players, bonusSettings, liveEvents, unavailable] = await Promise.all([
+    query(
+      `SELECT p.id, p.first_name, p.last_name, p.role, p.team_id, t.name AS team_name
+       FROM players p
+       INNER JOIN teams t ON t.id = p.team_id
+       WHERE p.team_id IN (?, ?)
+       ORDER BY p.team_id ASC,
+                CASE p.role WHEN 'P' THEN 0 WHEN 'D' THEN 1 WHEN 'C' THEN 2 WHEN 'A' THEN 3 ELSE 9 END,
+                p.last_name ASC,
+                p.first_name ASC`,
+      teamIds
+    ),
+    getBonusSettings(options.league_id),
+    fetchMatchLiveDirectEvents(matchId),
+    loadUnavailablePlayerIds(matchId, [homeTeamId, awayTeamId]),
+  ]);
+
+  const homePlayerIds = [];
+  const awayPlayerIds = [];
+  for (const p of players || []) {
+    const pid = Number(p.id);
+    if (Number(p.team_id) === homeTeamId) homePlayerIds.push(pid);
+    else if (Number(p.team_id) === awayTeamId) awayPlayerIds.push(pid);
   }
+
+  const ratingsByGiornata = new Map();
+  if (options.links.home?.giornata) {
+    ratingsByGiornata.set(Number(options.links.home.giornata), [...homePlayerIds]);
+  }
+  if (options.links.away?.giornata) {
+    const g = Number(options.links.away.giornata);
+    const existing = ratingsByGiornata.get(g) || [];
+    ratingsByGiornata.set(g, [...new Set([...existing, ...awayPlayerIds])]);
+  }
+  const ratingChunks = await Promise.all(
+    [...ratingsByGiornata.entries()].map(([giornata, playerIds]) =>
+      loadRatingsForGiornata(effectiveLeagueId, giornata, playerIds)
+    )
+  );
+  const votesFromDb = Object.assign({}, ...ratingChunks);
 
   const teams = teamIds.map((tid) => {
     const side = tid === options.home_team.id ? 'home' : 'away';
@@ -881,12 +913,9 @@ async function getMatchVotesBundle(matchId) {
     };
   });
 
-  const bonusSettings = await getBonusSettings(options.league_id);
   const allPlayerIds = players.map((p) => Number(p.id));
-  const liveEvents = await fetchMatchLiveDirectEvents(matchId);
   const liveByPlayer = buildLiveDirectBonusFromEvents(liveEvents, bonusSettings, allPlayerIds);
   const mergedVotes = applyLiveDirectToVotesMap({ ...votesFromDb }, liveByPlayer, allPlayerIds);
-  const unavailable = await loadUnavailablePlayerIds(matchId);
   applyUnavailableSvDefaults(mergedVotes, unavailable.all, votesFromDb, allPlayerIds);
   const liveLockedFields = buildLiveLockedFieldsMap(liveByPlayer);
 
@@ -902,6 +931,36 @@ async function getMatchVotesBundle(matchId) {
     bonus_settings: bonusSettings,
     has_links: true,
   };
+}
+
+async function getMatchVotesTabBundle(matchId) {
+  const options = await getMatchdayLinkOptions(matchId);
+  if (!options.has_links) {
+    return {
+      ...options,
+      teams: [],
+      votes: {},
+      saved_vote_player_ids: [],
+      live_locked_fields: {},
+      unavailable_player_ids: [],
+      bonus_settings: null,
+    };
+  }
+  const votesPart = await buildVotesBundleFromOptions(matchId, options);
+  return {
+    ...options,
+    ...votesPart,
+  };
+}
+
+async function getMatchVotesBundle(matchId) {
+  const options = await getMatchdayLinkOptions(matchId);
+  if (!options.has_links) {
+    const err = new Error('Nessuna giornata collegata a questa partita');
+    err.status = 404;
+    throw err;
+  }
+  return buildVotesBundleFromOptions(matchId, options);
 }
 
 async function saveMatchVotes(matchId, body) {
@@ -970,6 +1029,7 @@ module.exports = {
   getMatchdayLinkOptions,
   setMatchdayLinks,
   getMatchVotesBundle,
+  getMatchVotesTabBundle,
   saveMatchVotes,
   isOfficialLeague,
 };

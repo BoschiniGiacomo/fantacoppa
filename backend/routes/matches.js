@@ -11,6 +11,7 @@ const {
   getMatchdayLinkOptions,
   setMatchdayLinks,
   getMatchVotesBundle,
+  getMatchVotesTabBundle,
   saveMatchVotes,
   getMatchLinkContext,
   isOfficialLeague,
@@ -5396,7 +5397,8 @@ router.get(
       const matchId = Number(req.params.matchId);
       if (!matchId || matchId <= 0) return res.status(400).json({ message: 'matchId non valido' });
       const level = await getSuperuserLevel(req.user?.userId);
-      const data = await getMatchdayLinkOptions(matchId);
+      const full = req.query?.full === '1' || req.query?.full === 'true';
+      const data = await getMatchdayLinkOptions(matchId, { full });
       return res.json({
         ...data,
         can_manage_links: level === 1,
@@ -5431,6 +5433,25 @@ router.put(
       if (err?.status) return res.status(err.status).json({ message: err.message });
       if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
       return res.status(500).json({ message: 'Errore aggiornamento collegamenti', error: err.message });
+    }
+  }
+);
+
+router.get(
+  '/admin/matches/:matchId/votes-tab',
+  authenticateToken,
+  requireSuperuserLevels([1, 2]),
+  async (req, res) => {
+    try {
+      const matchId = Number(req.params.matchId);
+      if (!matchId || matchId <= 0) return res.status(400).json({ message: 'matchId non valido' });
+      const level = await getSuperuserLevel(req.user?.userId);
+      const data = await getMatchVotesTabBundle(matchId);
+      return res.json({ ...data, can_manage_links: level === 1 });
+    } catch (err) {
+      if (err?.status) return res.status(err.status).json({ message: err.message });
+      if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
+      return res.status(500).json({ message: 'Errore caricamento tab voti', error: err.message });
     }
   }
 );
@@ -5494,8 +5515,11 @@ router.get(
       }
       let hasLinks = false;
       try {
-        const opts = await getMatchdayLinkOptions(matchId);
-        hasLinks = !!opts.has_links;
+        const linkRows = await query(
+          `SELECT 1 FROM official_match_matchday_links WHERE official_match_id = ? LIMIT 1`,
+          [matchId]
+        );
+        hasLinks = (linkRows || []).length > 0;
       } catch (_) {
         hasLinks = false;
       }
