@@ -268,11 +268,13 @@ function VotesBonusMalusBlock({
 function VotesPlayerRow({
   player,
   playerVote,
+  voteUiMode = 'unset',
   bonusSettings,
   bonusEnabled,
   liveDirectFields,
   onUpdateRating,
   onSetRating,
+  onActivateSV,
   onToggleSV,
   onUpdateBonus,
   onIncrementBonus,
@@ -280,8 +282,10 @@ function VotesPlayerRow({
 }) {
   const pv = playerVote || { rating: 0 };
   const liveDirect = new Set(liveDirectFields || LIVE_DIRECT_VOTE_FIELDS);
-  const isSV = pv.rating === 0;
-  const ratingDisplay = isSV ? '' : formatVoteRating(pv.rating, { empty: '' });
+  const isCentralSv = voteUiMode === 'saved_sv' || voteUiMode === 'draft_sv';
+  const isUnset = voteUiMode === 'unset';
+  const hasVote = voteUiMode === 'has_vote';
+  const ratingDisplay = hasVote ? formatVoteRating(pv.rating, { empty: '' }) : '';
   const [editingText, setEditingText] = useState(null);
   const isEditing = editingText !== null;
 
@@ -295,12 +299,19 @@ function VotesPlayerRow({
 
   const handleBlur = () => {
     if (editingText !== null) {
+      const t = String(editingText).trim();
+      if (t === '' || t.toUpperCase() === 'S.V.') {
+        setEditingText(null);
+        return;
+      }
       onSetRating(player.id, editingText);
       setEditingText(null);
     }
   };
 
-  const displayValue = isEditing ? editingText : ratingDisplay;
+  const displayValue = isEditing
+    ? editingText
+    : (isUnset ? 'S.V.' : ratingDisplay);
 
   return (
     <View style={styles.playerRow}>
@@ -311,7 +322,7 @@ function VotesPlayerRow({
         <Text style={styles.playerName} numberOfLines={1}>
           {player.first_name} {player.last_name}
         </Text>
-        {isSV ? (
+        {isCentralSv ? (
           <View style={styles.ratingGroup}>
             <View style={styles.ratingBtnSpacer} />
             <TouchableOpacity
@@ -327,7 +338,7 @@ function VotesPlayerRow({
           <>
             <TouchableOpacity
               style={styles.svBtn}
-              onPress={() => onToggleSV(player.id)}
+              onPress={() => onActivateSV(player.id)}
               activeOpacity={0.7}
             >
               <Text style={styles.svBtnText}>S.V.</Text>
@@ -340,17 +351,21 @@ function VotesPlayerRow({
                 <Text style={styles.ratingBtnText}>−</Text>
               </TouchableOpacity>
               <TextInput
-                style={styles.ratingInput}
+                style={[styles.ratingInput, isUnset && !isEditing && styles.ratingInputUnset]}
                 value={displayValue}
                 onFocus={() => {
-                  setEditingText(pv.rating % 1 === 0 ? String(pv.rating) : String(pv.rating));
+                  if (isUnset) {
+                    setEditingText('');
+                  } else {
+                    setEditingText(pv.rating % 1 === 0 ? String(pv.rating) : String(pv.rating));
+                  }
                 }}
                 onChangeText={(text) => {
                   const t = text.replace(',', '.');
                   if (t === '' || /^\d*\.?\d{0,2}$/.test(t)) setEditingText(t);
                 }}
                 onBlur={handleBlur}
-                placeholder="6.00"
+                placeholder={isUnset ? undefined : '6.00'}
                 placeholderTextColor="#bbb"
                 keyboardType="decimal-pad"
                 selectTextOnFocus
@@ -366,7 +381,7 @@ function VotesPlayerRow({
         )}
       </View>
 
-      {bonusEnabled && !isSV && bonusSettings ? (
+      {bonusEnabled && hasVote && bonusSettings ? (
         <VotesBonusMalusBlock
           player={player}
           playerVote={pv}
@@ -383,6 +398,7 @@ function VotesPlayerRow({
 
 export default memo(VotesPlayerRow, (prev, next) => (
   prev.playerVote === next.playerVote
+  && prev.voteUiMode === next.voteUiMode
   && prev.bonusEnabled === next.bonusEnabled
   && prev.liveDirectFields === next.liveDirectFields
 ));
@@ -552,6 +568,10 @@ const styles = StyleSheet.create({
     paddingVertical: 0,
     paddingHorizontal: 2,
     color: '#333',
+  },
+  ratingInputUnset: {
+    color: '#999',
+    fontWeight: '800',
   },
   bonusBlock: {
     width: '100%',

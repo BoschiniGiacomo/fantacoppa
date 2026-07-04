@@ -91,6 +91,12 @@ async function saveUnavailablePlayerIds(matchId, homeIds, awayIds, createdBy = n
   return { home_player_ids: home, away_player_ids: away };
 }
 
+function savedVotePlayerIdsFromDbMap(votesFromDb) {
+  return Object.keys(votesFromDb || {})
+    .map(Number)
+    .filter((n) => Number.isFinite(n) && n > 0);
+}
+
 function applyUnavailableSvDefaults(votes, unavailableIds, rawVotesFromDb, playerIds) {
   const unavailable = new Set((unavailableIds || []).map(Number).filter((n) => n > 0));
   for (const pid of playerIds || []) {
@@ -890,6 +896,7 @@ async function getMatchVotesBundle(matchId) {
     links: options.links,
     teams,
     votes: mergedVotes,
+    saved_vote_player_ids: savedVotePlayerIdsFromDbMap(votesFromDb),
     live_locked_fields: liveLockedFields,
     unavailable_player_ids: unavailable.all,
     bonus_settings: bonusSettings,
@@ -941,9 +948,15 @@ async function saveMatchVotes(matchId, body) {
   const unavailableAfter = await loadUnavailablePlayerIds(matchId);
   applyUnavailableSvDefaults(mergedFreshVotes, unavailableAfter.all, freshVotes, savedPlayerIds);
 
+  const savedDbAfter = {};
+  for (const g of giornateTouched) {
+    Object.assign(savedDbAfter, await loadRatingsForGiornata(effectiveLeagueId, g));
+  }
+
   return {
     message: 'Voti salvati',
     votes: mergedFreshVotes,
+    saved_vote_player_ids: savedVotePlayerIdsFromDbMap(savedDbAfter),
     live_locked_fields: buildLiveLockedFieldsMap(liveByPlayerSaved),
     unavailable: lastUnavailable,
     unavailable_player_ids: unavailableAfter.all,

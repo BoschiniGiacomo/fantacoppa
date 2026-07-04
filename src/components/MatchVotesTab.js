@@ -29,6 +29,15 @@ function pickInitialDraft(links, side) {
   return null;
 }
 
+function getVoteUiMode(playerId, vote, savedVotePlayerIds, explicitSvPlayerIds) {
+  const pid = Number(playerId);
+  const rating = Number(vote?.rating || 0);
+  if (rating > 0) return 'has_vote';
+  if (savedVotePlayerIds.has(pid)) return 'saved_sv';
+  if (explicitSvPlayerIds.has(pid)) return 'draft_sv';
+  return 'unset';
+}
+
 function findMatchday(matchdays, id) {
   if (id == null) return null;
   return (matchdays || []).find((m) => Number(m.id) === Number(id)) || null;
@@ -279,6 +288,8 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
   const [linkData, setLinkData] = useState(null);
   const [votesData, setVotesData] = useState(null);
   const [votes, setVotes] = useState({});
+  const [savedVotePlayerIds, setSavedVotePlayerIds] = useState(() => new Set());
+  const [explicitSvPlayerIds, setExplicitSvPlayerIds] = useState(() => new Set());
   const [bonusSettings, setBonusSettings] = useState(DEFAULT_BONUS_SETTINGS);
   const [expandedTeams, setExpandedTeams] = useState({});
   const [picker, setPicker] = useState(null);
@@ -315,6 +326,10 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
         });
         setVotes(normalizedVotes);
         setBonusSettings(vd.bonus_settings || DEFAULT_BONUS_SETTINGS);
+        setSavedVotePlayerIds(
+          new Set((vd.saved_vote_player_ids || []).map(Number).filter((n) => Number.isFinite(n) && n > 0))
+        );
+        setExplicitSvPlayerIds(new Set());
         savedSnapshot.current = JSON.stringify(v);
         const exp = {};
         (vd.teams || []).forEach((t) => { exp[t.id] = true; });
@@ -322,6 +337,8 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
       } else {
         setVotesData(null);
         setVotes({});
+        setSavedVotePlayerIds(new Set());
+        setExplicitSvPlayerIds(new Set());
         savedSnapshot.current = '{}';
       }
     } catch (e) {
@@ -381,19 +398,36 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
     LIVE_DIRECT_VOTE_FIELDS.includes(field)
   ), []);
 
+  const clearExplicitSv = useCallback((playerId) => {
+    const pid = Number(playerId);
+    setExplicitSvPlayerIds((prev) => {
+      if (!prev.has(pid)) return prev;
+      const next = new Set(prev);
+      next.delete(pid);
+      return next;
+    });
+  }, []);
+
   const updateRating = useCallback((playerId, change) => {
+    const pid = Number(playerId);
     setVotes((prev) => {
-      const current = prev[playerId] || { ...EMPTY_VOTE };
+      const current = prev[pid] || { ...EMPTY_VOTE };
       if (current.rating === 0) {
         if (change < 0) return prev;
-        return { ...prev, [playerId]: { ...current, rating: 6 } };
+        setExplicitSvPlayerIds((existing) => {
+          if (!existing.has(pid)) return existing;
+          const next = new Set(existing);
+          next.delete(pid);
+          return next;
+        });
+        return { ...prev, [pid]: { ...current, rating: 6 } };
       }
       let nr = normalizeVoteRating(current.rating + change);
       if (nr < 1) nr = 0;
       if (nr > 10) nr = 10;
       return {
         ...prev,
-        [playerId]: {
+        [pid]: {
           ...current,
           rating: nr,
           goals: nr === 0 ? 0 : current.goals,
@@ -411,11 +445,13 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
     if (rating < 1) rating = 0;
     if (rating > 10) rating = 10;
     rating = normalizeVoteRating(rating);
+    const pid = Number(playerId);
+    if (rating > 0) clearExplicitSv(pid);
     setVotes((prev) => {
-      const current = prev[playerId] || { ...EMPTY_VOTE };
+      const current = prev[pid] || { ...EMPTY_VOTE };
       return {
         ...prev,
-        [playerId]: {
+        [pid]: {
           ...current,
           rating,
           goals: rating === 0 ? 0 : current.goals,
@@ -425,22 +461,29 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
         },
       };
     });
-  }, []);
+  }, [clearExplicitSv]);
 
-  const toggleSV = useCallback((playerId) => {
+  const activateSV = useCallback((playerId) => {
+    const pid = Number(playerId);
+    setExplicitSvPlayerIds((prev) => new Set([...prev, pid]));
     setVotes((prev) => {
-      const current = prev[playerId] || prev[String(playerId)] || { ...EMPTY_VOTE };
-      const isSV = current.rating === 0;
-      if (isSV) {
-        return { ...prev, [playerId]: { ...current, rating: 6 } };
-      }
+      const current = prev[pid] || prev[String(pid)] || { ...EMPTY_VOTE };
       const cleared = { ...EMPTY_VOTE };
       LIVE_DIRECT_VOTE_FIELDS.forEach((field) => {
         cleared[field] = current[field];
       });
-      return { ...prev, [playerId]: cleared };
+      return { ...prev, [pid]: cleared };
     });
   }, []);
+
+  const toggleSV = useCallback((playerId) => {
+    const pid = Number(playerId);
+    clearExplicitSv(pid);
+    setVotes((prev) => {
+      const current = prev[pid] || prev[String(pid)] || { ...EMPTY_VOTE };
+      return { ...prev, [pid]: { ...current, rating: 6 } };
+    });
+  }, [clearExplicitSv]);
 
   const updateBonus = useCallback((playerId, field, value) => {
     if (isLiveDirectField(field)) return;
@@ -497,6 +540,18 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
       });
       setVotes(fresh);
       savedSnapshot.current = JSON.stringify(fresh);
+      const savedIds = res.data?.saved_vote_player_ids;
+      if (Array.isArray(savedIds)) {
+        setSavedVotePlayerIds((prev) => new Set([
+          ...prev,
+          ...savedIds.map(Number).filter((n) => Number.isFinite(n) && n > 0),
+        ]));
+        setExplicitSvPlayerIds((prev) => {
+          const next = new Set(prev);
+          savedIds.forEach((id) => next.delete(Number(id)));
+          return next;
+        });
+      }
       setFeedback('Salvato');
       setTimeout(() => setFeedback(''), 2000);
       if (onVotesSaved) onVotesSaved();
@@ -679,22 +734,33 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
                     </TouchableOpacity>
                     {isOpen ? (
                       <View style={styles.playersList}>
-                        {team.players.map((p) => (
+                        {team.players.map((p) => {
+                          const playerVote = votes[p.id] || votes[String(p.id)] || EMPTY_VOTE;
+                          const voteUiMode = getVoteUiMode(
+                            p.id,
+                            playerVote,
+                            savedVotePlayerIds,
+                            explicitSvPlayerIds
+                          );
+                          return (
                           <VotesPlayerRow
                             key={p.id}
                             player={p}
-                            playerVote={votes[p.id] || votes[String(p.id)] || EMPTY_VOTE}
+                            playerVote={playerVote}
+                            voteUiMode={voteUiMode}
                             bonusSettings={bonusSettings}
                             bonusEnabled={bonusEnabled}
                             liveDirectFields={LIVE_DIRECT_VOTE_FIELDS}
                             onSetRating={setRatingValue}
                             onUpdateRating={updateRating}
+                            onActivateSV={activateSV}
                             onToggleSV={toggleSV}
                             onUpdateBonus={updateBonus}
                             onIncrementBonus={incrementBonus}
                             onDecrementBonus={decrementBonus}
                           />
-                        ))}
+                          );
+                        })}
                       </View>
                     ) : null}
                   </View>
