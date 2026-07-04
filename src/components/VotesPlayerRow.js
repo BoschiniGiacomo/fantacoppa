@@ -9,6 +9,7 @@ function VotesPlayerRow({
   playerVote,
   bonusSettings,
   bonusEnabled,
+  lockedFields,
   onUpdateRating,
   onSetRating,
   onToggleSV,
@@ -17,6 +18,7 @@ function VotesPlayerRow({
   onDecrementBonus,
 }) {
   const pv = playerVote || { rating: 0 };
+  const locked = new Set(lockedFields || []);
   const isSV = pv.rating === 0;
   const ratingDisplay = isSV ? '' : formatVoteRating(pv.rating, { empty: '' });
   const [editingText, setEditingText] = useState(null);
@@ -123,6 +125,27 @@ function VotesPlayerRow({
         const row2 = enabled.slice(MAX_ON_ROW1);
 
         const renderItem = (item) => {
+          const isLocked = locked.has(item.field);
+          const hasValue = item.type === 'toggle' ? !!pv[item.field] : (pv[item.field] || 0) > 0;
+          if (isLocked) {
+            if (!hasValue) return null;
+            if (item.type === 'toggle') {
+              return (
+                <View
+                  key={item.key}
+                  style={[styles.cardToggle, styles.cardToggleLocked, pv[item.field] && item.activeStyle]}
+                >
+                  <BonusIcon type={item.icon} size={16} inactive={!pv[item.field]} />
+                </View>
+              );
+            }
+            return (
+              <View key={item.key} style={[styles.bonusInlineItem, styles.bonusInlineItemLocked]}>
+                <BonusIcon type={item.icon} size={14} />
+                <Text style={styles.bonusInlineValueLocked}>{pv[item.field] || 0}</Text>
+              </View>
+            );
+          }
           if (item.type === 'toggle') {
             return (
               <TouchableOpacity
@@ -185,7 +208,9 @@ function VotesPlayerRow({
 }
 
 export default memo(VotesPlayerRow, (prev, next) => (
-  prev.playerVote === next.playerVote && prev.bonusEnabled === next.bonusEnabled
+  prev.playerVote === next.playerVote
+  && prev.bonusEnabled === next.bonusEnabled
+  && prev.lockedFields === next.lockedFields
 ));
 
 export const EMPTY_VOTE = {
@@ -207,7 +232,7 @@ export const EMPTY_VOTE = {
 export function buildRatingsPayload(players, votesMap) {
   const ratings = {};
   (players || []).forEach((player) => {
-    const vote = votesMap[player.id] || EMPTY_VOTE;
+    const vote = votesMap[player.id] || votesMap[String(player.id)] || EMPTY_VOTE;
     const rating = vote.rating !== undefined && vote.rating !== null && vote.rating !== '' ? vote.rating : 0;
     ratings[player.id] = {
       rating,
@@ -363,6 +388,20 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#eee',
   },
+  bonusInlineItemLocked: {
+    backgroundColor: '#f5f3ff',
+    borderColor: '#ddd6fe',
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    gap: 4,
+  },
+  bonusInlineValueLocked: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#5b21b6',
+    minWidth: 12,
+    textAlign: 'center',
+  },
   bonusMiniBtn: {
     width: 18,
     height: 18,
@@ -425,5 +464,9 @@ const styles = StyleSheet.create({
   cardToggleGreenActive: {
     borderColor: '#198754',
     backgroundColor: '#e8f5e9',
+  },
+  cardToggleLocked: {
+    borderColor: '#ddd6fe',
+    backgroundColor: '#faf5ff',
   },
 });

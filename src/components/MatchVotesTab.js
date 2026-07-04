@@ -280,6 +280,7 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated 
   const [draftAwayMd, setDraftAwayMd] = useState(null);
   const [feedback, setFeedback] = useState('');
   const [linkEditorOpen, setLinkEditorOpen] = useState(false);
+  const [liveLockedFields, setLiveLockedFields] = useState({});
   const savedSnapshot = useRef('');
 
   const applySuggestionsToDraft = useCallback((links) => {
@@ -302,7 +303,12 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated 
         const vd = votesRes.data || {};
         setVotesData(vd);
         const v = vd.votes || {};
-        setVotes(v);
+        const normalizedVotes = {};
+        Object.entries(v).forEach(([k, vote]) => {
+          normalizedVotes[Number(k)] = vote;
+        });
+        setVotes(normalizedVotes);
+        setLiveLockedFields(vd.live_locked_fields || {});
         setBonusSettings(vd.bonus_settings || DEFAULT_BONUS_SETTINGS);
         savedSnapshot.current = JSON.stringify(v);
         const exp = {};
@@ -311,6 +317,7 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated 
       } else {
         setVotesData(null);
         setVotes({});
+        setLiveLockedFields({});
         savedSnapshot.current = '{}';
       }
     } catch (e) {
@@ -366,6 +373,14 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated 
     setLinkEditorOpen(false);
   };
 
+  const getPlayerLockedFields = useCallback((playerId) => (
+    liveLockedFields[String(playerId)] || liveLockedFields[playerId] || []
+  ), [liveLockedFields]);
+
+  const isFieldLocked = useCallback((playerId, field) => (
+    getPlayerLockedFields(playerId).includes(field)
+  ), [getPlayerLockedFields]);
+
   const updateRating = useCallback((playerId, change) => {
     setVotes((prev) => {
       const current = prev[playerId] || { ...EMPTY_VOTE };
@@ -414,41 +429,46 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated 
 
   const toggleSV = useCallback((playerId) => {
     setVotes((prev) => {
-      const current = prev[playerId] || { ...EMPTY_VOTE };
+      const current = prev[playerId] || prev[String(playerId)] || { ...EMPTY_VOTE };
       const isSV = current.rating === 0;
-      return {
-        ...prev,
-        [playerId]: isSV
-          ? { ...current, rating: 6 }
-          : { ...EMPTY_VOTE },
-      };
+      if (isSV) {
+        return { ...prev, [playerId]: { ...current, rating: 6 } };
+      }
+      const cleared = { ...EMPTY_VOTE };
+      getPlayerLockedFields(playerId).forEach((field) => {
+        cleared[field] = current[field];
+      });
+      return { ...prev, [playerId]: cleared };
     });
-  }, []);
+  }, [getPlayerLockedFields]);
 
   const updateBonus = useCallback((playerId, field, value) => {
+    if (isFieldLocked(playerId, field)) return;
     setVotes((prev) => {
-      const current = prev[playerId] || { ...EMPTY_VOTE };
+      const current = prev[playerId] || prev[String(playerId)] || { ...EMPTY_VOTE };
       if (current.rating === 0) return prev;
       return { ...prev, [playerId]: { ...current, [field]: value } };
     });
-  }, []);
+  }, [isFieldLocked]);
 
   const incrementBonus = useCallback((playerId, field) => {
+    if (isFieldLocked(playerId, field)) return;
     setVotes((prev) => {
-      const current = prev[playerId] || { ...EMPTY_VOTE };
+      const current = prev[playerId] || prev[String(playerId)] || { ...EMPTY_VOTE };
       if (current.rating === 0) return prev;
       return { ...prev, [playerId]: { ...current, [field]: (current[field] || 0) + 1 } };
     });
-  }, []);
+  }, [isFieldLocked]);
 
   const decrementBonus = useCallback((playerId, field) => {
+    if (isFieldLocked(playerId, field)) return;
     setVotes((prev) => {
-      const current = prev[playerId] || { ...EMPTY_VOTE };
+      const current = prev[playerId] || prev[String(playerId)] || { ...EMPTY_VOTE };
       if (current.rating === 0) return prev;
       const val = (current[field] || 0) - 1;
       return { ...prev, [playerId]: { ...current, [field]: val < 0 ? 0 : val } };
     });
-  }, []);
+  }, [isFieldLocked]);
 
   const buildSavePayload = useCallback((teamId = null) => {
     const teamList = votesData?.teams || [];
@@ -470,8 +490,15 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated 
         ratings: buildSavePayload(teamId),
         team_id: teamId,
       });
-      const fresh = res.data?.votes || votes;
+      const freshRaw = res.data?.votes || votes;
+      const fresh = {};
+      Object.entries(freshRaw).forEach(([k, vote]) => {
+        fresh[Number(k)] = vote;
+      });
       setVotes(fresh);
+      if (res.data?.live_locked_fields) {
+        setLiveLockedFields(res.data.live_locked_fields);
+      }
       savedSnapshot.current = JSON.stringify(fresh);
       setFeedback('Salvato');
       setTimeout(() => setFeedback(''), 2000);
@@ -639,9 +666,10 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated 
                           <VotesPlayerRow
                             key={p.id}
                             player={p}
-                            playerVote={votes[p.id] || EMPTY_VOTE}
+                            playerVote={votes[p.id] || votes[String(p.id)] || EMPTY_VOTE}
                             bonusSettings={bonusSettings}
                             bonusEnabled={bonusEnabled}
+                            lockedFields={getPlayerLockedFields(p.id)}
                             onSetRating={setRatingValue}
                             onUpdateRating={updateRating}
                             onToggleSV={toggleSV}
