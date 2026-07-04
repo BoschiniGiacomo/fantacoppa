@@ -3316,7 +3316,7 @@ async function queryOfficialGroupMatchesRows({ userId, groupId, kickoffYear = nu
     params.push(Math.trunc(Number(kickoffYear)));
   }
 
-  // Lista partite: punteggi da official_matches + solo fase/rigori/tavolino (no ricalcolo gol da tutti gli eventi).
+  // Lista partite: colonne DB, poi gol da eventi (anche se finite), poi live in corso, infine 0-0 se chiusa senza dati.
   return await query(
     `
     WITH scoped_matches AS (
@@ -3338,6 +3338,33 @@ async function queryOfficialGroupMatchesRows({ userId, groupId, kickoffYear = nu
         'penalties_start','match_end'
       )
       ORDER BY e.match_id, e.id DESC
+    ),
+    goal_scores_all AS (
+      SELECT
+        e.match_id,
+        SUM(CASE
+              WHEN e.event_type IN ('goal','penalty_goal') AND (
+                e.team_id = om.home_team_id OR (e.team_id IS NULL AND e.team_side = 'home')
+              ) THEN 1
+              WHEN e.event_type = 'own_goal' AND (
+                e.team_id = om.away_team_id OR (e.team_id IS NULL AND e.team_side = 'away')
+              ) THEN 1
+              ELSE 0
+            END)::int AS ev_home,
+        SUM(CASE
+              WHEN e.event_type IN ('goal','penalty_goal') AND (
+                e.team_id = om.away_team_id OR (e.team_id IS NULL AND e.team_side = 'away')
+              ) THEN 1
+              WHEN e.event_type = 'own_goal' AND (
+                e.team_id = om.home_team_id OR (e.team_id IS NULL AND e.team_side = 'home')
+              ) THEN 1
+              ELSE 0
+            END)::int AS ev_away
+      FROM official_match_events e
+      INNER JOIN official_matches om ON om.id = e.match_id
+      INNER JOIN scoped_matches sm ON sm.id = e.match_id
+      WHERE e.event_type IN ('goal','penalty_goal','own_goal')
+      GROUP BY e.match_id
     ),
     live_scores AS (
       SELECT
@@ -3432,11 +3459,13 @@ async function queryOfficialGroupMatchesRows({ userId, groupId, kickoffYear = nu
       at.logo_path AS away_team_logo_path,
       COALESCE(
         m.home_score,
+        CASE WHEN lp.last_phase_type = 'match_end' THEN gsa.ev_home END,
         ls.ev_home,
         CASE WHEN lp.last_phase_type = 'match_end' THEN 0 END
       ) AS home_score,
       COALESCE(
         m.away_score,
+        CASE WHEN lp.last_phase_type = 'match_end' THEN gsa.ev_away END,
         ls.ev_away,
         CASE WHEN lp.last_phase_type = 'match_end' THEN 0 END
       ) AS away_score,
@@ -3450,6 +3479,7 @@ async function queryOfficialGroupMatchesRows({ userId, groupId, kickoffYear = nu
     INNER JOIN teams at ON at.id = m.away_team_id
     LEFT JOIN official_match_stages ms ON ms.id = NULLIF(to_jsonb(m)->>'match_stage_id','')::int
     LEFT JOIN last_phase lp ON lp.match_id = m.id
+    LEFT JOIN goal_scores_all gsa ON gsa.match_id = m.id
     LEFT JOIN live_scores ls ON ls.match_id = m.id
     LEFT JOIN shootout_scores so ON so.match_id = m.id
     LEFT JOIN walkover_matches wo ON wo.match_id = m.id

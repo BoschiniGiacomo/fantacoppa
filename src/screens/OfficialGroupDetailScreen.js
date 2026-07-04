@@ -247,8 +247,8 @@ function computeMatchesListScrollOffset(targetIndex, layouts, viewportHeight) {
 
 const GroupMatchRow = React.memo(function GroupMatchRow({ match, onPress }) {
   const isTerminated = String(match?.last_phase_type || '').trim() === 'match_end';
-  const hs = match.home_score != null ? Number(match.home_score) : isTerminated ? 0 : null;
-  const as = match.away_score != null ? Number(match.away_score) : isTerminated ? 0 : null;
+  const hs = match.home_score != null ? Number(match.home_score) : null;
+  const as = match.away_score != null ? Number(match.away_score) : null;
   const hasScore = Number.isFinite(hs) && Number.isFinite(as);
   const hps = match.home_shootout_score != null ? Number(match.home_shootout_score) : null;
   const aps = match.away_shootout_score != null ? Number(match.away_shootout_score) : null;

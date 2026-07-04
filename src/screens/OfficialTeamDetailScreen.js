@@ -883,15 +883,11 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
                     const hs =
                       m.home_score != null
                         ? Number(m.home_score)
-                        : isTerminated
-                          ? 0
-                          : null;
+                        : null;
                     const as =
                       m.away_score != null
                         ? Number(m.away_score)
-                        : isTerminated
-                          ? 0
-                          : null;
+                        : null;
                     const hasScore = Number.isFinite(hs) && Number.isFinite(as);
                     const hps = m.home_shootout_score != null ? Number(m.home_shootout_score) : null;
                     const aps = m.away_shootout_score != null ? Number(m.away_shootout_score) : null;
