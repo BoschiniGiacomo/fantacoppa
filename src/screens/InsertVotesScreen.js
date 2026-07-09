@@ -22,6 +22,36 @@ import { formatVoteRating, normalizeVoteRating, isSvVoteRating, SV_VOTE_RATING }
 import { VOTE_ND_LABEL, VOTE_SV_LABEL } from '../components/VotesPlayerRow';
 import { useScrollInputAboveKeyboard, VOTE_INPUT_FIXED_ABOVE_KEYBOARD } from '../utils/scrollInputAboveKeyboard';
 
+const DEFAULT_SV_VOTE = {
+  rating: SV_VOTE_RATING,
+  goals: 0,
+  assists: 0,
+  yellow_cards: 0,
+  red_cards: 0,
+  goals_conceded: 0,
+  own_goals: 0,
+  penalty_missed: 0,
+  penalty_saved: 0,
+  clean_sheet: 0,
+  pallone_fuori: 0,
+  briso: 0,
+  no_divisa: 0,
+};
+
+function mergeDefaultSvVotesForUnsetPlayers(teams, votes, { isOfficial, svEnabled }) {
+  if (!isOfficial || !svEnabled) return { ...(votes || {}) };
+  const out = { ...(votes || {}) };
+  (teams || []).forEach((team) => {
+    (team.players || []).forEach((p) => {
+      const pid = p.id;
+      const hasSaved = Object.prototype.hasOwnProperty.call(out, pid)
+        || Object.prototype.hasOwnProperty.call(out, String(pid));
+      if (!hasSaved) out[pid] = { ...DEFAULT_SV_VOTE };
+    });
+  });
+  return out;
+}
+
 // ==========================================
 // Componente PlayerRow memoizzato
 // Si ri-renderizza SOLO se cambiano i suoi props (playerVote)
@@ -349,9 +379,14 @@ export default function InsertVotesScreen({ route, navigation }) {
         // Phase 2: only votes for matchday (players already loaded)
         try {
           const votesRes = await leagueService.getVotesForMatchday(leagueId, defaultMatchday).catch(() => ({ data: {} }));
-          const loadedVotes = votesRes.data || {};
+          const svEnabled = Number(bonusSettingsRes.data?.enable_official_sv_vote) === 1;
+          const isOfficial = Number(leagueData?.is_official) === 1;
+          const loadedVotes = mergeDefaultSvVotesForUnsetPlayers(teamsData, votesRes.data || {}, {
+            isOfficial,
+            svEnabled,
+          });
           setVotes(loadedVotes);
-          savedVotesSnapshot.current = JSON.stringify(loadedVotes);
+          savedVotesSnapshot.current = JSON.stringify(votesRes.data || {});
         } catch (error) {
           console.error('Error loading votes:', error);
         }
@@ -378,9 +413,12 @@ export default function InsertVotesScreen({ route, navigation }) {
       const expanded = {};
       teamsData.forEach(t => { expanded[t.id] = false; });
       setExpandedTeams(expanded);
-      const loadedVotes = votesRes.data || {};
+      const loadedVotes = mergeDefaultSvVotesForUnsetPlayers(teamsData, votesRes.data || {}, {
+        isOfficial: isOfficialLeague,
+        svEnabled: Number(bonusSettings?.enable_official_sv_vote) === 1,
+      });
       setVotes(loadedVotes);
-      savedVotesSnapshot.current = JSON.stringify(loadedVotes);
+      savedVotesSnapshot.current = JSON.stringify(votesRes.data || {});
     } catch (error) {
       console.error('Error loading players and votes:', error);
       showToast('Impossibile caricare i giocatori');
@@ -428,7 +466,10 @@ export default function InsertVotesScreen({ route, navigation }) {
 
       if (currentRating === 0) {
         if (change < 0) return prev;
-        return { ...prev, [playerId]: { ...current, rating: 6.0 } };
+        return {
+          ...prev,
+          [playerId]: { ...current, rating: enableOfficialSvVote ? SV_VOTE_RATING : 6.0 },
+        };
       }
 
       let newRating = currentRating + change;
@@ -507,17 +548,18 @@ export default function InsertVotesScreen({ route, navigation }) {
     setVotes(prev => {
       const current = prev[playerId] || EMPTY_VOTE;
       const isND = current.rating === 0;
+      const nextRating = isND ? (enableOfficialSvVote ? SV_VOTE_RATING : 6.0) : 0;
       return {
         ...prev,
         [playerId]: {
-          ...current, rating: isND ? 6.0 : 0,
+          ...current, rating: nextRating,
           goals: 0, assists: 0, yellow_cards: 0, red_cards: 0,
           goals_conceded: 0, own_goals: 0, penalty_missed: 0, penalty_saved: 0, clean_sheet: 0,
           pallone_fuori: 0, briso: 0, no_divisa: 0,
         }
       };
     });
-  }, []);
+  }, [enableOfficialSvVote]);
 
   const EMPTY_VOTE = { rating: 0, goals: 0, assists: 0, yellow_cards: 0, red_cards: 0, goals_conceded: 0, own_goals: 0, penalty_missed: 0, penalty_saved: 0, clean_sheet: 0, pallone_fuori: 0, briso: 0, no_divisa: 0 };
 

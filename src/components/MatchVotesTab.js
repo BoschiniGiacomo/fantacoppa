@@ -20,7 +20,7 @@ import VotesPlayerRow, {
   LIVE_DIRECT_VOTE_FIELDS,
 } from './VotesPlayerRow';
 import ConfirmAlertModal from './ConfirmAlertModal';
-import { normalizeVoteRating, isSvVoteRating, SV_VOTE_RATING } from '../utils/voteRating';
+import { normalizeVoteRating, isSvVoteRating, SV_VOTE_RATING, isPresenceVoteRating } from '../utils/voteRating';
 import { useScrollInputAboveKeyboard, VOTE_INPUT_FIXED_ABOVE_KEYBOARD } from '../utils/scrollInputAboveKeyboard';
 
 function pickInitialDraft(links, side) {
@@ -43,6 +43,27 @@ function getVoteUiMode(playerId, vote, savedVotePlayerIds, explicitNdPlayerIds) 
 
 function clearsBonusFields(rating) {
   return rating === 0 || isSvVoteRating(rating);
+}
+
+/** Pagellatore: giocatori senza voto salvato partono da S.V. (solo UI/stato locale). */
+function applyDefaultSvForUnsetPlayers(teams, votes, { savedPlayerIds, unavailablePlayerIds, svEnabled }) {
+  if (!svEnabled) return votes;
+  const out = { ...votes };
+  const saved = savedPlayerIds instanceof Set ? savedPlayerIds : new Set(savedPlayerIds || []);
+  const unavailable = unavailablePlayerIds instanceof Set
+    ? unavailablePlayerIds
+    : new Set(unavailablePlayerIds || []);
+  (teams || []).forEach((team) => {
+    (team.players || []).forEach((p) => {
+      const pid = Number(p.id);
+      if (!Number.isFinite(pid) || saved.has(pid) || unavailable.has(pid)) return;
+      const cur = out[pid] || out[String(pid)];
+      const r = Number(cur?.rating ?? 0);
+      if (r !== 0) return;
+      out[pid] = { ...EMPTY_VOTE, ...(cur || {}), rating: SV_VOTE_RATING };
+    });
+  });
+  return out;
 }
 
 function findMatchday(matchdays, id) {
@@ -386,11 +407,19 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
       Object.entries(v).forEach(([k, vote]) => {
         normalizedVotes[Number(k)] = vote;
       });
-      setVotes(normalizedVotes);
-      setBonusSettings(data.bonus_settings || DEFAULT_BONUS_SETTINGS);
-      setSavedVotePlayerIds(
-        new Set((data.saved_vote_player_ids || []).map(Number).filter((n) => Number.isFinite(n) && n > 0))
+      const bonus = data.bonus_settings || DEFAULT_BONUS_SETTINGS;
+      const svEnabled = Number(bonus.enable_official_sv_vote) === 1;
+      const savedIds = new Set(
+        (data.saved_vote_player_ids || []).map(Number).filter((n) => Number.isFinite(n) && n > 0)
       );
+      const votesWithDefaults = applyDefaultSvForUnsetPlayers(data.teams, normalizedVotes, {
+        savedPlayerIds: savedIds,
+        unavailablePlayerIds: data.unavailable_player_ids,
+        svEnabled,
+      });
+      setVotes(votesWithDefaults);
+      setBonusSettings(bonus);
+      setSavedVotePlayerIds(savedIds);
       setExplicitNdPlayerIds(new Set());
       savedSnapshot.current = JSON.stringify(v);
       const exp = {};
@@ -525,7 +554,7 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
           next.delete(pid);
           return next;
         });
-        return { ...prev, [pid]: { ...current, rating: 6 } };
+        return { ...prev, [pid]: { ...current, rating: enableOfficialSvVote ? SV_VOTE_RATING : 6 } };
       }
 
       let nr = normalizeVoteRating(r + change);
@@ -605,11 +634,12 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
   const toggleND = useCallback((playerId) => {
     const pid = Number(playerId);
     clearExplicitNd(pid);
+    const nextRating = enableOfficialSvVote ? SV_VOTE_RATING : 6;
     setVotes((prev) => {
       const current = prev[pid] || prev[String(pid)] || { ...EMPTY_VOTE };
-      return { ...prev, [pid]: { ...current, rating: 6 } };
+      return { ...prev, [pid]: { ...current, rating: nextRating } };
     });
-  }, [clearExplicitNd]);
+  }, [clearExplicitNd, enableOfficialSvVote]);
 
   const updateBonus = useCallback((playerId, field, value) => {
     if (isLiveDirectField(field)) return;
@@ -807,7 +837,7 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
 
               {teams.map((team) => {
                 const isOpen = !!expandedTeams[team.id];
-                const voted = team.players.filter((p) => (votes[p.id]?.rating || 0) > 0).length;
+                const voted = team.players.filter((p) => isPresenceVoteRating(votes[p.id]?.rating)).length;
                 const linkTeam =
                   team.side === 'home' ? linkData?.home_team : linkData?.away_team;
                 const hasSaved = teamHasSavedVotes(team);

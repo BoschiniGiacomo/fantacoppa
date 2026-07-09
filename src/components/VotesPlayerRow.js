@@ -337,7 +337,9 @@ function VotesPlayerRow({
 
   const displayValue = isEditing
     ? editingText
-    : (isUnset ? VOTE_ND_LABEL : (hasSv ? VOTE_SV_LABEL : ratingDisplay));
+    : (isUnset
+      ? (enableOfficialSvVote ? VOTE_SV_LABEL : VOTE_ND_LABEL)
+      : (hasSv ? VOTE_SV_LABEL : ratingDisplay));
 
   return (
     <View ref={rowRef} style={styles.playerRow}>
@@ -380,7 +382,7 @@ function VotesPlayerRow({
                 ref={inputRef}
                 style={[
                   styles.ratingInput,
-                  isUnset && !isEditing && styles.ratingInputUnset,
+                  isUnset && !isEditing && (enableOfficialSvVote ? styles.ratingInputSv : styles.ratingInputUnset),
                   hasSv && !isEditing && styles.ratingInputSv,
                 ]}
                 value={displayValue}
