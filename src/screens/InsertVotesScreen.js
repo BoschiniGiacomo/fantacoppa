@@ -102,7 +102,7 @@ const PlayerRow = memo(({ player, playerVote, bonusSettings, bonusEnabled, enabl
           </TouchableOpacity>
           <TextInput
             ref={inputRef}
-            style={[styles.ratingInput, isND && styles.ratingInputSV]}
+            style={[styles.ratingInput, isND && styles.ratingInputSV, isSvVote && styles.ratingInputSvActive]}
             value={displayValue}
             onFocus={handleFocus}
             onChangeText={handleChangeText}
@@ -1316,6 +1316,12 @@ const styles = StyleSheet.create({
   ratingInputSV: {
     backgroundColor: '#fef0ef',
     borderColor: '#f5c6cb',
+  },
+  ratingInputSvActive: {
+    color: '#b8860b',
+    fontWeight: '800',
+    backgroundColor: '#fff8e1',
+    borderColor: '#e6a800',
   },
   bonusInlineRow: {
     flexDirection: 'row',

@@ -276,7 +276,6 @@ function VotesPlayerRow({
   onSetRating,
   onActivateND,
   onToggleND,
-  onToggleSvVote,
   enableOfficialSvVote = false,
   onUpdateBonus,
   onIncrementBonus,
@@ -290,9 +289,9 @@ function VotesPlayerRow({
   const pv = playerVote || { rating: 0 };
   const liveDirect = new Set(liveDirectFields || LIVE_DIRECT_VOTE_FIELDS);
   const isCentralNd = voteUiMode === 'saved_nd' || voteUiMode === 'draft_nd';
-  const isCentralSv = voteUiMode === 'saved_sv' || voteUiMode === 'draft_sv';
   const isUnset = voteUiMode === 'unset';
   const hasVote = voteUiMode === 'has_vote';
+  const hasSv = voteUiMode === 'has_sv';
   const ratingDisplay = hasVote ? formatVoteRating(pv.rating, { empty: '' }) : '';
   const [editingText, setEditingText] = useState(null);
   const isEditing = editingText !== null;
@@ -328,7 +327,7 @@ function VotesPlayerRow({
   };
 
   const handleFocus = () => {
-    if (isUnset) {
+    if (isUnset || hasSv) {
       setEditingText('');
     } else {
       setEditingText(pv.rating % 1 === 0 ? String(pv.rating) : String(pv.rating));
@@ -338,7 +337,7 @@ function VotesPlayerRow({
 
   const displayValue = isEditing
     ? editingText
-    : (isUnset ? VOTE_ND_LABEL : ratingDisplay);
+    : (isUnset ? VOTE_ND_LABEL : (hasSv ? VOTE_SV_LABEL : ratingDisplay));
 
   return (
     <View ref={rowRef} style={styles.playerRow}>
@@ -361,18 +360,6 @@ function VotesPlayerRow({
             </TouchableOpacity>
             <View style={styles.ratingBtnSpacer} />
           </View>
-        ) : isCentralSv ? (
-          <View style={styles.ratingGroup}>
-            <View style={styles.ratingBtnSpacer} />
-            <TouchableOpacity
-              style={[styles.svBtn, styles.svBtnAsInput, styles.svBtnActiveSv]}
-              onPress={() => onToggleSvVote(player.id)}
-              activeOpacity={0.7}
-            >
-              <Text style={[styles.svBtnText, styles.svBtnTextAsInput, styles.svBtnTextActiveSv]}>{VOTE_SV_LABEL}</Text>
-            </TouchableOpacity>
-            <View style={styles.ratingBtnSpacer} />
-          </View>
         ) : (
           <>
             <TouchableOpacity
@@ -391,11 +378,19 @@ function VotesPlayerRow({
               </TouchableOpacity>
               <TextInput
                 ref={inputRef}
-                style={[styles.ratingInput, isUnset && !isEditing && styles.ratingInputUnset]}
+                style={[
+                  styles.ratingInput,
+                  isUnset && !isEditing && styles.ratingInputUnset,
+                  hasSv && !isEditing && styles.ratingInputSv,
+                ]}
                 value={displayValue}
                 onFocus={handleFocus}
                 onChangeText={(text) => {
                   const t = text.replace(',', '.');
+                  if (enableOfficialSvVote && /^[sSvV.\s]*$/i.test(t)) {
+                    setEditingText(t);
+                    return;
+                  }
                   if (t === '' || /^\d*\.?\d{0,2}$/.test(t)) setEditingText(t);
                 }}
                 onBlur={handleBlur}
@@ -637,6 +632,12 @@ const styles = StyleSheet.create({
   ratingInputUnset: {
     color: '#999',
     fontWeight: '800',
+  },
+  ratingInputSv: {
+    color: '#b8860b',
+    fontWeight: '800',
+    backgroundColor: '#fff8e1',
+    borderColor: '#e6a800',
   },
   bonusBlock: {
     width: '100%',

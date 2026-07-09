@@ -35,7 +35,7 @@ function getVoteUiMode(playerId, vote, savedVotePlayerIds, explicitNdPlayerIds) 
   const pid = Number(playerId);
   const rating = Number(vote?.rating ?? 0);
   if (rating > 0) return 'has_vote';
-  if (isSvVoteRating(rating)) return savedVotePlayerIds.has(pid) ? 'saved_sv' : 'draft_sv';
+  if (isSvVoteRating(rating)) return 'has_sv';
   if (savedVotePlayerIds.has(pid)) return 'saved_nd';
   if (explicitNdPlayerIds.has(pid)) return 'draft_nd';
   return 'unset';
@@ -318,7 +318,7 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
       (team.players || []).forEach((p) => {
         const playerVote = votes[p.id] || votes[String(p.id)] || EMPTY_VOTE;
         const mode = getVoteUiMode(p.id, playerVote, savedVotePlayerIds, explicitNdPlayerIds);
-        if (mode === 'saved_nd' || mode === 'draft_nd' || mode === 'saved_sv' || mode === 'draft_sv') return;
+        if (mode === 'saved_nd' || mode === 'draft_nd') return;
         entries.push({ playerId: Number(p.id), teamId: Number(team.id) });
       });
     });
@@ -537,7 +537,7 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
         }
       }
       if (nr > 10) nr = 10;
-      if (nr > 0) {
+      if (nr > 0 || isSvVoteRating(nr)) {
         setExplicitNdPlayerIds((existing) => {
           if (!existing.has(pid)) return existing;
           const next = new Set(existing);
@@ -571,7 +571,7 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
     if (rating > 10) rating = 10;
     if (!isSvVoteRating(rating)) rating = normalizeVoteRating(rating);
     const pid = Number(playerId);
-    if (rating > 0) clearExplicitNd(pid);
+    if (rating > 0 || isSvVoteRating(rating)) clearExplicitNd(pid);
     setVotes((prev) => {
       const current = prev[pid] || { ...EMPTY_VOTE };
       const zeroBonus = clearsBonusFields(rating);
@@ -603,15 +603,6 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
   }, []);
 
   const toggleND = useCallback((playerId) => {
-    const pid = Number(playerId);
-    clearExplicitNd(pid);
-    setVotes((prev) => {
-      const current = prev[pid] || prev[String(pid)] || { ...EMPTY_VOTE };
-      return { ...prev, [pid]: { ...current, rating: 6 } };
-    });
-  }, [clearExplicitNd]);
-
-  const toggleSvVote = useCallback((playerId) => {
     const pid = Number(playerId);
     clearExplicitNd(pid);
     setVotes((prev) => {
@@ -894,7 +885,6 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
                             onUpdateRating={updateRating}
                             onActivateND={activateND}
                             onToggleND={toggleND}
-                            onToggleSvVote={toggleSvVote}
                             onUpdateBonus={updateBonus}
                             onIncrementBonus={incrementBonus}
                             onDecrementBonus={decrementBonus}
