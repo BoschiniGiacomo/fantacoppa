@@ -794,7 +794,7 @@ function assertGoalsConcededBalance({
 
   if (conceded !== expected) {
     const err = new Error(
-      `Gol subiti: ${conceded} su ${expected} attesi (${opponentGoals} avversari + ${ownGoals} autogol)`
+      `Gol subiti: ${conceded} su ${expected} attesi`
     );
     err.status = 400;
     throw err;
