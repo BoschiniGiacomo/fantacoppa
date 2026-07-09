@@ -2181,9 +2181,7 @@ async function mergeAbsolutePresencesByCluster(perPlayer, officialGroupId) {
 }
 
 /**
- * Presenze con voto = come fetchPlayerStatsAggregates (games_with_rating):
- * rating > 0, una per (lega stagione, giornata), voti letti da tutte le leghe del bacino resolveLeagueIds.
- * Solo giocatori con players.team_id = teams.id della rosa di quella stagione.
+ * Presenze con voto = voto reale o S.V. (-0.25); medie solo su voto reale (vedi playerStats).
  */
 async function fetchOfficialTeamPresencesWithVoteRanking(seasonTeamRows, opts = {}) {
   const franchiseRows = (seasonTeamRows || [])
@@ -2230,7 +2228,7 @@ async function fetchOfficialTeamPresencesWithVoteRanking(seasonTeamRows, opts = 
       FROM player_ratings pr
       INNER JOIN franchise_scope fs ON pr.league_id = fs.rating_league_id
       INNER JOIN players p ON p.id = pr.player_id AND p.team_id = fs.team_table_id
-      WHERE pr.rating > 0
+      WHERE (pr.rating > 0 OR ABS(pr.rating + 0.25) < 0.001)
     )
     SELECT
       p.id AS player_id,

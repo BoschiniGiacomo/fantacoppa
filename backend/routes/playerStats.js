@@ -62,8 +62,8 @@ const BONUS_SCORE_SQL = `
 `;
 
 /**
- * Presenze = una per (lega, giornata), non solo numero giornata (evita sotto-conteggio tra stagioni/leghe).
- * Media voto = media sulle presenze deduplicate (allineata al conteggio presenze).
+ * Presenze = voto reale o S.V. (-0.25), una per (lega, giornata).
+ * Media voto = solo su voti reali (esclude S.V. e N.D.).
  */
 async function fetchPlayerStatsAggregates(playerIds, leagueIds) {
   if (!playerIds.length || !leagueIds.length) {
@@ -89,7 +89,7 @@ async function fetchPlayerStatsAggregates(playerIds, leagueIds) {
   const params = [...playerIds, ...leagueIds];
 
   const rows = await query(
-    `WITH rated_rows AS (
+    `WITH vote_rows AS (
        SELECT
          pr.league_id,
          pr.giornata,
@@ -109,14 +109,12 @@ async function fetchPlayerStatsAggregates(playerIds, leagueIds) {
        LEFT JOIN league_bonus_settings bs ON bs.league_id = pr.league_id
        WHERE pr.player_id IN (${playerPh})
          AND pr.league_id IN (${leaguesPh})
-         AND pr.rating > 0
+         AND (pr.rating > 0 OR ABS(pr.rating + 0.25) < 0.001)
      ),
-     appearances AS (
+     presence AS (
        SELECT DISTINCT ON (league_id, giornata)
          league_id,
          giornata,
-         rating,
-         rating_with_bonus,
          goals,
          assists,
          yellow_cards,
@@ -126,24 +124,34 @@ async function fetchPlayerStatsAggregates(playerIds, leagueIds) {
          penalty_missed,
          penalty_saved,
          clean_sheet
-       FROM rated_rows
+       FROM vote_rows
+       ORDER BY league_id, giornata, player_id DESC
+     ),
+     scored AS (
+       SELECT DISTINCT ON (league_id, giornata)
+         league_id,
+         giornata,
+         rating,
+         rating_with_bonus
+       FROM vote_rows
+       WHERE rating > 0
        ORDER BY league_id, giornata, player_id DESC
      )
      SELECT
-       COUNT(*)::int AS games_played,
-       COUNT(*)::int AS games_with_rating,
-       AVG(rating) AS avg_rating,
-       AVG(rating_with_bonus) AS avg_rating_with_bonus,
-       COALESCE(SUM(goals), 0) AS total_goals,
-       COALESCE(SUM(assists), 0) AS total_assists,
-       COALESCE(SUM(yellow_cards), 0) AS total_yellow_cards,
-       COALESCE(SUM(red_cards), 0) AS total_red_cards,
-       COALESCE(SUM(goals_conceded), 0) AS total_goals_conceded,
-       COALESCE(SUM(own_goals), 0) AS total_own_goals,
-       COALESCE(SUM(penalty_missed), 0) AS total_penalty_missed,
-       COALESCE(SUM(penalty_saved), 0) AS total_penalty_saved,
-       COALESCE(SUM(clean_sheet), 0) AS total_clean_sheets
-     FROM appearances`,
+       (SELECT COUNT(*)::int FROM presence) AS games_played,
+       (SELECT COUNT(*)::int FROM scored) AS games_with_rating,
+       (SELECT AVG(rating) FROM scored) AS avg_rating,
+       (SELECT AVG(rating_with_bonus) FROM scored) AS avg_rating_with_bonus,
+       (SELECT COALESCE(SUM(goals), 0) FROM presence) AS total_goals,
+       (SELECT COALESCE(SUM(assists), 0) FROM presence) AS total_assists,
+       (SELECT COALESCE(SUM(yellow_cards), 0) FROM presence) AS total_yellow_cards,
+       (SELECT COALESCE(SUM(red_cards), 0) FROM presence) AS total_red_cards,
+       (SELECT COALESCE(SUM(goals_conceded), 0) FROM presence) AS total_goals_conceded,
+       (SELECT COALESCE(SUM(own_goals), 0) FROM presence) AS total_own_goals,
+       (SELECT COALESCE(SUM(penalty_missed), 0) FROM presence) AS total_penalty_missed,
+       (SELECT COALESCE(SUM(penalty_saved), 0) FROM presence) AS total_penalty_saved,
+       (SELECT COALESCE(SUM(clean_sheet), 0) FROM presence) AS total_clean_sheets
+     FROM (SELECT 1) AS _one`,
     params
   );
 

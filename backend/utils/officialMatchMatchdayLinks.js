@@ -1,6 +1,6 @@
 const { query } = require('../config/database');
 const { isOfficialLeague } = require('./matchdayGhost');
-const { normalizeVoteRating } = require('./voteRating');
+const { normalizeVoteRating, isSvVoteRating } = require('./voteRating');
 
 let schemaReady = false;
 
@@ -94,6 +94,17 @@ async function saveUnavailablePlayerIds(matchId, homeIds, awayIds, createdBy = n
   return { home_player_ids: home, away_player_ids: away };
 }
 
+function coerceTeamRatingsForSvSetting(teamRatings, bonusSettings) {
+  const svEnabled = Number(bonusSettings?.enable_official_sv_vote || 0) === 1;
+  const out = { ...(teamRatings || {}) };
+  for (const [pid, vote] of Object.entries(out)) {
+    if (isSvVoteRating(vote?.rating) && !svEnabled) {
+      out[pid] = { ...vote, rating: 0 };
+    }
+  }
+  return out;
+}
+
 function savedVotePlayerIdsFromDbMap(votesFromDb) {
   return Object.keys(votesFromDb || {})
     .map(Number)
@@ -106,7 +117,7 @@ function applyUnavailableSvDefaults(votes, unavailableIds, rawVotesFromDb, playe
     if (!unavailable.has(Number(pid))) continue;
     const key = String(pid);
     const raw = rawVotesFromDb[key] || rawVotesFromDb[pid];
-    if (raw && Number(raw.rating) > 0) continue;
+    if (raw && (Number(raw.rating) > 0 || isSvVoteRating(raw.rating))) continue;
     const current = votes[key] || votes[pid] || {};
     votes[key] = { ...mapRatingRow(current), rating: 0 };
   }
@@ -131,7 +142,7 @@ async function syncUnavailableFromTeamVotes(matchId, team, teamRatings, createdB
   }
   for (const pid of rosterIds) {
     const rating = Number(teamRatings[pid]?.rating || 0);
-    if (rating > 0) continue;
+    if (rating > 0 || isSvVoteRating(rating)) continue;
     if (isHome) homeSet.add(pid);
     else awaySet.add(pid);
   }
@@ -840,7 +851,8 @@ async function getBonusSettings(leagueId) {
               enable_penalty_missed, malus_penalty_missed, enable_penalty_saved, bonus_penalty_saved,
               enable_clean_sheet, bonus_clean_sheet,
               enable_pallone_fuori, malus_pallone_fuori, enable_briso, bonus_briso,
-              enable_no_divisa, malus_no_divisa
+              enable_no_divisa, malus_no_divisa,
+              COALESCE(enable_official_sv_vote, 0) AS enable_official_sv_vote
        FROM league_bonus_settings
        WHERE league_id = ?
        LIMIT 1`,
@@ -987,11 +999,12 @@ async function saveMatchVotes(matchId, body) {
   for (const team of teamsToSave) {
     const playerIds = team.players.map((p) => Number(p.id));
     const liveByPlayer = buildLiveDirectBonusFromEvents(liveEvents, bonusSettings, playerIds);
-    const teamRatings = {};
+    const teamRatingsRaw = {};
     playerIds.forEach((pid) => {
       const vote = ratings[String(pid)] || ratings[pid] || { rating: 0 };
-      teamRatings[pid] = mergeVoteWithLiveDirect(vote, liveByPlayer[pid]);
+      teamRatingsRaw[pid] = mergeVoteWithLiveDirect(vote, liveByPlayer[pid]);
     });
+    const teamRatings = coerceTeamRatingsForSvSetting(teamRatingsRaw, bonusSettings);
     await upsertPlayerRatings(effectiveLeagueId, team.giornata, teamRatings);
     giornateTouched.add(team.giornata);
     lastUnavailable = await syncUnavailableFromTeamVotes(matchId, team, teamRatings, createdBy);

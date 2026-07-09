@@ -26,7 +26,7 @@ const {
   revertInjuryReplacementAcrossLeagues,
 } = require('../utils/injuryPropagation');
 const { scoreResolvedLineup } = require('../utils/lineupScoring');
-const { normalizeVoteRating } = require('../utils/voteRating');
+const { normalizeVoteRating, isSvVoteRating } = require('../utils/voteRating');
 const {
   buildOfficialTeamLogoFilename,
   buildPlayerClusterPhotoFilename,
@@ -382,7 +382,22 @@ const BONUS_DEFAULTS = {
   enable_pallone_fuori: 0, malus_pallone_fuori: -0.5,
   enable_briso: 0, bonus_briso: 1.5,
   enable_no_divisa: 0, malus_no_divisa: -1.0,
+  enable_official_sv_vote: 0,
 };
+
+let bonusOfficialSvColumnReady = false;
+async function ensureBonusOfficialSvVoteColumn() {
+  if (bonusOfficialSvColumnReady) return;
+  try {
+    await query(
+      `ALTER TABLE league_bonus_settings
+       ADD COLUMN IF NOT EXISTS enable_official_sv_vote SMALLINT NOT NULL DEFAULT 0`
+    );
+  } catch (_) {
+    // ignore migration errors (column may already exist with different definition)
+  }
+  bonusOfficialSvColumnReady = true;
+}
 
 function normalizeBonusSettings(input = {}) {
   const merged = { ...BONUS_DEFAULTS, ...(input || {}) };
@@ -412,6 +427,7 @@ function normalizeBonusSettings(input = {}) {
     bonus_briso: Number(merged.bonus_briso ?? BONUS_DEFAULTS.bonus_briso),
     enable_no_divisa: toBoolInt(merged.enable_no_divisa),
     malus_no_divisa: Number(merged.malus_no_divisa ?? BONUS_DEFAULTS.malus_no_divisa),
+    enable_official_sv_vote: toBoolInt(merged.enable_official_sv_vote),
   };
 }
 
@@ -528,6 +544,7 @@ function applyInjuryMap(ids, injuryMap) {
 }
 
 async function getLeagueBonusSettings(leagueId) {
+  await ensureBonusOfficialSvVoteColumn();
   try {
     const rows = await query(
       `SELECT enable_bonus_malus, enable_goal, bonus_goal, enable_assist, bonus_assist,
@@ -536,7 +553,8 @@ async function getLeagueBonusSettings(leagueId) {
               enable_penalty_missed, malus_penalty_missed, enable_penalty_saved, bonus_penalty_saved,
               enable_clean_sheet, bonus_clean_sheet,
               enable_pallone_fuori, malus_pallone_fuori, enable_briso, bonus_briso,
-              enable_no_divisa, malus_no_divisa
+              enable_no_divisa, malus_no_divisa,
+              COALESCE(enable_official_sv_vote, 0) AS enable_official_sv_vote
        FROM league_bonus_settings
        WHERE league_id = ?
        LIMIT 1`,
@@ -3484,9 +3502,9 @@ router.put('/:id/bonus-settings', authenticateToken, async (req, res) => {
          enable_penalty_missed, malus_penalty_missed, enable_penalty_saved, bonus_penalty_saved,
          enable_clean_sheet, bonus_clean_sheet,
          enable_pallone_fuori, malus_pallone_fuori, enable_briso, bonus_briso,
-         enable_no_divisa, malus_no_divisa
+         enable_no_divisa, malus_no_divisa, enable_official_sv_vote
        )
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT (league_id)
        DO UPDATE SET
          enable_bonus_malus = EXCLUDED.enable_bonus_malus,
@@ -3513,7 +3531,8 @@ router.put('/:id/bonus-settings', authenticateToken, async (req, res) => {
          enable_briso = EXCLUDED.enable_briso,
          bonus_briso = EXCLUDED.bonus_briso,
          enable_no_divisa = EXCLUDED.enable_no_divisa,
-         malus_no_divisa = EXCLUDED.malus_no_divisa`,
+         malus_no_divisa = EXCLUDED.malus_no_divisa,
+         enable_official_sv_vote = EXCLUDED.enable_official_sv_vote`,
       [
         leagueId,
         bs.enable_bonus_malus, bs.enable_goal, bs.bonus_goal, bs.enable_assist, bs.bonus_assist,
@@ -3522,7 +3541,7 @@ router.put('/:id/bonus-settings', authenticateToken, async (req, res) => {
         bs.enable_penalty_missed, bs.malus_penalty_missed, bs.enable_penalty_saved, bs.bonus_penalty_saved,
         bs.enable_clean_sheet, bs.bonus_clean_sheet,
         bs.enable_pallone_fuori, bs.malus_pallone_fuori, bs.enable_briso, bs.bonus_briso,
-        bs.enable_no_divisa, bs.malus_no_divisa,
+        bs.enable_no_divisa, bs.malus_no_divisa, bs.enable_official_sv_vote,
       ]
     );
     res.json({ message: 'Bonus settings aggiornati' });
@@ -3651,11 +3670,29 @@ router.post('/:id/votes/:giornata', authenticateToken, async (req, res) => {
     }
 
     const entries = Object.entries(ratings);
+    let officialSvAllowed = null;
     for (const [playerIdRaw, v] of entries) {
       const playerId = Number(playerIdRaw);
       if (!Number.isFinite(playerId) || playerId <= 0) continue;
+      let rating = normalizeVoteRating(v?.rating || 0);
+      if (isSvVoteRating(rating)) {
+        if (officialSvAllowed === null) {
+          const metaRows = await query(
+            `SELECT COALESCE(l.is_official, 0) AS is_official,
+                    COALESCE(bs.enable_official_sv_vote, 0) AS enable_official_sv_vote
+             FROM leagues l
+             LEFT JOIN league_bonus_settings bs ON bs.league_id = l.id
+             WHERE l.id = ?
+             LIMIT 1`,
+            [leagueId]
+          );
+          officialSvAllowed = Number(metaRows[0]?.is_official) === 1
+            && Number(metaRows[0]?.enable_official_sv_vote) === 1;
+        }
+        if (!officialSvAllowed) rating = 0;
+      }
       const row = {
-        rating: normalizeVoteRating(v?.rating || 0),
+        rating,
         goals: Number(v?.goals || 0),
         assists: Number(v?.assists || 0),
         yellow_cards: Number(v?.yellow_cards || 0),
@@ -5124,9 +5161,9 @@ router.post('/', authenticateToken, async (req, res) => {
              enable_penalty_missed, malus_penalty_missed, enable_penalty_saved, bonus_penalty_saved,
              enable_clean_sheet, bonus_clean_sheet,
              enable_pallone_fuori, malus_pallone_fuori, enable_briso, bonus_briso,
-             enable_no_divisa, malus_no_divisa
+             enable_no_divisa, malus_no_divisa, enable_official_sv_vote
            )
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT (league_id)
            DO UPDATE SET
              enable_bonus_malus = EXCLUDED.enable_bonus_malus,
@@ -5153,7 +5190,8 @@ router.post('/', authenticateToken, async (req, res) => {
              enable_briso = EXCLUDED.enable_briso,
              bonus_briso = EXCLUDED.bonus_briso,
              enable_no_divisa = EXCLUDED.enable_no_divisa,
-             malus_no_divisa = EXCLUDED.malus_no_divisa`,
+             malus_no_divisa = EXCLUDED.malus_no_divisa,
+             enable_official_sv_vote = EXCLUDED.enable_official_sv_vote`,
           [
             leagueId,
             bs.enable_bonus_malus, bs.enable_goal, bs.bonus_goal, bs.enable_assist, bs.bonus_assist,
@@ -5162,7 +5200,7 @@ router.post('/', authenticateToken, async (req, res) => {
             bs.enable_penalty_missed, bs.malus_penalty_missed, bs.enable_penalty_saved, bs.bonus_penalty_saved,
             bs.enable_clean_sheet, bs.bonus_clean_sheet,
             bs.enable_pallone_fuori, bs.malus_pallone_fuori, bs.enable_briso, bs.bonus_briso,
-            bs.enable_no_divisa, bs.malus_no_divisa,
+            bs.enable_no_divisa, bs.malus_no_divisa, bs.enable_official_sv_vote,
           ]
         );
       } catch (bonusErr) {

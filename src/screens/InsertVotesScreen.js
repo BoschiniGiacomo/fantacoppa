@@ -18,17 +18,19 @@ import { Ionicons } from '@expo/vector-icons';
 import BonusIcon from '../components/BonusIcon';
 import ConfirmAlertModal from '../components/ConfirmAlertModal';
 import { leagueService } from '../services/api';
-import { formatVoteRating, normalizeVoteRating } from '../utils/voteRating';
+import { formatVoteRating, normalizeVoteRating, isSvVoteRating, SV_VOTE_RATING } from '../utils/voteRating';
+import { VOTE_ND_LABEL, VOTE_SV_LABEL } from '../components/VotesPlayerRow';
 import { useScrollInputAboveKeyboard, VOTE_INPUT_FIXED_ABOVE_KEYBOARD } from '../utils/scrollInputAboveKeyboard';
 
 // ==========================================
 // Componente PlayerRow memoizzato
 // Si ri-renderizza SOLO se cambiano i suoi props (playerVote)
 // ==========================================
-const PlayerRow = memo(({ player, playerVote, bonusSettings, bonusEnabled, onUpdateRating, onSetRating, onToggleSV, onUpdateBonus, onIncrementBonus, onDecrementBonus, inputRef, onSubmitNext, rowRef, onInputFocus }) => {
+const PlayerRow = memo(({ player, playerVote, bonusSettings, bonusEnabled, enableOfficialSvVote, onUpdateRating, onSetRating, onToggleSV, onUpdateBonus, onIncrementBonus, onDecrementBonus, inputRef, onSubmitNext, rowRef, onInputFocus }) => {
   const pv = playerVote;
-  const isSV = pv.rating === 0;
-  const ratingDisplay = isSV ? '' : formatVoteRating(pv.rating, { empty: '' });
+  const isND = pv.rating === 0;
+  const isSvVote = isSvVoteRating(pv.rating);
+  const ratingDisplay = isND ? '' : (isSvVote ? VOTE_SV_LABEL : formatVoteRating(pv.rating, { empty: '' }));
 
   // Stato locale per il testo durante l'editing - permette input intermedi come "6." o "6.5"
   const [editingText, setEditingText] = useState(null);
@@ -43,8 +45,10 @@ const PlayerRow = memo(({ player, playerVote, bonusSettings, bonusEnabled, onUpd
 
   const handleFocus = () => {
     // Mostra il valore corrente senza zeri finali (es. "6" invece di "6.00")
-    if (isSV) {
+    if (isND) {
       setEditingText('');
+    } else if (isSvVote) {
+      setEditingText(VOTE_SV_LABEL);
     } else {
       const val = pv.rating;
       setEditingText(val % 1 === 0 ? val.toString() : val.toString());
@@ -83,10 +87,10 @@ const PlayerRow = memo(({ player, playerVote, bonusSettings, bonusEnabled, onUpd
         </Text>
 
         <TouchableOpacity
-          style={[styles.svBtn, isSV && styles.svBtnActive]}
+          style={[styles.svBtn, isND && styles.svBtnActive]}
           onPress={() => onToggleSV(player.id)}
         >
-          <Text style={[styles.svBtnText, isSV && styles.svBtnTextActive]}>S.V.</Text>
+          <Text style={[styles.svBtnText, isND && styles.svBtnTextActive]}>{VOTE_ND_LABEL}</Text>
         </TouchableOpacity>
 
         <View style={styles.ratingGroup}>
@@ -98,13 +102,13 @@ const PlayerRow = memo(({ player, playerVote, bonusSettings, bonusEnabled, onUpd
           </TouchableOpacity>
           <TextInput
             ref={inputRef}
-            style={[styles.ratingInput, isSV && styles.ratingInputSV]}
+            style={[styles.ratingInput, isND && styles.ratingInputSV]}
             value={displayValue}
             onFocus={handleFocus}
             onChangeText={handleChangeText}
             onBlur={handleBlur}
-            placeholder={isSV ? 'S.V.' : '6.00'}
-            placeholderTextColor={isSV ? '#dc3545' : '#bbb'}
+            placeholder={isND ? VOTE_ND_LABEL : '6.00'}
+            placeholderTextColor={isND ? '#dc3545' : '#bbb'}
             keyboardType="decimal-pad"
             returnKeyType="next"
             onSubmitEditing={() => { handleBlur(); onSubmitNext(); }}
@@ -120,7 +124,7 @@ const PlayerRow = memo(({ player, playerVote, bonusSettings, bonusEnabled, onUpd
         </View>
       </View>
 
-      {bonusEnabled && !isSV && (() => {
+      {bonusEnabled && !isND && !isSvVote && (() => {
         const isGK = player.role === 'P';
 
         // Ordine completo: primi 5 = riga 1, resto = riga 2
@@ -255,6 +259,7 @@ export default function InsertVotesScreen({ route, navigation }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [bonusSettings, setBonusSettings] = useState(null);
+  const [isOfficialLeague, setIsOfficialLeague] = useState(false);
   const [lastMatchdayWithVotes, setLastMatchdayWithVotes] = useState(null);
   const [saveFeedback, setSaveFeedback] = useState('');
   const [expandedTeams, setExpandedTeams] = useState({});
@@ -307,15 +312,19 @@ export default function InsertVotesScreen({ route, navigation }) {
     try {
       setLoading(true);
 
-      const [matchdaysRes, bonusSettingsRes, playersRes] = await Promise.all([
+      const [matchdaysRes, bonusSettingsRes, playersRes, leagueRes] = await Promise.all([
         leagueService.getVotesMatchdays(leagueId),
         leagueService.getBonusSettings(leagueId).catch(() => ({ data: null })),
         leagueService.getVotesPlayers(leagueId),
+        leagueService.getById(leagueId).catch(() => ({ data: null })),
       ]);
 
       const matchdaysData = matchdaysRes.data?.matchdays || [];
       setMatchdays(matchdaysData);
       setLastMatchdayWithVotes(matchdaysRes.data?.last_matchday_with_votes);
+
+      const leagueData = Array.isArray(leagueRes.data) ? leagueRes.data[0] : leagueRes.data;
+      setIsOfficialLeague(Number(leagueData?.is_official) === 1);
 
       if (bonusSettingsRes.data) {
         setBonusSettings(bonusSettingsRes.data);
@@ -392,10 +401,30 @@ export default function InsertVotesScreen({ route, navigation }) {
   };
 
   // --- Callbacks memoizzati per evitare re-render dei PlayerRow ---
+  const enableOfficialSvVote = isOfficialLeague && Number(bonusSettings?.enable_official_sv_vote) === 1;
+
+  const clearsBonusFields = (rating) => rating === 0 || isSvVoteRating(rating);
+
   const updateRating = useCallback((playerId, change) => {
     setVotes(prev => {
       const current = prev[playerId] || { rating: 0, goals: 0, assists: 0, yellow_cards: 0, red_cards: 0 };
       const currentRating = current.rating || 0;
+
+      if (isSvVoteRating(currentRating)) {
+        if (change < 0) {
+          return {
+            ...prev,
+            [playerId]: {
+              ...current, rating: 0,
+              goals: 0, assists: 0, yellow_cards: 0, red_cards: 0,
+            },
+          };
+        }
+        if (change > 0) {
+          return { ...prev, [playerId]: { ...current, rating: 1 } };
+        }
+        return prev;
+      }
 
       if (currentRating === 0) {
         if (change < 0) return prev;
@@ -403,22 +432,31 @@ export default function InsertVotesScreen({ route, navigation }) {
       }
 
       let newRating = currentRating + change;
-      if (newRating < 1) newRating = 0;
-      else if (newRating > 10) newRating = 10;
-      else newRating = normalizeVoteRating(newRating);
+      if (newRating < 1) {
+        if (enableOfficialSvVote && Math.abs(currentRating - 1) < 0.001) {
+          newRating = SV_VOTE_RATING;
+        } else {
+          newRating = 0;
+        }
+      } else if (newRating > 10) {
+        newRating = 10;
+      } else {
+        newRating = normalizeVoteRating(newRating);
+      }
 
+      const zeroBonus = clearsBonusFields(newRating);
       return {
         ...prev,
         [playerId]: {
           ...current, rating: newRating,
-          goals: newRating === 0 ? 0 : current.goals,
-          assists: newRating === 0 ? 0 : current.assists,
-          yellow_cards: newRating === 0 ? 0 : current.yellow_cards,
-          red_cards: newRating === 0 ? 0 : current.red_cards,
+          goals: zeroBonus ? 0 : current.goals,
+          assists: zeroBonus ? 0 : current.assists,
+          yellow_cards: zeroBonus ? 0 : current.yellow_cards,
+          red_cards: zeroBonus ? 0 : current.red_cards,
         }
       };
     });
-  }, []);
+  }, [enableOfficialSvVote]);
 
   const setRatingValue = useCallback((playerId, value) => {
     if (value === '' || value === null) {
@@ -428,7 +466,21 @@ export default function InsertVotesScreen({ route, navigation }) {
       });
       return;
     }
-    let rating = parseFloat(value);
+    const raw = String(value).trim().toUpperCase();
+    if (enableOfficialSvVote && (raw === 'S.V.' || raw === 'S.V' || raw === 'SV')) {
+      setVotes(prev => {
+        const current = prev[playerId] || { rating: 0, goals: 0, assists: 0, yellow_cards: 0, red_cards: 0 };
+        return {
+          ...prev,
+          [playerId]: {
+            ...current, rating: SV_VOTE_RATING,
+            goals: 0, assists: 0, yellow_cards: 0, red_cards: 0,
+          },
+        };
+      });
+      return;
+    }
+    let rating = parseFloat(String(value).replace(',', '.'));
     if (isNaN(rating)) return;
     if (rating < 1) rating = 0;
     if (rating > 10) rating = 10;
@@ -436,28 +488,29 @@ export default function InsertVotesScreen({ route, navigation }) {
 
     setVotes(prev => {
       const current = prev[playerId] || { rating: 0, goals: 0, assists: 0, yellow_cards: 0, red_cards: 0 };
+      const zeroBonus = clearsBonusFields(rating);
       return {
         ...prev,
         [playerId]: {
           ...current, rating,
-          goals: rating === 0 ? 0 : current.goals,
-          assists: rating === 0 ? 0 : current.assists,
-          yellow_cards: rating === 0 ? 0 : current.yellow_cards,
-          red_cards: rating === 0 ? 0 : current.red_cards,
+          goals: zeroBonus ? 0 : current.goals,
+          assists: zeroBonus ? 0 : current.assists,
+          yellow_cards: zeroBonus ? 0 : current.yellow_cards,
+          red_cards: zeroBonus ? 0 : current.red_cards,
         }
       };
     });
-  }, []);
+  }, [enableOfficialSvVote]);
 
   const toggleSV = useCallback((playerId) => {
     const EMPTY_VOTE = { rating: 0, goals: 0, assists: 0, yellow_cards: 0, red_cards: 0, goals_conceded: 0, own_goals: 0, penalty_missed: 0, penalty_saved: 0, clean_sheet: 0, pallone_fuori: 0, briso: 0, no_divisa: 0 };
     setVotes(prev => {
       const current = prev[playerId] || EMPTY_VOTE;
-      const isSV = current.rating === 0;
+      const isND = current.rating === 0;
       return {
         ...prev,
         [playerId]: {
-          ...current, rating: isSV ? 6.0 : 0,
+          ...current, rating: isND ? 6.0 : 0,
           goals: 0, assists: 0, yellow_cards: 0, red_cards: 0,
           goals_conceded: 0, own_goals: 0, penalty_missed: 0, penalty_saved: 0, clean_sheet: 0,
           pallone_fuori: 0, briso: 0, no_divisa: 0,
@@ -471,7 +524,7 @@ export default function InsertVotesScreen({ route, navigation }) {
   const updateBonus = useCallback((playerId, field, value) => {
     setVotes(prev => {
       const current = prev[playerId] || EMPTY_VOTE;
-      if (current.rating === 0) return prev;
+      if (clearsBonusFields(current.rating)) return prev;
       return { ...prev, [playerId]: { ...current, [field]: value } };
     });
   }, []);
@@ -479,7 +532,7 @@ export default function InsertVotesScreen({ route, navigation }) {
   const incrementBonus = useCallback((playerId, field) => {
     setVotes(prev => {
       const current = prev[playerId] || EMPTY_VOTE;
-      if (current.rating === 0) return prev;
+      if (clearsBonusFields(current.rating)) return prev;
       return { ...prev, [playerId]: { ...current, [field]: (current[field] || 0) + 1 } };
     });
   }, []);
@@ -487,7 +540,7 @@ export default function InsertVotesScreen({ route, navigation }) {
   const decrementBonus = useCallback((playerId, field) => {
     setVotes(prev => {
       const current = prev[playerId] || EMPTY_VOTE;
-      if (current.rating === 0) return prev;
+      if (clearsBonusFields(current.rating)) return prev;
       const val = (current[field] || 0) - 1;
       return { ...prev, [playerId]: { ...current, [field]: val < 0 ? 0 : val } };
     });
@@ -510,7 +563,7 @@ export default function InsertVotesScreen({ route, navigation }) {
         currentTeams.forEach(t => playersToSave.push(...t.players));
       }
 
-      // Per OGNI giocatore visibile: salva il voto corrente o 0 (S.V.)
+      // Per OGNI giocatore visibile: salva il voto corrente o 0 (N.D.)
       playersToSave.forEach(player => {
         const vote = currentVotes[player.id];
         const rating = (vote && vote.rating !== undefined && vote.rating !== null && vote.rating !== '')
@@ -829,6 +882,7 @@ export default function InsertVotesScreen({ route, navigation }) {
                 playerVote={pv}
                 bonusSettings={bonusSettings}
                 bonusEnabled={bonusEnabled}
+                enableOfficialSvVote={enableOfficialSvVote}
                 onUpdateRating={updateRating}
                 onSetRating={setRatingValue}
                 onToggleSV={toggleSV}

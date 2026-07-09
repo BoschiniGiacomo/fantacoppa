@@ -20,7 +20,7 @@ import { parseAppDate } from '../utils/dateTime';
 import BonusIcon from '../components/BonusIcon';
 import AppLoadingFullScreenModal from '../components/AppLoadingFullScreenModal';
 import { useAppLoadingMedia } from '../context/AppLoadingMediaContext';
-import { formatVoteRating, normalizeVoteRating } from '../utils/voteRating';
+import { formatVoteRating, normalizeVoteRating, isPresenceVoteRating } from '../utils/voteRating';
 import { getFormationSlotVisual } from '../utils/formationDisplay';
 import { useAuth } from '../context/AuthContext';
 import { buildCompetitionRankMap, toFiniteNumber } from '../utils/standingsRanking';
@@ -413,7 +413,7 @@ export default function LiveScoresScreen({ route, navigation }) {
                                     const fieldLabel = getFieldPlayerLabel(vis, surnameCountMap, midTruncate);
                                     const roleColor = ROLE_COLORS[vis.role] || '#999';
                                     const hasPhoto = !!vis.photo_path;
-                                    const hasVote = normalizeVoteRating(p.rating || 0) > 0 || Number(p.final_rating || 0) > 0;
+                                    const hasVote = isPresenceVoteRating(p.rating) || Number(p.final_rating || 0) > 0;
 
                                     let yOffset = 0;
                                     if (cnt >= 5) {
@@ -514,7 +514,7 @@ export default function LiveScoresScreen({ route, navigation }) {
                             );
 
                             const vis = getFormationSlotVisual(player);
-                            const hasVote = normalizeVoteRating(player.rating || 0) > 0 || Number(player.final_rating || 0) > 0;
+                            const hasVote = isPresenceVoteRating(player.rating) || Number(player.final_rating || 0) > 0;
                             const bonusItems = [];
                             if (fData.bonus_enabled) {
                               const bs = fData.bonus_settings || {};

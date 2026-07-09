@@ -2,7 +2,7 @@ import React, { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, TextInput, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import BonusIcon from './BonusIcon';
-import { formatVoteRating } from '../utils/voteRating';
+import { formatVoteRating, isSvVoteRating, SV_VOTE_RATING } from '../utils/voteRating';
 
 export const LIVE_DIRECT_VOTE_FIELDS = [
   'goals',
@@ -274,8 +274,10 @@ function VotesPlayerRow({
   liveDirectFields,
   onUpdateRating,
   onSetRating,
-  onActivateSV,
-  onToggleSV,
+  onActivateND,
+  onToggleND,
+  onToggleSvVote,
+  enableOfficialSvVote = false,
   onUpdateBonus,
   onIncrementBonus,
   onDecrementBonus,
@@ -287,6 +289,7 @@ function VotesPlayerRow({
 }) {
   const pv = playerVote || { rating: 0 };
   const liveDirect = new Set(liveDirectFields || LIVE_DIRECT_VOTE_FIELDS);
+  const isCentralNd = voteUiMode === 'saved_nd' || voteUiMode === 'draft_nd';
   const isCentralSv = voteUiMode === 'saved_sv' || voteUiMode === 'draft_sv';
   const isUnset = voteUiMode === 'unset';
   const hasVote = voteUiMode === 'has_vote';
@@ -304,8 +307,13 @@ function VotesPlayerRow({
 
   const handleBlur = () => {
     if (editingText !== null) {
-      const t = String(editingText).trim();
-      if (t === '' || t.toUpperCase() === 'S.V.') {
+      if (isVoteNdInputText(editingText)) {
+        onActivateND(player.id);
+        setEditingText(null);
+        return;
+      }
+      if (enableOfficialSvVote && isVoteSvInputText(editingText)) {
+        onSetRating(player.id, SV_VOTE_RATING);
         setEditingText(null);
         return;
       }
@@ -330,7 +338,7 @@ function VotesPlayerRow({
 
   const displayValue = isEditing
     ? editingText
-    : (isUnset ? 'S.V.' : ratingDisplay);
+    : (isUnset ? VOTE_ND_LABEL : ratingDisplay);
 
   return (
     <View ref={rowRef} style={styles.playerRow}>
@@ -341,15 +349,27 @@ function VotesPlayerRow({
         <Text style={styles.playerName} numberOfLines={1}>
           {player.first_name} {player.last_name}
         </Text>
-        {isCentralSv ? (
+        {isCentralNd ? (
           <View style={styles.ratingGroup}>
             <View style={styles.ratingBtnSpacer} />
             <TouchableOpacity
               style={[styles.svBtn, styles.svBtnAsInput, styles.svBtnActive]}
-              onPress={() => onToggleSV(player.id)}
+              onPress={() => onToggleND(player.id)}
               activeOpacity={0.7}
             >
-              <Text style={[styles.svBtnText, styles.svBtnTextAsInput, styles.svBtnTextActive]}>S.V.</Text>
+              <Text style={[styles.svBtnText, styles.svBtnTextAsInput, styles.svBtnTextActive]}>{VOTE_ND_LABEL}</Text>
+            </TouchableOpacity>
+            <View style={styles.ratingBtnSpacer} />
+          </View>
+        ) : isCentralSv ? (
+          <View style={styles.ratingGroup}>
+            <View style={styles.ratingBtnSpacer} />
+            <TouchableOpacity
+              style={[styles.svBtn, styles.svBtnAsInput, styles.svBtnActiveSv]}
+              onPress={() => onToggleSvVote(player.id)}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.svBtnText, styles.svBtnTextAsInput, styles.svBtnTextActiveSv]}>{VOTE_SV_LABEL}</Text>
             </TouchableOpacity>
             <View style={styles.ratingBtnSpacer} />
           </View>
@@ -357,10 +377,10 @@ function VotesPlayerRow({
           <>
             <TouchableOpacity
               style={styles.svBtn}
-              onPress={() => onActivateSV(player.id)}
+              onPress={() => onActivateND(player.id)}
               activeOpacity={0.7}
             >
-              <Text style={styles.svBtnText}>S.V.</Text>
+              <Text style={styles.svBtnText}>{VOTE_ND_LABEL}</Text>
             </TouchableOpacity>
             <View style={styles.ratingGroup}>
               <TouchableOpacity
@@ -420,6 +440,26 @@ export default memo(VotesPlayerRow, (prev, next) => (
   && prev.liveDirectFields === next.liveDirectFields
   && prev.isLastInput === next.isLastInput
 ));
+
+export const VOTE_ND_LABEL = 'N.D.';
+export const VOTE_SV_LABEL = 'S.V.';
+
+/** Testo campo voto che significa non disponibile (accetta anche S.V. legacy come N.D. solo se non abilitato S.V. ufficiale). */
+export function isVoteNdInputText(text) {
+  const t = String(text || '').trim().toUpperCase();
+  return (
+    t === ''
+    || t === 'N.D.'
+    || t === 'N.D'
+    || t === 'ND'
+  );
+}
+
+/** Testo campo voto che significa S.V. (senza voto ufficiale). */
+export function isVoteSvInputText(text) {
+  const t = String(text || '').trim().toUpperCase();
+  return t === 'S.V.' || t === 'S.V' || t === 'SV';
+}
 
 export const EMPTY_VOTE = {
   rating: 0,
@@ -531,6 +571,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#fdecea',
     borderColor: '#dc3545',
   },
+  svBtnActiveSv: {
+    backgroundColor: '#fff8e1',
+    borderColor: '#e6a800',
+  },
   svBtnText: {
     fontSize: 10,
     fontWeight: '700',
@@ -542,6 +586,9 @@ const styles = StyleSheet.create({
   },
   svBtnTextActive: {
     color: '#dc3545',
+  },
+  svBtnTextActiveSv: {
+    color: '#b8860b',
   },
   ratingGroup: {
     flexDirection: 'row',

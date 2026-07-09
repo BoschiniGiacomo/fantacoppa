@@ -182,6 +182,7 @@ export default function SettingsScreen({ route, navigation }) {
     bonus_briso: 1.5,
     enable_no_divisa: false,
     malus_no_divisa: -1.0,
+    enable_official_sv_vote: false,
   });
   
   // Stati temporanei per i valori decimali durante la digitazione (null = non in editing)
@@ -373,6 +374,7 @@ export default function SettingsScreen({ route, navigation }) {
           bonus_briso: pf(bs.bonus_briso, 1.5),
           enable_no_divisa: parseInt(bs.enable_no_divisa) === 1,
           malus_no_divisa: pf(bs.malus_no_divisa, -1.0),
+          enable_official_sv_vote: parseInt(bs.enable_official_sv_vote) === 1,
         });
         setTempBonusValues({
           bonus_goal: null, bonus_assist: null, malus_yellow_card: null,
@@ -655,6 +657,7 @@ export default function SettingsScreen({ route, navigation }) {
         bonus_briso: pf(bonusSettings.bonus_briso, 1.5),
         enable_no_divisa: bonusSettings.enable_no_divisa ? 1 : 0,
         malus_no_divisa: pf(bonusSettings.malus_no_divisa, -1.0),
+        enable_official_sv_vote: bonusSettings.enable_official_sv_vote ? 1 : 0,
       };
       await leagueService.updateBonusSettings(leagueId, bonusSettingsToSend);
       await loadSettings();
@@ -1486,6 +1489,22 @@ export default function SettingsScreen({ route, navigation }) {
                     {renderBonusRow('penalty_missed', 'Rigore sbagliato', 'enable_penalty_missed', 'malus_penalty_missed', '-3.0', '#e53935')}
                     {renderBonusRow('pallone_fuori', 'Pallone fuori', 'enable_pallone_fuori', 'malus_pallone_fuori', '-0.5', '#e53935')}
                     {renderBonusRow('no_divisa', 'No divisa', 'enable_no_divisa', 'malus_no_divisa', '-1.0', '#e53935')}
+                    {Number(league?.is_official) === 1 ? (
+                      <View style={styles.bmRow}>
+                        <View style={styles.bmRowIconWrap}>
+                          <Ionicons name="remove-circle-outline" size={20} color="#e6a800" />
+                        </View>
+                        <Text style={styles.bmRowText} numberOfLines={2}>S.V. inserimento voti (-0,25)</Text>
+                        <Switch
+                          value={!!bonusSettings.enable_official_sv_vote}
+                          onValueChange={(value) => setBonusSettings({ ...bonusSettings, enable_official_sv_vote: value })}
+                          trackColor={{ false: '#e0e0e0', true: '#e6a800' }}
+                          thumbColor={bonusSettings.enable_official_sv_vote ? '#fff' : '#f4f3f4'}
+                          style={styles.bmRowSw}
+                          disabled={isReadOnlyObserver}
+                        />
+                      </View>
+                    ) : null}
                   </>
                 )}
 
