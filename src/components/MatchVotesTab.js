@@ -20,7 +20,7 @@ import VotesPlayerRow, {
   LIVE_DIRECT_VOTE_FIELDS,
 } from './VotesPlayerRow';
 import ConfirmAlertModal from './ConfirmAlertModal';
-import { normalizeVoteRating, isSvVoteRating, SV_VOTE_RATING, isPresenceVoteRating } from '../utils/voteRating';
+import { normalizeVoteRating, isSvVoteRating, SV_VOTE_RATING } from '../utils/voteRating';
 import { useScrollInputAboveKeyboard, VOTE_INPUT_FIXED_ABOVE_KEYBOARD } from '../utils/scrollInputAboveKeyboard';
 
 function pickInitialDraft(links, side) {
@@ -64,6 +64,14 @@ function applyDefaultSvForUnsetPlayers(teams, votes, { savedPlayerIds, unavailab
     });
   });
   return out;
+}
+
+function countTeamSavedVotes(team, savedVotePlayerIds) {
+  return (team?.players || []).filter((p) => savedVotePlayerIds.has(Number(p.id))).length;
+}
+
+function teamHasAnySavedVotes(team, savedVotePlayerIds) {
+  return countTeamSavedVotes(team, savedVotePlayerIds) > 0;
 }
 
 function findMatchday(matchdays, id) {
@@ -718,17 +726,9 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
     }
   };
 
-  const teamHasSavedVotes = useCallback((team) => {
-    try {
-      const saved = JSON.parse(savedSnapshot.current || '{}');
-      return (team?.players || []).some((p) => {
-        const sv = saved[p.id];
-        return sv && (sv.rating > 0 || sv.rating === 0 || isSvVoteRating(sv.rating));
-      });
-    } catch {
-      return false;
-    }
-  }, []);
+  const teamHasSavedVotes = useCallback((team) => (
+    teamHasAnySavedVotes(team, savedVotePlayerIds)
+  ), [savedVotePlayerIds]);
 
   const requestSaveTeam = useCallback((team) => {
     if (!team?.id || saving) return;
@@ -837,10 +837,10 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
 
               {teams.map((team) => {
                 const isOpen = !!expandedTeams[team.id];
-                const voted = team.players.filter((p) => isPresenceVoteRating(votes[p.id]?.rating)).length;
+                const savedCount = countTeamSavedVotes(team, savedVotePlayerIds);
+                const hasSaved = savedCount > 0;
                 const linkTeam =
                   team.side === 'home' ? linkData?.home_team : linkData?.away_team;
-                const hasSaved = teamHasSavedVotes(team);
                 return (
                   <View
                     key={team.id}
@@ -872,7 +872,7 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
                         />
                         <View style={[styles.progressBadge, hasSaved && styles.progressBadgeSaved]}>
                           <Text style={[styles.progressText, hasSaved && styles.progressTextSaved]}>
-                            {voted}/{team.players.length}
+                            {savedCount}/{team.players.length}
                           </Text>
                         </View>
                       </View>

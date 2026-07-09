@@ -736,6 +736,71 @@ function applyLiveDirectToVotesMap(votes, liveByPlayer, playerIds) {
   return merged;
 }
 
+function resolvePlayerStatFromDbOrLive(dbVote, liveRow, field) {
+  const db = mapRatingRow(dbVote || {});
+  const liveMerged = mergeVoteWithLiveDirect(dbVote, liveRow);
+  if (liveRow?.locked_fields?.includes(field)) {
+    return Number(liveMerged[field] || 0);
+  }
+  return Number(db[field] || 0);
+}
+
+function sumPlayersStat(ratingsByPlayer, playerIds, field) {
+  return (playerIds || []).reduce((sum, pid) => {
+    const v = ratingsByPlayer[pid] || ratingsByPlayer[String(pid)] || {};
+    return sum + Number(v[field] || 0);
+  }, 0);
+}
+
+async function buildOpponentMergedRatings(opponentTeam, effectiveLeagueId, liveEvents, bonusSettings) {
+  const out = {};
+  if (!opponentTeam?.players?.length) return out;
+  const oppIds = opponentTeam.players.map((p) => Number(p.id)).filter((n) => n > 0);
+  const oppLive = buildLiveDirectBonusFromEvents(liveEvents, bonusSettings, oppIds);
+  let oppFromDb = {};
+  if (opponentTeam.giornata) {
+    oppFromDb = await loadRatingsForGiornata(effectiveLeagueId, opponentTeam.giornata, oppIds);
+  }
+  oppIds.forEach((pid) => {
+    const raw = oppFromDb[String(pid)] || oppFromDb[pid];
+    out[pid] = {
+      goals: resolvePlayerStatFromDbOrLive(raw, oppLive[pid], 'goals'),
+    };
+  });
+  return out;
+}
+
+function assertGoalsConcededBalance({
+  team,
+  teamRatings,
+  opponentRatings,
+  bonusSettings,
+  rawRatings,
+  liveByPlayer,
+}) {
+  if (!isLiveBonusEnabled(bonusSettings, 'enable_goals_conceded')) return;
+
+  const teamPids = (team.players || []).map((p) => Number(p.id)).filter((n) => n > 0);
+  const conceded = sumPlayersStat(teamRatings, teamPids, 'goals_conceded');
+  const opponentPids = Object.keys(opponentRatings || {})
+    .map(Number)
+    .filter((n) => Number.isFinite(n) && n > 0);
+  const opponentGoals = sumPlayersStat(opponentRatings, opponentPids, 'goals');
+  const ownGoals = teamPids.reduce((sum, pid) => {
+    const raw = rawRatings[String(pid)] || rawRatings[pid] || {};
+    return sum + resolvePlayerStatFromDbOrLive(raw, liveByPlayer[pid], 'own_goals');
+  }, 0);
+  const expected = opponentGoals + ownGoals;
+
+  if (conceded !== expected) {
+    const err = new Error(
+      `I gol subiti inseriti (${conceded}) non coincidono con gol avversari (${opponentGoals}) + autogol (${ownGoals}) = ${expected}. Correggi i malus gol subito prima di salvare.`
+    );
+    err.status = 400;
+    throw err;
+  }
+}
+
 async function fetchMatchLiveDirectEvents(matchId) {
   try {
     const rows = await query(
@@ -1005,6 +1070,21 @@ async function saveMatchVotes(matchId, body) {
       teamRatingsRaw[pid] = mergeVoteWithLiveDirect(vote, liveByPlayer[pid]);
     });
     const teamRatings = coerceTeamRatingsForSvSetting(teamRatingsRaw, bonusSettings);
+    const opponentTeam = bundle.teams.find((t) => Number(t.id) !== Number(team.id));
+    const opponentRatings = await buildOpponentMergedRatings(
+      opponentTeam,
+      effectiveLeagueId,
+      liveEvents,
+      bonusSettings
+    );
+    assertGoalsConcededBalance({
+      team,
+      teamRatings,
+      opponentRatings,
+      bonusSettings,
+      rawRatings: ratings,
+      liveByPlayer,
+    });
     await upsertPlayerRatings(effectiveLeagueId, team.giornata, teamRatings);
     giornateTouched.add(team.giornata);
     lastUnavailable = await syncUnavailableFromTeamVotes(matchId, team, teamRatings, createdBy);
