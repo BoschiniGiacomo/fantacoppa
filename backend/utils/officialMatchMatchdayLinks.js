@@ -794,7 +794,7 @@ function assertGoalsConcededBalance({
 
   if (conceded !== expected) {
     const err = new Error(
-      `I gol subiti inseriti (${conceded}) non coincidono con gol avversari (${opponentGoals}) + autogol (${ownGoals}) = ${expected}. Correggi i malus gol subito prima di salvare.`
+      `Gol subiti: ${conceded} su ${expected} attesi (${opponentGoals} avversari + ${ownGoals} autogol)`
     );
     err.status = 400;
     throw err;

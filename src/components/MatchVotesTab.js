@@ -320,7 +320,7 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savingLinks, setSavingLinks] = useState(false);
-  const [error, setError] = useState('');
+  const [toastMsg, setToastMsg] = useState(null);
   const [linkData, setLinkData] = useState(null);
   const [votesData, setVotesData] = useState(null);
   const [votes, setVotes] = useState({});
@@ -331,13 +331,26 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
   const [picker, setPicker] = useState(null);
   const [draftHomeMd, setDraftHomeMd] = useState(null);
   const [draftAwayMd, setDraftAwayMd] = useState(null);
-  const [feedback, setFeedback] = useState('');
   const [linkEditorOpen, setLinkEditorOpen] = useState(false);
   const [confirmModal, setConfirmModal] = useState(null);
   const savedSnapshot = useRef('');
+  const toastTimerRef = useRef(null);
   const inputRefsMap = useRef({});
   const playerRowRefsMap = useRef({});
   const scrollInputIntoView = useScrollInputAboveKeyboard(scrollViewRef, scrollYRef);
+
+  const showToast = useCallback((text, type = 'error') => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setToastMsg({ text, type });
+    toastTimerRef.current = setTimeout(() => {
+      setToastMsg(null);
+      toastTimerRef.current = null;
+    }, 2500);
+  }, []);
+
+  useEffect(() => () => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+  }, []);
 
   const enableOfficialSvVote = Number(bonusSettings?.enable_official_sv_vote) === 1;
 
@@ -446,15 +459,15 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
     if (!matchId) return;
     try {
       setLoading(true);
-      setError('');
+      setToastMsg(null);
       const res = await adminMatchesService.getVotesTab(matchId);
       applyTabPayload(res.data);
     } catch (e) {
-      setError(e?.response?.data?.message || 'Errore caricamento');
+      showToast(e?.response?.data?.message || 'Impossibile caricare i voti');
     } finally {
       setLoading(false);
     }
-  }, [matchId, applyTabPayload]);
+  }, [matchId, applyTabPayload, showToast]);
 
   useEffect(() => {
     void loadAll();
@@ -463,7 +476,7 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
   const handleSaveLinks = async () => {
     try {
       setSavingLinks(true);
-      setError('');
+      setToastMsg(null);
       const res = await adminMatchesService.setMatchdayLinks(matchId, {
         home_matchday_id: draftHomeMd,
         away_matchday_id: draftAwayMd,
@@ -473,14 +486,13 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
       setDraftHomeMd(data.current?.home_matchday_id ?? null);
       setDraftAwayMd(data.current?.away_matchday_id ?? null);
       if (onLinksUpdated) onLinksUpdated(data);
-      setFeedback('Salvato');
-      setTimeout(() => setFeedback(''), 2000);
+      showToast('Collegamenti salvati', 'success');
       if (data.has_links) {
         setLinkEditorOpen(false);
         await loadAll();
       }
     } catch (e) {
-      setError(e?.response?.data?.message || 'Errore salvataggio');
+      showToast(e?.response?.data?.message || 'Impossibile salvare i collegamenti');
     } finally {
       setSavingLinks(false);
     }
@@ -500,7 +512,7 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
       }
       setLinkEditorOpen(true);
     } catch (e) {
-      setError(e?.response?.data?.message || 'Errore caricamento collegamenti');
+      showToast(e?.response?.data?.message || 'Impossibile caricare i collegamenti');
     }
   };
 
@@ -692,7 +704,7 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
   const handleSaveTeam = async (teamId) => {
     try {
       setSaving(true);
-      setError('');
+      setToastMsg(null);
       const res = await adminMatchesService.saveMatchVotes(matchId, {
         ratings: buildSavePayload(teamId),
         team_id: teamId,
@@ -716,11 +728,10 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
           return next;
         });
       }
-      setFeedback('Salvato');
-      setTimeout(() => setFeedback(''), 2000);
+      showToast('Voti salvati', 'success');
       if (onVotesSaved) onVotesSaved();
     } catch (e) {
-      setError(e?.response?.data?.message || 'Errore salvataggio');
+      showToast(e?.response?.data?.message || 'Impossibile salvare i voti');
     } finally {
       setSaving(false);
     }
@@ -798,20 +809,6 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
     <View style={styles.wrap}>
       {showInlineLinkEditor ? (
         <LinkEditorPanel {...linkEditorProps} />
-      ) : null}
-
-      {error ? (
-        <View style={styles.errorBox}>
-          <Ionicons name="alert-circle-outline" size={16} color="#dc3545" />
-          <Text style={styles.errorText}>{error}</Text>
-        </View>
-      ) : null}
-
-      {feedback ? (
-        <View style={styles.feedbackBox}>
-          <Ionicons name="checkmark-circle" size={16} color="#198754" />
-          <Text style={styles.feedbackText}>{feedback}</Text>
-        </View>
       ) : null}
 
       {!linkData?.has_links && !linksChanged ? (
@@ -974,12 +971,23 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
         onCancel={() => setConfirmModal(null)}
         onConfirm={() => confirmModal?.onConfirm?.()}
       />
+
+      {toastMsg ? (
+        <View style={[styles.toast, toastMsg.type === 'success' ? styles.toastSuccess : styles.toastError]}>
+          <Ionicons
+            name={toastMsg.type === 'success' ? 'checkmark-circle' : 'alert-circle'}
+            size={18}
+            color="#fff"
+          />
+          <Text style={styles.toastText}>{toastMsg.text}</Text>
+        </View>
+      ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  wrap: { paddingBottom: 16, width: '100%' },
+  wrap: { paddingBottom: 16, width: '100%', position: 'relative' },
   centered: { paddingVertical: 40, alignItems: 'center' },
   linkCard: {
     backgroundColor: '#fff',
@@ -1094,23 +1102,27 @@ const styles = StyleSheet.create({
   gChipEmpty: { opacity: 0.7 },
   gChipEmptyText: { fontSize: 13, color: '#94a3b8', fontWeight: '600' },
   gChipNum: { fontSize: 14, fontWeight: '800', color: '#475569' },
-  errorBox: {
+  toast: {
+    position: 'absolute',
+    top: 8,
+    left: 12,
+    right: 12,
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    backgroundColor: '#fef2f2',
-    borderRadius: 10,
-    padding: 10,
-    marginBottom: 10,
+    gap: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 10,
+    zIndex: 999,
   },
-  errorText: { flex: 1, color: '#dc3545', fontSize: 12 },
-  feedbackBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginBottom: 10,
-  },
-  feedbackText: { color: '#198754', fontWeight: '600', fontSize: 12 },
+  toastError: { backgroundColor: '#e53935' },
+  toastSuccess: { backgroundColor: '#2e7d32' },
+  toastText: { color: '#fff', fontSize: 14, fontWeight: '600', flex: 1 },
   emptyBox: { alignItems: 'center', paddingVertical: 20 },
   emptySub: { fontSize: 12, color: '#94a3b8', marginTop: 8 },
   pendingHint: {
