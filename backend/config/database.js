@@ -43,6 +43,45 @@ const dbConfig = hasConnectionString
 
 const pool = new Pool(dbConfig);
 
+pool.on('error', (err) => {
+  console.error('[DB] Errore client idle nel pool:', err?.message || err);
+});
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function verifyDatabaseConnection({
+  retries = Number(process.env.DB_CONNECT_RETRIES || 5),
+  baseDelayMs = Number(process.env.DB_CONNECT_RETRY_DELAY_MS || 2000),
+} = {}) {
+  for (let attempt = 1; attempt <= retries; attempt += 1) {
+    let client;
+    try {
+      client = await pool.connect();
+      await client.query('SELECT 1');
+      console.log('✅ Connesso al database PostgreSQL (Supabase)');
+      return true;
+    } catch (err) {
+      const msg = err?.message || String(err);
+      console.error(`❌ Errore connessione database (tentativo ${attempt}/${retries}):`, msg);
+      if (attempt < retries) {
+        const waitMs = baseDelayMs * attempt;
+        console.log(`[DB] Nuovo tentativo tra ${waitMs}ms...`);
+        await sleep(waitMs);
+      }
+    } finally {
+      if (client) client.release();
+    }
+  }
+  console.error(
+    '⚠️ Database non raggiungibile all\'avvio: il server parte comunque e ritenterà alle richieste.'
+  );
+  return false;
+}
+
+void verifyDatabaseConnection();
+
 function toPgSql(sql, params = []) {
   let i = 0;
   const text = sql.replace(/\?/g, () => {
@@ -52,18 +91,6 @@ function toPgSql(sql, params = []) {
   return { text, values: params };
 }
 
-// Test connessione
-pool.connect()
-  .then(client => {
-    console.log('✅ Connesso al database PostgreSQL (Supabase)');
-    client.release();
-  })
-  .catch(err => {
-    console.error('❌ Errore connessione database:', err?.message || err);
-    process.exit(1);
-  });
-
-// Helper per eseguire query
 const query = async (sql, params) => {
   try {
     const { text, values } = toPgSql(sql, params || []);
@@ -88,13 +115,12 @@ const query = async (sql, params) => {
       rows: result.rows,
     };
   } catch (error) {
-    console.error('Database query error:', error);
+    console.error('Database query error:', error?.message || error);
     throw error;
   }
 };
 
 module.exports = {
   pool,
-  query
+  query,
 };
-

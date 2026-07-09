@@ -88,12 +88,20 @@ app.use('/api/superuser', superuserRoutes);
 app.use('/api/players', playerStatsRoutes);
 app.use('/api/notifications', notificationsRoutes);
 
-// Health check endpoint
-app.get('/api/health', (req, res) => {
-  res.json({ 
-    status: 'OK', 
+// Health check endpoint (include stato DB se possibile)
+app.get('/api/health', async (req, res) => {
+  let db = 'unknown';
+  try {
+    await pool.query('SELECT 1');
+    db = 'ok';
+  } catch (err) {
+    db = 'error';
+  }
+  res.json({
+    status: db === 'ok' ? 'OK' : 'DEGRADED',
     message: 'FantaCoppa API is running',
-    timestamp: new Date().toISOString()
+    db,
+    timestamp: new Date().toISOString(),
   });
 });
 
@@ -106,10 +114,10 @@ app.get('/api/test-db', async (req, res) => {
       message: 'Database connection successful' 
     });
   } catch (error) {
-    res.status(500).json({ 
-      status: 'ERROR', 
+    res.status(500).json({
+      status: 'ERROR',
       message: 'Database connection failed',
-      error: error.message 
+      error: error?.message || String(error),
     });
   }
 });
