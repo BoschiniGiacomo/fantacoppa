@@ -232,8 +232,7 @@ export default function PlayerStatsScreen({ route, navigation }) {
             <Text style={styles.tileValue}>{formatOverviewValue(overview.birth_year)}</Text>
             <Text style={styles.tileLabel}>Anno</Text>
           </View>
-          <View style={styles.tileSep} />
-          <View style={[styles.tile, styles.tileRole]}>
+          <View style={[styles.tile, styles.tileRight]}>
             <Text
               style={styles.tileValueRole}
               numberOfLines={1}
@@ -251,8 +250,7 @@ export default function PlayerStatsScreen({ route, navigation }) {
             <Text style={styles.tileValue}>{formatOverviewValue(overview.shirt_number)}</Text>
             <Text style={styles.tileLabel}>Numero</Text>
           </View>
-          <View style={styles.tileSep} />
-          <View style={styles.tile}>
+          <View style={[styles.tile, styles.tileRight]}>
             <Text style={styles.tileValue}>{formatOverviewValue(overview.editions_played)}</Text>
             <Text style={styles.tileLabel}>Edizioni giocate</Text>
           </View>
@@ -299,8 +297,7 @@ export default function PlayerStatsScreen({ route, navigation }) {
               <Text style={styles.tileValue}>{v(s.avg_rating).toFixed(2)}</Text>
               <Text style={styles.tileLabel}>Media Voto</Text>
             </View>
-            <View style={styles.tileSep} />
-            <View style={styles.tile}>
+            <View style={[styles.tile, styles.tileRight]}>
               <Text style={[styles.tileValue, { color: '#667eea' }]}>{v(s.avg_rating_with_bonus).toFixed(2)}</Text>
               <Text style={styles.tileLabel}>Media con Bonus</Text>
             </View>
@@ -311,8 +308,7 @@ export default function PlayerStatsScreen({ route, navigation }) {
               <Text style={styles.tileValue}>{v(s.games_played)}</Text>
               <Text style={styles.tileLabel}>Presenze</Text>
             </View>
-            <View style={styles.tileSep} />
-            <View style={styles.tile}>
+            <View style={[styles.tile, styles.tileRight]}>
               <Text style={styles.tileValue}>{v(s.games_with_rating)}</Text>
               <Text style={styles.tileLabel}>Con Voto</Text>
             </View>
@@ -723,25 +719,23 @@ const styles = StyleSheet.create({
   },
   tileRow: {
     flexDirection: 'row',
+    alignItems: 'stretch',
   },
   tile: {
     flex: 1,
+    minWidth: 0,
     alignItems: 'center',
     paddingVertical: 4,
   },
-  tileSep: {
-    width: 1,
-    backgroundColor: '#eee',
+  tileRight: {
+    borderLeftWidth: 1,
+    borderLeftColor: '#eee',
   },
   tileValue: {
     fontSize: 22,
     fontWeight: '700',
     color: '#2c3e50',
     marginBottom: 2,
-  },
-  tileRole: {
-    minWidth: 0,
-    paddingHorizontal: 4,
   },
   tileValueRole: {
     width: '100%',
