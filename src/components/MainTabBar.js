@@ -165,7 +165,7 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     width: FLOATING_SIZE,
     height: FLOATING_SIZE,
-    borderRadius: 10,
+    borderRadius: FLOATING_SIZE / 2,
     backgroundColor: '#fff',
     alignItems: 'center',
     justifyContent: 'center',
@@ -179,7 +179,7 @@ const styles = StyleSheet.create({
   floatingButtonInner: {
     width: 64,
     height: 64,
-    borderRadius: 0,
+    borderRadius: 32,
     borderWidth: 2,
     borderColor: '#eef1f8',
     alignItems: 'center',
@@ -190,12 +190,12 @@ const styles = StyleSheet.create({
   floatingLogo: {
     width: 54,
     height: 54,
-    borderRadius: 0,
+    borderRadius: 24,
   },
   floatingLogoFallback: {
     width: 48,
     height: 48,
-    borderRadius: 0,
+    borderRadius: 24,
     backgroundColor: '#f0f3fa',
     alignItems: 'center',
     justifyContent: 'center',

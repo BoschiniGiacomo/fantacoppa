@@ -30,15 +30,13 @@ const MATCHES_LIST_INITIAL_RENDER = 14;
 
 function GroupLogo({ logoUrl, logoPath }) {
   return (
-    <View style={styles.logoClip}>
-      <OfficialGroupLogoImage
-        logoUrl={logoUrl}
-        logoPath={logoPath}
-        style={styles.logo}
-        fallbackStyle={styles.logoFallback}
-        fallbackIconSize={56}
-      />
-    </View>
+    <OfficialGroupLogoImage
+      logoUrl={logoUrl}
+      logoPath={logoPath}
+      style={styles.logo}
+      fallbackStyle={styles.logoFallback}
+      fallbackIconSize={56}
+    />
   );
 }
 
@@ -1276,17 +1274,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     minHeight: 150,
   },
-  logo: { width: 92, height: 92, borderRadius: 0 },
-  logoClip: {
-    width: 92,
-    height: 92,
-    borderRadius: 0,
-    overflow: 'hidden',
-  },
+  logo: { width: 92, height: 92 },
   logoFallback: {
     width: 92,
     height: 92,
-    borderRadius: 0,
+    borderRadius: 16,
     backgroundColor: '#eef2ff',
     alignItems: 'center',
     justifyContent: 'center',
