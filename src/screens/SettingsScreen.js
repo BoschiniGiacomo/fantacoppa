@@ -1494,7 +1494,7 @@ export default function SettingsScreen({ route, navigation }) {
                         <View style={styles.bmRowIconWrap}>
                           <Ionicons name="remove-circle-outline" size={20} color="#e6a800" />
                         </View>
-                        <Text style={styles.bmRowText} numberOfLines={2}>S.V. inserimento voti (-0,25)</Text>
+                        <Text style={styles.bmRowText} numberOfLines={2}>S.V. inserimento voti</Text>
                         <Switch
                           value={!!bonusSettings.enable_official_sv_vote}
                           onValueChange={(value) => setBonusSettings({ ...bonusSettings, enable_official_sv_vote: value })}

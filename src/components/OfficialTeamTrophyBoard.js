@@ -199,10 +199,10 @@ export default function OfficialTeamTrophyBoard({ championships = [], wineTrophi
             />
             <View style={styles.shelfDivider} />
             <TrophyShelf
-              title="Trofeo del vino"
+              title="Trofeo del Vino"
               trophies={wineList}
               type="wine"
-              emptyHint="Nessun trofeo del vino"
+              emptyHint="Nessun trofeo del Vino"
             />
           </View>
         </View>

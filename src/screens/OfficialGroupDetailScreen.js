@@ -1089,7 +1089,7 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
             )}
           </View>
         ) : (
-          <View style={[styles.card, styles.teamCard, styles.hallCard]}>
+          <View style={[styles.teamCard, styles.hallCard]}>
             {hallLoading ? (
               <View style={styles.matchesLoadingBox}>
                 <ActivityIndicator color="#667eea" />
@@ -1136,7 +1136,7 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
                         ]}
                         numberOfLines={2}
                       >
-                        Trofeo del vino
+                        Trofeo del Vino
                       </Text>
                     </TouchableOpacity>
                   </View>
@@ -1187,10 +1187,12 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
                 {hallWinnersByYear.length > 0 ? (
                   <>
                     <Text style={[styles.hallSectionTitle, styles.hallSectionTitleSpaced]}>Vincitori per stagione</Text>
-                    {hallWinnersByYear.map((w) => {
+                    <View style={styles.hallYearsListWrap}>
+                    {hallWinnersByYear.map((w, idx) => {
                       const rowTeamId = Number(w?.team_id);
+                      const isLast = idx === hallWinnersByYear.length - 1;
                       return (
-                      <View key={`hall-year-${w.year}`} style={styles.hallYearRow}>
+                      <View key={`hall-year-${w.year}`} style={[styles.hallYearRow, isLast && styles.hallYearRowLast]}>
                         <Text style={styles.hallYearLabel}>{w.year}</Text>
                         <TouchableOpacity
                           style={styles.hallYearTeam}
@@ -1204,6 +1206,7 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
                       </View>
                       );
                     })}
+                    </View>
                   </>
                 ) : null}
               </ScrollView>
@@ -1273,7 +1276,7 @@ const styles = StyleSheet.create({
   tabText: { color: '#475569', fontWeight: '700', fontSize: 13 },
   tabTextActive: { color: '#667eea' },
   content: { flex: 1, paddingHorizontal: 12, paddingBottom: 12 },
-  contentHall: { paddingHorizontal: 0, paddingBottom: 0 },
+  contentHall: { paddingBottom: 0 },
   card: {
     backgroundColor: '#fff',
     borderRadius: 14,
@@ -1619,26 +1622,30 @@ const styles = StyleSheet.create({
   hallCard: {
     flex: 1,
     minHeight: 0,
+    backgroundColor: 'transparent',
+    borderWidth: 0,
     borderRadius: 0,
-    borderLeftWidth: 0,
-    borderRightWidth: 0,
-    borderBottomWidth: 0,
     paddingHorizontal: 0,
     paddingTop: 12,
     paddingBottom: 0,
   },
-  hallSectionTitle: { fontSize: 15, fontWeight: '800', color: '#1e293b', marginBottom: 8, paddingHorizontal: 12 },
+  hallSectionTitle: { fontSize: 15, fontWeight: '800', color: '#1e293b', marginBottom: 8 },
   hallSectionTitleSpaced: { marginTop: 18 },
   hallTableWrap: {
     marginTop: 2,
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
+    borderWidth: 1,
     borderColor: '#e5e7eb',
+    borderRadius: 12,
     overflow: 'hidden',
-    width: '100%',
+    backgroundColor: '#fff',
     alignSelf: 'stretch',
   },
-  hallTableHeader: { paddingLeft: 12, paddingRight: 12, paddingVertical: 10 },
+  hallTableHeader: {
+    paddingLeft: 12,
+    paddingRight: 12,
+    paddingVertical: 10,
+    backgroundColor: '#f8fafc',
+  },
   hallThPos: { width: 48 },
   hallThTeam: { fontSize: 13 },
   hallSortableTh: { width: 52, flexShrink: 0 },
@@ -1646,7 +1653,13 @@ const styles = StyleSheet.create({
   hallThTitoli: { width: 52 },
   hallThWine: { width: 68, fontSize: 11, lineHeight: 13 },
   hallThSortActive: { color: '#4f46e5' },
-  hallTableRow: { alignItems: 'stretch', paddingLeft: 12, paddingRight: 12, paddingVertical: 12 },
+  hallTableRow: {
+    alignItems: 'stretch',
+    paddingLeft: 12,
+    paddingRight: 12,
+    paddingVertical: 12,
+    backgroundColor: '#fff',
+  },
   hallPosCol: {
     width: 48,
     flexShrink: 0,
@@ -1684,6 +1697,13 @@ const styles = StyleSheet.create({
   hallTeamTextCol: { flex: 1, minWidth: 0 },
   hallTeamName: { fontSize: 15, fontWeight: '700', color: '#1f2937', lineHeight: 19 },
   hallYearsText: { fontSize: 10, color: '#64748b', marginTop: 2, flexShrink: 1, lineHeight: 12 },
+  hallYearsListWrap: {
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: '#fff',
+  },
   hallYearRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1692,7 +1712,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#f1f5f9',
     gap: 10,
+    backgroundColor: '#fff',
   },
+  hallYearRowLast: { borderBottomWidth: 0 },
   hallYearLabel: { width: 44, fontSize: 14, fontWeight: '800', color: '#334155' },
   hallYearTeam: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, minWidth: 0 },
   hallYearTeamName: { flex: 1, fontSize: 14, fontWeight: '600', color: '#1f2937' },
