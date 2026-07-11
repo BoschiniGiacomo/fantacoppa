@@ -370,19 +370,21 @@ export default function PlayerStatsScreen({ route, navigation }) {
   return (
     <View style={styles.container}>
       <View style={[styles.heroCard, { paddingTop: Math.max(insets.top + 6, 12) }]}>
-        <TouchableOpacity style={styles.heroBackBtn} onPress={() => navigation.goBack()} activeOpacity={0.75}>
-          <Ionicons name="arrow-back" size={20} color="#333" />
-        </TouchableOpacity>
+        <View style={styles.heroTopBlock}>
+          <TouchableOpacity style={styles.heroBackBtn} onPress={() => navigation.goBack()} activeOpacity={0.75}>
+            <Ionicons name="arrow-back" size={20} color="#333" />
+          </TouchableOpacity>
 
-        <View style={styles.heroNameBlock}>
-          {firstName ? (
-            <Text style={styles.heroFirstName} numberOfLines={1}>
-              {firstName}
+          <View style={styles.heroNameBlock}>
+            {firstName ? (
+              <Text style={styles.heroFirstName} numberOfLines={1}>
+                {firstName}
+              </Text>
+            ) : null}
+            <Text style={[styles.heroLastName, firstName ? styles.heroLastNameSpaced : null]} numberOfLines={2}>
+              {lastName || firstName || 'Giocatore'}
             </Text>
-          ) : null}
-          <Text style={[styles.heroLastName, firstName ? styles.heroLastNameSpaced : null]} numberOfLines={2}>
-            {lastName || firstName || 'Giocatore'}
-          </Text>
+          </View>
         </View>
 
         <View style={styles.heroPhotoSection}>
@@ -463,9 +465,14 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderBottomWidth: 1,
     borderColor: '#ececec',
-    paddingBottom: 16,
+    paddingBottom: 10,
     paddingHorizontal: 14,
-    minHeight: 320,
+    overflow: 'visible',
+  },
+  heroTopBlock: {
+    zIndex: 2,
+    elevation: 2,
+    alignSelf: 'stretch',
   },
   heroBackBtn: {
     width: 34,
@@ -482,6 +489,7 @@ const styles = StyleSheet.create({
     marginTop: 10,
     alignSelf: 'stretch',
     paddingRight: 8,
+    maxWidth: '52%',
   },
   heroFirstName: {
     fontSize: 20,
@@ -501,9 +509,11 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   heroPhotoSection: {
-    marginTop: 14,
+    marginTop: -10,
     alignItems: 'center',
     justifyContent: 'center',
+    zIndex: 1,
+    elevation: 1,
   },
   heroPhotoWrap: {
     width: HERO_PHOTO_SIZE,
@@ -514,14 +524,6 @@ const styles = StyleSheet.create({
     height: HERO_PHOTO_SIZE,
     borderRadius: HERO_PHOTO_RADIUS,
     overflow: 'hidden',
-    backgroundColor: '#eef2ff',
-    borderWidth: 3,
-    borderColor: '#fff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 3,
   },
   heroPhoto: {
     width: HERO_PHOTO_SIZE,
@@ -531,16 +533,8 @@ const styles = StyleSheet.create({
     width: HERO_PHOTO_SIZE,
     height: HERO_PHOTO_SIZE,
     borderRadius: HERO_PHOTO_RADIUS,
-    backgroundColor: '#eef2ff',
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 3,
-    borderColor: '#fff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 3,
   },
 
   mainTabBarWrap: {
