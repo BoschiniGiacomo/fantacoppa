@@ -10,7 +10,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { playerStatsService } from '../services/api';
-import { PlayerPhotoImage } from '../components/StableCachedImage';
+import { PlayerPhotoImage, TeamLogoImage } from '../components/StableCachedImage';
 import BonusIcon from '../components/BonusIcon';
 
 const ROLE_COLORS = {
@@ -18,6 +18,13 @@ const ROLE_COLORS = {
   D: '#198754',
   C: '#e6a817',
   A: '#dc3545',
+};
+
+const ROLE_NAMES = {
+  P: 'Portiere',
+  D: 'Difensore',
+  C: 'Centrocampista',
+  A: 'Attaccante',
 };
 
 const MAIN_TABS = [
@@ -91,6 +98,8 @@ export default function PlayerStatsScreen({ route, navigation }) {
   const [loadingLeague, setLoadingLeague] = useState(true);
   const [loadingAggregated, setLoadingAggregated] = useState(false);
   const [hasOfficialGroup, setHasOfficialGroup] = useState(false);
+  const [overview, setOverview] = useState(null);
+  const [loadingOverview, setLoadingOverview] = useState(true);
   const [toastMsg, setToastMsg] = useState(null);
   const [photoPath, setPhotoPath] = useState(() => String(initialPlayerPhotoPath || '').trim());
 
@@ -108,7 +117,21 @@ export default function PlayerStatsScreen({ route, navigation }) {
   useEffect(() => {
     loadLeagueStats();
     checkOfficialGroup();
+    loadOverview();
   }, [playerId, leagueId]);
+
+  const loadOverview = async () => {
+    try {
+      setLoadingOverview(true);
+      const response = await playerStatsService.getPlayerOverview(playerId, leagueId);
+      setOverview(response.data?.overview || null);
+    } catch (error) {
+      setOverview(null);
+      console.error(error);
+    } finally {
+      setLoadingOverview(false);
+    }
+  };
 
   const checkOfficialGroup = async () => {
     try {
@@ -169,6 +192,84 @@ export default function PlayerStatsScreen({ route, navigation }) {
     if (subTabKey === 'total') {
       loadAggregatedStats();
     }
+  };
+
+  const formatOverviewValue = (value) => {
+    if (value == null || value === '') return '–';
+    return String(value);
+  };
+
+  const formatOverviewRole = (role) => {
+    const key = String(role || '').trim().toUpperCase();
+    if (!key) return '–';
+    return ROLE_NAMES[key] || key;
+  };
+
+  const renderOverview = () => {
+    if (loadingOverview) {
+      return (
+        <View style={styles.loadingBox}>
+          <ActivityIndicator size="large" color="#667eea" />
+        </View>
+      );
+    }
+
+    if (!overview || Number(overview.editions_played || 0) <= 0) {
+      return (
+        <View style={styles.card}>
+          <Text style={styles.emptyOverviewText}>Nessuna informazione disponibile per le edizioni visibili.</Text>
+        </View>
+      );
+    }
+
+    const teamName = String(overview.team?.name || '').trim() || '–';
+    const teamLogoPath = String(overview.team?.logo_path || '').trim();
+
+    return (
+      <View style={styles.card}>
+        <Text style={styles.cardSectionTitle}>Profilo attuale</Text>
+        <View style={styles.tileRow}>
+          <View style={styles.tile}>
+            <Text style={styles.tileValue}>{formatOverviewValue(overview.year)}</Text>
+            <Text style={styles.tileLabel}>Anno</Text>
+          </View>
+          <View style={styles.tileSep} />
+          <View style={styles.tile}>
+            <Text style={styles.tileValue}>{formatOverviewRole(overview.role)}</Text>
+            <Text style={styles.tileLabel}>Ruolo</Text>
+          </View>
+        </View>
+        <View style={styles.divider} />
+        <View style={styles.tileRow}>
+          <View style={styles.tile}>
+            <Text style={styles.tileValue}>{formatOverviewValue(overview.shirt_number)}</Text>
+            <Text style={styles.tileLabel}>Numero</Text>
+          </View>
+          <View style={styles.tileSep} />
+          <View style={styles.tile}>
+            <Text style={styles.tileValue}>{formatOverviewValue(overview.editions_played)}</Text>
+            <Text style={styles.tileLabel}>Edizioni giocate</Text>
+          </View>
+        </View>
+        <View style={styles.divider} />
+        <View style={styles.tileRow}>
+          <View style={[styles.tile, styles.tileFull]}>
+            <View style={styles.overviewTeamRow}>
+              <TeamLogoImage
+                logoPath={teamLogoPath || undefined}
+                style={styles.overviewTeamLogo}
+                fallbackStyle={styles.overviewTeamLogoFallback}
+                fallbackIconSize={18}
+              />
+              <Text style={styles.overviewTeamName} numberOfLines={2}>
+                {teamName}
+              </Text>
+            </View>
+            <Text style={styles.tileLabel}>Squadra</Text>
+          </View>
+        </View>
+      </View>
+    );
   };
 
   const renderStats = (stats, isLoading) => {
@@ -283,13 +384,7 @@ export default function PlayerStatsScreen({ route, navigation }) {
   const renderMainTabContent = () => {
     switch (activeMainTab) {
       case 'overview':
-        return (
-          <EmptyTabPlaceholder
-            icon="person-outline"
-            title="Panoramica"
-            subtitle="Profilo, squadra attuale e informazioni generali del giocatore."
-          />
-        );
+        return renderOverview();
       case 'stats':
         return (
           <EmptyTabPlaceholder
@@ -641,6 +736,43 @@ const styles = StyleSheet.create({
   tileLabel: {
     fontSize: 11,
     color: '#999',
+  },
+  tileFull: {
+    flex: 1,
+    width: '100%',
+  },
+  overviewTeamRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    marginBottom: 2,
+    paddingHorizontal: 8,
+  },
+  overviewTeamLogo: {
+    width: 32,
+    height: 32,
+  },
+  overviewTeamLogoFallback: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: '#eef2ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  overviewTeamName: {
+    flexShrink: 1,
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#2c3e50',
+    textAlign: 'left',
+  },
+  emptyOverviewText: {
+    fontSize: 14,
+    color: '#64748b',
+    textAlign: 'center',
+    lineHeight: 20,
   },
   divider: {
     height: 1,
