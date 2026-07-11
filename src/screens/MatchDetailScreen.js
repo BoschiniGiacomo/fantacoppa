@@ -886,6 +886,30 @@ function LineupPlayerRow({
 /** Stessi tipi di BonusIcon (bonus/malus) — vedi `BONUS_ICONS` in BonusIcon.js */
 const LIVE_EVENT_BONUS_TYPES = new Set(['goal', 'penalty_goal', 'yellow_card', 'red_card', 'penalty_missed', 'own_goal']);
 const EDITABLE_LIVE_EVENT_TYPES = new Set(['goal', 'penalty_goal', 'own_goal', 'yellow_card', 'red_card', 'penalty_missed', 'shootout_goal', 'shootout_missed']);
+
+function resolveLiveEventPlayerId(ev) {
+  const pid = Number(ev?.player_id ?? ev?.payload?.player_id ?? 0);
+  return Number.isFinite(pid) && pid > 0 ? pid : null;
+}
+
+function resolveLiveEventLeagueId(ev, match) {
+  const side = String(ev?.team_side || '').trim().toLowerCase();
+  if (side === 'home') {
+    const leagueId = Number(match?.home_league_id || 0);
+    return Number.isFinite(leagueId) && leagueId > 0 ? leagueId : null;
+  }
+  if (side === 'away') {
+    const leagueId = Number(match?.away_league_id || 0);
+    return Number.isFinite(leagueId) && leagueId > 0 ? leagueId : null;
+  }
+  return null;
+}
+
+function isLiveEventOpenableForPlayer(ev) {
+  if (!ev) return false;
+  if (!LIVE_EVENT_BONUS_TYPES.has(ev.event_type) && !isShootoutEventType(ev.event_type)) return false;
+  return resolveLiveEventPlayerId(ev) != null;
+}
 const LIVE_EVENT_TYPE_LABELS = {
   goal: 'Goal',
   penalty_goal: 'Rigore segnato',
@@ -1771,6 +1795,27 @@ export default function MatchDetailScreen({ navigation, route }) {
       playerRole: p.role,
       playerRating: p.rating,
       playerPhotoPath: p.photo_path || undefined,
+      entrySource: 'official',
+    });
+  };
+
+  const openPlayerStatsFromLiveEvent = (ev) => {
+    const pid = resolveLiveEventPlayerId(ev);
+    const leagueId = resolveLiveEventLeagueId(ev, match);
+    if (!pid || !leagueId) return;
+
+    const side = ev?.team_side === 'away' ? 'away' : 'home';
+    const roster = Array.isArray(teamPlayers?.[side]) ? teamPlayers[side] : [];
+    const player = roster.find((p) => Number(p?.id) === pid) || null;
+    const displayName = String(ev?.payload?.player_name || player?.name || '').trim() || '-';
+
+    navigation.navigate('PlayerStats', {
+      playerId: pid,
+      leagueId,
+      playerName: displayName,
+      playerRole: player?.role,
+      playerRating: player?.rating,
+      playerPhotoPath: player?.photo_path || undefined,
       entrySource: 'official',
     });
   };
@@ -2922,8 +2967,17 @@ export default function MatchDetailScreen({ navigation, route }) {
                       ) : null}
                     </View>
                   );
+                  const openableForPlayer = isLiveEventOpenableForPlayer(ev);
+                  const EventRowWrapper = openableForPlayer ? TouchableOpacity : View;
+                  const eventRowProps = openableForPlayer
+                    ? { activeOpacity: 0.72, onPress: () => openPlayerStatsFromLiveEvent(ev) }
+                    : {};
                   return (
-                    <View key={`ev-${ev.id}`} style={[styles.eventRow, layoutHome ? styles.eventLeft : styles.eventRight]}>
+                    <EventRowWrapper
+                      key={`ev-${ev.id}`}
+                      {...eventRowProps}
+                      style={[styles.eventRow, layoutHome ? styles.eventLeft : styles.eventRight]}
+                    >
                       {layoutHome ? (
                         <>
                           {minuteEl}
@@ -2937,7 +2991,7 @@ export default function MatchDetailScreen({ navigation, route }) {
                           {minuteEl}
                         </>
                       )}
-                    </View>
+                    </EventRowWrapper>
                   );
                 })}
               </View>
