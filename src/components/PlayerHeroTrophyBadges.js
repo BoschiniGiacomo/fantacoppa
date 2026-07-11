@@ -63,21 +63,37 @@ function HeroTrophyBadge({ count, type }) {
 
   return (
     <View style={styles.badge}>
-      <View style={styles.countPill}>
-        <Text style={styles.countText}>{displayCount}</Text>
-      </View>
-      <View style={[styles.trophyFrame, isWine ? styles.trophyFrameWine : styles.trophyFrameChamp]}>
-        {isWine ? <MiniWineTrophy /> : <MiniChampionshipTrophy />}
+      <View style={[styles.trophyAnchor, isWine ? styles.trophyAnchorWine : null]}>
+        <View style={styles.trophyVisualScale}>
+          {isWine ? <MiniWineTrophy /> : <MiniChampionshipTrophy />}
+        </View>
+        <View style={styles.countBadge}>
+          <Text style={styles.countText}>{displayCount}</Text>
+        </View>
       </View>
     </View>
   );
 }
 
 export default function PlayerHeroTrophyBadges({ championships = 0, wineTrophies = 0 }) {
+  const champCount = Number(championships) || 0;
+  const wineCount = Number(wineTrophies) || 0;
+  const items = [];
+
+  if (champCount > 0) {
+    items.push({ key: 'championship', count: champCount, type: 'championship' });
+  }
+  if (wineCount > 0) {
+    items.push({ key: 'wine', count: wineCount, type: 'wine' });
+  }
+
+  if (!items.length) return null;
+
   return (
     <View style={styles.row} pointerEvents="none">
-      <HeroTrophyBadge count={championships} type="championship" />
-      <HeroTrophyBadge count={wineTrophies} type="wine" />
+      {items.map((item) => (
+        <HeroTrophyBadge key={item.key} count={item.count} type={item.type} />
+      ))}
     </View>
   );
 }
@@ -90,49 +106,40 @@ const styles = StyleSheet.create({
   },
   badge: {
     alignItems: 'center',
-    minWidth: 42,
+    minWidth: 40,
   },
-  countPill: {
-    minWidth: 22,
-    height: 18,
-    paddingHorizontal: 6,
-    borderRadius: 9,
+  trophyAnchor: {
+    position: 'relative',
+    width: 38,
+    height: 46,
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+  },
+  trophyAnchorWine: {
+    height: 44,
+  },
+  trophyVisualScale: {
+    transform: [{ scale: 1.12 }],
+    marginBottom: 6,
+  },
+  countBadge: {
+    position: 'absolute',
+    right: -3,
+    bottom: 0,
+    minWidth: 15,
+    height: 15,
+    paddingHorizontal: 3,
+    borderRadius: 8,
     backgroundColor: '#1f2937',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 2,
-    zIndex: 2,
+    zIndex: 4,
   },
   countText: {
     color: '#fff',
-    fontSize: 11,
+    fontSize: 9,
     fontWeight: '800',
-    lineHeight: 13,
-  },
-  trophyFrame: {
-    width: 42,
-    height: 44,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-    paddingTop: 2,
-    paddingBottom: 2,
-    borderWidth: 1,
-    shadowColor: '#000',
-    shadowOpacity: 0.12,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
-  },
-  trophyFrameChamp: {
-    backgroundColor: '#fff9e8',
-    borderColor: '#e8c96a',
-  },
-  trophyFrameWine: {
-    backgroundColor: '#fff5f8',
-    borderColor: '#d8a8bc',
-    paddingTop: 0,
-    height: 42,
+    lineHeight: 11,
   },
   champVisual: {
     width: 34,
@@ -252,15 +259,16 @@ const styles = StyleSheet.create({
   },
   wineCupWrap: {
     width: 30,
-    height: 20,
+    height: 17,
     alignItems: 'center',
     justifyContent: 'flex-end',
     zIndex: 2,
+    marginTop: -3,
   },
   wineHandleLeft: {
     position: 'absolute',
     left: 0,
-    top: 5,
+    top: 2,
     width: 6,
     height: 10,
     borderWidth: 1.5,
@@ -272,7 +280,7 @@ const styles = StyleSheet.create({
   wineHandleRight: {
     position: 'absolute',
     right: 0,
-    top: 5,
+    top: 2,
     width: 6,
     height: 10,
     borderWidth: 1.5,
@@ -328,7 +336,7 @@ const styles = StyleSheet.create({
     width: 8,
     height: 4,
     backgroundColor: '#9b4d6a',
-    marginTop: 1,
+    marginTop: 0,
   },
   winePlinth: {
     alignItems: 'center',

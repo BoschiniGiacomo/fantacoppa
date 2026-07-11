@@ -462,9 +462,11 @@ export default function PlayerStatsScreen({ route, navigation }) {
   };
 
   const heroTrophies = overview?.trophies;
+  const heroTrophyCount = Number(heroTrophies?.championships || 0) + Number(heroTrophies?.wine_trophies || 0);
   const showHeroTrophies = Boolean(
     !loadingOverview
       && heroTrophies
+      && heroTrophyCount > 0
       && (entrySource === 'official' || hasOfficialGroup),
   );
 
