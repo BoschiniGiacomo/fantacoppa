@@ -263,10 +263,101 @@ async function fetchClusterContext(playerId, preferredGroupId = null) {
   };
 }
 
+async function isLeagueHiddenFromDiscovery(leagueId, cache = new Map()) {
+  let currentId = Number(leagueId);
+  if (!Number.isFinite(currentId) || currentId <= 0) return false;
+  if (cache.has(currentId)) return cache.get(currentId);
+
+  const seen = new Set();
+  let hidden = false;
+
+  while (Number.isFinite(currentId) && currentId > 0 && !seen.has(currentId)) {
+    seen.add(currentId);
+    const rows = await query(
+      `SELECT id, linked_to_league_id, COALESCE(is_hidden_from_discovery, 0) AS is_hidden_from_discovery
+       FROM leagues
+       WHERE id = ?
+       LIMIT 1`,
+      [currentId]
+    );
+    const row = rows[0];
+    if (!row) break;
+    if (Number(row.is_hidden_from_discovery || 0) === 1) {
+      hidden = true;
+      break;
+    }
+    currentId = Number(row.linked_to_league_id || 0);
+  }
+
+  for (const id of seen) {
+    cache.set(id, hidden);
+  }
+  if (!seen.has(Number(leagueId))) {
+    cache.set(Number(leagueId), hidden);
+  }
+
+  return hidden;
+}
+
+async function fetchClusterMembersLeagues(playerIds) {
+  if (!playerIds.length) return [];
+
+  const playerPh = playerIds.map(() => '?').join(',');
+  const rows = await query(
+    `SELECT
+       p.id AS player_id,
+       t.league_id
+     FROM players p
+     LEFT JOIN teams t ON t.id = p.team_id
+     WHERE p.id IN (${playerPh})`,
+    playerIds
+  );
+
+  const leagueByPlayer = new Map();
+  for (const row of rows || []) {
+    const pid = Number(row.player_id);
+    if (!Number.isFinite(pid) || pid <= 0) continue;
+    leagueByPlayer.set(pid, Number(row.league_id || 0) || null);
+  }
+
+  return playerIds.map((playerId) => ({
+    player_id: Number(playerId),
+    league_id: leagueByPlayer.get(Number(playerId)) || null,
+  }));
+}
+
+async function countVisibleClusterMembers(playerIds) {
+  if (!playerIds.length) return 0;
+
+  const members = await fetchClusterMembersLeagues(playerIds);
+  const hiddenCache = new Map();
+  const uniqueLeagueIds = [
+    ...new Set(
+      members
+        .map((member) => Number(member.league_id || 0))
+        .filter((leagueId) => Number.isFinite(leagueId) && leagueId > 0)
+    ),
+  ];
+
+  await Promise.all(
+    uniqueLeagueIds.map((leagueId) => isLeagueHiddenFromDiscovery(leagueId, hiddenCache))
+  );
+
+  let visibleCount = 0;
+  for (const member of members) {
+    const leagueId = Number(member.league_id || 0);
+    if (!Number.isFinite(leagueId) || leagueId <= 0) continue;
+    if (!hiddenCache.get(leagueId)) visibleCount += 1;
+  }
+
+  return visibleCount;
+}
+
 async function fetchPlayerEditionRows(playerIds) {
   if (!playerIds.length) return [];
 
   const playerPh = playerIds.map(() => '?').join(',');
+  const hiddenCache = new Map();
 
   const rows = await query(
     `SELECT
@@ -277,7 +368,6 @@ async function fetchPlayerEditionRows(playerIds) {
        NULLIF(to_jsonb(l)->>'reference_year','')::int AS reference_year,
        l.id AS league_id,
        l.name AS league_name,
-       COALESCE(l.is_hidden_from_discovery, 0) AS is_hidden_from_discovery,
        t.id AS team_id,
        COALESCE(NULLIF(to_jsonb(t)->>'name',''), NULLIF(t.name,''), '') AS team_name,
        COALESCE(NULLIF(to_jsonb(t)->>'logo_path',''), NULLIF(t.logo_path, ''), '') AS team_logo_path
@@ -288,7 +378,15 @@ async function fetchPlayerEditionRows(playerIds) {
     playerIds
   );
 
-  return (rows || []).filter((row) => Number(row.is_hidden_from_discovery || 0) !== 1);
+  const visibleRows = [];
+  for (const row of rows || []) {
+    const leagueId = Number(row.league_id || 0);
+    if (!leagueId) continue;
+    const hidden = await isLeagueHiddenFromDiscovery(leagueId, hiddenCache);
+    if (!hidden) visibleRows.push(row);
+  }
+
+  return visibleRows;
 }
 
 function sortEditionsByYearDesc(rows) {
@@ -319,13 +417,15 @@ function resolveBirthYear(editions) {
   return null;
 }
 
-function buildPlayerOverviewPayload(editions, hasCluster) {
+function buildPlayerOverviewPayload(editions, hasCluster, editionsPlayed) {
   const sorted = sortEditionsByYearDesc(editions);
   const latest = sorted[0];
+  const visibleEditions = Number(editionsPlayed) || 0;
+
   if (!latest) {
     return {
       has_cluster: hasCluster,
-      editions_played: 0,
+      editions_played: visibleEditions,
       birth_year: null,
       role: null,
       shirt_number: null,
@@ -338,7 +438,7 @@ function buildPlayerOverviewPayload(editions, hasCluster) {
 
   return {
     has_cluster: hasCluster,
-    editions_played: sorted.length,
+    editions_played: visibleEditions,
     birth_year: resolveBirthYear(sorted),
     role: String(latest.role || '').trim().toUpperCase() || null,
     shirt_number: Number.isFinite(shirtNumber) ? shirtNumber : null,
@@ -364,15 +464,20 @@ router.get('/:playerId/overview/:leagueId', authenticateToken, async (req, res) 
 
     const groupId = await resolveOfficialGroupId(leagueId);
     const clusterContext = await fetchClusterContext(playerId, groupId);
+    const visibleEditionsCount = await countVisibleClusterMembers(clusterContext.playerIds);
     const editions = await fetchPlayerEditionRows(clusterContext.playerIds);
-    const overview = buildPlayerOverviewPayload(editions, clusterContext.hasCluster);
+    const overview = buildPlayerOverviewPayload(
+      editions,
+      clusterContext.hasCluster,
+      visibleEditionsCount
+    );
 
     return res.json({
       overview,
       meta: {
         cluster_id: clusterContext.clusterId,
         cluster_players_count: clusterContext.playerIds.length,
-        visible_editions_count: editions.length,
+        visible_editions_count: visibleEditionsCount,
         official_group_id: clusterContext.groupId,
       },
     });
