@@ -224,7 +224,11 @@ async function fetchClusterDiagnostics(playerId) {
          pc.id AS cluster_id,
          pc.status,
          pc.official_group_id,
-         COUNT(pcm.player_id)::int AS members_count
+         (
+           SELECT COUNT(*)::int
+           FROM player_cluster_members pcm_all
+           WHERE pcm_all.cluster_id = pc.id
+         ) AS members_count
        FROM player_cluster_members pcm
        INNER JOIN player_clusters pc ON pc.id = pcm.cluster_id
        WHERE pcm.player_id = ?
@@ -325,18 +329,22 @@ async function fetchClusterContext(playerId, preferredGroupId = null) {
   };
 }
 
-async function isLeagueHiddenFromDiscovery(leagueId, cache = new Map()) {
+async function isLeagueExcludedFromPlayerOverview(leagueId, cache = new Map()) {
   let currentId = Number(leagueId);
   if (!Number.isFinite(currentId) || currentId <= 0) return false;
   if (cache.has(currentId)) return cache.get(currentId);
 
   const seen = new Set();
-  let hidden = false;
+  let excluded = false;
+  let excludeReason = 'visible';
 
   while (Number.isFinite(currentId) && currentId > 0 && !seen.has(currentId)) {
     seen.add(currentId);
     const rows = await query(
-      `SELECT id, linked_to_league_id, COALESCE(is_hidden_from_discovery, 0) AS is_hidden_from_discovery
+      `SELECT id, linked_to_league_id,
+              COALESCE(is_official, 0) AS is_official,
+              COALESCE(is_official_squad_public, 0) AS is_official_squad_public,
+              COALESCE(is_hidden_from_discovery, 0) AS is_hidden_from_discovery
        FROM leagues
        WHERE id = ?
        LIMIT 1`,
@@ -344,21 +352,33 @@ async function isLeagueHiddenFromDiscovery(leagueId, cache = new Map()) {
     );
     const row = rows[0];
     if (!row) break;
-    if (Number(row.is_hidden_from_discovery || 0) === 1) {
-      hidden = true;
+
+    if (Number(row.is_official || 0) === 1) {
+      if (Number(row.is_official_squad_public || 0) === 0) {
+        excluded = true;
+        excludeReason = 'official_bozza';
+      }
       break;
     }
+
+    if (Number(row.is_hidden_from_discovery || 0) === 1) {
+      excluded = true;
+      excludeReason = 'hidden_from_discovery';
+      break;
+    }
+
     currentId = Number(row.linked_to_league_id || 0);
   }
 
   for (const id of seen) {
-    cache.set(id, hidden);
+    cache.set(id, excluded);
   }
   if (!seen.has(Number(leagueId))) {
-    cache.set(Number(leagueId), hidden);
+    cache.set(Number(leagueId), excluded);
   }
 
-  return hidden;
+  cache.set(`${Number(leagueId)}:reason`, excludeReason);
+  return excluded;
 }
 
 async function fetchClusterMembersLeagues(playerIds) {
@@ -402,7 +422,7 @@ async function countVisibleClusterMembers(playerIds) {
   ];
 
   await Promise.all(
-    uniqueLeagueIds.map((leagueId) => isLeagueHiddenFromDiscovery(leagueId, hiddenCache))
+    uniqueLeagueIds.map((leagueId) => isLeagueExcludedFromPlayerOverview(leagueId, hiddenCache))
   );
 
   const memberDetails = [];
@@ -411,15 +431,18 @@ async function countVisibleClusterMembers(playerIds) {
   for (const member of members) {
     const leagueId = Number(member.league_id || 0);
     const hasLeague = Number.isFinite(leagueId) && leagueId > 0;
-    const hidden = hasLeague ? !!hiddenCache.get(leagueId) : null;
-    const visible = hasLeague && !hidden;
+    const excluded = hasLeague ? !!hiddenCache.get(leagueId) : null;
+    const visible = hasLeague && !excluded;
+    const excludeReason = hasLeague ? hiddenCache.get(`${leagueId}:reason`) || null : null;
 
     memberDetails.push({
       player_id: member.player_id,
       league_id: hasLeague ? leagueId : null,
-      hidden,
+      excluded,
       visible,
-      reason: !hasLeague ? 'no_league' : (hidden ? 'league_hidden' : 'visible'),
+      reason: !hasLeague
+        ? 'no_league'
+        : (excluded ? (excludeReason || 'stats_hidden') : 'visible'),
     });
 
     if (visible) visibleCount += 1;
@@ -430,7 +453,9 @@ async function countVisibleClusterMembers(playerIds) {
     membersTotal: members.length,
     visibleCount,
     memberDetails,
-    hiddenLeagueFlags: Object.fromEntries(hiddenCache.entries()),
+    excludedLeagueFlags: Object.fromEntries(
+      [...hiddenCache.entries()].filter(([key]) => !String(key).includes(':reason'))
+    ),
   });
 
   return { visibleCount, memberDetails };
@@ -465,8 +490,8 @@ async function fetchPlayerEditionRows(playerIds) {
   for (const row of rows || []) {
     const leagueId = Number(row.league_id || 0);
     if (!leagueId) continue;
-    const hidden = await isLeagueHiddenFromDiscovery(leagueId, hiddenCache);
-    if (!hidden) visibleRows.push(row);
+    const excluded = await isLeagueExcludedFromPlayerOverview(leagueId, hiddenCache);
+    if (!excluded) visibleRows.push(row);
   }
 
   return visibleRows;
