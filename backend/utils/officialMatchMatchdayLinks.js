@@ -807,11 +807,19 @@ function countMvbPlayers(matchRatings) {
   return Object.values(matchRatings || {}).filter((vote) => Number(vote?.briso || 0) > 0).length;
 }
 
-function assertMvbPerMatch(matchRatings, bonusSettings) {
+async function teamHasAnySavedVotesInDb(team, effectiveLeagueId) {
+  if (!team?.giornata || !team?.players?.length) return false;
+  const playerIds = (team.players || []).map((p) => Number(p.id)).filter((n) => n > 0);
+  if (!playerIds.length) return false;
+  const fromDb = await loadRatingsForGiornata(effectiveLeagueId, team.giornata, playerIds);
+  return savedVotePlayerIdsFromDbMap(fromDb).length > 0;
+}
+
+function assertMvbPerMatch(matchRatings, bonusSettings, { requireMvbPresence = true } = {}) {
   if (!isLiveBonusEnabled(bonusSettings, 'enable_briso')) return;
 
   const count = countMvbPlayers(matchRatings);
-  if (count === 0) {
+  if (requireMvbPresence && count === 0) {
     const err = new Error('MVB: assegna il bonus a un giocatore della partita');
     err.status = 400;
     throw err;
@@ -1120,7 +1128,16 @@ async function saveMatchVotes(matchId, body) {
     liveEvents,
     bonusSettings
   );
-  assertMvbPerMatch(matchRatingsForMvb, bonusSettings);
+
+  let requireMvbPresence = teamsToSave.length > 1;
+  if (!requireMvbPresence && teamsToSave.length === 1) {
+    const savingTeamId = Number(teamsToSave[0].id);
+    const opponentTeam = (bundle.teams || []).find((t) => Number(t.id) !== savingTeamId);
+    if (opponentTeam) {
+      requireMvbPresence = await teamHasAnySavedVotesInDb(opponentTeam, effectiveLeagueId);
+    }
+  }
+  assertMvbPerMatch(matchRatingsForMvb, bonusSettings, { requireMvbPresence });
 
   const giornateTouched = new Set();
   let lastUnavailable = null;
