@@ -3,16 +3,6 @@ const router = express.Router();
 const { query } = require('../config/database');
 const { authenticateToken } = require('../middleware/auth');
 
-const OVERVIEW_LOG_PREFIX = '[player-overview]';
-
-function logOverview(step, payload = {}) {
-  try {
-    console.log(OVERVIEW_LOG_PREFIX, step, JSON.stringify(payload));
-  } catch (_) {
-    console.log(OVERVIEW_LOG_PREFIX, step, payload);
-  }
-}
-
 async function getLeagueOfficialMeta(leagueId) {
   const rows = await query(
     `SELECT COALESCE(is_official, 0) AS is_official, official_group_id
@@ -214,39 +204,6 @@ async function resolveOfficialGroupId(leagueId) {
   return null;
 }
 
-async function fetchClusterDiagnostics(playerId) {
-  const pid = Number(playerId);
-  if (!Number.isFinite(pid) || pid <= 0) return [];
-
-  try {
-    const rows = await query(
-      `SELECT
-         pc.id AS cluster_id,
-         pc.status,
-         pc.official_group_id,
-         (
-           SELECT COUNT(*)::int
-           FROM player_cluster_members pcm_all
-           WHERE pcm_all.cluster_id = pc.id
-         ) AS members_count
-       FROM player_cluster_members pcm
-       INNER JOIN player_clusters pc ON pc.id = pcm.cluster_id
-       WHERE pcm.player_id = ?
-       GROUP BY pc.id, pc.status, pc.official_group_id
-       ORDER BY pc.id DESC`,
-      [pid]
-    );
-    return (rows || []).map((row) => ({
-      cluster_id: Number(row.cluster_id) || null,
-      status: String(row.status || ''),
-      official_group_id: Number(row.official_group_id) || null,
-      members_count: Number(row.members_count) || 0,
-    }));
-  } catch (error) {
-    return [{ error: error.message }];
-  }
-}
-
 async function fetchClusterContext(playerId, preferredGroupId = null) {
   const pid = Number(playerId);
   if (!Number.isFinite(pid) || pid <= 0) {
@@ -271,11 +228,6 @@ async function fetchClusterContext(playerId, preferredGroupId = null) {
     const clusterRows = await query(clusterSql, clusterParams);
     const clusterId = Number(clusterRows[0]?.cluster_id || 0);
     if (!clusterId) {
-      logOverview('cluster_lookup_miss', {
-        playerId: pid,
-        lookup: lookupLabel,
-        preferredGroupId: groupFilterId || null,
-      });
       return null;
     }
 
@@ -288,15 +240,6 @@ async function fetchClusterContext(playerId, preferredGroupId = null) {
       .map((row) => Number(row.player_id))
       .filter((id) => Number.isFinite(id) && id > 0);
     const uniquePlayerIds = [...new Set(playerIds.length ? playerIds : [pid])];
-
-    logOverview('cluster_lookup_hit', {
-      playerId: pid,
-      lookup: lookupLabel,
-      clusterId,
-      clusterGroupId,
-      membersCount: uniquePlayerIds.length,
-      memberPlayerIds: uniquePlayerIds,
-    });
 
     return {
       playerIds: uniquePlayerIds,
@@ -315,11 +258,6 @@ async function fetchClusterContext(playerId, preferredGroupId = null) {
   const anyCluster = await lookupCluster(null, 'any_group');
   if (anyCluster) return anyCluster;
 
-  logOverview('cluster_fallback_single_player', {
-    playerId: pid,
-    preferredGroupId: preferredGroupId || null,
-  });
-
   return {
     playerIds: [pid],
     groupId: preferredGroupId || null,
@@ -336,7 +274,6 @@ async function isLeagueExcludedFromPlayerOverview(leagueId, cache = new Map()) {
 
   const seen = new Set();
   let excluded = false;
-  let excludeReason = 'visible';
 
   while (Number.isFinite(currentId) && currentId > 0 && !seen.has(currentId)) {
     seen.add(currentId);
@@ -356,14 +293,12 @@ async function isLeagueExcludedFromPlayerOverview(leagueId, cache = new Map()) {
     if (Number(row.is_official || 0) === 1) {
       if (Number(row.is_official_squad_public || 0) === 0) {
         excluded = true;
-        excludeReason = 'official_bozza';
       }
       break;
     }
 
     if (Number(row.is_hidden_from_discovery || 0) === 1) {
       excluded = true;
-      excludeReason = 'hidden_from_discovery';
       break;
     }
 
@@ -377,7 +312,6 @@ async function isLeagueExcludedFromPlayerOverview(leagueId, cache = new Map()) {
     cache.set(Number(leagueId), excluded);
   }
 
-  cache.set(`${Number(leagueId)}:reason`, excludeReason);
   return excluded;
 }
 
@@ -409,7 +343,7 @@ async function fetchClusterMembersLeagues(playerIds) {
 }
 
 async function countVisibleClusterMembers(playerIds) {
-  if (!playerIds.length) return { visibleCount: 0, memberDetails: [] };
+  if (!playerIds.length) return 0;
 
   const members = await fetchClusterMembersLeagues(playerIds);
   const hiddenCache = new Map();
@@ -425,40 +359,17 @@ async function countVisibleClusterMembers(playerIds) {
     uniqueLeagueIds.map((leagueId) => isLeagueExcludedFromPlayerOverview(leagueId, hiddenCache))
   );
 
-  const memberDetails = [];
   let visibleCount = 0;
 
   for (const member of members) {
     const leagueId = Number(member.league_id || 0);
     const hasLeague = Number.isFinite(leagueId) && leagueId > 0;
-    const excluded = hasLeague ? !!hiddenCache.get(leagueId) : null;
-    const visible = hasLeague && !excluded;
-    const excludeReason = hasLeague ? hiddenCache.get(`${leagueId}:reason`) || null : null;
+    const excluded = hasLeague ? !!hiddenCache.get(leagueId) : true;
 
-    memberDetails.push({
-      player_id: member.player_id,
-      league_id: hasLeague ? leagueId : null,
-      excluded,
-      visible,
-      reason: !hasLeague
-        ? 'no_league'
-        : (excluded ? (excludeReason || 'stats_hidden') : 'visible'),
-    });
-
-    if (visible) visibleCount += 1;
+    if (hasLeague && !excluded) visibleCount += 1;
   }
 
-  logOverview('visible_editions_count', {
-    inputPlayerIds: playerIds,
-    membersTotal: members.length,
-    visibleCount,
-    memberDetails,
-    excludedLeagueFlags: Object.fromEntries(
-      [...hiddenCache.entries()].filter(([key]) => !String(key).includes(':reason'))
-    ),
-  });
-
-  return { visibleCount, memberDetails };
+  return visibleCount;
 }
 
 async function fetchPlayerEditionRows(playerIds) {
@@ -571,70 +482,19 @@ router.get('/:playerId/overview/:leagueId', authenticateToken, async (req, res) 
     if (!playerRows.length) return res.status(404).json({ message: 'Giocatore non trovato' });
 
     const groupId = await resolveOfficialGroupId(leagueId);
-    logOverview('request_start', {
-      playerId,
-      leagueId,
-      resolvedGroupId: groupId,
-    });
-
-    const clusterDiagnostics = await fetchClusterDiagnostics(playerId);
-    logOverview('cluster_diagnostics', {
-      playerId,
-      clusters: clusterDiagnostics,
-    });
 
     const clusterContext = await fetchClusterContext(playerId, groupId);
-    const visibility = await countVisibleClusterMembers(clusterContext.playerIds);
+    const editionsPlayed = await countVisibleClusterMembers(clusterContext.playerIds);
     const editions = await fetchPlayerEditionRows(clusterContext.playerIds);
-
-    logOverview('edition_rows', {
-      playerId,
-      requestedPlayerIds: clusterContext.playerIds,
-      editionRowsCount: editions.length,
-      editionRows: (editions || []).map((row) => ({
-        player_id: Number(row.player_id) || null,
-        league_id: Number(row.league_id) || null,
-        reference_year: Number(row.reference_year) || null,
-        team_name: String(row.team_name || '').trim() || null,
-      })),
-    });
 
     const overview = buildPlayerOverviewPayload(
       editions,
       clusterContext.hasCluster,
-      visibility.visibleCount
+      editionsPlayed
     );
 
-    logOverview('response_summary', {
-      playerId,
-      leagueId,
-      clusterLookup: clusterContext.lookup || null,
-      clusterId: clusterContext.clusterId,
-      clusterPlayersCount: clusterContext.playerIds.length,
-      clusterPlayerIds: clusterContext.playerIds,
-      visibleEditionsCount: visibility.visibleCount,
-      editionsPlayed: overview.editions_played,
-      hasCluster: overview.has_cluster,
-    });
-
-    return res.json({
-      overview,
-      meta: {
-        cluster_id: clusterContext.clusterId,
-        cluster_players_count: clusterContext.playerIds.length,
-        visible_editions_count: visibility.visibleCount,
-        official_group_id: clusterContext.groupId,
-        cluster_lookup: clusterContext.lookup || null,
-        cluster_diagnostics: clusterDiagnostics,
-        member_visibility: visibility.memberDetails,
-      },
-    });
+    return res.json({ overview });
   } catch (error) {
-    logOverview('request_error', {
-      playerId: Number(req.params.playerId) || null,
-      leagueId: Number(req.params.leagueId) || null,
-      error: error.message,
-    });
     return res.status(500).json({ message: 'Errore caricamento panoramica giocatore', error: error.message });
   }
 });

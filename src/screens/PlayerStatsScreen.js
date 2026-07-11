@@ -265,7 +265,7 @@ export default function PlayerStatsScreen({ route, navigation }) {
                 logoPath={teamLogoPath || undefined}
                 style={styles.overviewTeamLogo}
                 fallbackStyle={styles.overviewTeamLogoFallback}
-                fallbackIconSize={18}
+                fallbackIconSize={22}
               />
               <Text style={styles.overviewTeamName} numberOfLines={2}>
                 {teamName}
@@ -763,25 +763,25 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 10,
+    gap: 12,
     marginBottom: 2,
     paddingHorizontal: 8,
   },
   overviewTeamLogo: {
-    width: 32,
-    height: 32,
+    width: 40,
+    height: 40,
   },
   overviewTeamLogoFallback: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
+    width: 40,
+    height: 40,
+    borderRadius: 10,
     backgroundColor: '#eef2ff',
     alignItems: 'center',
     justifyContent: 'center',
   },
   overviewTeamName: {
     flexShrink: 1,
-    fontSize: 18,
+    fontSize: 22,
     fontWeight: '700',
     color: '#2c3e50',
     textAlign: 'left',
