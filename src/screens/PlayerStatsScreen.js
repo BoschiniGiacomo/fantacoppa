@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -20,13 +20,6 @@ const ROLE_COLORS = {
   A: '#dc3545',
 };
 
-const ROLE_NAMES = {
-  P: 'Portiere',
-  D: 'Difensore',
-  C: 'Centrocampista',
-  A: 'Attaccante',
-};
-
 const MAIN_TABS = [
   { key: 'overview', label: 'Panoramica', icon: 'person-outline', iconActive: 'person' },
   { key: 'stats', label: 'Statistiche', icon: 'bar-chart-outline', iconActive: 'bar-chart' },
@@ -39,11 +32,32 @@ const FANTA_SUB_TABS = [
   { key: 'total', label: 'Totali', icon: 'stats-chart-outline', iconActive: 'stats-chart' },
 ];
 
+const HERO_PHOTO_SIZE = 184;
+const HERO_PHOTO_RADIUS = 16;
+
 function resolveInitialTabs(entrySource) {
   if (entrySource === 'official') {
     return { mainTab: 'overview', fantaSubTab: 'league' };
   }
   return { mainTab: 'fantacoppa', fantaSubTab: 'league' };
+}
+
+function resolvePlayerDisplayName(playerInfo, playerName) {
+  const apiFirst = String(playerInfo?.first_name || '').trim();
+  const apiLast = String(playerInfo?.last_name || '').trim();
+  if (apiFirst || apiLast) {
+    return { firstName: apiFirst, lastName: apiLast };
+  }
+
+  const full = String(playerName || '').trim();
+  if (!full) return { firstName: 'Giocatore', lastName: '' };
+
+  const parts = full.split(/\s+/).filter(Boolean);
+  if (parts.length === 1) return { firstName: '', lastName: parts[0] };
+  return {
+    firstName: parts[0],
+    lastName: parts.slice(1).join(' '),
+  };
 }
 
 function EmptyTabPlaceholder({ icon, title, subtitle }) {
@@ -78,6 +92,12 @@ export default function PlayerStatsScreen({ route, navigation }) {
   const [hasOfficialGroup, setHasOfficialGroup] = useState(false);
   const [toastMsg, setToastMsg] = useState(null);
   const [photoPath, setPhotoPath] = useState('');
+
+  const playerInfo = leagueStats?.player;
+  const { firstName, lastName } = useMemo(
+    () => resolvePlayerDisplayName(playerInfo, playerName),
+    [playerInfo, playerName],
+  );
 
   const showToast = (text, type = 'error') => {
     setToastMsg({ text, type });
@@ -347,30 +367,40 @@ export default function PlayerStatsScreen({ route, navigation }) {
   };
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
-          <Ionicons name="arrow-back" size={22} color="#333" />
+    <View style={styles.container}>
+      <View style={[styles.heroCard, { paddingTop: Math.max(insets.top + 6, 12) }]}>
+        <TouchableOpacity style={styles.heroBackBtn} onPress={() => navigation.goBack()} activeOpacity={0.75}>
+          <Ionicons name="arrow-back" size={20} color="#333" />
         </TouchableOpacity>
 
-        {photoPath ? (
-          <View style={styles.headerPhotoWrap}>
-            <PlayerPhotoImage photoPath={photoPath} style={styles.headerPhoto} />
-            <View style={[styles.headerPhotoRoleBadge, { backgroundColor: ROLE_COLORS[playerRole] || '#999' }]}>
-              <Text style={styles.headerPhotoRoleText}>{playerRole}</Text>
-            </View>
-          </View>
-        ) : (
-          <View style={[styles.roleBadge, { backgroundColor: ROLE_COLORS[playerRole] || '#999' }]}>
-            <Text style={styles.roleBadgeText}>{playerRole}</Text>
-          </View>
-        )}
-
-        <View style={styles.headerInfo}>
-          <Text style={styles.headerName} numberOfLines={1}>{playerName || 'Giocatore'}</Text>
-          <Text style={styles.headerMeta}>
-            {ROLE_NAMES[playerRole] || playerRole}
+        <View style={styles.heroNameBlock}>
+          {firstName ? (
+            <Text style={styles.heroFirstName} numberOfLines={1}>
+              {firstName}
+            </Text>
+          ) : null}
+          <Text style={[styles.heroLastName, firstName ? styles.heroLastNameSpaced : null]} numberOfLines={2}>
+            {lastName || firstName || 'Giocatore'}
           </Text>
+        </View>
+
+        <View style={styles.heroPhotoSection}>
+          <View style={styles.heroPhotoWrap}>
+            {photoPath ? (
+              <View style={styles.heroPhotoClip}>
+                <PlayerPhotoImage
+                  photoPath={photoPath}
+                  style={styles.heroPhoto}
+                  fallbackStyle={styles.heroPhotoFallback}
+                  fallbackIconSize={64}
+                />
+              </View>
+            ) : (
+              <View style={styles.heroPhotoFallback}>
+                <Ionicons name="person-outline" size={64} color="#667eea" />
+              </View>
+            )}
+          </View>
         </View>
       </View>
 
@@ -427,76 +457,96 @@ const styles = StyleSheet.create({
     backgroundColor: '#f5f5f5',
   },
 
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  heroCard: {
+    marginTop: 0,
     backgroundColor: '#fff',
-    paddingHorizontal: 14,
-    paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
-    gap: 10,
+    borderColor: '#ececec',
+    paddingBottom: 16,
+    paddingHorizontal: 14,
+    minHeight: 320,
   },
-  backBtn: {
-    padding: 4,
-  },
-  headerPhotoWrap: {
-    width: 48,
-    height: 48,
-    position: 'relative',
-    marginRight: 4,
-  },
-  headerPhoto: {
-    width: 48,
-    height: 48,
-  },
-  headerPhotoRoleBadge: {
-    position: 'absolute',
-    bottom: -2,
-    right: -2,
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1.5,
-    borderColor: '#fff',
-  },
-  headerPhotoRoleText: {
-    color: '#fff',
-    fontSize: 10,
-    fontWeight: 'bold',
-  },
-  roleBadge: {
+  heroBackBtn: {
     width: 34,
     height: 34,
     borderRadius: 17,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    backgroundColor: '#fff',
     justifyContent: 'center',
     alignItems: 'center',
+    alignSelf: 'flex-start',
   },
-  roleBadgeText: {
-    color: '#fff',
-    fontWeight: '700',
-    fontSize: 13,
+  heroNameBlock: {
+    marginTop: 10,
+    alignSelf: 'stretch',
+    paddingRight: 8,
   },
-  headerInfo: {
-    flex: 1,
+  heroFirstName: {
+    fontSize: 20,
+    fontWeight: '400',
+    color: '#475569',
+    textAlign: 'left',
+    lineHeight: 24,
   },
-  headerName: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: '#2c3e50',
-    marginBottom: 2,
+  heroLastName: {
+    fontSize: 30,
+    fontWeight: '800',
+    color: '#222',
+    textAlign: 'left',
+    lineHeight: 34,
   },
-  headerMeta: {
-    fontSize: 13,
-    color: '#888',
+  heroLastNameSpaced: {
+    marginTop: 2,
+  },
+  heroPhotoSection: {
+    marginTop: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  heroPhotoWrap: {
+    width: HERO_PHOTO_SIZE,
+    height: HERO_PHOTO_SIZE,
+  },
+  heroPhotoClip: {
+    width: HERO_PHOTO_SIZE,
+    height: HERO_PHOTO_SIZE,
+    borderRadius: HERO_PHOTO_RADIUS,
+    overflow: 'hidden',
+    backgroundColor: '#eef2ff',
+    borderWidth: 3,
+    borderColor: '#fff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  heroPhoto: {
+    width: HERO_PHOTO_SIZE,
+    height: HERO_PHOTO_SIZE,
+  },
+  heroPhotoFallback: {
+    width: HERO_PHOTO_SIZE,
+    height: HERO_PHOTO_SIZE,
+    borderRadius: HERO_PHOTO_RADIUS,
+    backgroundColor: '#eef2ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 3,
+    borderColor: '#fff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 3,
   },
 
   mainTabBarWrap: {
     backgroundColor: '#fff',
     borderBottomWidth: 1,
     borderBottomColor: '#e0e0e0',
+    marginTop: 8,
   },
   mainTabsScroll: {
     maxHeight: 50,
