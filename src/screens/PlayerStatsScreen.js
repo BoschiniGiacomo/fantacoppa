@@ -21,15 +21,15 @@ const ROLE_COLORS = {
 };
 
 const MAIN_TABS = [
-  { key: 'overview', label: 'Panoramica', icon: 'person-outline', iconActive: 'person' },
-  { key: 'stats', label: 'Statistiche', icon: 'bar-chart-outline', iconActive: 'bar-chart' },
-  { key: 'career', label: 'Carriera', icon: 'time-outline', iconActive: 'time' },
-  { key: 'fantacoppa', label: 'FantaCoppa', icon: 'trophy-outline', iconActive: 'trophy' },
+  { key: 'overview', label: 'Panoramica' },
+  { key: 'stats', label: 'Statistiche' },
+  { key: 'career', label: 'Carriera' },
+  { key: 'fantacoppa', label: 'FantaCoppa' },
 ];
 
 const FANTA_SUB_TABS = [
-  { key: 'league', label: 'Lega', icon: 'trophy-outline', iconActive: 'trophy' },
-  { key: 'total', label: 'Totali', icon: 'stats-chart-outline', iconActive: 'stats-chart' },
+  { key: 'league', label: 'Lega' },
+  { key: 'total', label: 'Totali' },
 ];
 
 const HERO_PHOTO_SIZE = 184;
@@ -327,15 +327,11 @@ export default function PlayerStatsScreen({ route, navigation }) {
                     disabled={isDisabled}
                     activeOpacity={0.8}
                   >
-                    <Ionicons
-                      name={isActive ? tab.iconActive : tab.icon}
-                      size={14}
-                      color={isActive && !isDisabled ? '#667eea' : '#94a3b8'}
-                    />
                     <Text
                       style={[
-                        styles.subTabLabel,
-                        isActive && !isDisabled && styles.subTabLabelActive,
+                        styles.subTabText,
+                        isActive && !isDisabled && styles.subTabTextActive,
+                        isDisabled && styles.subTabTextDisabled,
                       ]}
                     >
                       {tab.label}
@@ -407,35 +403,28 @@ export default function PlayerStatsScreen({ route, navigation }) {
         </View>
       </View>
 
-      <View style={styles.mainTabBarWrap}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.mainTabsScroll}
-          contentContainerStyle={styles.mainTabsScrollContent}
-        >
-          {MAIN_TABS.map((tab) => {
-            const isActive = activeMainTab === tab.key;
-            return (
-              <TouchableOpacity
-                key={tab.key}
-                style={[styles.mainTabBtn, isActive && styles.mainTabBtnActive]}
-                onPress={() => handleMainTabPress(tab.key)}
-                activeOpacity={0.8}
-              >
-                <Ionicons
-                  name={isActive ? tab.iconActive : tab.icon}
-                  size={15}
-                  color={isActive ? '#667eea' : '#64748b'}
-                />
-                <Text style={[styles.mainTabLabel, isActive && styles.mainTabLabelActive]}>
-                  {tab.label}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-      </View>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.tabsScroll}
+        contentContainerStyle={styles.tabsScrollContent}
+      >
+        {MAIN_TABS.map((tab) => {
+          const isActive = activeMainTab === tab.key;
+          return (
+            <TouchableOpacity
+              key={tab.key}
+              style={[styles.tabBtn, isActive && styles.tabBtnActive]}
+              onPress={() => handleMainTabPress(tab.key)}
+              activeOpacity={0.8}
+            >
+              <Text style={[styles.tabText, isActive && styles.tabTextActive]}>
+                {tab.label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
 
       <ScrollView
         style={styles.scroll}
@@ -537,42 +526,36 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  mainTabBarWrap: {
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
+  tabsScroll: {
     marginTop: 8,
+    maxHeight: 46,
   },
-  mainTabsScroll: {
-    maxHeight: 50,
-  },
-  mainTabsScrollContent: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    gap: 8,
-    alignItems: 'center',
-  },
-  mainTabBtn: {
+  tabsScrollContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingBottom: 4,
+  },
+  tabBtn: {
     backgroundColor: '#fff',
     borderRadius: 14,
-    paddingVertical: 6,
+    paddingVertical: 5,
     paddingHorizontal: 12,
     borderWidth: 1,
     borderColor: '#e2e8f0',
+    flexShrink: 0,
   },
-  mainTabBtnActive: {
+  tabBtnActive: {
     borderColor: '#667eea',
     backgroundColor: '#eef2ff',
   },
-  mainTabLabel: {
-    fontSize: 13,
-    fontWeight: '700',
+  tabText: {
     color: '#475569',
+    fontWeight: '700',
+    fontSize: 13,
   },
-  mainTabLabelActive: {
+  tabTextActive: {
     color: '#667eea',
   },
 
@@ -583,16 +566,14 @@ const styles = StyleSheet.create({
   },
   subTabBtn: {
     flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 5,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    borderRadius: 10,
     backgroundColor: '#fff',
+    borderRadius: 14,
+    paddingVertical: 5,
+    paddingHorizontal: 12,
     borderWidth: 1,
     borderColor: '#e2e8f0',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   subTabBtnActive: {
     borderColor: '#667eea',
@@ -601,13 +582,16 @@ const styles = StyleSheet.create({
   subTabBtnDisabled: {
     opacity: 0.45,
   },
-  subTabLabel: {
-    fontSize: 12,
+  subTabText: {
+    color: '#475569',
     fontWeight: '700',
-    color: '#94a3b8',
+    fontSize: 13,
   },
-  subTabLabelActive: {
+  subTabTextActive: {
     color: '#667eea',
+  },
+  subTabTextDisabled: {
+    color: '#94a3b8',
   },
 
   scroll: {
