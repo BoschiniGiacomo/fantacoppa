@@ -531,6 +531,17 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
     });
   }, [navigation, competitionId]);
 
+  const openPlayerFromStatsRow = useCallback((row) => {
+    const playerId = Number(row?.player_id);
+    const leagueId = Number(row?.league_id);
+    if (!playerId || !leagueId) return;
+    navigation.navigate('PlayerStats', {
+      playerId,
+      leagueId,
+      playerName: String(row?.name || '').trim() || undefined,
+    });
+  }, [navigation]);
+
   useEffect(() => {
     if (activeTab !== 'hall') return;
     void loadHallOfFame();
@@ -570,8 +581,17 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
         {visible.map((s, i) => {
           const playerName = String(s?.name || '-');
           const teamName = String(s?.team_name || '').trim();
+          const playerId = Number(s?.player_id);
+          const leagueId = Number(s?.league_id);
+          const canOpenPlayer = playerId > 0 && leagueId > 0;
           return (
-            <View key={`${tableKey}-${i}`} style={styles.statsTableRow}>
+            <TouchableOpacity
+              key={`${tableKey}-${playerId || playerName}-${i}`}
+              style={styles.statsTableRow}
+              activeOpacity={canOpenPlayer ? 0.7 : 1}
+              disabled={!canOpenPlayer}
+              onPress={() => openPlayerFromStatsRow(s)}
+            >
               <Text style={[styles.statsTableCell, styles.statsTablePos]}>{i + 1}</Text>
               <View style={styles.statsTablePlayerCol}>
                 <Text style={styles.statsTablePlayerName} numberOfLines={1} ellipsizeMode="tail">
@@ -584,7 +604,7 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
                 ) : null}
               </View>
               <Text style={[styles.statsTableCell, styles.statsTableValue]}>{Number(s?.value || 0)}</Text>
-            </View>
+            </TouchableOpacity>
           );
         })}
         {canExpand ? (

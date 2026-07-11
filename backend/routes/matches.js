@@ -2103,17 +2103,25 @@ async function mergeAbsoluteStatsByCluster(perPlayer, officialGroupId) {
   const entries = (perPlayer || []).filter((e) => Number(e.value) > 0);
   if (!entries.length) return [];
 
+  const mapEntryIds = ({ name, value, team_name, player_id, league_id }) => ({
+    name,
+    value,
+    team_name: team_name || null,
+    player_id: Number(player_id) > 0 ? Number(player_id) : null,
+    league_id: Number(league_id) > 0 ? Number(league_id) : null,
+  });
+
   const groupId = Number(officialGroupId);
   if (!Number.isFinite(groupId) || groupId <= 0) {
     return entries
-      .map(({ name, value, team_name }) => ({ name, value, team_name: team_name || null }))
+      .map(mapEntryIds)
       .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name, 'it'));
   }
 
   const playerIds = [...new Set(entries.map((e) => Number(e.player_id)).filter((id) => id > 0))];
   if (!playerIds.length) {
     return entries
-      .map(({ name, value, team_name }) => ({ name, value, team_name: team_name || null }))
+      .map(mapEntryIds)
       .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name, 'it'));
   }
 
@@ -2146,6 +2154,7 @@ async function mergeAbsoluteStatsByCluster(perPlayer, officialGroupId) {
     const clusterId = playerToCluster.get(pid);
     const key = clusterId ? `c:${clusterId}` : `p:${pid}`;
     const prev = buckets.get(key);
+    const entryLeagueId = Number(e.league_id) > 0 ? Number(e.league_id) : null;
     if (!prev) {
       const teamTotals = new Map();
       bumpAbsoluteTeamTotal(teamTotals, e.team_name, e.value);
@@ -2153,6 +2162,8 @@ async function mergeAbsoluteStatsByCluster(perPlayer, officialGroupId) {
         name: e.name,
         value: Number(e.value) || 0,
         labelScore: Number(e.value) || 0,
+        player_id: pid > 0 ? pid : null,
+        league_id: entryLeagueId,
         teamTotals,
       });
       continue;
@@ -2163,6 +2174,8 @@ async function mergeAbsoluteStatsByCluster(perPlayer, officialGroupId) {
     if (v > prev.labelScore) {
       prev.labelScore = v;
       prev.name = e.name;
+      if (pid > 0) prev.player_id = pid;
+      if (entryLeagueId) prev.league_id = entryLeagueId;
     }
   }
 
@@ -2172,6 +2185,8 @@ async function mergeAbsoluteStatsByCluster(perPlayer, officialGroupId) {
       name: b.name,
       team_name: formatAbsoluteTeamBreakdown(b.teamTotals),
       value: b.value,
+      player_id: b.player_id || null,
+      league_id: b.league_id || null,
     }))
     .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name, 'it'));
 }
@@ -2234,6 +2249,7 @@ async function fetchOfficialTeamPresencesWithVoteRanking(seasonTeamRows, opts = 
       p.id AS player_id,
       TRIM(CONCAT(COALESCE(p.first_name, ''), ' ', COALESCE(p.last_name, ''))) AS player_name,
       t.name AS team_name,
+      MAX(rated.canon_league_id)::int AS league_id,
       COUNT(DISTINCT (rated.canon_league_id, rated.giornata))::int AS presenze
     FROM rated
     INNER JOIN players p ON p.id = rated.player_id
@@ -2249,6 +2265,7 @@ async function fetchOfficialTeamPresencesWithVoteRanking(seasonTeamRows, opts = 
       player_id: Number(r.player_id),
       name: String(r.player_name || '').trim() || 'Giocatore',
       team_name: r.team_name != null ? String(r.team_name).trim() : null,
+      league_id: Number(r.league_id) > 0 ? Number(r.league_id) : null,
       value: Number(r.presenze || 0),
     }))
     .filter((r) => r.value > 0);
@@ -2257,12 +2274,14 @@ async function fetchOfficialTeamPresencesWithVoteRanking(seasonTeamRows, opts = 
     return mergeAbsolutePresencesByCluster(perPlayer, Number(opts.competitionId));
   }
 
-  if (opts.keepPlayerIds) {
-    return perPlayer.sort((a, b) => b.value - a.value || a.name.localeCompare(b.name, 'it'));
-  }
-
   return perPlayer
-    .map(({ name, value, team_name }) => ({ name, value, team_name: team_name || null }))
+    .map(({ name, value, team_name, player_id, league_id }) => ({
+      name,
+      value,
+      team_name: team_name || null,
+      player_id: Number(player_id) > 0 ? Number(player_id) : null,
+      league_id: Number(league_id) > 0 ? Number(league_id) : null,
+    }))
     .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name, 'it'));
 }
 
@@ -2463,6 +2482,28 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
     let redCards = 0;
     const scorersMap = new Map();
     const assistsMap = new Map();
+    const teamLeagueMap = new Map(
+      (seasonTeamRows || []).map((r) => [Number(r.id), Number(r.league_id)])
+    );
+    const bumpTeamStat = (map, playerId, playerName) => {
+      const pid = Number(playerId);
+      const name = String(playerName || '').trim();
+      if (!name) return;
+      const key = Number.isFinite(pid) && pid > 0 ? `p:${pid}` : `n:${name}`;
+      const teamId = Number.isFinite(pid) && pid > 0 ? Number(playerTeamMap.get(pid)) : null;
+      const leagueId = Number.isFinite(teamId) && teamId > 0 ? Number(teamLeagueMap.get(teamId)) : null;
+      const prev = map.get(key);
+      if (!prev) {
+        map.set(key, {
+          name,
+          value: 1,
+          player_id: Number.isFinite(pid) && pid > 0 ? pid : null,
+          league_id: Number.isFinite(leagueId) && leagueId > 0 ? leagueId : null,
+        });
+        return;
+      }
+      prev.value += 1;
+    };
 
     for (const m of seasonMatches || []) {
       const isHome = seasonTeamIds.includes(Number(m.home_team_id));
@@ -2541,11 +2582,11 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
           const pn =
             (Number.isFinite(pid) && pid > 0 ? String(playerNameMap.get(pid) || '').trim() : '') ||
             String(payload?.player_name || '').trim();
-          if (scorerMine && pn) scorersMap.set(pn, Number(scorersMap.get(pn) || 0) + 1);
+          if (scorerMine && pn) bumpTeamStat(scorersMap, pid, pn);
           const an =
             (Number.isFinite(aid) && aid > 0 ? String(playerNameMap.get(aid) || '').trim() : '') ||
             String(payload?.assist_player_name || payload?.assist_name || '').trim();
-          if (assistMine && an) assistsMap.set(an, Number(assistsMap.get(an) || 0) + 1);
+          if (assistMine && an) bumpTeamStat(assistsMap, aid, an);
         }
       }
 
@@ -2567,16 +2608,24 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
 
     const pct = (x) => (played > 0 ? Math.round((x / played) * 1000) / 10 : 0);
     const listFromMap = (mp) =>
-      Array.from(mp.entries())
-        .map(([name, value]) => ({ name, value: Number(value || 0) }))
+      Array.from(mp.values())
+        .map(({ name, value, player_id, league_id }) => ({
+          name,
+          value: Number(value || 0),
+          player_id: Number(player_id) > 0 ? Number(player_id) : null,
+          league_id: Number(league_id) > 0 ? Number(league_id) : null,
+        }))
         .sort((a, b) => (b.value - a.value) || a.name.localeCompare(b.name, 'it'));
 
     const presences = await presencesPromise;
+    const selectedLeagueId =
+      targetLeagueIds.length === 1 ? Number(targetLeagueIds[0]) : null;
 
     return res.json({
       team: { id: teamId, name: teamName },
       available_years: availableYears,
       selected_year: selectedYear,
+      selected_league_id: Number.isFinite(selectedLeagueId) && selectedLeagueId > 0 ? selectedLeagueId : null,
       general: {
         played,
         goals,
@@ -3023,7 +3072,7 @@ async function computeOfficialGroupSeasonStats(competitionId, targetLeagueIds, i
     return { scorers, assistmen, presences, yellow_cards, red_cards };
   }
 
-  return computeOfficialGroupSeasonStatsCore(compId, leagueIds, isAbsoluteMode, { keepPlayerIds: false });
+  return computeOfficialGroupSeasonStatsCore(compId, leagueIds, isAbsoluteMode, { keepPlayerIds: true });
 }
 
 async function computeOfficialGroupSeasonStatsCore(
@@ -3059,6 +3108,9 @@ async function computeOfficialGroupSeasonStatsCore(
   );
   const teamNameMap = new Map(
     (seasonTeamRows || []).map((r) => [Number(r.id), String(r.name || '').trim()]).filter(([id, name]) => id > 0 && name)
+  );
+  const teamLeagueMap = new Map(
+    (seasonTeamRows || []).map((r) => [Number(r.id), Number(r.league_id)]).filter(([id, lid]) => id > 0 && Number.isFinite(lid) && lid > 0)
   );
   if (!seasonTeamIds.length) {
     return { scorers: [], assistmen: [], presences: [], yellow_cards: [], red_cards: [] };
@@ -3243,7 +3295,13 @@ async function computeOfficialGroupSeasonStatsCore(
           team_name: team_name || null,
           value: Number(value || 0),
         };
-        if (keepPlayerIds && player_id) row.player_id = player_id;
+        const pid = Number(player_id);
+        if (Number.isFinite(pid) && pid > 0) {
+          row.player_id = pid;
+          const teamId = Number(playerTeamMap.get(pid));
+          const leagueId = Number(teamLeagueMap.get(teamId));
+          if (Number.isFinite(leagueId) && leagueId > 0) row.league_id = leagueId;
+        }
         return row;
       })
       .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name, 'it'));

@@ -321,6 +321,7 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
   const [teamSeasonSquad, setTeamSeasonSquad] = useState([]);
   const [teamSeasonJerseyColor, setTeamSeasonJerseyColor] = useState(DEFAULT_JERSEY_COLOR);
   const [teamSeasonLeagueId, setTeamSeasonLeagueId] = useState(null);
+  const [statsSeasonLeagueId, setStatsSeasonLeagueId] = useState(null);
   const [teamPickerOpen, setTeamPickerOpen] = useState(false);
   const [statsLoading, setStatsLoading] = useState(false);
   const [statsYears, setStatsYears] = useState([]);
@@ -481,6 +482,7 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
         setStatsScorers(Array.isArray(res?.data?.scorers) ? res.data.scorers : []);
         setStatsAssistmen(Array.isArray(res?.data?.assistmen) ? res.data.assistmen : []);
         setStatsPresences(Array.isArray(res?.data?.presences) ? res.data.presences : []);
+        setStatsSeasonLeagueId(res?.data?.selected_league_id != null ? Number(res.data.selected_league_id) : null);
         setSelectedStatsYear((prev) => {
           if (backendSelected === ABSOLUTE_STATS_KEY) return ABSOLUTE_STATS_KEY;
           if (backendSelected == null || !Number.isFinite(backendSelected)) return prev;
@@ -534,6 +536,17 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
     setStatsLeaderboardExpanded((prev) => ({ ...prev, [tableKey]: !prev[tableKey] }));
   };
 
+  const openPlayerFromStatsRow = useCallback((row) => {
+    const playerId = Number(row?.player_id);
+    const leagueId = Number(row?.league_id) || Number(statsSeasonLeagueId) || Number(teamSeasonLeagueId);
+    if (!playerId || !leagueId) return;
+    navigation.navigate('PlayerStats', {
+      playerId,
+      leagueId,
+      playerName: String(row?.name || '').trim() || undefined,
+    });
+  }, [navigation, statsSeasonLeagueId, teamSeasonLeagueId]);
+
   const renderStatsLeaderboardTable = (items, valueLabel, emptyText, tableKey) => {
     const list = Array.isArray(items) ? items : [];
     if (list.length === 0) {
@@ -549,15 +562,27 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
           <Text style={[styles.statsTableCell, styles.statsTablePlayer, styles.statsTableHeaderCell]}>Giocatore</Text>
           <Text style={[styles.statsTableCell, styles.statsTableValue, styles.statsTableHeaderCell]}>{valueLabel}</Text>
         </View>
-        {visible.map((s, i) => (
-          <View key={`${tableKey}-${i}`} style={styles.statsTableRow}>
-            <Text style={[styles.statsTableCell, styles.statsTablePos]}>{i + 1}</Text>
-            <Text style={[styles.statsTableCell, styles.statsTablePlayer]} numberOfLines={1}>
-              {String(s?.name || '-')}
-            </Text>
-            <Text style={[styles.statsTableCell, styles.statsTableValue]}>{Number(s?.value || 0)}</Text>
-          </View>
-        ))}
+        {visible.map((s, i) => {
+          const playerName = String(s?.name || '-');
+          const playerId = Number(s?.player_id);
+          const leagueId = Number(s?.league_id) || Number(statsSeasonLeagueId) || Number(teamSeasonLeagueId);
+          const canOpenPlayer = playerId > 0 && leagueId > 0;
+          return (
+            <TouchableOpacity
+              key={`${tableKey}-${playerId || playerName}-${i}`}
+              style={styles.statsTableRow}
+              activeOpacity={canOpenPlayer ? 0.7 : 1}
+              disabled={!canOpenPlayer}
+              onPress={() => openPlayerFromStatsRow(s)}
+            >
+              <Text style={[styles.statsTableCell, styles.statsTablePos]}>{i + 1}</Text>
+              <Text style={[styles.statsTableCell, styles.statsTablePlayer]} numberOfLines={1}>
+                {playerName}
+              </Text>
+              <Text style={[styles.statsTableCell, styles.statsTableValue]}>{Number(s?.value || 0)}</Text>
+            </TouchableOpacity>
+          );
+        })}
         {canExpand ? (
           <TouchableOpacity
             style={styles.statsTableExpandBtn}
