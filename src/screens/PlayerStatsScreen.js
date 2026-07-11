@@ -227,15 +227,21 @@ export default function PlayerStatsScreen({ route, navigation }) {
 
     return (
       <View style={styles.card}>
-        <Text style={styles.cardSectionTitle}>Profilo attuale</Text>
         <View style={styles.tileRow}>
           <View style={styles.tile}>
-            <Text style={styles.tileValue}>{formatOverviewValue(overview.year)}</Text>
+            <Text style={styles.tileValue}>{formatOverviewValue(overview.birth_year)}</Text>
             <Text style={styles.tileLabel}>Anno</Text>
           </View>
           <View style={styles.tileSep} />
-          <View style={styles.tile}>
-            <Text style={styles.tileValue}>{formatOverviewRole(overview.role)}</Text>
+          <View style={[styles.tile, styles.tileRole]}>
+            <Text
+              style={styles.tileValueRole}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.6}
+            >
+              {formatOverviewRole(overview.role)}
+            </Text>
             <Text style={styles.tileLabel}>Ruolo</Text>
           </View>
         </View>
@@ -732,6 +738,18 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#2c3e50',
     marginBottom: 2,
+  },
+  tileRole: {
+    minWidth: 0,
+    paddingHorizontal: 4,
+  },
+  tileValueRole: {
+    width: '100%',
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#2c3e50',
+    marginBottom: 2,
+    textAlign: 'center',
   },
   tileLabel: {
     fontSize: 11,

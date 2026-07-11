@@ -180,59 +180,100 @@ function safeNumber(value, decimals = null) {
 }
 
 async function resolveOfficialGroupId(leagueId) {
-  const leagueMetaRows = await query(
-    `SELECT id, linked_to_league_id, official_group_id
-     FROM leagues
-     WHERE id = ?
-     LIMIT 1`,
-    [leagueId]
-  );
-  const leagueMeta = leagueMetaRows[0];
-  if (!leagueMeta) return null;
+  let currentId = Number(leagueId);
+  const seen = new Set();
 
-  let groupId = leagueMeta.official_group_id ? Number(leagueMeta.official_group_id) : null;
-  if (!groupId && Number(leagueMeta.linked_to_league_id || 0) > 0) {
-    const linkedMeta = await getLeagueOfficialMeta(Number(leagueMeta.linked_to_league_id));
-    groupId = linkedMeta?.official_group_id ? Number(linkedMeta.official_group_id) : null;
+  while (Number.isFinite(currentId) && currentId > 0 && !seen.has(currentId)) {
+    seen.add(currentId);
+    const leagueMetaRows = await query(
+      `SELECT id, linked_to_league_id, official_group_id
+       FROM leagues
+       WHERE id = ?
+       LIMIT 1`,
+      [currentId]
+    );
+    const leagueMeta = leagueMetaRows[0];
+    if (!leagueMeta) break;
+
+    const groupId = leagueMeta.official_group_id ? Number(leagueMeta.official_group_id) : null;
+    if (groupId) return groupId;
+
+    currentId = Number(leagueMeta.linked_to_league_id || 0);
   }
-  return groupId;
+
+  return null;
 }
 
-async function fetchClusterPlayerIds(playerId, groupId) {
-  if (!groupId) return [playerId];
+async function fetchClusterContext(playerId, preferredGroupId = null) {
+  const pid = Number(playerId);
+  if (!Number.isFinite(pid) || pid <= 0) {
+    return { playerIds: [], groupId: preferredGroupId || null, hasCluster: false, clusterId: null };
+  }
 
-  const clusterRows = await query(
-    `SELECT DISTINCT pcm2.player_id
-     FROM player_clusters pc
-     JOIN player_cluster_members pcm1 ON pcm1.cluster_id = pc.id
-     JOIN player_cluster_members pcm2 ON pcm2.cluster_id = pc.id
-     WHERE pc.official_group_id = ?
-       AND pc.status = 'approved'
-       AND pcm1.player_id = ?`,
-    [groupId, playerId]
-  );
-  const ids = clusterRows
-    .map((r) => Number(r.player_id))
-    .filter((n) => Number.isFinite(n) && n > 0);
-  return ids.length ? ids : [playerId];
+  const lookupCluster = async (groupFilterId) => {
+    const clusterParams = [pid];
+    let clusterSql = `
+      SELECT pc.id AS cluster_id, pc.official_group_id
+      FROM player_cluster_members pcm
+      INNER JOIN player_clusters pc ON pc.id = pcm.cluster_id
+      WHERE pcm.player_id = ?
+        AND pc.status = 'approved'
+    `;
+    if (groupFilterId) {
+      clusterSql += ' AND pc.official_group_id = ?';
+      clusterParams.push(Number(groupFilterId));
+    }
+    clusterSql += ' ORDER BY pc.approved_at DESC NULLS LAST, pc.id DESC LIMIT 1';
+
+    const clusterRows = await query(clusterSql, clusterParams);
+    const clusterId = Number(clusterRows[0]?.cluster_id || 0);
+    if (!clusterId) return null;
+
+    const clusterGroupId = Number(clusterRows[0]?.official_group_id || 0) || null;
+    const memberRows = await query(
+      `SELECT player_id FROM player_cluster_members WHERE cluster_id = ?`,
+      [clusterId]
+    );
+    const playerIds = (memberRows || [])
+      .map((row) => Number(row.player_id))
+      .filter((id) => Number.isFinite(id) && id > 0);
+    const uniquePlayerIds = [...new Set(playerIds.length ? playerIds : [pid])];
+
+    return {
+      playerIds: uniquePlayerIds,
+      groupId: groupFilterId || clusterGroupId || null,
+      hasCluster: uniquePlayerIds.length > 1,
+      clusterId,
+    };
+  };
+
+  if (preferredGroupId) {
+    const inPreferredGroup = await lookupCluster(preferredGroupId);
+    if (inPreferredGroup) return inPreferredGroup;
+  }
+
+  const anyCluster = await lookupCluster(null);
+  if (anyCluster) return anyCluster;
+
+  return {
+    playerIds: [pid],
+    groupId: preferredGroupId || null,
+    hasCluster: false,
+    clusterId: null,
+  };
 }
 
-async function fetchPlayerEditionRows(playerIds, groupId) {
+async function fetchPlayerEditionRows(playerIds) {
   if (!playerIds.length) return [];
 
   const playerPh = playerIds.map(() => '?').join(',');
-  const params = [...playerIds];
-  let groupFilterSql = '';
-  if (groupId) {
-    groupFilterSql = ' AND l.official_group_id = ?';
-    params.push(groupId);
-  }
 
   const rows = await query(
     `SELECT
        p.id AS player_id,
        p.role,
        p.shirt_number,
+       p.birth_year,
        NULLIF(to_jsonb(l)->>'reference_year','')::int AS reference_year,
        l.id AS league_id,
        l.name AS league_name,
@@ -243,9 +284,8 @@ async function fetchPlayerEditionRows(playerIds, groupId) {
      FROM players p
      INNER JOIN teams t ON t.id = p.team_id
      INNER JOIN leagues l ON l.id = t.league_id
-     WHERE p.id IN (${playerPh})
-       ${groupFilterSql}`,
-    params
+     WHERE p.id IN (${playerPh})`,
+    playerIds
   );
 
   return (rows || []).filter((row) => Number(row.is_hidden_from_discovery || 0) !== 1);
@@ -264,6 +304,21 @@ function sortEditionsByYearDesc(rows) {
   });
 }
 
+function parseBirthYear(raw) {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.trunc(n);
+}
+
+function resolveBirthYear(editions) {
+  const sorted = sortEditionsByYearDesc(editions);
+  for (const row of sorted) {
+    const birthYear = parseBirthYear(row.birth_year);
+    if (birthYear) return birthYear;
+  }
+  return null;
+}
+
 function buildPlayerOverviewPayload(editions, hasCluster) {
   const sorted = sortEditionsByYearDesc(editions);
   const latest = sorted[0];
@@ -271,7 +326,7 @@ function buildPlayerOverviewPayload(editions, hasCluster) {
     return {
       has_cluster: hasCluster,
       editions_played: 0,
-      year: null,
+      birth_year: null,
       role: null,
       shirt_number: null,
       team: null,
@@ -284,7 +339,7 @@ function buildPlayerOverviewPayload(editions, hasCluster) {
   return {
     has_cluster: hasCluster,
     editions_played: sorted.length,
-    year: Number.isFinite(Number(latest.reference_year)) ? Number(latest.reference_year) : null,
+    birth_year: resolveBirthYear(sorted),
     role: String(latest.role || '').trim().toUpperCase() || null,
     shirt_number: Number.isFinite(shirtNumber) ? shirtNumber : null,
     team: {
@@ -308,12 +363,19 @@ router.get('/:playerId/overview/:leagueId', authenticateToken, async (req, res) 
     if (!playerRows.length) return res.status(404).json({ message: 'Giocatore non trovato' });
 
     const groupId = await resolveOfficialGroupId(leagueId);
-    const clusterPlayerIds = await fetchClusterPlayerIds(playerId, groupId);
-    const hasCluster = clusterPlayerIds.length > 1;
-    const editions = await fetchPlayerEditionRows(clusterPlayerIds, groupId);
-    const overview = buildPlayerOverviewPayload(editions, hasCluster);
+    const clusterContext = await fetchClusterContext(playerId, groupId);
+    const editions = await fetchPlayerEditionRows(clusterContext.playerIds);
+    const overview = buildPlayerOverviewPayload(editions, clusterContext.hasCluster);
 
-    return res.json({ overview });
+    return res.json({
+      overview,
+      meta: {
+        cluster_id: clusterContext.clusterId,
+        cluster_players_count: clusterContext.playerIds.length,
+        visible_editions_count: editions.length,
+        official_group_id: clusterContext.groupId,
+      },
+    });
   } catch (error) {
     return res.status(500).json({ message: 'Errore caricamento panoramica giocatore', error: error.message });
   }
