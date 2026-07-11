@@ -6,7 +6,6 @@ import {
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
-  Image,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -28,10 +27,50 @@ const ROLE_NAMES = {
   A: 'Attaccante',
 };
 
+const MAIN_TABS = [
+  { key: 'overview', label: 'Panoramica', icon: 'person-outline', iconActive: 'person' },
+  { key: 'stats', label: 'Statistiche', icon: 'bar-chart-outline', iconActive: 'bar-chart' },
+  { key: 'career', label: 'Carriera', icon: 'time-outline', iconActive: 'time' },
+  { key: 'fantacoppa', label: 'FantaCoppa', icon: 'trophy-outline', iconActive: 'trophy' },
+];
+
+const FANTA_SUB_TABS = [
+  { key: 'league', label: 'Lega', icon: 'trophy-outline', iconActive: 'trophy' },
+  { key: 'total', label: 'Totali', icon: 'stats-chart-outline', iconActive: 'stats-chart' },
+];
+
+function resolveInitialTabs(entrySource) {
+  if (entrySource === 'official') {
+    return { mainTab: 'overview', fantaSubTab: 'league' };
+  }
+  return { mainTab: 'fantacoppa', fantaSubTab: 'league' };
+}
+
+function EmptyTabPlaceholder({ icon, title, subtitle }) {
+  return (
+    <View style={styles.emptyBox}>
+      <View style={styles.emptyIconCircle}>
+        <Ionicons name={icon} size={32} color="#667eea" />
+      </View>
+      <Text style={styles.emptyTitle}>{title}</Text>
+      <Text style={styles.emptySubtext}>{subtitle}</Text>
+    </View>
+  );
+}
+
 export default function PlayerStatsScreen({ route, navigation }) {
-  const { playerId, leagueId, playerName, playerRole, playerRating } = route.params || {};
+  const {
+    playerId,
+    leagueId,
+    playerName,
+    playerRole,
+    entrySource = 'league',
+  } = route.params || {};
+
+  const initialTabs = resolveInitialTabs(entrySource);
   const insets = useSafeAreaInsets();
-  const [activeTab, setActiveTab] = useState('league');
+  const [activeMainTab, setActiveMainTab] = useState(initialTabs.mainTab);
+  const [activeFantaSubTab, setActiveFantaSubTab] = useState(initialTabs.fantaSubTab);
   const [leagueStats, setLeagueStats] = useState(null);
   const [aggregatedStats, setAggregatedStats] = useState(null);
   const [loadingLeague, setLoadingLeague] = useState(true);
@@ -56,7 +95,9 @@ export default function PlayerStatsScreen({ route, navigation }) {
       const response = await playerStatsService.getPlayerAggregatedStats(playerId, leagueId);
       setAggregatedStats(response.data.stats);
       setHasOfficialGroup(true);
-      if (response.data?.player?.photo_path) setPhotoPath(prev => prev || response.data.player.photo_path);
+      if (response.data?.player?.photo_path) {
+        setPhotoPath((prev) => prev || response.data.player.photo_path);
+      }
     } catch (error) {
       setHasOfficialGroup(false);
     } finally {
@@ -69,7 +110,9 @@ export default function PlayerStatsScreen({ route, navigation }) {
       setLoadingLeague(true);
       const response = await playerStatsService.getPlayerStats(playerId, leagueId);
       setLeagueStats(response.data);
-      if (response.data?.player?.photo_path) setPhotoPath(response.data.player.photo_path);
+      if (response.data?.player?.photo_path) {
+        setPhotoPath(response.data.player.photo_path);
+      }
     } catch (error) {
       showToast('Impossibile caricare le statistiche del giocatore');
       console.error(error);
@@ -93,6 +136,20 @@ export default function PlayerStatsScreen({ route, navigation }) {
     }
   };
 
+  const handleMainTabPress = (tabKey) => {
+    setActiveMainTab(tabKey);
+    if (tabKey === 'fantacoppa' && activeFantaSubTab === 'total') {
+      loadAggregatedStats();
+    }
+  };
+
+  const handleFantaSubTabPress = (subTabKey) => {
+    setActiveFantaSubTab(subTabKey);
+    if (subTabKey === 'total') {
+      loadAggregatedStats();
+    }
+  };
+
   const renderStats = (stats, isLoading) => {
     if (isLoading) {
       return (
@@ -102,13 +159,11 @@ export default function PlayerStatsScreen({ route, navigation }) {
       );
     }
 
-    // Valori sicuri con default a 0
     const s = stats || {};
     const v = (val) => (typeof val === 'number' ? val : (parseFloat(val) || 0));
 
     return (
       <View>
-        {/* Medie */}
         <View style={styles.card}>
           <Text style={styles.cardSectionTitle}>Rendimento</Text>
           <View style={styles.tileRow}>
@@ -136,7 +191,6 @@ export default function PlayerStatsScreen({ route, navigation }) {
           </View>
         </View>
 
-        {/* Sezione portiere (solo per ruolo P) */}
         {playerRole === 'P' && (
           <View style={styles.card}>
             <Text style={styles.cardSectionTitle}>Statistiche Portiere</Text>
@@ -145,7 +199,7 @@ export default function PlayerStatsScreen({ route, navigation }) {
                 { key: 'clean_sheet', value: v(s.total_clean_sheets), label: 'Clean sheet' },
                 { key: 'penalty_saved', value: v(s.total_penalty_saved), label: 'Rig. parati' },
                 { key: 'goals_conceded', value: v(s.total_goals_conceded), label: 'Goal subiti' },
-              ].map(item => (
+              ].map((item) => (
                 <View key={item.key} style={styles.bmItem}>
                   <View style={styles.bmIconCircle}>
                     <BonusIcon type={item.key} size={20} />
@@ -158,19 +212,17 @@ export default function PlayerStatsScreen({ route, navigation }) {
           </View>
         )}
 
-        {/* Bonus */}
         <View style={styles.card}>
           <Text style={styles.cardSectionTitle}>Bonus</Text>
           <View style={styles.bmGrid}>
             {[
               { key: 'goal', value: v(s.total_goals), label: 'Goal' },
               { key: 'assist', value: v(s.total_assists), label: 'Assist' },
-              // Per non-portieri mostra rig. parati e clean sheet solo se > 0
               ...(playerRole !== 'P' && v(s.total_penalty_saved) > 0
                 ? [{ key: 'penalty_saved', value: v(s.total_penalty_saved), label: 'Rig. parati' }] : []),
               ...(playerRole !== 'P' && v(s.total_clean_sheets) > 0
                 ? [{ key: 'clean_sheet', value: v(s.total_clean_sheets), label: 'Clean sheet' }] : []),
-            ].map(item => (
+            ].map((item) => (
               <View key={item.key} style={styles.bmItem}>
                 <View style={styles.bmIconCircle}>
                   <BonusIcon type={item.key} size={20} />
@@ -182,7 +234,6 @@ export default function PlayerStatsScreen({ route, navigation }) {
           </View>
         </View>
 
-        {/* Malus */}
         <View style={styles.card}>
           <Text style={styles.cardSectionTitle}>Malus</Text>
           <View style={styles.bmGrid}>
@@ -191,10 +242,9 @@ export default function PlayerStatsScreen({ route, navigation }) {
               { key: 'red_card', value: v(s.total_red_cards), label: 'Rossi' },
               { key: 'own_goal', value: v(s.total_own_goals), label: 'Autogoal' },
               { key: 'penalty_missed', value: v(s.total_penalty_missed), label: 'Rig. sbagliati' },
-              // Per non-portieri mostra goal subiti solo se > 0
               ...(playerRole !== 'P' && v(s.total_goals_conceded) > 0
                 ? [{ key: 'goals_conceded', value: v(s.total_goals_conceded), label: 'Goal subiti' }] : []),
-            ].map(item => (
+            ].map((item) => (
               <View key={item.key} style={styles.bmItem}>
                 <View style={styles.bmIconCircle}>
                   <BonusIcon type={item.key} size={20} />
@@ -209,9 +259,95 @@ export default function PlayerStatsScreen({ route, navigation }) {
     );
   };
 
+  const renderMainTabContent = () => {
+    switch (activeMainTab) {
+      case 'overview':
+        return (
+          <EmptyTabPlaceholder
+            icon="person-outline"
+            title="Panoramica"
+            subtitle="Profilo, squadra attuale e informazioni generali del giocatore."
+          />
+        );
+      case 'stats':
+        return (
+          <EmptyTabPlaceholder
+            icon="bar-chart-outline"
+            title="Statistiche"
+            subtitle="Dati di rendimento e metriche dettagliate della stagione."
+          />
+        );
+      case 'career':
+        return (
+          <EmptyTabPlaceholder
+            icon="time-outline"
+            title="Carriera"
+            subtitle="Storico club, trasferimenti e percorsi nelle stagioni passate."
+          />
+        );
+      case 'fantacoppa':
+        return (
+          <>
+            <View style={styles.subTabBar}>
+              {FANTA_SUB_TABS.map((tab) => {
+                const isActive = activeFantaSubTab === tab.key;
+                const isDisabled = tab.key === 'total' && !hasOfficialGroup;
+                return (
+                  <TouchableOpacity
+                    key={tab.key}
+                    style={[
+                      styles.subTabBtn,
+                      isActive && styles.subTabBtnActive,
+                      isDisabled && styles.subTabBtnDisabled,
+                    ]}
+                    onPress={() => {
+                      if (!isDisabled) handleFantaSubTabPress(tab.key);
+                    }}
+                    disabled={isDisabled}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons
+                      name={isActive ? tab.iconActive : tab.icon}
+                      size={14}
+                      color={isActive && !isDisabled ? '#667eea' : '#94a3b8'}
+                    />
+                    <Text
+                      style={[
+                        styles.subTabLabel,
+                        isActive && !isDisabled && styles.subTabLabelActive,
+                      ]}
+                    >
+                      {tab.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {activeFantaSubTab === 'league' && renderStats(leagueStats?.stats, loadingLeague)}
+
+            {activeFantaSubTab === 'total' && (
+              <>
+                {!hasOfficialGroup && (
+                  <View style={styles.infoBanner}>
+                    <Ionicons name="information-circle" size={18} color="#667eea" />
+                    <Text style={styles.infoBannerText}>
+                      Statistiche totali disponibili solo per leghe ufficiali con gruppo.
+                    </Text>
+                  </View>
+                )}
+                {hasOfficialGroup && renderStats(aggregatedStats, loadingAggregated)}
+              </>
+            )}
+          </>
+        );
+      default:
+        return null;
+    }
+  };
+
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
-      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
           <Ionicons name="arrow-back" size={22} color="#333" />
@@ -238,56 +374,41 @@ export default function PlayerStatsScreen({ route, navigation }) {
         </View>
       </View>
 
-      {/* Tabs */}
-      <View style={styles.tabBar}>
-        <TouchableOpacity
-          style={[styles.tab, activeTab === 'league' && styles.tabActive]}
-          onPress={() => setActiveTab('league')}
+      <View style={styles.mainTabBarWrap}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.mainTabsScroll}
+          contentContainerStyle={styles.mainTabsScrollContent}
         >
-          <Ionicons name="trophy" size={16} color={activeTab === 'league' ? '#667eea' : '#999'} />
-          <Text style={[styles.tabLabel, activeTab === 'league' && styles.tabLabelActive]}>Lega</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[
-            styles.tab,
-            activeTab === 'total' && styles.tabActive,
-            !hasOfficialGroup && styles.tabDisabled,
-          ]}
-          onPress={() => {
-            if (hasOfficialGroup) {
-              setActiveTab('total');
-              loadAggregatedStats();
-            }
-          }}
-          disabled={!hasOfficialGroup}
-        >
-          <Ionicons name="stats-chart" size={16} color={activeTab === 'total' && hasOfficialGroup ? '#667eea' : '#999'} />
-          <Text style={[styles.tabLabel, activeTab === 'total' && hasOfficialGroup && styles.tabLabelActive]}>
-            Totali
-          </Text>
-        </TouchableOpacity>
+          {MAIN_TABS.map((tab) => {
+            const isActive = activeMainTab === tab.key;
+            return (
+              <TouchableOpacity
+                key={tab.key}
+                style={[styles.mainTabBtn, isActive && styles.mainTabBtnActive]}
+                onPress={() => handleMainTabPress(tab.key)}
+                activeOpacity={0.8}
+              >
+                <Ionicons
+                  name={isActive ? tab.iconActive : tab.icon}
+                  size={15}
+                  color={isActive ? '#667eea' : '#64748b'}
+                />
+                <Text style={[styles.mainTabLabel, isActive && styles.mainTabLabelActive]}>
+                  {tab.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
       </View>
 
-      {/* Content */}
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={[styles.scrollContent, { paddingBottom: 40 + insets.bottom }]}
       >
-        {activeTab === 'league' && renderStats(leagueStats?.stats, loadingLeague)}
-
-        {activeTab === 'total' && (
-          <>
-            {!hasOfficialGroup && (
-              <View style={styles.infoBanner}>
-                <Ionicons name="information-circle" size={18} color="#667eea" />
-                <Text style={styles.infoBannerText}>
-                  Statistiche totali disponibili solo per leghe ufficiali con gruppo.
-                </Text>
-              </View>
-            )}
-            {hasOfficialGroup && renderStats(aggregatedStats, loadingAggregated)}
-          </>
-        )}
+        {renderMainTabContent()}
       </ScrollView>
 
       {toastMsg && (
@@ -306,7 +427,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#f5f5f5',
   },
 
-  /* Header */
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -373,40 +493,78 @@ const styles = StyleSheet.create({
     color: '#888',
   },
 
-  /* Tabs */
-  tabBar: {
-    flexDirection: 'row',
+  mainTabBarWrap: {
     backgroundColor: '#fff',
     borderBottomWidth: 1,
     borderBottomColor: '#e0e0e0',
   },
-  tab: {
+  mainTabsScroll: {
+    maxHeight: 50,
+  },
+  mainTabsScrollContent: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    gap: 8,
+    alignItems: 'center',
+  },
+  mainTabBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  mainTabBtnActive: {
+    borderColor: '#667eea',
+    backgroundColor: '#eef2ff',
+  },
+  mainTabLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#475569',
+  },
+  mainTabLabelActive: {
+    color: '#667eea',
+  },
+
+  subTabBar: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 14,
+  },
+  subTabBtn: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 11,
-    gap: 6,
-    borderBottomWidth: 2,
-    borderBottomColor: 'transparent',
+    gap: 5,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
   },
-  tabActive: {
-    borderBottomColor: '#667eea',
+  subTabBtnActive: {
+    borderColor: '#667eea',
+    backgroundColor: '#eef2ff',
   },
-  tabDisabled: {
-    opacity: 0.4,
+  subTabBtnDisabled: {
+    opacity: 0.45,
   },
-  tabLabel: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: '#999',
-  },
-  tabLabelActive: {
-    color: '#667eea',
+  subTabLabel: {
+    fontSize: 12,
     fontWeight: '700',
+    color: '#94a3b8',
+  },
+  subTabLabelActive: {
+    color: '#667eea',
   },
 
-  /* Scroll */
   scroll: {
     flex: 1,
   },
@@ -414,7 +572,6 @@ const styles = StyleSheet.create({
     padding: 16,
   },
 
-  /* Card */
   card: {
     backgroundColor: '#fff',
     borderRadius: 12,
@@ -462,7 +619,6 @@ const styles = StyleSheet.create({
     marginVertical: 12,
   },
 
-  /* Bonus / Malus grid */
   bmGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -494,7 +650,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 
-  /* Info banner */
   infoBanner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -512,30 +667,41 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
 
-  /* Empty / Loading */
   loadingBox: {
     paddingVertical: 60,
     alignItems: 'center',
   },
   emptyBox: {
     alignItems: 'center',
-    paddingVertical: 50,
+    paddingVertical: 48,
+    paddingHorizontal: 24,
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#ececec',
+  },
+  emptyIconCircle: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#eef2ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
   },
   emptyTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#999',
-    marginTop: 12,
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#1e293b',
+    marginBottom: 8,
   },
   emptySubtext: {
     fontSize: 13,
-    color: '#bbb',
-    marginTop: 4,
+    color: '#64748b',
     textAlign: 'center',
-    paddingHorizontal: 40,
+    lineHeight: 20,
   },
 
-  /* Toast */
   toast: {
     position: 'absolute',
     top: 100,
