@@ -217,6 +217,7 @@ export default function TeamDetailScreen({ route, navigation }) {
                         playerName: `${player.first_name} ${player.last_name}`,
                         playerRole: player.role,
                         playerRating: player.rating,
+                        playerPhotoPath: player.photo_path || undefined,
                         entrySource: 'league',
                       })}
                       activeOpacity={0.7}

@@ -78,6 +78,7 @@ export default function PlayerStatsScreen({ route, navigation }) {
     leagueId,
     playerName,
     playerRole,
+    playerPhotoPath: initialPlayerPhotoPath = '',
     entrySource = 'league',
   } = route.params || {};
 
@@ -91,7 +92,7 @@ export default function PlayerStatsScreen({ route, navigation }) {
   const [loadingAggregated, setLoadingAggregated] = useState(false);
   const [hasOfficialGroup, setHasOfficialGroup] = useState(false);
   const [toastMsg, setToastMsg] = useState(null);
-  const [photoPath, setPhotoPath] = useState('');
+  const [photoPath, setPhotoPath] = useState(() => String(initialPlayerPhotoPath || '').trim());
 
   const playerInfo = leagueStats?.player;
   const { firstName, lastName } = useMemo(
@@ -116,7 +117,7 @@ export default function PlayerStatsScreen({ route, navigation }) {
       setAggregatedStats(response.data.stats);
       setHasOfficialGroup(true);
       if (response.data?.player?.photo_path) {
-        setPhotoPath((prev) => prev || response.data.player.photo_path);
+        setPhotoPath((prev) => prev || String(response.data.player.photo_path || '').trim());
       }
     } catch (error) {
       setHasOfficialGroup(false);
@@ -131,7 +132,7 @@ export default function PlayerStatsScreen({ route, navigation }) {
       const response = await playerStatsService.getPlayerStats(playerId, leagueId);
       setLeagueStats(response.data);
       if (response.data?.player?.photo_path) {
-        setPhotoPath(response.data.player.photo_path);
+        setPhotoPath((prev) => prev || String(response.data.player.photo_path || '').trim());
       }
     } catch (error) {
       showToast('Impossibile caricare le statistiche del giocatore');

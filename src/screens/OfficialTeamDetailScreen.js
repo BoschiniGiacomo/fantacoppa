@@ -544,6 +544,7 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
       playerId,
       leagueId,
       playerName: String(row?.name || '').trim() || undefined,
+      playerPhotoPath: row?.photo_path || undefined,
       entrySource: 'official',
     });
   }, [navigation, statsSeasonLeagueId, teamSeasonLeagueId]);
@@ -1299,6 +1300,7 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
                           playerName,
                           playerRole: role || undefined,
                           playerRating: p?.rating,
+                          playerPhotoPath: p?.photo_path || undefined,
                           entrySource: 'official',
                         });
                       }}

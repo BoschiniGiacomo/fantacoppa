@@ -387,6 +387,7 @@ export default function MarketScreen({ route, navigation }) {
           playerName: `${item.first_name} ${item.last_name}`,
           playerRole: item.role,
           playerRating: item.rating,
+          playerPhotoPath: item.photo_path || undefined,
           entrySource: 'league',
         })}
         activeOpacity={0.7}

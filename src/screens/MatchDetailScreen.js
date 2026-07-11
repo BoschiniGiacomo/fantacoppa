@@ -1770,6 +1770,7 @@ export default function MatchDetailScreen({ navigation, route }) {
       playerName: displayName || p.name || '-',
       playerRole: p.role,
       playerRating: p.rating,
+      playerPhotoPath: p.photo_path || undefined,
       entrySource: 'official',
     });
   };

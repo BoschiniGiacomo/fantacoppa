@@ -539,6 +539,7 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
       playerId,
       leagueId,
       playerName: String(row?.name || '').trim() || undefined,
+      playerPhotoPath: row?.photo_path || undefined,
       entrySource: 'official',
     });
   }, [navigation]);

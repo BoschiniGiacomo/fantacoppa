@@ -31,7 +31,7 @@ function pickRemoteFallback({ logoUrl, logoPath, photoPath, teamLogo }) {
 }
 
 /**
- * Risoluzione immediata (solo bundle app). Per loghi già nell'APK: zero attesa al primo frame.
+ * Risoluzione immediata: bundle app, altrimenti URL remoto (cache disco in async).
  */
 export function resolveDisplayMediaUriSync({
   logoUrl,
@@ -48,7 +48,8 @@ export function resolveDisplayMediaUriSync({
   if (bundled) {
     return { uri: bundled, path: storagePath };
   }
-  return { uri: null, path: storagePath };
+  const remote = publicAssetUrl(resolveCanonicalUploadPath(storagePath) || storagePath);
+  return { uri: remote || null, path: storagePath };
 }
 
 /**
