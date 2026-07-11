@@ -5,7 +5,6 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 function MiniChampionshipTrophy() {
   return (
     <View style={styles.champVisual}>
-      <View style={styles.champAura} />
       <View style={styles.champCupWrap}>
         <View style={styles.champHandleLeft} />
         <View style={styles.champHandleRight} />
@@ -34,7 +33,6 @@ function MiniChampionshipTrophy() {
 function MiniWineTrophy() {
   return (
     <View style={styles.wineVisual}>
-      <View style={styles.wineAura} />
       <View style={styles.wineCupWrap}>
         <View style={styles.wineHandleLeft} />
         <View style={styles.wineHandleRight} />
@@ -113,10 +111,11 @@ const styles = StyleSheet.create({
   },
   trophyFrame: {
     width: 42,
-    height: 52,
+    height: 44,
     borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'flex-end',
+    paddingTop: 2,
     paddingBottom: 2,
     borderWidth: 1,
     shadowColor: '#000',
@@ -132,20 +131,14 @@ const styles = StyleSheet.create({
   trophyFrameWine: {
     backgroundColor: '#fff5f8',
     borderColor: '#d8a8bc',
+    paddingTop: 0,
+    height: 42,
   },
   champVisual: {
     width: 34,
-    height: 44,
+    height: 38,
     alignItems: 'center',
     justifyContent: 'flex-end',
-  },
-  champAura: {
-    position: 'absolute',
-    top: 4,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: 'rgba(212, 175, 55, 0.18)',
   },
   champCupWrap: {
     width: 30,
@@ -253,21 +246,13 @@ const styles = StyleSheet.create({
   },
   wineVisual: {
     width: 34,
-    height: 44,
+    height: 38,
     alignItems: 'center',
     justifyContent: 'flex-end',
   },
-  wineAura: {
-    position: 'absolute',
-    top: 4,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: 'rgba(180, 90, 120, 0.14)',
-  },
   wineCupWrap: {
     width: 30,
-    height: 24,
+    height: 20,
     alignItems: 'center',
     justifyContent: 'flex-end',
     zIndex: 2,
@@ -275,7 +260,7 @@ const styles = StyleSheet.create({
   wineHandleLeft: {
     position: 'absolute',
     left: 0,
-    top: 8,
+    top: 5,
     width: 6,
     height: 10,
     borderWidth: 1.5,
@@ -287,7 +272,7 @@ const styles = StyleSheet.create({
   wineHandleRight: {
     position: 'absolute',
     right: 0,
-    top: 8,
+    top: 5,
     width: 6,
     height: 10,
     borderWidth: 1.5,

@@ -624,7 +624,7 @@ const styles = StyleSheet.create({
   },
   heroTrophyOverlay: {
     position: 'absolute',
-    right: -12,
+    right: -80,
     bottom: -2,
     zIndex: 3,
     elevation: 3,
