@@ -770,6 +770,59 @@ async function buildOpponentMergedRatings(opponentTeam, effectiveLeagueId, liveE
   return out;
 }
 
+async function buildMatchRatingsForMvbCheck(bundle, ratings, teamsToSave, effectiveLeagueId, liveEvents, bonusSettings) {
+  const savingTeamIds = new Set((teamsToSave || []).map((t) => Number(t.id)));
+  const out = {};
+
+  for (const team of bundle.teams || []) {
+    const playerIds = (team.players || []).map((p) => Number(p.id)).filter((n) => n > 0);
+    if (!playerIds.length) continue;
+    const liveByPlayer = buildLiveDirectBonusFromEvents(liveEvents, bonusSettings, playerIds);
+
+    if (savingTeamIds.has(Number(team.id))) {
+      const teamRatingsRaw = {};
+      playerIds.forEach((pid) => {
+        const vote = ratings[String(pid)] || ratings[pid] || { rating: 0 };
+        teamRatingsRaw[pid] = mergeVoteWithLiveDirect(vote, liveByPlayer[pid]);
+      });
+      const teamRatings = coerceTeamRatingsForSvSetting(teamRatingsRaw, bonusSettings);
+      Object.assign(out, teamRatings);
+      continue;
+    }
+
+    let fromDb = {};
+    if (team.giornata) {
+      fromDb = await loadRatingsForGiornata(effectiveLeagueId, team.giornata, playerIds);
+    }
+    playerIds.forEach((pid) => {
+      const raw = fromDb[String(pid)] || fromDb[pid];
+      out[pid] = mapRatingRow(mergeVoteWithLiveDirect(raw, liveByPlayer[pid]));
+    });
+  }
+
+  return out;
+}
+
+function countMvbPlayers(matchRatings) {
+  return Object.values(matchRatings || {}).filter((vote) => Number(vote?.briso || 0) > 0).length;
+}
+
+function assertMvbPerMatch(matchRatings, bonusSettings) {
+  if (!isLiveBonusEnabled(bonusSettings, 'enable_briso')) return;
+
+  const count = countMvbPlayers(matchRatings);
+  if (count === 0) {
+    const err = new Error('MVB: assegna il bonus a un giocatore della partita');
+    err.status = 400;
+    throw err;
+  }
+  if (count > 1) {
+    const err = new Error(`MVB: ${count} giocatori assegnati (massimo 1 per partita)`);
+    err.status = 400;
+    throw err;
+  }
+}
+
 function assertGoalsConcededBalance({
   team,
   teamRatings,
@@ -1058,6 +1111,16 @@ async function saveMatchVotes(matchId, body) {
     err.status = 400;
     throw err;
   }
+
+  const matchRatingsForMvb = await buildMatchRatingsForMvbCheck(
+    bundle,
+    ratings,
+    teamsToSave,
+    effectiveLeagueId,
+    liveEvents,
+    bonusSettings
+  );
+  assertMvbPerMatch(matchRatingsForMvb, bonusSettings);
 
   const giornateTouched = new Set();
   let lastUnavailable = null;
