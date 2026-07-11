@@ -12,6 +12,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { playerStatsService } from '../services/api';
 import { PlayerPhotoImage, TeamLogoImage } from '../components/StableCachedImage';
 import BonusIcon from '../components/BonusIcon';
+import PlayerHeroTrophyBadges from '../components/PlayerHeroTrophyBadges';
 
 const ROLE_COLORS = {
   P: '#0d6efd',
@@ -460,6 +461,13 @@ export default function PlayerStatsScreen({ route, navigation }) {
     }
   };
 
+  const heroTrophies = overview?.trophies;
+  const showHeroTrophies = Boolean(
+    !loadingOverview
+      && heroTrophies
+      && (entrySource === 'official' || hasOfficialGroup),
+  );
+
   return (
     <View style={styles.container}>
       <View style={[styles.heroCard, { paddingTop: Math.max(insets.top + 6, 12) }]}>
@@ -496,6 +504,14 @@ export default function PlayerStatsScreen({ route, navigation }) {
                 <Ionicons name="person-outline" size={64} color="#667eea" />
               </View>
             )}
+            {showHeroTrophies ? (
+              <View style={styles.heroTrophyOverlay}>
+                <PlayerHeroTrophyBadges
+                  championships={heroTrophies.championships}
+                  wineTrophies={heroTrophies.wine_trophies}
+                />
+              </View>
+            ) : null}
           </View>
         </View>
       </View>
@@ -604,6 +620,14 @@ const styles = StyleSheet.create({
   heroPhotoWrap: {
     width: HERO_PHOTO_SIZE,
     height: HERO_PHOTO_SIZE,
+    position: 'relative',
+  },
+  heroTrophyOverlay: {
+    position: 'absolute',
+    right: -12,
+    bottom: -2,
+    zIndex: 3,
+    elevation: 3,
   },
   heroPhotoClip: {
     width: HERO_PHOTO_SIZE,

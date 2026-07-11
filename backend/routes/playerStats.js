@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { query } = require('../config/database');
 const { authenticateToken } = require('../middleware/auth');
+const { computePlayerOfficialTrophies } = require('../utils/officialHallTrophies');
 
 async function getLeagueOfficialMeta(leagueId) {
   const rows = await query(
@@ -436,10 +437,11 @@ function resolveBirthYear(editions) {
   return null;
 }
 
-function buildPlayerOverviewPayload(editions, hasCluster, editionsPlayed) {
+function buildPlayerOverviewPayload(editions, hasCluster, editionsPlayed, trophies = null) {
   const sorted = sortEditionsByYearDesc(editions);
   const latest = sorted[0];
   const visibleEditions = Number(editionsPlayed) || 0;
+  const trophyCounts = trophies || { championships: 0, wine_trophies: 0 };
 
   if (!latest) {
     return {
@@ -449,6 +451,7 @@ function buildPlayerOverviewPayload(editions, hasCluster, editionsPlayed) {
       role: null,
       shirt_number: null,
       team: null,
+      trophies: trophyCounts,
     };
   }
 
@@ -466,6 +469,7 @@ function buildPlayerOverviewPayload(editions, hasCluster, editionsPlayed) {
       name: String(latest.team_name || '').trim() || null,
       logo_path: String(latest.team_logo_path || '').trim() || null,
     },
+    trophies: trophyCounts,
   };
 }
 
@@ -486,11 +490,15 @@ router.get('/:playerId/overview/:leagueId', authenticateToken, async (req, res) 
     const clusterContext = await fetchClusterContext(playerId, groupId);
     const editionsPlayed = await countVisibleClusterMembers(clusterContext.playerIds);
     const editions = await fetchPlayerEditionRows(clusterContext.playerIds);
+    const trophies = groupId
+      ? await computePlayerOfficialTrophies(groupId, editions)
+      : { championships: 0, wine_trophies: 0 };
 
     const overview = buildPlayerOverviewPayload(
       editions,
       clusterContext.hasCluster,
-      editionsPlayed
+      editionsPlayed,
+      trophies
     );
 
     return res.json({ overview });
