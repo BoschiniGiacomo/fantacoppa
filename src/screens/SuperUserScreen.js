@@ -82,6 +82,12 @@ function formatBirthYear(value) {
   return String(y);
 }
 
+const BIRTH_YEAR_FILTER_NONE = 'none';
+
+function clusterHasNoBirthYear(leagues) {
+  return !(leagues || []).some((l) => formatBirthYear(l.birth_year));
+}
+
 function summarizeBirthYears(leagues) {
   const years = [...new Set(
     (leagues || []).map((l) => formatBirthYear(l.birth_year)).filter(Boolean)
@@ -127,19 +133,27 @@ function formatClusterListTitle(name, leagues) {
 
 function clusterMatchesFilters(item, filters) {
   if (filters.groupId != null && Number(item.group_id) !== Number(filters.groupId)) return false;
-  if (filters.leagueYear != null) {
+
+  const leagueYears = filters.leagueYears || [];
+  if (leagueYears.length > 0) {
+    const selectedLeagueYears = new Set(leagueYears.map(Number));
     const hasLeagueYear = (item.leagues || []).some(
-      (l) => Number(l.reference_year) === Number(filters.leagueYear)
+      (l) => selectedLeagueYears.has(Number(l.reference_year))
     );
     if (!hasLeagueYear) return false;
   }
-  if (filters.birthYear != null) {
-    const birthYearStr = String(filters.birthYear);
-    const hasBirthYear = (item.leagues || []).some(
-      (l) => formatBirthYear(l.birth_year) === birthYearStr
-    );
-    if (!hasBirthYear) return false;
+
+  const birthYears = filters.birthYears || [];
+  if (birthYears.length > 0) {
+    const leagues = item.leagues || [];
+    const matches = birthYears.some((filterYear) => {
+      if (filterYear === BIRTH_YEAR_FILTER_NONE) return clusterHasNoBirthYear(leagues);
+      const birthYearStr = String(filterYear);
+      return leagues.some((l) => formatBirthYear(l.birth_year) === birthYearStr);
+    });
+    if (!matches) return false;
   }
+
   return true;
 }
 
@@ -283,8 +297,8 @@ export default function SuperUserScreen() {
   const [showClusterFilters, setShowClusterFilters] = useState(false);
   const [clusterFilters, setClusterFilters] = useState({
     groupId: null,
-    leagueYear: null,
-    birthYear: null,
+    leagueYears: [],
+    birthYears: [],
   });
   const [clusterModalSearchText, setClusterModalSearchText] = useState('');
   const [suggestionEditModal, setSuggestionEditModal] = useState(null);
@@ -1698,8 +1712,8 @@ export default function SuperUserScreen() {
   const filteredApprovedClustersByPlayer = useMemo(() => {
     const q = clusterTabSearchText.trim();
     const hasFilters = clusterFilters.groupId != null
-      || clusterFilters.leagueYear != null
-      || clusterFilters.birthYear != null;
+      || (clusterFilters.leagueYears || []).length > 0
+      || (clusterFilters.birthYears || []).length > 0;
     return approvedClustersByPlayer.filter((item) => {
       if (q && !matchesNameSearch(item.name, q)) return false;
       if (hasFilters && !clusterMatchesFilters(item, clusterFilters)) return false;
@@ -1730,8 +1744,8 @@ export default function SuperUserScreen() {
   }, [approvedClustersByPlayer]);
 
   const hasActiveClusterFilters = clusterFilters.groupId != null
-    || clusterFilters.leagueYear != null
-    || clusterFilters.birthYear != null;
+    || (clusterFilters.leagueYears || []).length > 0
+    || (clusterFilters.birthYears || []).length > 0;
 
   const toggleClusterFilter = (key, value) => {
     setClusterFilters((prev) => ({
@@ -1740,8 +1754,18 @@ export default function SuperUserScreen() {
     }));
   };
 
+  const toggleClusterFilterArray = (key, value) => {
+    setClusterFilters((prev) => {
+      const current = Array.isArray(prev[key]) ? prev[key] : [];
+      const next = current.includes(value)
+        ? current.filter((v) => v !== value)
+        : [...current, value];
+      return { ...prev, [key]: next };
+    });
+  };
+
   const clearClusterFilters = () => {
-    setClusterFilters({ groupId: null, leagueYear: null, birthYear: null });
+    setClusterFilters({ groupId: null, leagueYears: [], birthYears: [] });
   };
 
   const filteredSuggestions = useMemo(() => {
@@ -2461,12 +2485,12 @@ export default function SuperUserScreen() {
               <View style={styles.clusterFilterChips}>
                 {clusterFilterOptions.leagueYears.length > 0 ? (
                   clusterFilterOptions.leagueYears.map((year) => {
-                    const active = clusterFilters.leagueYear === year;
+                    const active = (clusterFilters.leagueYears || []).includes(year);
                     return (
                       <TouchableOpacity
                         key={`ly-${year}`}
                         style={[styles.clusterFilterChip, styles.clusterFilterChipCompact, active && styles.clusterFilterChipActive]}
-                        onPress={() => toggleClusterFilter('leagueYear', year)}
+                        onPress={() => toggleClusterFilterArray('leagueYears', year)}
                       >
                         <Text style={[styles.clusterFilterChipText, active && styles.clusterFilterChipTextActive]}>
                           {year}
@@ -2481,24 +2505,37 @@ export default function SuperUserScreen() {
 
               <Text style={styles.clusterFilterSectionLabel}>Anno di nascita</Text>
               <View style={styles.clusterFilterChips}>
-                {clusterFilterOptions.birthYears.length > 0 ? (
-                  clusterFilterOptions.birthYears.map((year) => {
-                    const active = clusterFilters.birthYear === year;
+                <TouchableOpacity
+                  style={[
+                    styles.clusterFilterChip,
+                    styles.clusterFilterChipCompact,
+                    (clusterFilters.birthYears || []).includes(BIRTH_YEAR_FILTER_NONE) && styles.clusterFilterChipActive,
+                  ]}
+                  onPress={() => toggleClusterFilterArray('birthYears', BIRTH_YEAR_FILTER_NONE)}
+                >
+                  <Text
+                    style={[
+                      styles.clusterFilterChipText,
+                      (clusterFilters.birthYears || []).includes(BIRTH_YEAR_FILTER_NONE) && styles.clusterFilterChipTextActive,
+                    ]}
+                  >
+                    Nessuno
+                  </Text>
+                </TouchableOpacity>
+                {clusterFilterOptions.birthYears.map((year) => {
+                    const active = (clusterFilters.birthYears || []).includes(year);
                     return (
                       <TouchableOpacity
                         key={`by-${year}`}
                         style={[styles.clusterFilterChip, styles.clusterFilterChipCompact, active && styles.clusterFilterChipActive]}
-                        onPress={() => toggleClusterFilter('birthYear', year)}
+                        onPress={() => toggleClusterFilterArray('birthYears', year)}
                       >
                         <Text style={[styles.clusterFilterChipText, active && styles.clusterFilterChipTextActive]}>
                           {formatClusterBirthYearShort(year)}
                         </Text>
                       </TouchableOpacity>
                     );
-                  })
-                ) : (
-                  <Text style={styles.clusterFilterEmpty}>Nessun anno</Text>
-                )}
+                  })}
               </View>
             </ScrollView>
             {hasActiveClusterFilters ? (
