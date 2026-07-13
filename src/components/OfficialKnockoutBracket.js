@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, Platform } from 'react-native';
 import KnockoutSemiTieBlock from './KnockoutSemiTieBlock';
-import { KnockoutScoreText, hasKnockoutShootoutScore } from './KnockoutSemiTieBlock';
+import { KnockoutScoreText } from './KnockoutSemiTieBlock';
+import { matchDisplayScoreForSide } from '../utils/matchDisplayScore';
 import {
   EMPTY_OFFICIAL_KNOCKOUT,
   groupQuarterfinalsIntoTies,
@@ -271,7 +272,8 @@ function KnockoutStageColumn({
 }
 
 function KnockoutFinalMatchContent({ finalMatch, onPressMatch, LogoComponent, tieBlockStyles, layout }) {
-  const finalHasShootout = hasKnockoutShootoutScore(finalMatch);
+  const homeDisplay = matchDisplayScoreForSide(finalMatch, 'home');
+  const awayDisplay = matchDisplayScoreForSide(finalMatch, 'away');
   return (
     <>
       <View style={layout.finalLabelRow} />
@@ -300,8 +302,8 @@ function KnockoutFinalMatchContent({ finalMatch, onPressMatch, LogoComponent, ti
               </Text>
               <View style={layout.scoreBox}>
                 <KnockoutScoreText
-                  score={finalMatch?.home_score}
-                  shootoutScore={finalHasShootout ? finalMatch?.home_shootout_score : null}
+                  score={homeDisplay.score}
+                  shootoutScore={homeDisplay.shootoutScore}
                   styles={tieBlockStyles}
                 />
               </View>
@@ -323,8 +325,8 @@ function KnockoutFinalMatchContent({ finalMatch, onPressMatch, LogoComponent, ti
               </Text>
               <View style={layout.scoreBox}>
                 <KnockoutScoreText
-                  score={finalMatch?.away_score}
-                  shootoutScore={finalHasShootout ? finalMatch?.away_shootout_score : null}
+                  score={awayDisplay.score}
+                  shootoutScore={awayDisplay.shootoutScore}
                   styles={tieBlockStyles}
                 />
               </View>

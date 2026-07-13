@@ -1047,6 +1047,17 @@ function computeLiveScoreFromEvents(events) {
   return { home, away };
 }
 
+function computeMatchDisplayScoreFromEvents(events) {
+  const goals = computeLiveScoreFromEvents(events);
+  const hasPre = (events || []).some((e) => isPreShootoutEventType(e?.event_type));
+  if (!hasPre) return goals;
+  const pre = computePreShootoutState(events);
+  return {
+    home: goals.home + pre.homeGoals,
+    away: goals.away + pre.awayGoals,
+  };
+}
+
 function timelineMinuteSortKey(ev) {
   if (!ev) return Number.POSITIVE_INFINITY;
   if (ev.event_type === 'match_start') return -1e14;
@@ -1626,6 +1637,7 @@ export default function MatchDetailScreen({ navigation, route }) {
   }, [confirmTimerAdjust, match, persistTimerOffsetToStorage]);
 
   const liveScorePreview = useMemo(() => computeLiveScoreFromEvents(liveEvents), [liveEvents]);
+  const displayScorePreview = useMemo(() => computeMatchDisplayScoreFromEvents(liveEvents), [liveEvents]);
   const matchHasStarted = useMemo(() => liveEvents.some((e) => e.event_type === 'match_start'), [liveEvents]);
   const preMatchEditorMode = !matchHasStarted;
   const heroScorerBlocks = useMemo(() => buildHeroScorerBlocks(liveEvents, match), [liveEvents, match]);
@@ -1661,33 +1673,21 @@ export default function MatchDetailScreen({ navigation, route }) {
   const forceShootoutOnlyEditorTabs = showShootoutEditorTab;
   const showTimerEditorTab = matchHasStarted && !hasMatchEndEvent;
   const hasOnlyPhaseEditorTab = preMatchEditorMode && showPhaseEditorTab && !showShootoutEditorTab && !showPreShootoutEditorTab;
+  const hasOnlyPreShootoutEditorTab = preMatchEditorMode && showPreShootoutEditorTab;
   const hasOnlyShootoutEditorTab = forceShootoutOnlyEditorTabs && showShootoutEditorTab;
   const hasShootoutPhase = useMemo(
     () => liveEvents.some((e) => e.event_type === 'penalties_start' || isShootoutEventType(e.event_type)),
     [liveEvents]
   );
   const shootoutState = useMemo(() => computeShootoutState(liveEvents), [liveEvents]);
-  const shootoutHeroLabel = hasShootoutPhase ? `Rig.: ${shootoutState.homeGoals} - ${shootoutState.awayGoals}` : null;
+  const rigoriHeroLabel = hasShootoutPhase
+    ? `Rig.: ${shootoutState.homeGoals} - ${shootoutState.awayGoals}`
+    : null;
+  const heroPhaseMainText = heroClock.main;
   const shootoutTimelineLabel = hasShootoutPhase
     ? `Rigori [${shootoutState.homeGoals}] ${liveScorePreview.home} - ${liveScorePreview.away} [${shootoutState.awayGoals}]`
     : null;
-  const preShootoutTimelineLabel = hasPreShootoutPhase
-    ? `Shootout ${preShootoutState.homeGoals} - ${preShootoutState.awayGoals}`
-    : null;
-  const heroMainText = useMemo(() => {
-    if (!matchHasStarted && hasPreShootoutPhase && !preShootoutSeriesFinished(liveEvents)) {
-      return `Shootout ${preShootoutState.homeGoals} - ${preShootoutState.awayGoals}`;
-    }
-    if (
-      shootoutHeroLabel &&
-      (heroClock.main === 'Rigori' ||
-        heroClock.main === OFFICIAL_MATCH_END_LABEL ||
-        heroClock.main === OFFICIAL_WALKOVER_END_LABEL)
-    ) {
-      return shootoutHeroLabel;
-    }
-    return heroClock.main;
-  }, [matchHasStarted, hasPreShootoutPhase, liveEvents, preShootoutState, shootoutHeroLabel, heroClock.main]);
+  const showHeroLiveScore = matchHasStarted || hasPreShootoutPhase;
   const nextShootoutTeamSide = useMemo(() => {
     const shootoutEvents = (liveEvents || [])
       .filter((e) => e && isShootoutEventType(e.event_type))
@@ -2013,6 +2013,12 @@ export default function MatchDetailScreen({ navigation, route }) {
   useEffect(() => {
     if (showEventEditor && editorModalTab === 'preShootout' && !showPreShootoutEditorTab) {
       setEditorModalTab('phases');
+    }
+  }, [showEventEditor, editorModalTab, showPreShootoutEditorTab]);
+
+  useEffect(() => {
+    if (showEventEditor && editorModalTab === 'phases' && showPreShootoutEditorTab) {
+      setEditorModalTab('preShootout');
     }
   }, [showEventEditor, editorModalTab, showPreShootoutEditorTab]);
 
@@ -2754,24 +2760,25 @@ export default function MatchDetailScreen({ navigation, route }) {
               <Text
                 style={[
                   styles.countdown,
-                  (heroMainText === 'PT' ||
-                    heroMainText === 'FT' ||
-                    heroMainText === 'PT sup' ||
-                    heroMainText === 'FT sup' ||
-                    heroMainText === 'Rigori' ||
-                    heroMainText === OFFICIAL_MATCH_END_LABEL ||
-                    heroMainText === OFFICIAL_WALKOVER_END_LABEL ||
-                    String(heroMainText || '').startsWith('Rig.:') ||
-                    String(heroMainText || '').startsWith('Shootout')) &&
+                  (heroPhaseMainText === 'PT' ||
+                    heroPhaseMainText === 'FT' ||
+                    heroPhaseMainText === 'PT sup' ||
+                    heroPhaseMainText === 'FT sup' ||
+                    heroPhaseMainText === 'Rigori' ||
+                    heroPhaseMainText === OFFICIAL_MATCH_END_LABEL ||
+                    heroPhaseMainText === OFFICIAL_WALKOVER_END_LABEL) &&
                     styles.heroStaticPtFt,
                 ]}
               >
-                {heroMainText}
+                {heroPhaseMainText}
               </Text>
             )}
-            {matchHasStarted ? (
-              <Text style={styles.heroLiveScore} accessibilityLiveRegion="polite" accessibilityLabel={`Risultato ${liveScorePreview.home} a ${liveScorePreview.away}`}>
-                {liveScorePreview.home} – {liveScorePreview.away}
+            {rigoriHeroLabel ? (
+              <Text style={styles.heroShootoutScoreLine}>{rigoriHeroLabel}</Text>
+            ) : null}
+            {showHeroLiveScore ? (
+              <Text style={styles.heroLiveScore} accessibilityLiveRegion="polite" accessibilityLabel={`Risultato ${displayScorePreview.home} a ${displayScorePreview.away}`}>
+                {displayScorePreview.home} – {displayScorePreview.away}
               </Text>
             ) : null}
             {heroClock.showSub && heroClock.sub ? <Text style={styles.kickoff}>{heroClock.sub}</Text> : null}
@@ -3006,24 +3013,24 @@ export default function MatchDetailScreen({ navigation, route }) {
                 {liveEventsTimelineSorted.map((ev) => {
                   if (ev.event_type === 'pre_shootout_start') {
                     return (
-                      <View key={`ev-${ev.id}`} style={styles.preShootoutBanner}>
-                        <View style={styles.preShootoutBannerLine} />
-                        <Text style={styles.preShootoutBannerLabel} numberOfLines={2}>
+                      <View key={`ev-${ev.id}`} style={styles.matchEndBanner}>
+                        <View style={styles.matchEndLine} />
+                        <Text style={styles.matchEndLabel} numberOfLines={2}>
                           Inizio Shootout
                         </Text>
-                        <View style={styles.preShootoutBannerLine} />
+                        <View style={styles.matchEndLine} />
                       </View>
                     );
                   }
                   if (ev.event_type === 'pre_shootout_end') {
                     const endScore = computePreShootoutScoreThroughEvent(liveEvents, ev);
                     return (
-                      <View key={`ev-${ev.id}`} style={styles.preShootoutBanner}>
-                        <View style={styles.preShootoutBannerLine} />
-                        <Text style={styles.preShootoutBannerLabel} numberOfLines={2}>
+                      <View key={`ev-${ev.id}`} style={styles.matchEndBanner}>
+                        <View style={styles.matchEndLine} />
+                        <Text style={styles.matchEndLabel} numberOfLines={2}>
                           Fine Shootout {endScore.home} - {endScore.away}
                         </Text>
-                        <View style={styles.preShootoutBannerLine} />
+                        <View style={styles.matchEndLine} />
                       </View>
                     );
                   }
@@ -3134,11 +3141,16 @@ export default function MatchDetailScreen({ navigation, route }) {
                       return null;
                     }
                     const score = computeLiveScoreFromEvents(liveEvents);
+                    const endLabel =
+                      shootoutTimelineLabel ||
+                      (hasPreShootoutPhase
+                        ? `Fine partita ${displayScorePreview.home} - ${displayScorePreview.away}`
+                        : `${matchEndDisplayLabel} ${score.home} - ${score.away}`);
                     return (
                       <View key={`ev-${ev.id}`} style={styles.matchEndBanner}>
                         <View style={styles.matchEndLine} />
                         <Text style={styles.matchEndLabel} numberOfLines={2}>
-                          {shootoutTimelineLabel || `${matchEndDisplayLabel} ${score.home} - ${score.away}`}
+                          {endLabel}
                         </Text>
                         <View style={styles.matchEndLine} />
                       </View>
@@ -3161,18 +3173,16 @@ export default function MatchDetailScreen({ navigation, route }) {
                       : '';
                   const bonusType = LIVE_EVENT_BONUS_TYPES.has(ev.event_type) ? ev.event_type : null;
                   const iconEl = ev.event_type === 'shootout_goal' || ev.event_type === 'pre_shootout_goal' ? (
-                    <Ionicons name="checkmark-circle" size={28} color={isPreKick ? '#7c3aed' : '#198754'} />
+                    <Ionicons name="checkmark-circle" size={28} color="#198754" />
                   ) : ev.event_type === 'shootout_missed' || ev.event_type === 'pre_shootout_missed' ? (
-                    <Ionicons name="close-circle" size={28} color={isPreKick ? '#c026d3' : '#e53935'} />
+                    <Ionicons name="close-circle" size={28} color="#e53935" />
                   ) : bonusType ? (
                     <BonusIcon type={bonusType} size={16} />
                   ) : (
                     <MaterialCommunityIcons name="alert-circle-outline" size={16} color="#667eea" />
                   );
                   const phaseCtx = phaseContextForTimelineEvent(ev, match);
-                  const minuteEl = isPenaltySeriesKickEventType(ev.event_type) ? (
-                    isPreKick ? <Text style={styles.preShootoutKickTag}>SO</Text> : null
-                  ) : (
+                  const minuteEl = isPenaltySeriesKickEventType(ev.event_type) ? null : (
                     <Text style={styles.eventMinute}>{formatStoredEventMinuteLabel(ev.minute, phaseCtx, match)}</Text>
                   );
                   const playerEl = (
@@ -3203,7 +3213,6 @@ export default function MatchDetailScreen({ navigation, route }) {
                       style={[
                         styles.eventRow,
                         layoutHome ? styles.eventLeft : styles.eventRight,
-                        isPreKick && styles.preShootoutEventRow,
                       ]}
                     >
                       {layoutHome ? (
@@ -3417,12 +3426,12 @@ export default function MatchDetailScreen({ navigation, route }) {
                   </TouchableOpacity>
                 </View>
                 <ScrollView
-                  horizontal={!hasOnlyPhaseEditorTab}
+                  horizontal={!hasOnlyPhaseEditorTab && !hasOnlyPreShootoutEditorTab}
                   showsHorizontalScrollIndicator={false}
                   style={styles.editorTabScroll}
                   contentContainerStyle={[
                     styles.editorTabRow,
-                    (hasOnlyPhaseEditorTab || hasOnlyShootoutEditorTab) && styles.editorTabRowSingle,
+                    (hasOnlyPhaseEditorTab || hasOnlyPreShootoutEditorTab || hasOnlyShootoutEditorTab) && styles.editorTabRowSingle,
                   ]}
                 >
                   {!preMatchEditorMode && !forceShootoutOnlyEditorTabs ? (
@@ -3437,8 +3446,8 @@ export default function MatchDetailScreen({ navigation, route }) {
                     <TouchableOpacity
                       style={[
                         styles.editorTabBtn,
+                        hasOnlyPreShootoutEditorTab && styles.editorTabBtnSingle,
                         editorModalTab === 'preShootout' && styles.editorTabBtnActive,
-                        editorModalTab === 'preShootout' && styles.preShootoutTabBtnActive,
                       ]}
                       onPress={() => {
                         setEditorModalTab('preShootout');
@@ -3454,7 +3463,7 @@ export default function MatchDetailScreen({ navigation, route }) {
                       <Text style={[styles.editorTabBtnText, editorModalTab === 'preShootout' && styles.editorTabBtnTextActive]}>Shootout</Text>
                     </TouchableOpacity>
                   ) : null}
-                  {showPhaseEditorTab && !forceShootoutOnlyEditorTabs ? (
+                  {showPhaseEditorTab && !forceShootoutOnlyEditorTabs && !showPreShootoutEditorTab ? (
                     <TouchableOpacity
                       style={[styles.editorTabBtn, hasOnlyPhaseEditorTab && styles.editorTabBtnSingle, editorModalTab === 'phases' && styles.editorTabBtnActive]}
                       onPress={() => {
@@ -3701,17 +3710,6 @@ export default function MatchDetailScreen({ navigation, route }) {
                     </>
                   ) : editorModalTab === 'shootout' || editorModalTab === 'preShootout' ? (
                     <>
-                      {editorModalTab === 'preShootout' ? (
-                        <View style={styles.preShootoutProgressCard}>
-                          <Text style={styles.preShootoutProgressTitle}>Shootout pre-partita</Text>
-                          <Text style={styles.preShootoutProgressScore}>
-                            {match.home_team_name} {preShootoutState.homeGoals} - {preShootoutState.awayGoals} {match.away_team_name}
-                          </Text>
-                          <Text style={styles.preShootoutProgressMeta}>
-                            Tiri: Casa {preShootoutState.homeTaken}/{preShootoutRounds} · Ospiti {preShootoutState.awayTaken}/{preShootoutRounds}
-                          </Text>
-                        </View>
-                      ) : null}
                       <View style={styles.eventWizardTopBar}>
                         <Text style={styles.eventWizardStepText}>Step {shootoutWizardStep}/{shootoutWizardLastStep}</Text>
                         <View style={styles.eventWizardNavBtns}>
@@ -3779,7 +3777,7 @@ export default function MatchDetailScreen({ navigation, route }) {
                               <TableTeamLogo logoUrl={logoUrl} logoPath={logoPath} size={44} />
                               <Text style={[styles.eventTeamCardText, shootoutTeamSide === side && styles.eventTeamCardTextActive]}>{teamName}</Text>
                               {editorModalTab === 'preShootout' ? (
-                                <Text style={styles.preShootoutTeamCount}>
+                                <Text style={styles.shootoutTeamCount}>
                                   {side === 'home' ? preShootoutState.homeTaken : preShootoutState.awayTaken}/{preShootoutRounds}
                                 </Text>
                               ) : null}
@@ -3869,7 +3867,6 @@ export default function MatchDetailScreen({ navigation, route }) {
                                 (editorModalTab === 'preShootout'
                                   ? shootoutEventType === 'pre_shootout_goal'
                                   : shootoutEventType === 'shootout_goal') && styles.shootoutActionBtnActive,
-                                editorModalTab === 'preShootout' && styles.preShootoutActionBtn,
                               ]}
                               onPress={() => {
                                 setShootoutEventType(editorModalTab === 'preShootout' ? 'pre_shootout_goal' : 'shootout_goal');
@@ -3886,7 +3883,6 @@ export default function MatchDetailScreen({ navigation, route }) {
                                 (editorModalTab === 'preShootout'
                                   ? shootoutEventType === 'pre_shootout_missed'
                                   : shootoutEventType === 'shootout_missed') && styles.shootoutActionBtnActive,
-                                editorModalTab === 'preShootout' && styles.preShootoutActionBtnMissed,
                               ]}
                               onPress={() => {
                                 setShootoutEventType(editorModalTab === 'preShootout' ? 'pre_shootout_missed' : 'shootout_missed');
@@ -3923,11 +3919,7 @@ export default function MatchDetailScreen({ navigation, route }) {
                             </View>
                           </View>
                           <TouchableOpacity
-                            style={[
-                              styles.createEventBtn,
-                              editorModalTab === 'preShootout' && styles.preShootoutConfirmBtn,
-                              savingEvent && styles.actionBtnDisabled,
-                            ]}
+                            style={[styles.createEventBtn, savingEvent && styles.actionBtnDisabled]}
                             disabled={savingEvent}
                             onPress={() =>
                               editorModalTab === 'preShootout'
@@ -4843,6 +4835,14 @@ const styles = StyleSheet.create({
   countdown: { fontWeight: '800', color: '#667eea', fontSize: 18 },
   /** PT, FT, Fine partita al centro tra i loghi: nero come il minuto live. */
   heroStaticPtFt: { color: HERO_MINUTE_COLOR },
+  heroShootoutScoreLine: {
+    marginTop: 4,
+    fontSize: 15,
+    fontWeight: '800',
+    color: HERO_MINUTE_COLOR,
+    fontVariant: ['tabular-nums'],
+    letterSpacing: -0.2,
+  },
   kickoff: { color: '#666', marginTop: 4, fontSize: 13 },
   heroTimerEditRow: {
     flexDirection: 'row',
@@ -5206,6 +5206,7 @@ const styles = StyleSheet.create({
   eventTeamCardActive: { borderColor: '#16a34a', backgroundColor: '#f0fdf4' },
   eventTeamCardText: { color: '#334155', fontWeight: '800', fontSize: 13, textAlign: 'center' },
   eventTeamCardTextActive: { color: '#166534' },
+  eventTeamCardDisabled: { opacity: 0.45 },
   eventPlayersList: { gap: 3, marginTop: 1 },
   eventPlayerRow: {
     borderWidth: 1,
@@ -5464,53 +5465,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   shootoutEndMatchText: { color: '#fff', fontSize: 15, fontWeight: '800' },
-  preShootoutTabBtnActive: { borderColor: '#7c3aed', backgroundColor: '#f5f3ff' },
-  preShootoutProgressCard: {
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#ddd6fe',
-    backgroundColor: '#faf5ff',
-    padding: 14,
-    marginBottom: 12,
-  },
-  preShootoutProgressTitle: { color: '#6d28d9', fontSize: 12, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.4 },
-  preShootoutProgressScore: { color: '#4c1d95', fontSize: 18, fontWeight: '800', marginTop: 6 },
-  preShootoutProgressMeta: { color: '#7c3aed', fontSize: 12, fontWeight: '600', marginTop: 4 },
-  preShootoutTeamCount: { color: '#7c3aed', fontSize: 11, fontWeight: '700', marginTop: 2 },
-  eventTeamCardDisabled: { opacity: 0.45 },
-  preShootoutActionBtn: { borderColor: '#ddd6fe', backgroundColor: '#faf5ff' },
-  preShootoutActionBtnMissed: { borderColor: '#f5d0fe', backgroundColor: '#fdf4ff' },
-  preShootoutConfirmBtn: { backgroundColor: '#7c3aed' },
-  preShootoutBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    marginVertical: 10,
-    paddingHorizontal: 4,
-  },
-  preShootoutBannerLine: { flex: 1, height: 1, backgroundColor: '#c4b5fd' },
-  preShootoutBannerLabel: {
-    color: '#6d28d9',
-    fontSize: 12,
-    fontWeight: '800',
-    textTransform: 'uppercase',
-    letterSpacing: 0.3,
-    textAlign: 'center',
-    maxWidth: '72%',
-  },
-  preShootoutEventRow: {
-    backgroundColor: '#faf5ff',
-    borderRadius: 12,
-    paddingVertical: 4,
-    marginVertical: 2,
-  },
-  preShootoutKickTag: {
-    color: '#7c3aed',
-    fontSize: 11,
-    fontWeight: '800',
-    minWidth: 24,
-    textAlign: 'center',
-  },
+  shootoutTeamCount: { color: '#6b7280', fontSize: 11, fontWeight: '700', marginTop: 2 },
   livePhaseRow: {
     alignSelf: 'stretch',
     flexDirection: 'row',

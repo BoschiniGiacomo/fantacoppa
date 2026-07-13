@@ -20,6 +20,7 @@ import { EMPTY_OFFICIAL_KNOCKOUT, hasOfficialKnockoutBracket } from '../utils/kn
 import OfficialKnockoutBracket from '../components/OfficialKnockoutBracket';
 import { parseAppDate } from '../utils/dateTime';
 import { buildCompetitionRanks, formatCompetitionRank } from '../utils/standingsRanking';
+import { matchDisplayScoreParts } from '../utils/matchDisplayScore';
 
 const SEASON_YEAR_PICKER_MAX_HEIGHT = 180;
 const ABSOLUTE_STATS_KEY = 'absolute';
@@ -248,14 +249,10 @@ function computeMatchesListScrollOffset(targetIndex, layouts, viewportHeight) {
 
 const GroupMatchRow = React.memo(function GroupMatchRow({ match, onPress }) {
   const isTerminated = String(match?.last_phase_type || '').trim() === 'match_end';
-  const hs = match.home_score != null ? Number(match.home_score) : null;
-  const as = match.away_score != null ? Number(match.away_score) : null;
-  const hasScore = Number.isFinite(hs) && Number.isFinite(as);
-  const hps = match.home_shootout_score != null ? Number(match.home_shootout_score) : null;
-  const aps = match.away_shootout_score != null ? Number(match.away_shootout_score) : null;
-  const hasShootout = Number.isFinite(hps) && Number.isFinite(aps);
+  const scoreParts = matchDisplayScoreParts(match);
+  const hasScore = scoreParts.show;
   const statusText = getMatchStatusText(match);
-  const showShootoutStatus = isTerminated && hasShootout;
+  const showShootoutStatus = isTerminated && scoreParts.hasRig;
 
   return (
     <TouchableOpacity style={styles.matchRowCard} activeOpacity={0.75} onPress={() => onPress(match)}>
@@ -268,12 +265,12 @@ const GroupMatchRow = React.memo(function GroupMatchRow({ match, onPress }) {
           <View style={styles.matchTeamRow}>
             <TeamRowLogo logoUrl={match.home_team_logo_url} logoPath={match.home_team_logo_path} />
             <Text style={styles.matchTeamName} numberOfLines={1}>{match.home_team_name || '-'}</Text>
-            {hasScore ? <TeamMatchScore score={hs} shootoutScore={hasShootout ? hps : null} /> : null}
+            {hasScore ? <TeamMatchScore score={scoreParts.home} shootoutScore={scoreParts.hasRig ? scoreParts.rigHome : null} /> : null}
           </View>
           <View style={[styles.matchTeamRow, styles.matchTeamRowSecond]}>
             <TeamRowLogo logoUrl={match.away_team_logo_url} logoPath={match.away_team_logo_path} />
             <Text style={styles.matchTeamName} numberOfLines={1}>{match.away_team_name || '-'}</Text>
-            {hasScore ? <TeamMatchScore score={as} shootoutScore={hasShootout ? aps : null} /> : null}
+            {hasScore ? <TeamMatchScore score={scoreParts.away} shootoutScore={scoreParts.hasRig ? scoreParts.rigAway : null} /> : null}
           </View>
         </View>
         <View style={styles.matchMetaCol}>

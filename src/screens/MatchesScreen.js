@@ -18,6 +18,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { matchesService } from '../services/api';
+import { matchDisplayScoreParts } from '../utils/matchDisplayScore';
 import { fetchAndCacheStripTeams } from '../services/matchesStripPrefetch';
 import {
   peekStripTeamsMemory,
@@ -134,13 +135,8 @@ function MatchRowTimeArea({ match, tick, formatTimeFn }) {
 
 function MatchListMatchRow({ match, formatTimeFn, liveListTick, onPress, onToggleFavorite }) {
   const started = matchHasStartedForList(match);
-  const hs = Number(match.live_home_score);
-  const as = Number(match.live_away_score);
-  const homeScore = Number.isFinite(hs) ? hs : 0;
-  const awayScore = Number.isFinite(as) ? as : 0;
-  const hps = match.home_shootout_score != null ? Number(match.home_shootout_score) : null;
-  const aps = match.away_shootout_score != null ? Number(match.away_shootout_score) : null;
-  const hasShootout = Number.isFinite(hps) && Number.isFinite(aps);
+  const scoreParts = matchDisplayScoreParts(match);
+  const showScore = started || scoreParts.hasPre;
   return (
     <TouchableOpacity style={styles.matchRow} onPress={onPress} activeOpacity={0.7}>
       <View style={styles.teamsCol}>
@@ -152,13 +148,13 @@ function MatchListMatchRow({ match, formatTimeFn, liveListTick, onPress, onToggl
                 {match.home_team_name}
               </Text>
             </View>
-            {started ? (
+            {showScore ? (
               <View style={styles.teamScoreCol}>
-                <Text style={styles.teamScoreInRow}>{homeScore}</Text>
-                {hasShootout ? (
+                <Text style={styles.teamScoreInRow}>{scoreParts.home}</Text>
+                {scoreParts.hasRig ? (
                   <>
                     <View style={styles.teamShootoutDivider} />
-                    <Text style={styles.teamShootoutScoreInRow}>{hps}</Text>
+                    <Text style={styles.teamShootoutScoreInRow}>{scoreParts.rigHome}</Text>
                   </>
                 ) : null}
               </View>
@@ -173,13 +169,13 @@ function MatchListMatchRow({ match, formatTimeFn, liveListTick, onPress, onToggl
                 {match.away_team_name}
               </Text>
             </View>
-            {started ? (
+            {showScore ? (
               <View style={styles.teamScoreCol}>
-                <Text style={styles.teamScoreInRow}>{awayScore}</Text>
-                {hasShootout ? (
+                <Text style={styles.teamScoreInRow}>{scoreParts.away}</Text>
+                {scoreParts.hasRig ? (
                   <>
                     <View style={styles.teamShootoutDivider} />
-                    <Text style={styles.teamShootoutScoreInRow}>{aps}</Text>
+                    <Text style={styles.teamShootoutScoreInRow}>{scoreParts.rigAway}</Text>
                   </>
                 ) : null}
               </View>

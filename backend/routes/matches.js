@@ -169,6 +169,36 @@ const SQL_OFFICIAL_MATCH_AWAY_GOAL_POINT = `
         ELSE 0
       END`;
 
+const SQL_OFFICIAL_MATCH_HOME_PRE_SHOOTOUT_POINT = `
+      CASE
+        WHEN e.event_type = 'pre_shootout_goal' THEN
+          CASE LOWER(TRIM(COALESCE(e.team_side, '')))
+            WHEN 'home' THEN 1
+            WHEN 'away' THEN 0
+            ELSE CASE
+              WHEN e.team_id = om.home_team_id THEN 1
+              WHEN e.team_id = om.away_team_id THEN 0
+              ELSE 0
+            END
+          END
+        ELSE 0
+      END`;
+
+const SQL_OFFICIAL_MATCH_AWAY_PRE_SHOOTOUT_POINT = `
+      CASE
+        WHEN e.event_type = 'pre_shootout_goal' THEN
+          CASE LOWER(TRIM(COALESCE(e.team_side, '')))
+            WHEN 'home' THEN 0
+            WHEN 'away' THEN 1
+            ELSE CASE
+              WHEN e.team_id = om.home_team_id THEN 0
+              WHEN e.team_id = om.away_team_id THEN 1
+              ELSE 0
+            END
+          END
+        ELSE 0
+      END`;
+
 function parseBooleanishInt(value, fallback = 0) {
   if (value == null || value === '') return fallback ? 1 : 0;
   if (typeof value === 'boolean') return value ? 1 : 0;
@@ -1278,7 +1308,17 @@ async function buildKnockoutBracketForLeague({ competitionId, leagueId }) {
     (Array.isArray(evRows) ? evRows : []).forEach((e) => {
       const mid = Number(e.match_id);
       if (!liveScoreByMatch.has(mid)) {
-        liveScoreByMatch.set(mid, { home: 0, away: 0, homeShootout: 0, awayShootout: 0, hasEvents: false, hasShootout: false });
+        liveScoreByMatch.set(mid, {
+          home: 0,
+          away: 0,
+          homeShootout: 0,
+          awayShootout: 0,
+          homePreShootout: 0,
+          awayPreShootout: 0,
+          hasEvents: false,
+          hasShootout: false,
+          hasPreShootout: false,
+        });
       }
       const s = liveScoreByMatch.get(mid);
       s.hasEvents = true;
@@ -1297,6 +1337,17 @@ async function buildKnockoutBracketForLeague({ competitionId, leagueId }) {
         }
       } else if (e.event_type === 'shootout_missed') {
         s.hasShootout = true;
+      } else if (e.event_type === 'pre_shootout_goal') {
+        s.hasPreShootout = true;
+        if (byTeamId) {
+          if (evTeamId === teamRef.home_team_id) s.homePreShootout += 1;
+          if (evTeamId === teamRef.away_team_id) s.awayPreShootout += 1;
+        } else {
+          if (e.team_side === 'home') s.homePreShootout += 1;
+          if (e.team_side === 'away') s.awayPreShootout += 1;
+        }
+      } else if (e.event_type === 'pre_shootout_missed') {
+        s.hasPreShootout = true;
       } else if (isRegularGoalEventType(e.event_type)) {
         if (byTeamId) {
           if (evTeamId === teamRef.home_team_id) s.home += 1;
@@ -1323,6 +1374,8 @@ async function buildKnockoutBracketForLeague({ competitionId, leagueId }) {
     const as = live?.hasEvents ? Number(live.away) : (r.away_score != null ? Number(r.away_score) : null);
     const hps = live?.hasShootout ? Number(live.homeShootout) : null;
     const aps = live?.hasShootout ? Number(live.awayShootout) : null;
+    const hpps = live?.hasPreShootout ? Number(live.homePreShootout) : null;
+    const apps = live?.hasPreShootout ? Number(live.awayPreShootout) : null;
     const homeLogoPath = normalizeTeamLogoPathForApi(r?.home_team_logo_path);
     const awayLogoPath = normalizeTeamLogoPathForApi(r?.away_team_logo_path);
     return {
@@ -1342,6 +1395,8 @@ async function buildKnockoutBracketForLeague({ competitionId, leagueId }) {
       away_score: Number.isFinite(as) ? as : null,
       home_shootout_score: Number.isFinite(hps) && Number.isFinite(aps) ? hps : null,
       away_shootout_score: Number.isFinite(hps) && Number.isFinite(aps) ? aps : null,
+      home_pre_shootout_score: Number.isFinite(hpps) && Number.isFinite(apps) ? hpps : null,
+      away_pre_shootout_score: Number.isFinite(hpps) && Number.isFinite(apps) ? apps : null,
     };
   });
 
@@ -1442,10 +1497,13 @@ router.get('/matches', authenticateToken, async (req, res) => {
                 ) THEN 1
                 ELSE 0
               END)::int AS ev_away_shootout,
-          BOOL_OR(e.event_type IN ('shootout_goal','shootout_missed')) AS has_shootout
+          BOOL_OR(e.event_type IN ('shootout_goal','shootout_missed')) AS has_shootout,
+          SUM(${SQL_OFFICIAL_MATCH_HOME_PRE_SHOOTOUT_POINT})::int AS ev_home_pre_shootout,
+          SUM(${SQL_OFFICIAL_MATCH_AWAY_PRE_SHOOTOUT_POINT})::int AS ev_away_pre_shootout,
+          BOOL_OR(e.event_type IN ('pre_shootout_goal','pre_shootout_missed')) AS has_pre_shootout
         FROM official_match_events e
         JOIN official_matches om ON om.id = e.match_id
-        WHERE e.event_type IN ('goal','penalty_goal','own_goal','shootout_goal','shootout_missed')
+        WHERE e.event_type IN ('goal','penalty_goal','own_goal','shootout_goal','shootout_missed','pre_shootout_goal','pre_shootout_missed')
         GROUP BY e.match_id
       ),
       last_phase AS (
@@ -1508,6 +1566,8 @@ ${SQL_WALKOVER_MATCHES_CTE}
         COALESCE(evs.ev_away, m.away_score) AS live_away_score,
         CASE WHEN COALESCE(evs.has_shootout, false) THEN COALESCE(evs.ev_home_shootout, 0) ELSE NULL END AS home_shootout_score,
         CASE WHEN COALESCE(evs.has_shootout, false) THEN COALESCE(evs.ev_away_shootout, 0) ELSE NULL END AS away_shootout_score,
+        CASE WHEN COALESCE(evs.has_pre_shootout, false) THEN COALESCE(evs.ev_home_pre_shootout, 0) ELSE NULL END AS home_pre_shootout_score,
+        CASE WHEN COALESCE(evs.has_pre_shootout, false) THEN COALESCE(evs.ev_away_pre_shootout, 0) ELSE NULL END AS away_pre_shootout_score,
         COALESCE(fm.match_id IS NOT NULL, false) AS is_favorite_match,
         COALESCE(mn.enabled, 0) AS notifications_enabled,
         COALESCE(lp.last_phase_type, NULL) AS last_phase_type,
@@ -1824,10 +1884,13 @@ router.get('/matches/teams/:teamId/matches', authenticateToken, async (req, res)
                 ) THEN 1
                 ELSE 0
               END)::int AS ev_away_shootout,
-          BOOL_OR(e.event_type IN ('shootout_goal','shootout_missed')) AS has_shootout
+          BOOL_OR(e.event_type IN ('shootout_goal','shootout_missed')) AS has_shootout,
+          SUM(${SQL_OFFICIAL_MATCH_HOME_PRE_SHOOTOUT_POINT})::int AS ev_home_pre_shootout,
+          SUM(${SQL_OFFICIAL_MATCH_AWAY_PRE_SHOOTOUT_POINT})::int AS ev_away_pre_shootout,
+          BOOL_OR(e.event_type IN ('pre_shootout_goal','pre_shootout_missed')) AS has_pre_shootout
         FROM official_match_events e
         JOIN official_matches om ON om.id = e.match_id
-        WHERE e.event_type IN ('goal','penalty_goal','own_goal','shootout_goal','shootout_missed')
+        WHERE e.event_type IN ('goal','penalty_goal','own_goal','shootout_goal','shootout_missed','pre_shootout_goal','pre_shootout_missed')
         GROUP BY e.match_id
       ),
       last_phase AS (
@@ -1858,6 +1921,8 @@ ${SQL_WALKOVER_MATCHES_CTE}
         COALESCE(evs.ev_away, m.away_score, CASE WHEN lp.last_phase_type = 'match_end' THEN 0 END) AS away_score,
         CASE WHEN COALESCE(evs.has_shootout, false) THEN COALESCE(evs.ev_home_shootout, 0) ELSE NULL END AS home_shootout_score,
         CASE WHEN COALESCE(evs.has_shootout, false) THEN COALESCE(evs.ev_away_shootout, 0) ELSE NULL END AS away_shootout_score,
+        CASE WHEN COALESCE(evs.has_pre_shootout, false) THEN COALESCE(evs.ev_home_pre_shootout, 0) ELSE NULL END AS home_pre_shootout_score,
+        CASE WHEN COALESCE(evs.has_pre_shootout, false) THEN COALESCE(evs.ev_away_pre_shootout, 0) ELSE NULL END AS away_pre_shootout_score,
         lp.last_phase_type,
         COALESCE(wo.match_id IS NOT NULL, false) AS is_walkover
       FROM official_matches m
@@ -1898,6 +1963,8 @@ ${SQL_WALKOVER_MATCHES_CTE}
         away_score: r.away_score != null ? Number(r.away_score) : null,
         home_shootout_score: r.home_shootout_score != null ? Number(r.home_shootout_score) : null,
         away_shootout_score: r.away_shootout_score != null ? Number(r.away_shootout_score) : null,
+        home_pre_shootout_score: r.home_pre_shootout_score != null ? Number(r.home_pre_shootout_score) : null,
+        away_pre_shootout_score: r.away_pre_shootout_score != null ? Number(r.away_pre_shootout_score) : null,
         last_phase_type: r.last_phase_type || null,
         is_walkover: r.is_walkover === true || r.is_walkover === 1 ? 1 : 0,
       };
@@ -3390,6 +3457,8 @@ function mapOfficialGroupMatchRows(rows) {
       away_score: r.away_score != null ? Number(r.away_score) : null,
       home_shootout_score: r.home_shootout_score != null ? Number(r.home_shootout_score) : null,
       away_shootout_score: r.away_shootout_score != null ? Number(r.away_shootout_score) : null,
+      home_pre_shootout_score: r.home_pre_shootout_score != null ? Number(r.home_pre_shootout_score) : null,
+      away_pre_shootout_score: r.away_pre_shootout_score != null ? Number(r.away_pre_shootout_score) : null,
       last_phase_type: r.last_phase_type || null,
       is_walkover: r.is_walkover === true || r.is_walkover === 1 ? 1 : 0,
     };
@@ -3494,6 +3563,18 @@ async function queryOfficialGroupMatchesRows({ userId, groupId, kickoffYear = nu
       WHERE e.event_type IN ('shootout_goal','shootout_missed')
       GROUP BY e.match_id
     ),
+    pre_shootout_scores AS (
+      SELECT
+        e.match_id,
+        SUM(${SQL_OFFICIAL_MATCH_HOME_PRE_SHOOTOUT_POINT})::int AS ev_home_pre_shootout,
+        SUM(${SQL_OFFICIAL_MATCH_AWAY_PRE_SHOOTOUT_POINT})::int AS ev_away_pre_shootout,
+        BOOL_OR(e.event_type IN ('pre_shootout_goal','pre_shootout_missed')) AS has_pre_shootout
+      FROM official_match_events e
+      INNER JOIN official_matches om ON om.id = e.match_id
+      INNER JOIN scoped_matches sm ON sm.id = e.match_id
+      WHERE e.event_type IN ('pre_shootout_goal','pre_shootout_missed')
+      GROUP BY e.match_id
+    ),
     walkover_matches AS (
       SELECT wg.match_id
       FROM (
@@ -3538,6 +3619,8 @@ async function queryOfficialGroupMatchesRows({ userId, groupId, kickoffYear = nu
       COALESCE(evs.ev_away, m.away_score, CASE WHEN lp.last_phase_type = 'match_end' THEN 0 END) AS away_score,
       CASE WHEN COALESCE(so.has_shootout, false) THEN COALESCE(so.ev_home_shootout, 0) ELSE NULL END AS home_shootout_score,
       CASE WHEN COALESCE(so.has_shootout, false) THEN COALESCE(so.ev_away_shootout, 0) ELSE NULL END AS away_shootout_score,
+      CASE WHEN COALESCE(ps.has_pre_shootout, false) THEN COALESCE(ps.ev_home_pre_shootout, 0) ELSE NULL END AS home_pre_shootout_score,
+      CASE WHEN COALESCE(ps.has_pre_shootout, false) THEN COALESCE(ps.ev_away_pre_shootout, 0) ELSE NULL END AS away_pre_shootout_score,
       lp.last_phase_type,
       COALESCE(wo.match_id IS NOT NULL, false) AS is_walkover
     FROM official_matches m
@@ -3548,6 +3631,7 @@ async function queryOfficialGroupMatchesRows({ userId, groupId, kickoffYear = nu
     LEFT JOIN last_phase lp ON lp.match_id = m.id
     LEFT JOIN ev_scores evs ON evs.match_id = m.id
     LEFT JOIN shootout_scores so ON so.match_id = m.id
+    LEFT JOIN pre_shootout_scores ps ON ps.match_id = m.id
     LEFT JOIN walkover_matches wo ON wo.match_id = m.id
     ORDER BY m.kickoff_at ASC, m.id ASC
     `,

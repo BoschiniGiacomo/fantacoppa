@@ -1,6 +1,7 @@
 import React, { useCallback, useState } from 'react';
 import { View, Text, TouchableOpacity } from 'react-native';
 import { KNOCKOUT_BRACKET_LOGO_SIZE } from '../utils/knockoutBracket';
+import { matchDisplayScoreForSide } from '../utils/matchDisplayScore';
 
 export function hasKnockoutShootoutScore(matchRow) {
   return Number.isFinite(Number(matchRow?.home_shootout_score)) && Number.isFinite(Number(matchRow?.away_shootout_score));
@@ -25,13 +26,9 @@ function teamLegScore(leg, teamId) {
   const tid = Number(teamId);
   if (!Number.isFinite(tid) || tid <= 0) return { score: null, shootout: null };
   const isHome = Number(leg.home_team_id) === tid;
-  const scoreRaw = isHome ? leg.home_score : leg.away_score;
-  const shoRaw = isHome ? leg.home_shootout_score : leg.away_shootout_score;
-  const score = scoreRaw != null && Number.isFinite(Number(scoreRaw)) ? Number(scoreRaw) : null;
-  return {
-    score,
-    shootout: hasKnockoutShootoutScore(leg) ? shoRaw : null,
-  };
+  const side = isHome ? 'home' : 'away';
+  const { score, shootoutScore } = matchDisplayScoreForSide(leg, side);
+  return { score, shootout: shootoutScore };
 }
 
 function KnockoutScoreCell({ score, shootout, styles, onLayout }) {
@@ -45,11 +42,9 @@ function KnockoutScoreCell({ score, shootout, styles, onLayout }) {
 function KnockoutTeamRow({ match, side, styles, LogoComponent }) {
   const isHome = side === 'home';
   const name = isHome ? match?.home_team_name : match?.away_team_name;
-  const score = isHome ? match?.home_score : match?.away_score;
-  const shootout = isHome ? match?.home_shootout_score : match?.away_shootout_score;
+  const { score, shootoutScore } = matchDisplayScoreForSide(match, side);
   const logoUrl = isHome ? match?.home_team_logo_url : match?.away_team_logo_url;
   const logoPath = isHome ? match?.home_team_logo_path : match?.away_team_logo_path;
-  const hasShootout = hasKnockoutShootoutScore(match);
 
   return (
     <View style={styles.knockoutTeamBox}>
@@ -62,7 +57,7 @@ function KnockoutTeamRow({ match, side, styles, LogoComponent }) {
         <Text style={styles.knockoutTeamText} numberOfLines={1}>
           {name || '-'}
         </Text>
-        <KnockoutScoreCell score={score} shootout={hasShootout ? shootout : null} styles={styles} />
+        <KnockoutScoreCell score={score} shootout={shootoutScore} styles={styles} />
       </View>
     </View>
   );

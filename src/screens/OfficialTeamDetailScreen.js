@@ -22,6 +22,7 @@ import OfficialKnockoutBracket from '../components/OfficialKnockoutBracket';
 import OfficialTeamTrophyBoard from '../components/OfficialTeamTrophyBoard';
 import { parseAppDate } from '../utils/dateTime';
 import { buildCompetitionRanks, formatCompetitionRank } from '../utils/standingsRanking';
+import { matchDisplayScoreParts } from '../utils/matchDisplayScore';
 
 function TeamLogo({ logoUrl, logoPath }) {
   return (
@@ -915,20 +916,10 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
                     const previousMatchYear = idx > 0 ? getMatchYear(teamMatches[idx - 1]?.kickoff_at) : null;
                     const showYearDivider = matchYear != null && matchYear !== previousMatchYear;
                     const isTerminated = String(m?.last_phase_type || '').trim() === 'match_end';
-                    const hs =
-                      m.home_score != null
-                        ? Number(m.home_score)
-                        : null;
-                    const as =
-                      m.away_score != null
-                        ? Number(m.away_score)
-                        : null;
-                    const hasScore = Number.isFinite(hs) && Number.isFinite(as);
-                    const hps = m.home_shootout_score != null ? Number(m.home_shootout_score) : null;
-                    const aps = m.away_shootout_score != null ? Number(m.away_shootout_score) : null;
-                    const hasShootout = Number.isFinite(hps) && Number.isFinite(aps);
+                    const scoreParts = matchDisplayScoreParts(m);
+                    const hasScore = scoreParts.show;
                     const statusText = getMatchStatusText(m);
-                    const showShootoutStatus = isTerminated && hasShootout;
+                    const showShootoutStatus = isTerminated && scoreParts.hasRig;
                     const outcomeAccentColor = isTerminated ? getOutcomeAccentColor(m, teamName) : '#e2e8f0';
                     return (
                       <React.Fragment key={`team-match-wrap-${m.id}`}>
@@ -966,12 +957,12 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
                               <View style={styles.matchTeamRow}>
                                 <TeamRowLogo logoUrl={m.home_team_logo_url} logoPath={m.home_team_logo_path} />
                                 <Text style={styles.matchTeamName} numberOfLines={1}>{m.home_team_name || '-'}</Text>
-                                {hasScore ? <TeamMatchScore score={hs} shootoutScore={hasShootout ? hps : null} /> : null}
+                                {hasScore ? <TeamMatchScore score={scoreParts.home} shootoutScore={scoreParts.hasRig ? scoreParts.rigHome : null} /> : null}
                               </View>
                               <View style={[styles.matchTeamRow, styles.matchTeamRowSecond]}>
                                 <TeamRowLogo logoUrl={m.away_team_logo_url} logoPath={m.away_team_logo_path} />
                                 <Text style={styles.matchTeamName} numberOfLines={1}>{m.away_team_name || '-'}</Text>
-                                {hasScore ? <TeamMatchScore score={as} shootoutScore={hasShootout ? aps : null} /> : null}
+                                {hasScore ? <TeamMatchScore score={scoreParts.away} shootoutScore={scoreParts.hasRig ? scoreParts.rigAway : null} /> : null}
                               </View>
                             </View>
                             <View style={styles.matchMetaCol}>
