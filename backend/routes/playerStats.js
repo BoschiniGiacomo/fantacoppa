@@ -437,11 +437,23 @@ function resolveBirthYear(editions) {
   return null;
 }
 
+function mapEditionRow(row) {
+  const year = Number(row.reference_year);
+  return {
+    reference_year: Number.isFinite(year) && year > 0 ? Math.trunc(year) : null,
+    league_id: Number(row.league_id) || null,
+    player_id: Number(row.player_id) || null,
+    team_name: String(row.team_name || '').trim() || null,
+    league_name: String(row.league_name || '').trim() || null,
+  };
+}
+
 function buildPlayerOverviewPayload(editions, hasCluster, editionsPlayed, trophies = null) {
   const sorted = sortEditionsByYearDesc(editions);
   const latest = sorted[0];
   const visibleEditions = Number(editionsPlayed) || 0;
   const trophyCounts = trophies || { championships: 0, wine_trophies: 0 };
+  const editionPayload = sorted.map(mapEditionRow);
 
   if (!latest) {
     return {
@@ -452,6 +464,7 @@ function buildPlayerOverviewPayload(editions, hasCluster, editionsPlayed, trophi
       shirt_number: null,
       team: null,
       trophies: trophyCounts,
+      editions: editionPayload,
     };
   }
 
@@ -470,6 +483,7 @@ function buildPlayerOverviewPayload(editions, hasCluster, editionsPlayed, trophi
       logo_path: String(latest.team_logo_path || '').trim() || null,
     },
     trophies: trophyCounts,
+    editions: editionPayload,
   };
 }
 

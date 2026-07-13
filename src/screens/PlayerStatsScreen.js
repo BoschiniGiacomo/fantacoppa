@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -6,6 +6,8 @@ import {
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
+  Modal,
+  Pressable,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -35,10 +37,7 @@ const MAIN_TABS = [
   { key: 'fantacoppa', label: 'FantaCoppa' },
 ];
 
-const FANTA_SUB_TABS = [
-  { key: 'league', label: 'Lega' },
-  { key: 'total', label: 'Totali' },
-];
+const SEASON_YEAR_PICKER_MAX_HEIGHT = 180;
 
 const HERO_PHOTO_SIZE = 184;
 const HERO_PHOTO_RADIUS = 16;
@@ -66,6 +65,103 @@ function resolvePlayerDisplayName(playerInfo, playerName) {
     firstName: parts[0],
     lastName: parts.slice(1).join(' '),
   };
+}
+
+function editionKey(edition) {
+  return `${Number(edition?.player_id || 0)}-${Number(edition?.league_id || 0)}`;
+}
+
+function resolveDefaultEdition(editions, routePlayerId, routeLeagueId) {
+  const fallback = {
+    player_id: Number(routePlayerId),
+    league_id: Number(routeLeagueId),
+    reference_year: null,
+  };
+  if (!Array.isArray(editions) || !editions.length) return fallback;
+
+  const exact = editions.find(
+    (edition) => Number(edition.player_id) === Number(routePlayerId)
+      && Number(edition.league_id) === Number(routeLeagueId),
+  );
+  if (exact) return exact;
+
+  const byLeague = editions.find((edition) => Number(edition.league_id) === Number(routeLeagueId));
+  if (byLeague) return byLeague;
+
+  const byPlayer = editions.find((edition) => Number(edition.player_id) === Number(routePlayerId));
+  if (byPlayer) return byPlayer;
+
+  return editions[0];
+}
+
+function formatEditionYearLabel(edition) {
+  const year = Number(edition?.reference_year);
+  if (Number.isFinite(year) && year > 0) return String(Math.trunc(year));
+  const leagueName = String(edition?.league_name || '').trim();
+  return leagueName || '–';
+}
+
+function SeasonYearPickerMenu({ open, onClose, anchorRef, options, onSelectOption }) {
+  const [layout, setLayout] = useState(null);
+
+  useEffect(() => {
+    if (!open) {
+      setLayout(null);
+      return undefined;
+    }
+    let cancelled = false;
+    const measureAnchor = () => {
+      if (!anchorRef?.current) return;
+      anchorRef.current.measureInWindow((x, y, width, height) => {
+        if (cancelled) return;
+        setLayout({ left: x, top: y + height + 2, width: Math.max(width, 120) });
+      });
+    };
+    measureAnchor();
+    const retryTimer = setTimeout(measureAnchor, 64);
+    return () => {
+      cancelled = true;
+      clearTimeout(retryTimer);
+    };
+  }, [open, anchorRef, options.length]);
+
+  if (!open || !layout) return null;
+
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+      <View style={styles.seasonPickerModalRoot}>
+        <Pressable
+          style={styles.seasonPickerModalBackdrop}
+          onPress={onClose}
+          accessibilityRole="button"
+          accessibilityLabel="Chiudi selezione anno"
+        />
+        <View style={[styles.seasonPickerDropdownModal, { top: layout.top, left: layout.left, width: layout.width }]}>
+          <ScrollView
+            style={styles.seasonPickerDropdownScroll}
+            contentContainerStyle={styles.seasonPickerDropdownScrollContent}
+            showsVerticalScrollIndicator
+            keyboardShouldPersistTaps="handled"
+            bounces={false}
+            nestedScrollEnabled
+          >
+            {options.map((item) => (
+              <TouchableOpacity
+                key={item.key}
+                style={[styles.seasonPickerItem, item.active && styles.seasonPickerItemActive]}
+                onPress={() => onSelectOption(item)}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.seasonPickerItemText, item.active && styles.seasonPickerItemTextActive]}>
+                  {item.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
 }
 
 function EmptyTabPlaceholder({ icon, title, subtitle }) {
@@ -101,10 +197,40 @@ export default function PlayerStatsScreen({ route, navigation }) {
   const [hasOfficialGroup, setHasOfficialGroup] = useState(false);
   const [overview, setOverview] = useState(null);
   const [loadingOverview, setLoadingOverview] = useState(true);
+  const [selectedEditionKey, setSelectedEditionKey] = useState(null);
+  const [editionPickerOpen, setEditionPickerOpen] = useState(false);
   const [toastMsg, setToastMsg] = useState(null);
   const [photoPath, setPhotoPath] = useState(() => String(initialPlayerPhotoPath || '').trim());
+  const editionPickerAnchorRef = useRef(null);
+
+  const clusterEditions = useMemo(() => {
+    const editions = overview?.editions;
+    return Array.isArray(editions) ? editions : [];
+  }, [overview]);
+
+  const selectedEdition = useMemo(() => {
+    if (!clusterEditions.length) {
+      return resolveDefaultEdition([], playerId, leagueId);
+    }
+    const match = clusterEditions.find((edition) => editionKey(edition) === selectedEditionKey);
+    return match || clusterEditions[0];
+  }, [clusterEditions, selectedEditionKey, playerId, leagueId]);
+
+  const editionYearOptions = useMemo(
+    () => clusterEditions.map((edition) => ({
+      key: editionKey(edition),
+      label: formatEditionYearLabel(edition),
+      edition,
+      active: editionKey(edition) === editionKey(selectedEdition),
+    })),
+    [clusterEditions, selectedEdition],
+  );
+
+  const selectedEditionYearLabel = formatEditionYearLabel(selectedEdition);
+  const canPickEditionYear = editionYearOptions.length > 1;
 
   const playerInfo = leagueStats?.player;
+  const displayPlayerRole = String(playerInfo?.role || playerRole || '').trim().toUpperCase();
   const { firstName, lastName } = useMemo(
     () => resolvePlayerDisplayName(playerInfo, playerName),
     [playerInfo, playerName],
@@ -116,18 +242,46 @@ export default function PlayerStatsScreen({ route, navigation }) {
   };
 
   useEffect(() => {
-    loadLeagueStats();
     checkOfficialGroup();
     loadOverview();
   }, [playerId, leagueId]);
+
+  const loadEditionStats = async (editionPlayerId, editionLeagueId) => {
+    const targetPlayerId = Number(editionPlayerId);
+    const targetLeagueId = Number(editionLeagueId);
+    if (!targetPlayerId || !targetLeagueId) return;
+
+    try {
+      setLoadingLeague(true);
+      const response = await playerStatsService.getPlayerStats(targetPlayerId, targetLeagueId);
+      setLeagueStats(response.data);
+      if (response.data?.player?.photo_path) {
+        setPhotoPath((prev) => prev || String(response.data.player.photo_path || '').trim());
+      }
+    } catch (error) {
+      showToast('Impossibile caricare le statistiche del giocatore');
+      console.error(error);
+    } finally {
+      setLoadingLeague(false);
+    }
+  };
 
   const loadOverview = async () => {
     try {
       setLoadingOverview(true);
       const response = await playerStatsService.getPlayerOverview(playerId, leagueId);
-      setOverview(response.data?.overview || null);
+      const nextOverview = response.data?.overview || null;
+      setOverview(nextOverview);
+
+      const editions = Array.isArray(nextOverview?.editions) ? nextOverview.editions : [];
+      const defaultEdition = resolveDefaultEdition(editions, playerId, leagueId);
+      const defaultKey = editionKey(defaultEdition);
+      setSelectedEditionKey(defaultKey);
+      await loadEditionStats(defaultEdition.player_id, defaultEdition.league_id);
     } catch (error) {
       setOverview(null);
+      setSelectedEditionKey(editionKey({ player_id: playerId, league_id: leagueId }));
+      await loadEditionStats(playerId, leagueId);
       console.error(error);
     } finally {
       setLoadingOverview(false);
@@ -150,22 +304,25 @@ export default function PlayerStatsScreen({ route, navigation }) {
     }
   };
 
-  const loadLeagueStats = async () => {
-    try {
-      setLoadingLeague(true);
-      const response = await playerStatsService.getPlayerStats(playerId, leagueId);
-      setLeagueStats(response.data);
-      if (response.data?.player?.photo_path) {
-        setPhotoPath((prev) => prev || String(response.data.player.photo_path || '').trim());
-      }
-    } catch (error) {
-      showToast('Impossibile caricare le statistiche del giocatore');
-      console.error(error);
-    } finally {
-      setLoadingLeague(false);
-    }
+  const handleEditionYearSelect = (item) => {
+    setEditionPickerOpen(false);
+    setActiveFantaSubTab('league');
+    const edition = item?.edition;
+    if (!edition) return;
+
+    const nextKey = editionKey(edition);
+    if (nextKey === selectedEditionKey) return;
+
+    setSelectedEditionKey(nextKey);
+    loadEditionStats(edition.player_id, edition.league_id);
   };
 
+  const handleEditionSubTabPress = () => {
+    setActiveFantaSubTab('league');
+    if (canPickEditionYear) {
+      setEditionPickerOpen((open) => !open);
+    }
+  };
   const loadAggregatedStats = async () => {
     if (aggregatedStats) return;
     try {
@@ -182,6 +339,9 @@ export default function PlayerStatsScreen({ route, navigation }) {
   };
 
   const handleMainTabPress = (tabKey) => {
+    if (tabKey !== 'fantacoppa') {
+      setEditionPickerOpen(false);
+    }
     setActiveMainTab(tabKey);
     if (tabKey === 'fantacoppa' && activeFantaSubTab === 'total') {
       loadAggregatedStats();
@@ -189,6 +349,7 @@ export default function PlayerStatsScreen({ route, navigation }) {
   };
 
   const handleFantaSubTabPress = (subTabKey) => {
+    setEditionPickerOpen(false);
     setActiveFantaSubTab(subTabKey);
     if (subTabKey === 'total') {
       loadAggregatedStats();
@@ -316,7 +477,7 @@ export default function PlayerStatsScreen({ route, navigation }) {
           </View>
         </View>
 
-        {playerRole === 'P' && (
+        {displayPlayerRole === 'P' && (
           <View style={styles.card}>
             <Text style={styles.cardSectionTitle}>Statistiche Portiere</Text>
             <View style={styles.bmGrid}>
@@ -343,9 +504,9 @@ export default function PlayerStatsScreen({ route, navigation }) {
             {[
               { key: 'goal', value: v(s.total_goals), label: 'Goal' },
               { key: 'assist', value: v(s.total_assists), label: 'Assist' },
-              ...(playerRole !== 'P' && v(s.total_penalty_saved) > 0
+              ...(displayPlayerRole !== 'P' && v(s.total_penalty_saved) > 0
                 ? [{ key: 'penalty_saved', value: v(s.total_penalty_saved), label: 'Rig. parati' }] : []),
-              ...(playerRole !== 'P' && v(s.total_clean_sheets) > 0
+              ...(displayPlayerRole !== 'P' && v(s.total_clean_sheets) > 0
                 ? [{ key: 'clean_sheet', value: v(s.total_clean_sheets), label: 'Clean sheet' }] : []),
             ].map((item) => (
               <View key={item.key} style={styles.bmItem}>
@@ -367,7 +528,7 @@ export default function PlayerStatsScreen({ route, navigation }) {
               { key: 'red_card', value: v(s.total_red_cards), label: 'Rossi' },
               { key: 'own_goal', value: v(s.total_own_goals), label: 'Autogoal' },
               { key: 'penalty_missed', value: v(s.total_penalty_missed), label: 'Rig. sbagliati' },
-              ...(playerRole !== 'P' && v(s.total_goals_conceded) > 0
+              ...(displayPlayerRole !== 'P' && v(s.total_goals_conceded) > 0
                 ? [{ key: 'goals_conceded', value: v(s.total_goals_conceded), label: 'Goal subiti' }] : []),
             ].map((item) => (
               <View key={item.key} style={styles.bmItem}>
@@ -408,35 +569,68 @@ export default function PlayerStatsScreen({ route, navigation }) {
         return (
           <>
             <View style={styles.subTabBar}>
-              {FANTA_SUB_TABS.map((tab) => {
-                const isActive = activeFantaSubTab === tab.key;
-                const isDisabled = tab.key === 'total' && !hasOfficialGroup;
-                return (
-                  <TouchableOpacity
-                    key={tab.key}
+              <View
+                ref={editionPickerAnchorRef}
+                style={styles.subTabPickerWrap}
+                collapsable={false}
+              >
+                <TouchableOpacity
+                  style={[
+                    styles.subTabBtn,
+                    styles.subTabPickerBtn,
+                    activeFantaSubTab === 'league' && styles.subTabBtnActive,
+                  ]}
+                  onPress={handleEditionSubTabPress}
+                  activeOpacity={0.8}
+                >
+                  <Text
                     style={[
-                      styles.subTabBtn,
-                      isActive && styles.subTabBtnActive,
-                      isDisabled && styles.subTabBtnDisabled,
+                      styles.subTabText,
+                      activeFantaSubTab === 'league' && styles.subTabTextActive,
                     ]}
-                    onPress={() => {
-                      if (!isDisabled) handleFantaSubTabPress(tab.key);
-                    }}
-                    disabled={isDisabled}
-                    activeOpacity={0.8}
                   >
-                    <Text
-                      style={[
-                        styles.subTabText,
-                        isActive && !isDisabled && styles.subTabTextActive,
-                        isDisabled && styles.subTabTextDisabled,
-                      ]}
-                    >
-                      {tab.label}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
+                    {selectedEditionYearLabel}
+                  </Text>
+                  {canPickEditionYear && (
+                    <Ionicons
+                      name={editionPickerOpen ? 'chevron-up' : 'chevron-down'}
+                      size={14}
+                      color={activeFantaSubTab === 'league' ? '#667eea' : '#475569'}
+                      style={styles.subTabPickerIcon}
+                    />
+                  )}
+                </TouchableOpacity>
+                <SeasonYearPickerMenu
+                  open={editionPickerOpen}
+                  onClose={() => setEditionPickerOpen(false)}
+                  anchorRef={editionPickerAnchorRef}
+                  options={editionYearOptions}
+                  onSelectOption={handleEditionYearSelect}
+                />
+              </View>
+
+              <TouchableOpacity
+                style={[
+                  styles.subTabBtn,
+                  activeFantaSubTab === 'total' && styles.subTabBtnActive,
+                  !hasOfficialGroup && styles.subTabBtnDisabled,
+                ]}
+                onPress={() => {
+                  if (hasOfficialGroup) handleFantaSubTabPress('total');
+                }}
+                disabled={!hasOfficialGroup}
+                activeOpacity={0.8}
+              >
+                <Text
+                  style={[
+                    styles.subTabText,
+                    activeFantaSubTab === 'total' && hasOfficialGroup && styles.subTabTextActive,
+                    !hasOfficialGroup && styles.subTabTextDisabled,
+                  ]}
+                >
+                  Totali
+                </Text>
+              </TouchableOpacity>
             </View>
 
             {activeFantaSubTab === 'league' && renderStats(leagueStats?.stats, loadingLeague)}
@@ -687,6 +881,17 @@ const styles = StyleSheet.create({
     gap: 8,
     marginBottom: 14,
   },
+  subTabPickerWrap: {
+    flex: 1,
+    position: 'relative',
+  },
+  subTabPickerBtn: {
+    flexDirection: 'row',
+    gap: 4,
+  },
+  subTabPickerIcon: {
+    marginTop: 1,
+  },
   subTabBtn: {
     flex: 1,
     backgroundColor: '#fff',
@@ -716,6 +921,34 @@ const styles = StyleSheet.create({
   subTabTextDisabled: {
     color: '#94a3b8',
   },
+
+  seasonPickerModalRoot: { flex: 1 },
+  seasonPickerModalBackdrop: { ...StyleSheet.absoluteFillObject },
+  seasonPickerDropdownModal: {
+    position: 'absolute',
+    height: SEASON_YEAR_PICKER_MAX_HEIGHT,
+    borderWidth: 1,
+    borderColor: '#dbe3ef',
+    borderRadius: 10,
+    backgroundColor: '#fff',
+    overflow: 'hidden',
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+  },
+  seasonPickerDropdownScroll: { height: SEASON_YEAR_PICKER_MAX_HEIGHT },
+  seasonPickerDropdownScrollContent: { paddingBottom: 4 },
+  seasonPickerItem: {
+    paddingHorizontal: 8,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+  },
+  seasonPickerItemActive: { backgroundColor: '#eef2ff' },
+  seasonPickerItemText: { fontSize: 14, fontWeight: '600', color: '#334155' },
+  seasonPickerItemTextActive: { color: '#4f46e5', fontWeight: '700' },
 
   scroll: {
     flex: 1,
