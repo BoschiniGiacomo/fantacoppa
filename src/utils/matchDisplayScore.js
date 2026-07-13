@@ -66,6 +66,14 @@ export function combinePreShootoutWithRegular(regularHome, regularAway, preHome,
   };
 }
 
+export function matchOutcomeScoreParts(match) {
+  const parts = matchDisplayScoreParts(match);
+  if (parts.hasRig && parts.regHome === parts.regAway) {
+    return { home: parts.rigHome ?? 0, away: parts.rigAway ?? 0 };
+  }
+  return { home: parts.home, away: parts.away };
+}
+
 export function matchDisplayScoreForSide(match, side) {
   const parts = matchDisplayScoreParts(match);
   if (side === 'home') {

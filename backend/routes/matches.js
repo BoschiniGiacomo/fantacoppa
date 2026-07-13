@@ -974,6 +974,91 @@ function resolveOfficialMatchResultForStandings(m, evScore, isMatchEnded) {
   return { counted: false };
 }
 
+/** Esito partita per V/P/S e punti: reg+pre, oppure rigori se pareggio regolamentare. */
+function resolveOfficialMatchOutcome({
+  regHome,
+  regAway,
+  preHome = 0,
+  preAway = 0,
+  rigHome = 0,
+  rigAway = 0,
+  hasRig = false,
+}) {
+  const rh = Number(regHome) || 0;
+  const ra = Number(regAway) || 0;
+  if (hasRig && rh === ra) {
+    return { home: Number(rigHome) || 0, away: Number(rigAway) || 0 };
+  }
+  return { home: rh + (Number(preHome) || 0), away: ra + (Number(preAway) || 0) };
+}
+
+function tallyOfficialMatchEventScores(events, homeTeamId, awayTeamId) {
+  let homeGoals = 0;
+  let awayGoals = 0;
+  let homePreShootout = 0;
+  let awayPreShootout = 0;
+  let homeRig = 0;
+  let awayRig = 0;
+  let hasGoalEvents = false;
+  let hasRigEvents = false;
+  const homeId = Number(homeTeamId);
+  const awayId = Number(awayTeamId);
+
+  for (const e of events || []) {
+    const evTeamId = Number(e.team_id);
+    const byTeamId = Number.isFinite(evTeamId) && evTeamId > 0 && homeId > 0 && awayId > 0;
+    if (e.event_type === 'shootout_goal') {
+      hasRigEvents = true;
+      if (byTeamId) {
+        if (evTeamId === homeId) homeRig += 1;
+        if (evTeamId === awayId) awayRig += 1;
+      } else {
+        if (e.team_side === 'home') homeRig += 1;
+        if (e.team_side === 'away') awayRig += 1;
+      }
+    } else if (e.event_type === 'shootout_missed') {
+      hasRigEvents = true;
+    } else if (e.event_type === 'pre_shootout_goal') {
+      if (byTeamId) {
+        if (evTeamId === homeId) homePreShootout += 1;
+        if (evTeamId === awayId) awayPreShootout += 1;
+      } else {
+        if (e.team_side === 'home') homePreShootout += 1;
+        if (e.team_side === 'away') awayPreShootout += 1;
+      }
+    } else if (isRegularGoalEventType(e.event_type)) {
+      hasGoalEvents = true;
+      if (byTeamId) {
+        if (evTeamId === homeId) homeGoals += 1;
+        if (evTeamId === awayId) awayGoals += 1;
+      } else {
+        if (e.team_side === 'home') homeGoals += 1;
+        if (e.team_side === 'away') awayGoals += 1;
+      }
+    } else if (e.event_type === 'own_goal') {
+      hasGoalEvents = true;
+      if (byTeamId) {
+        if (evTeamId === homeId) awayGoals += 1;
+        if (evTeamId === awayId) homeGoals += 1;
+      } else {
+        if (e.team_side === 'home') awayGoals += 1;
+        if (e.team_side === 'away') homeGoals += 1;
+      }
+    }
+  }
+
+  return {
+    homeGoals,
+    awayGoals,
+    homePreShootout,
+    awayPreShootout,
+    homeRig,
+    awayRig,
+    hasGoalEvents,
+    hasRigEvents,
+  };
+}
+
 async function fetchMatchEndedIds(matchIds) {
   const ids = (Array.isArray(matchIds) ? matchIds : [])
     .map((id) => Number(id))
@@ -1048,7 +1133,11 @@ async function computeStandingsFromMatches({ leagueId, groupId, allowedTeamIds =
       `
       SELECT match_id, event_type, team_side, team_id
       FROM official_match_events
-      WHERE match_id IN (${ph}) AND event_type IN ('goal','penalty_goal','own_goal')
+      WHERE match_id IN (${ph}) AND event_type IN (
+        'goal','penalty_goal','own_goal',
+        'shootout_goal','shootout_missed',
+        'pre_shootout_goal','pre_shootout_missed'
+      )
       `,
       matchIds
     );
@@ -1066,30 +1155,17 @@ async function computeStandingsFromMatches({ leagueId, groupId, allowedTeamIds =
 
   const scoreFromEvents = (mid, homeTeamId, awayTeamId) => {
     const evs = eventsByMatch.get(mid) || [];
-    let h = 0;
-    let a = 0;
-    for (const e of evs) {
-      const evTeamId = Number(e.team_id);
-      const byTeamId = Number.isFinite(evTeamId) && evTeamId > 0 && homeTeamId > 0 && awayTeamId > 0;
-      if (isRegularGoalEventType(e.event_type)) {
-        if (byTeamId) {
-          if (evTeamId === homeTeamId) h += 1;
-          if (evTeamId === awayTeamId) a += 1;
-        } else {
-          if (e.team_side === 'home') h += 1;
-          if (e.team_side === 'away') a += 1;
-        }
-      } else if (e.event_type === 'own_goal') {
-        if (byTeamId) {
-          if (evTeamId === homeTeamId) a += 1;
-          if (evTeamId === awayTeamId) h += 1;
-        } else {
-          if (e.team_side === 'home') a += 1;
-          if (e.team_side === 'away') h += 1;
-        }
-      }
-    }
-    return { home: h, away: a, has: evs.length > 0 };
+    const tallied = tallyOfficialMatchEventScores(evs, homeTeamId, awayTeamId);
+    return {
+      home: tallied.homeGoals,
+      away: tallied.awayGoals,
+      has: tallied.hasGoalEvents,
+      preHome: tallied.homePreShootout,
+      preAway: tallied.awayPreShootout,
+      rigHome: tallied.homeRig,
+      rigAway: tallied.awayRig,
+      hasRig: tallied.hasRigEvents,
+    };
   };
 
   const playedMatches = [];
@@ -1100,10 +1176,19 @@ async function computeStandingsFromMatches({ leagueId, groupId, allowedTeamIds =
 
     const evScore = scoreFromEvents(Number(m.id), homeId, awayId);
     const resolved = resolveOfficialMatchResultForStandings(m, evScore, endedMatchIds.has(Number(m.id)));
-    if (!resolved.counted) continue; // non giocata / risultato non disponibile
-    const hs = resolved.home;
-    const as = resolved.away;
-    playedMatches.push({ homeId, awayId, hs, as });
+    if (!resolved.counted && !(evScore.preHome > 0 || evScore.preAway > 0) && !evScore.hasRig) continue;
+    const hs = resolved.counted ? resolved.home : 0;
+    const as = resolved.counted ? resolved.away : 0;
+    const outcome = resolveOfficialMatchOutcome({
+      regHome: hs,
+      regAway: as,
+      preHome: evScore.preHome,
+      preAway: evScore.preAway,
+      rigHome: evScore.rigHome,
+      rigAway: evScore.rigAway,
+      hasRig: evScore.hasRig,
+    });
+    playedMatches.push({ homeId, awayId, hs, as, outcomeHome: outcome.home, outcomeAway: outcome.away });
 
     const home = table.get(homeId);
     const away = table.get(awayId);
@@ -1114,8 +1199,8 @@ async function computeStandingsFromMatches({ leagueId, groupId, allowedTeamIds =
     away.gf += as;
     away.ga += hs;
 
-    if (hs > as) home.points += 3;
-    else if (hs < as) away.points += 3;
+    if (outcome.home > outcome.away) home.points += 3;
+    else if (outcome.home < outcome.away) away.points += 3;
     else {
       home.points += 1;
       away.points += 1;
@@ -2608,52 +2693,13 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
       if (!isHome && !isAway) continue;
 
       const events = evByMatch.get(Number(m.id)) || [];
-      let homeGoals = 0;
-      let awayGoals = 0;
-      let homeShootoutGoals = 0;
-      let awayShootoutGoals = 0;
-      let hasGoalEvents = false;
-      let hasShootoutEvents = false;
-      for (const e of events) {
-        const payload = safeJsonParse(e.payload_json) || {};
-        const evTeamId = Number(e.team_id) || Number(payload.team_id);
-        if (e.event_type === 'shootout_goal') {
-          hasShootoutEvents = true;
-          if (Number.isFinite(evTeamId) && evTeamId > 0) {
-            if (evTeamId === Number(m.home_team_id)) homeShootoutGoals += 1;
-            if (evTeamId === Number(m.away_team_id)) awayShootoutGoals += 1;
-          } else {
-            if (e.team_side === 'home') homeShootoutGoals += 1;
-            if (e.team_side === 'away') awayShootoutGoals += 1;
-          }
-        } else if (e.event_type === 'shootout_missed') {
-          hasShootoutEvents = true;
-        } else if (isRegularGoalEventType(e.event_type)) {
-          hasGoalEvents = true;
-          if (Number.isFinite(evTeamId) && evTeamId > 0) {
-            if (evTeamId === Number(m.home_team_id)) homeGoals += 1;
-            if (evTeamId === Number(m.away_team_id)) awayGoals += 1;
-          } else {
-            if (e.team_side === 'home') homeGoals += 1;
-            if (e.team_side === 'away') awayGoals += 1;
-          }
-        } else if (e.event_type === 'own_goal') {
-          hasGoalEvents = true;
-          if (Number.isFinite(evTeamId) && evTeamId > 0) {
-            if (evTeamId === Number(m.home_team_id)) awayGoals += 1;
-            if (evTeamId === Number(m.away_team_id)) homeGoals += 1;
-          } else {
-            if (e.team_side === 'home') awayGoals += 1;
-            if (e.team_side === 'away') homeGoals += 1;
-          }
-        }
-      }
-      const evScore = { has: hasGoalEvents, home: homeGoals, away: awayGoals };
+      const tallied = tallyOfficialMatchEventScores(events, m.home_team_id, m.away_team_id);
+      const evScore = { has: tallied.hasGoalEvents, home: tallied.homeGoals, away: tallied.awayGoals };
       const resolvedSeason = resolveOfficialMatchResultForStandings(m, evScore, seasonEndedMatchIds.has(Number(m.id)));
       let hs = resolvedSeason.counted ? resolvedSeason.home : null;
       let as = resolvedSeason.counted ? resolvedSeason.away : null;
-      if (hs == null && hasShootoutEvents) hs = 0;
-      if (as == null && hasShootoutEvents) as = 0;
+      if (hs == null && (tallied.hasRigEvents || tallied.homePreShootout > 0 || tallied.awayPreShootout > 0)) hs = 0;
+      if (as == null && (tallied.hasRigEvents || tallied.homePreShootout > 0 || tallied.awayPreShootout > 0)) as = 0;
 
       for (const e of events) {
         const payload = safeJsonParse(e.payload_json) || {};
@@ -2694,10 +2740,17 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
       const ga = isHome ? as : hs;
       goals += gf;
       goalsConceded += ga;
-      const outcomeHome = hs === as && hasShootoutEvents ? homeShootoutGoals : hs;
-      const outcomeAway = hs === as && hasShootoutEvents ? awayShootoutGoals : as;
-      const outcomeGf = isHome ? outcomeHome : outcomeAway;
-      const outcomeGa = isHome ? outcomeAway : outcomeHome;
+      const outcome = resolveOfficialMatchOutcome({
+        regHome: hs,
+        regAway: as,
+        preHome: tallied.homePreShootout,
+        preAway: tallied.awayPreShootout,
+        rigHome: tallied.homeRig,
+        rigAway: tallied.awayRig,
+        hasRig: tallied.hasRigEvents,
+      });
+      const outcomeGf = isHome ? outcome.home : outcome.away;
+      const outcomeGa = isHome ? outcome.away : outcome.home;
       if (outcomeGf > outcomeGa) wins += 1;
       else if (outcomeGf === outcomeGa) draws += 1;
       else losses += 1;

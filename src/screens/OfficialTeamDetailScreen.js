@@ -22,7 +22,7 @@ import OfficialKnockoutBracket from '../components/OfficialKnockoutBracket';
 import OfficialTeamTrophyBoard from '../components/OfficialTeamTrophyBoard';
 import { parseAppDate } from '../utils/dateTime';
 import { buildCompetitionRanks, formatCompetitionRank } from '../utils/standingsRanking';
-import { hasPostMatchShootoutListScore, matchDisplayScoreParts } from '../utils/matchDisplayScore';
+import { matchDisplayScoreParts, matchOutcomeScoreParts } from '../utils/matchDisplayScore';
 
 function TeamLogo({ logoUrl, logoPath }) {
   return (
@@ -198,14 +198,9 @@ function normalizeNameForCompare(v) {
 }
 
 function getOutcomeAccentColor(match, watchedTeamName) {
-  const hs = Number(match?.home_score);
-  const as = Number(match?.away_score);
-  if (!Number.isFinite(hs) || !Number.isFinite(as)) return '#cbd5e1';
-  const hasShootout = hasPostMatchShootoutListScore(match);
-  const hps = hasShootout ? Number(match.home_shootout_score) : null;
-  const aps = hasShootout ? Number(match.away_shootout_score) : null;
-  const outcomeHome = hs === as && hasShootout ? hps : hs;
-  const outcomeAway = hs === as && hasShootout ? aps : as;
+  const parts = matchDisplayScoreParts(match);
+  if (!parts.show) return '#cbd5e1';
+  const { home: outcomeHome, away: outcomeAway } = matchOutcomeScoreParts(match);
   const w = normalizeNameForCompare(watchedTeamName);
   const home = normalizeNameForCompare(match?.home_team_name);
   const away = normalizeNameForCompare(match?.away_team_name);
