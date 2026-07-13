@@ -19,6 +19,7 @@ import { TeamLogoImage, OfficialGroupLogoImage } from '../components/StableCache
 import { EMPTY_OFFICIAL_KNOCKOUT, hasOfficialKnockoutBracket } from '../utils/knockoutBracket';
 import OfficialKnockoutBracket from '../components/OfficialKnockoutBracket';
 import { parseAppDate } from '../utils/dateTime';
+import { buildCompetitionRanks, formatCompetitionRank } from '../utils/standingsRanking';
 
 const SEASON_YEAR_PICKER_MAX_HEIGHT = 180;
 const ABSOLUTE_STATS_KEY = 'absolute';
@@ -571,6 +572,7 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
     const canExpand = list.length > STATS_LEADERBOARD_PREVIEW;
     const expanded = !!statsLeaderboardExpanded[tableKey];
     const visible = !canExpand || expanded ? list : list.slice(0, STATS_LEADERBOARD_PREVIEW);
+    const ranks = buildCompetitionRanks(list);
     return (
       <View style={styles.statsTableWrap}>
         <View style={[styles.statsTableRow, styles.statsTableHeaderRow]}>
@@ -594,7 +596,7 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
               disabled={!canOpenPlayer}
               onPress={() => openPlayerFromStatsRow(s)}
             >
-              <Text style={[styles.statsTableCell, styles.statsTablePos]}>{i + 1}</Text>
+              <Text style={[styles.statsTableCell, styles.statsTablePos]}>{formatCompetitionRank(ranks[i])}</Text>
               <View style={styles.statsTablePlayerCol}>
                 <Text style={styles.statsTablePlayerName} numberOfLines={1} ellipsizeMode="tail">
                   {playerName}

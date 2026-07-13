@@ -17,6 +17,7 @@ import { FantasyTeamLogoImage, PlayerPhotoImage } from '../components/StableCach
 import MatchdayFormationPanel from '../components/MatchdayFormationPanel';
 import RankingFiltersBar from '../components/RankingFiltersBar';
 import { formatVoteRating } from '../utils/voteRating';
+import { buildCompetitionRanks, formatCompetitionRank } from '../utils/standingsRanking';
 
 const ROLE_COLORS = { P: '#0d6efd', D: '#198754', C: '#e6a817', A: '#dc3545' };
 const LIMIT_OPTIONS = [
@@ -167,11 +168,16 @@ function RankedListSection({
   onToggleTeam,
   onClearFilters,
   headerTrailing,
+  getRankingScore,
   renderRow,
 }) {
   const [filtersExpanded, setFiltersExpanded] = useState(false);
   const showSearch = limit === 'all';
   const hasItems = Array.isArray(items) && items.length > 0;
+  const ranks = useMemo(
+    () => buildCompetitionRanks(items, { getScore: getRankingScore }),
+    [items, getRankingScore]
+  );
   const hasActiveFilters = (selectedRoles?.length || 0) > 0 || (selectedTeamIds?.length || 0) > 0;
   const hasSearch = showSearch && String(searchQuery || '').trim().length > 0;
   const activeFilterCount = (selectedRoles?.length || 0) + (selectedTeamIds?.length || 0);
@@ -266,7 +272,7 @@ function RankedListSection({
       ) : null}
 
       {!loadingAll && hasItems
-        ? items.map((player, index) => renderRow(player, index))
+        ? items.map((player, index) => renderRow(player, index, ranks[index]))
         : null}
 
       {!loadingAll && !hasItems && hasSearch ? (
@@ -288,6 +294,7 @@ function PlayerRow({ rank, player, valueLabel, valueColor = '#667eea', valueHint
   const role = String(player?.role || '').trim().toUpperCase();
   const roleColor = ROLE_COLORS[role] || '#6c757d';
   const rankDigits = String(rank).length;
+  const rankLabel = formatCompetitionRank(rank);
   return (
     <View style={styles.playerRow}>
       <Text
@@ -300,7 +307,7 @@ function PlayerRow({ rank, player, valueLabel, valueColor = '#667eea', valueHint
         adjustsFontSizeToFit
         minimumFontScale={0.85}
       >
-        {rank}
+        {rankLabel}
       </Text>
       {player?.photo_path ? (
         <View style={styles.playerPhotoCol}>
@@ -673,6 +680,11 @@ export default function LeagueStatisticsScreen({ route }) {
           searchQuery={sectionSearch.best_purchases || ''}
           onSearchChange={(text) => setSectionSearch((prev) => ({ ...prev, best_purchases: text }))}
           {...getSectionFilterProps('best_purchases', 'best_purchases')}
+          getRankingScore={(player) => (
+            bestPurchasesUseCreditRatio
+              ? player?.value_ratio
+              : player?.total_fantavoto_sum
+          )}
           headerTrailing={(
             <BestPurchasesRatioHeaderControl
               active={bestPurchasesUseCreditRatio}
@@ -680,10 +692,10 @@ export default function LeagueStatisticsScreen({ route }) {
               onToggle={toggleBestPurchasesCreditRatio}
             />
           )}
-          renderRow={(player, index) => (
+          renderRow={(player, index, rank) => (
             <PlayerRow
               key={`buy-${player.player_id}-${index}`}
-              rank={index + 1}
+              rank={rank}
               player={player}
               valueLabel={bestPurchasesUseCreditRatio
                 ? Number(player.value_ratio || 0).toFixed(2)
@@ -708,10 +720,11 @@ export default function LeagueStatisticsScreen({ route }) {
           searchQuery={sectionSearch.most_purchased || ''}
           onSearchChange={(text) => setSectionSearch((prev) => ({ ...prev, most_purchased: text }))}
           {...getSectionFilterProps('most_purchased', 'most_purchased')}
-          renderRow={(player, index) => (
+          getRankingScore={(player) => player?.purchase_count}
+          renderRow={(player, index, rank) => (
             <PlayerRow
               key={`most-${player.player_id}-${index}`}
-              rank={index + 1}
+              rank={rank}
               player={player}
               valueLabel={`${player.purchase_count}`}
               valueColor="#667eea"
@@ -736,10 +749,11 @@ export default function LeagueStatisticsScreen({ route }) {
             searchQuery={sectionSearch.least_purchased || ''}
             onSearchChange={(text) => setSectionSearch((prev) => ({ ...prev, least_purchased: text }))}
             {...getSectionFilterProps('least_purchased', 'least_purchased')}
-            renderRow={(player, index) => (
+            getRankingScore={(player) => player?.purchase_count}
+            renderRow={(player, index, rank) => (
               <PlayerRow
                 key={`least-${player.player_id}-${index}`}
-                rank={index + 1}
+                rank={rank}
                 player={player}
                 valueLabel={`${player.purchase_count}`}
                 valueColor="#6c757d"
@@ -760,10 +774,11 @@ export default function LeagueStatisticsScreen({ route }) {
           searchQuery={sectionSearch.top_fantavoti || ''}
           onSearchChange={(text) => setSectionSearch((prev) => ({ ...prev, top_fantavoti: text }))}
           {...getSectionFilterProps('top_fantavoti', 'top_fantavoti')}
-          renderRow={(player, index) => (
+          getRankingScore={(player) => player?.fantavoto}
+          renderRow={(player, index, rank) => (
             <PlayerRow
               key={`top-${player.player_id}-${player.giornata}-${index}`}
-              rank={index + 1}
+              rank={rank}
               player={player}
               valueLabel={formatVoteRating(player.fantavoto)}
               valueColor="#2e7d32"
@@ -783,10 +798,11 @@ export default function LeagueStatisticsScreen({ route }) {
           searchQuery={sectionSearch.bottom_fantavoti || ''}
           onSearchChange={(text) => setSectionSearch((prev) => ({ ...prev, bottom_fantavoti: text }))}
           {...getSectionFilterProps('bottom_fantavoti', 'bottom_fantavoti')}
-          renderRow={(player, index) => (
+          getRankingScore={(player) => player?.fantavoto}
+          renderRow={(player, index, rank) => (
             <PlayerRow
               key={`bottom-${player.player_id}-${player.giornata}-${index}`}
-              rank={index + 1}
+              rank={rank}
               player={player}
               valueLabel={formatVoteRating(player.fantavoto)}
               valueColor="#c62828"

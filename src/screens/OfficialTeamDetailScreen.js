@@ -21,6 +21,7 @@ import { EMPTY_OFFICIAL_KNOCKOUT, hasOfficialKnockoutBracket } from '../utils/kn
 import OfficialKnockoutBracket from '../components/OfficialKnockoutBracket';
 import OfficialTeamTrophyBoard from '../components/OfficialTeamTrophyBoard';
 import { parseAppDate } from '../utils/dateTime';
+import { buildCompetitionRanks, formatCompetitionRank } from '../utils/standingsRanking';
 
 function TeamLogo({ logoUrl, logoPath }) {
   return (
@@ -557,15 +558,19 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
     const canExpand = list.length > STATS_LEADERBOARD_PREVIEW;
     const expanded = !!statsLeaderboardExpanded[tableKey];
     const visible = !canExpand || expanded ? list : list.slice(0, STATS_LEADERBOARD_PREVIEW);
+    const ranks = buildCompetitionRanks(list);
     return (
-      <>
+      <View style={styles.statsTableWrap}>
         <View style={[styles.statsTableRow, styles.statsTableHeaderRow]}>
           <Text style={[styles.statsTableCell, styles.statsTablePos, styles.statsTableHeaderCell]}>Pos.</Text>
           <Text style={[styles.statsTableCell, styles.statsTablePlayer, styles.statsTableHeaderCell]}>Giocatore</Text>
-          <Text style={[styles.statsTableCell, styles.statsTableValue, styles.statsTableHeaderCell]}>{valueLabel}</Text>
+          <Text style={[styles.statsTableCell, styles.statsTableValue, styles.statsTableHeaderCell]} numberOfLines={1}>
+            {valueLabel}
+          </Text>
         </View>
         {visible.map((s, i) => {
           const playerName = String(s?.name || '-');
+          const teamName = String(s?.team_name || '').trim();
           const playerId = Number(s?.player_id);
           const leagueId = Number(s?.league_id) || Number(statsSeasonLeagueId) || Number(teamSeasonLeagueId);
           const canOpenPlayer = playerId > 0 && leagueId > 0;
@@ -577,27 +582,30 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
               disabled={!canOpenPlayer}
               onPress={() => openPlayerFromStatsRow(s)}
             >
-              <Text style={[styles.statsTableCell, styles.statsTablePos]}>{i + 1}</Text>
-              <Text style={[styles.statsTableCell, styles.statsTablePlayer]} numberOfLines={1}>
-                {playerName}
-              </Text>
+              <Text style={[styles.statsTableCell, styles.statsTablePos]}>{formatCompetitionRank(ranks[i])}</Text>
+              <View style={styles.statsTablePlayerCol}>
+                <Text style={styles.statsTablePlayerName} numberOfLines={1} ellipsizeMode="tail">
+                  {playerName}
+                </Text>
+                {teamName ? (
+                  <Text style={styles.statsTablePlayerTeam} numberOfLines={2} ellipsizeMode="tail">
+                    {teamName}
+                  </Text>
+                ) : null}
+              </View>
               <Text style={[styles.statsTableCell, styles.statsTableValue]}>{Number(s?.value || 0)}</Text>
             </TouchableOpacity>
           );
         })}
         {canExpand ? (
-          <TouchableOpacity
-            style={styles.statsTableExpandBtn}
-            onPress={() => toggleStatsLeaderboard(tableKey)}
-            activeOpacity={0.7}
-          >
+          <TouchableOpacity style={styles.statsTableExpandBtn} onPress={() => toggleStatsLeaderboard(tableKey)} activeOpacity={0.7}>
             <Text style={styles.statsTableExpandText}>
               {expanded ? 'Mostra meno' : `Mostra tutti (${list.length})`}
             </Text>
             <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={16} color="#111827" />
           </TouchableOpacity>
         ) : null}
-      </>
+      </View>
     );
   };
 
@@ -1215,18 +1223,18 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
                   </View>
                 </View>
 
-                <View style={styles.statsBlock}>
-                  <Text style={styles.statsBlockTitle}>Marcatori</Text>
-                  {renderStatsLeaderboardTable(statsScorers, 'Goal', 'Nessun marcatore disponibile.', 'scorers')}
+                <View style={styles.statsLeaderboardBlock}>
+                  <Text style={styles.statsLeaderboardTitle}>Marcatori</Text>
+                  {renderStatsLeaderboardTable(statsScorers, 'Gol', 'Nessun marcatore disponibile.', 'scorers')}
                 </View>
 
-                <View style={styles.statsBlock}>
-                  <Text style={styles.statsBlockTitle}>Assistman</Text>
-                  {renderStatsLeaderboardTable(statsAssistmen, 'Assist', 'Nessun assist disponibile.', 'assistmen')}
+                <View style={styles.statsLeaderboardBlock}>
+                  <Text style={styles.statsLeaderboardTitle}>Assistman</Text>
+                  {renderStatsLeaderboardTable(statsAssistmen, 'Ass.', 'Nessun assist disponibile.', 'assistmen')}
                 </View>
 
-                <View style={styles.statsBlock}>
-                  <Text style={styles.statsBlockTitle}>Presenze</Text>
+                <View style={styles.statsLeaderboardBlock}>
+                  <Text style={styles.statsLeaderboardTitle}>Presenze</Text>
                   {renderStatsLeaderboardTable(
                     statsPresences,
                     'Pres.',
@@ -1822,7 +1830,7 @@ const styles = StyleSheet.create({
     fontWeight: '400',
     color: '#1f2937',
   },
-  statsListContent: { paddingBottom: 8, paddingTop: 2 },
+  statsListContent: { paddingBottom: 12 },
   statsBlock: {
     borderWidth: 1,
     borderColor: '#e5e7eb',
@@ -1838,6 +1846,8 @@ const styles = StyleSheet.create({
     color: '#334155',
     marginBottom: 4,
   },
+  statsLeaderboardBlock: { marginBottom: 18 },
+  statsLeaderboardTitle: { fontSize: 15, fontWeight: '800', color: '#1e293b', marginBottom: 8 },
   statsBlockSubtitle: {
     fontSize: 12,
     fontWeight: '500',
@@ -1871,55 +1881,33 @@ const styles = StyleSheet.create({
     color: '#0f172a',
     textAlign: 'right',
   },
+  statsTableWrap: {
+    width: '100%',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
   statsTableRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    paddingLeft: 8,
+    paddingRight: 8,
+    paddingVertical: 8,
     borderBottomWidth: 1,
     borderBottomColor: '#f1f5f9',
-    paddingVertical: 7,
   },
-  statsTableHeaderRow: {
-    borderBottomColor: '#e2e8f0',
-    paddingBottom: 8,
-    marginBottom: 2,
-  },
-  statsTableCell: {
-    fontSize: 13,
-    color: '#1f2937',
-  },
-  statsTableHeaderCell: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#475569',
-  },
-  statsTablePos: {
-    width: 34,
-  },
-  statsTablePlayer: {
-    flex: 1,
-    minWidth: 0,
-    paddingRight: 8,
-    fontWeight: '500',
-  },
-  statsTableValue: {
-    width: 46,
-    textAlign: 'right',
-    fontWeight: '700',
-  },
-  statsTableExpandBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingTop: 10,
-    paddingBottom: 4,
-    marginTop: 2,
-  },
-  statsTableExpandText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#111827',
-  },
+  statsTableHeaderRow: { backgroundColor: '#f8fafc', borderBottomColor: '#e5e7eb' },
+  statsTableHeaderCell: { fontWeight: '800', color: '#64748b', fontSize: 11 },
+  statsTableCell: { fontSize: 13, fontWeight: '600', color: '#1f2937' },
+  statsTablePos: { width: 34, marginRight: 10, textAlign: 'center', flexShrink: 0 },
+  statsTablePlayer: { flex: 1, minWidth: 0, flexShrink: 1 },
+  statsTablePlayerCol: { flex: 1, minWidth: 0, paddingRight: 2, flexShrink: 1 },
+  statsTablePlayerName: { fontSize: 13, fontWeight: '600', color: '#1f2937' },
+  statsTablePlayerTeam: { fontSize: 10, color: '#64748b', marginTop: 1 },
+  statsTableValue: { width: 44, minWidth: 44, textAlign: 'right', flexShrink: 0, fontWeight: '700' },
+  statsTableExpandBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 10, borderBottomWidth: 0 },
+  statsTableExpandText: { fontSize: 13, fontWeight: '700', color: '#111827' },
   placeholderTitle: { fontSize: 17, fontWeight: '800', color: '#222', marginBottom: 6 },
   placeholderText: { fontSize: 14, color: '#64748b' },
 });
