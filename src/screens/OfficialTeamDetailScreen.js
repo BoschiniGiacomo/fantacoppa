@@ -38,6 +38,18 @@ function TeamLogo({ logoUrl, logoPath }) {
 
 const SEASON_YEAR_PICKER_MAX_HEIGHT = 180;
 
+const OFFICIAL_TEAM_TABS = ['matches', 'season', 'stats', 'team', 'trophies'];
+
+function resolveRouteInitialTab(params) {
+  const tab = String(params?.initialTab || '').trim();
+  return OFFICIAL_TEAM_TABS.includes(tab) ? tab : null;
+}
+
+function resolveRouteInitialSeasonYear(params) {
+  const year = Number(params?.initialSeasonYear);
+  return Number.isFinite(year) && year > 0 ? Math.trunc(year) : null;
+}
+
 function SeasonYearPickerMenu({ open, onClose, anchorRef, options, onSelectOption }) {
   const [layout, setLayout] = useState(null);
 
@@ -300,7 +312,8 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
   const teamId = Number(route?.params?.teamId);
   const competitionId = Number(route?.params?.competitionId);
-  const [activeTab, setActiveTab] = useState('matches');
+  const routeInitialTab = resolveRouteInitialTab(route?.params);
+  const [activeTab, setActiveTab] = useState(routeInitialTab || 'matches');
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState(null);
   const [matchesLoading, setMatchesLoading] = useState(false);
@@ -455,10 +468,28 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
   );
 
   useEffect(() => {
+    const nextTab = resolveRouteInitialTab(route?.params);
+    const nextYear = resolveRouteInitialSeasonYear(route?.params);
+    if (!nextTab) return;
+
+    setActiveTab(nextTab);
+    if (nextTab === 'team' && nextYear != null) {
+      setSelectedTeamSeasonYear(nextYear);
+      void loadTeamSeasonSquad(nextYear);
+    }
+  }, [route?.params?.initialTab, route?.params?.initialSeasonYear, teamId, competitionId, loadTeamSeasonSquad]);
+
+  useEffect(() => {
     if (activeTab !== 'team') return;
+    if (
+      resolveRouteInitialTab(route?.params) === 'team'
+      && resolveRouteInitialSeasonYear(route?.params) != null
+    ) {
+      return;
+    }
     setTeamPickerOpen(false);
     void loadTeamSeasonSquad();
-  }, [activeTab, loadTeamSeasonSquad]);
+  }, [activeTab, loadTeamSeasonSquad, teamId, competitionId, route?.params?.initialTab, route?.params?.initialSeasonYear]);
 
   const loadTeamSeasonStats = useCallback(
     async (yearOverride = null) => {

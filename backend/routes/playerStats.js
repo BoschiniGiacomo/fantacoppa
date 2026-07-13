@@ -388,6 +388,7 @@ async function fetchPlayerEditionRows(playerIds) {
        NULLIF(to_jsonb(l)->>'reference_year','')::int AS reference_year,
        l.id AS league_id,
        l.name AS league_name,
+       l.official_group_id AS competition_id,
        t.id AS team_id,
        COALESCE(NULLIF(to_jsonb(t)->>'name',''), NULLIF(t.name,''), '') AS team_name,
        COALESCE(NULLIF(to_jsonb(t)->>'logo_path',''), NULLIF(t.logo_path, ''), '') AS team_logo_path
@@ -448,25 +449,11 @@ function mapEditionRow(row) {
   };
 }
 
-function formatCareerPeriod(referenceYear, isCurrent) {
-  const year = Number(referenceYear);
-  if (!Number.isFinite(year) || year <= 0) return '–';
-  const start = `Luglio ${Math.trunc(year)}`;
-  const end = isCurrent ? 'Ora' : `Giugno ${Math.trunc(year) + 1}`;
-  return `${start} - ${end}`;
-}
-
 async function fetchPlayerCareerHistory(playerId, leagueId) {
   const groupId = await resolveOfficialGroupId(leagueId);
   const clusterContext = await fetchClusterContext(playerId, groupId);
   const editions = await fetchPlayerEditionRows(clusterContext.playerIds);
   const sorted = sortEditionsByYearDesc(editions);
-
-  const maxYear = sorted.reduce((max, row) => {
-    const year = Number(row.reference_year);
-    if (!Number.isFinite(year) || year <= 0) return max;
-    return Math.max(max, Math.trunc(year));
-  }, 0);
 
   return Promise.all(
     sorted.map(async (row) => {
@@ -482,17 +469,16 @@ async function fetchPlayerCareerHistory(playerId, leagueId) {
 
       const refYear = Number(row.reference_year);
       const hasYear = Number.isFinite(refYear) && refYear > 0;
-      const isCurrent = hasYear && Math.trunc(refYear) === maxYear;
 
       return {
         team_id: Number(row.team_id) || null,
         team_name: String(row.team_name || '').trim() || null,
         team_logo_path: String(row.team_logo_path || '').trim() || null,
+        competition_id: Number(row.competition_id) || null,
         reference_year: hasYear ? Math.trunc(refYear) : null,
-        period_label: formatCareerPeriod(refYear, isCurrent),
-        is_current: isCurrent,
         appearances: Number(stats.games_played || 0),
         goals: Number(stats.total_goals || 0),
+        assists: Number(stats.total_assists || 0),
         player_id: editionPlayerId || null,
         league_id: editionLeagueId || null,
       };

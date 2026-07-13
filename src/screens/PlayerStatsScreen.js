@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -244,6 +244,7 @@ export default function PlayerStatsScreen({ route, navigation }) {
   };
 
   useEffect(() => {
+    setCareerHistory(null);
     checkOfficialGroup();
     loadOverview();
   }, [playerId, leagueId]);
@@ -376,6 +377,23 @@ export default function PlayerStatsScreen({ route, navigation }) {
       loadAggregatedStats();
     }
   };
+
+  const openCareerTeam = useCallback((entry) => {
+    const teamIdTarget = Number(entry?.team_id);
+    const competitionIdTarget = Number(entry?.competition_id);
+    const referenceYear = Number(entry?.reference_year);
+    if (!teamIdTarget || !competitionIdTarget) return;
+
+    navigation.navigate('OfficialTeamDetail', {
+      teamId: teamIdTarget,
+      competitionId: competitionIdTarget,
+      teamName: String(entry?.team_name || '').trim() || undefined,
+      initialTab: 'team',
+      initialSeasonYear: Number.isFinite(referenceYear) && referenceYear > 0
+        ? Math.trunc(referenceYear)
+        : undefined,
+    });
+  }, [navigation]);
 
   const formatOverviewValue = (value) => {
     if (value == null || value === '') return '–';
@@ -598,6 +616,9 @@ export default function PlayerStatsScreen({ route, navigation }) {
             <View style={styles.careerHeaderStatCol}>
               <MaterialCommunityIcons name="soccer" size={18} color="#94a3b8" />
             </View>
+            <View style={styles.careerHeaderStatCol}>
+              <MaterialCommunityIcons name="shoe-cleat" size={18} color="#94a3b8" />
+            </View>
           </View>
         </View>
 
@@ -606,33 +627,39 @@ export default function PlayerStatsScreen({ route, navigation }) {
         {entries.map((entry, index) => {
           const teamName = String(entry?.team_name || '').trim() || '–';
           const teamLogoPath = String(entry?.team_logo_path || '').trim();
-          const periodLabel = String(entry?.period_label || '–').trim() || '–';
           const appearances = Number(entry?.appearances || 0);
           const goals = Number(entry?.goals || 0);
+          const assists = Number(entry?.assists || 0);
+          const canOpenTeam = Number(entry?.team_id) > 0 && Number(entry?.competition_id) > 0;
           const rowKey = `${entry?.player_id || 0}-${entry?.league_id || 0}-${entry?.reference_year || index}`;
 
           return (
             <View key={rowKey}>
               <View style={styles.careerRow}>
-                <TeamLogoImage
-                  logoPath={teamLogoPath || undefined}
-                  style={styles.careerTeamLogo}
-                  fallbackStyle={styles.careerTeamLogoFallback}
-                  fallbackIconSize={18}
-                />
+                <TouchableOpacity
+                  style={styles.careerTeamPressable}
+                  activeOpacity={canOpenTeam ? 0.72 : 1}
+                  disabled={!canOpenTeam}
+                  onPress={() => openCareerTeam(entry)}
+                >
+                  <TeamLogoImage
+                    logoPath={teamLogoPath || undefined}
+                    style={styles.careerTeamLogo}
+                    fallbackStyle={styles.careerTeamLogoFallback}
+                    fallbackIconSize={18}
+                  />
 
-                <View style={styles.careerTeamInfo}>
-                  <Text style={styles.careerTeamName} numberOfLines={1}>
-                    {teamName}
-                  </Text>
-                  <Text style={styles.careerPeriod} numberOfLines={1}>
-                    {periodLabel}
-                  </Text>
-                </View>
+                  <View style={styles.careerTeamInfo}>
+                    <Text style={styles.careerTeamName} numberOfLines={1}>
+                      {teamName}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
 
                 <View style={styles.careerStats}>
                   <Text style={styles.careerStatValue}>{appearances}</Text>
                   <Text style={styles.careerStatValue}>{goals}</Text>
+                  <Text style={styles.careerStatValue}>{assists}</Text>
                 </View>
               </View>
               {index < entries.length - 1 ? <View style={styles.careerRowDivider} /> : null}
@@ -1275,6 +1302,13 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     gap: 12,
   },
+  careerTeamPressable: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
   careerTeamLogo: {
     width: 36,
     height: 36,
@@ -1290,17 +1324,12 @@ const styles = StyleSheet.create({
   careerTeamInfo: {
     flex: 1,
     minWidth: 0,
-    gap: 3,
+    justifyContent: 'center',
   },
   careerTeamName: {
     fontSize: 16,
     fontWeight: '700',
     color: '#1e293b',
-  },
-  careerPeriod: {
-    fontSize: 13,
-    color: '#94a3b8',
-    fontWeight: '500',
   },
   careerStats: {
     flexDirection: 'row',
