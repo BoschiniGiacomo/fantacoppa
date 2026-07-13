@@ -26,6 +26,8 @@ import { parseAppDate } from '../utils/dateTime';
 const OFFICIAL_MATCH_STAGE_GIRONI_ID = 1;
 
 const TOAST_DURATION_MS = 2400;
+const CREATE_MATCH_MODAL_MAX_HEIGHT_RATIO = 0.98;
+const CREATE_MATCH_MODAL_SCROLL_MAX_HEIGHT = Math.round(Dimensions.get('window').height * CREATE_MATCH_MODAL_MAX_HEIGHT_RATIO) - 28;
 
 function clampShootoutRoundsInput(raw) {
   const n = parseInt(String(raw), 10);
@@ -210,6 +212,8 @@ export default function ManageMatchesScreen() {
   const [refereeEditOriginal, setRefereeEditOriginal] = useState('');
   const [savingRefereeId, setSavingRefereeId] = useState(null);
   const mainScrollRef = useRef(null);
+  const createMatchScrollRef = useRef(null);
+  const editMatchScrollRef = useRef(null);
   const scrollContentRef = useRef(null);
   const refereeRowRefs = useRef({});
   const scrollYRef = useRef(0);
@@ -287,6 +291,22 @@ export default function ManageMatchesScreen() {
     matchDetailsOptions.venues,
     venue,
   ]);
+
+  useEffect(() => {
+    if (!showCreateTimingDetails) return;
+    const timer = setTimeout(() => {
+      createMatchScrollRef.current?.scrollToEnd({ animated: true });
+    }, 80);
+    return () => clearTimeout(timer);
+  }, [showCreateTimingDetails, createMatchStep]);
+
+  useEffect(() => {
+    if (!showEditTimingDetails) return;
+    const timer = setTimeout(() => {
+      editMatchScrollRef.current?.scrollToEnd({ animated: true });
+    }, 80);
+    return () => clearTimeout(timer);
+  }, [showEditTimingDetails, editMatchStep]);
 
   const filteredMatches = useMemo(() => {
     const competitionIdNum = Number(filterCompetitionId || 0);
@@ -1907,8 +1927,15 @@ export default function ManageMatchesScreen() {
           activeOpacity={1}
           onPress={() => setShowCreateMatchForm(false)}
         >
-          <TouchableOpacity activeOpacity={1} onPress={(e) => e.stopPropagation()} style={styles.createMatchModalBox}>
-            <ScrollView showsVerticalScrollIndicator={false}>
+          <View style={styles.createMatchModalBox} onStartShouldSetResponder={() => true}>
+            <ScrollView
+              ref={createMatchScrollRef}
+              style={styles.createMatchModalScroll}
+              contentContainerStyle={styles.createMatchModalScrollContent}
+              nestedScrollEnabled
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator
+            >
               <Text style={styles.sectionTitle}>Nuova partita</Text>
               <Text style={styles.muted}>Step {createMatchStep} di 4</Text>
 
@@ -2129,7 +2156,7 @@ export default function ManageMatchesScreen() {
                 ) : null}
                   </View>
             </ScrollView>
-          </TouchableOpacity>
+          </View>
         </TouchableOpacity>
       </Modal>
       <Modal
@@ -2139,8 +2166,15 @@ export default function ManageMatchesScreen() {
         onRequestClose={cancelEdit}
       >
         <TouchableOpacity style={styles.confirmOverlay} activeOpacity={1} onPress={cancelEdit}>
-          <TouchableOpacity activeOpacity={1} onPress={(e) => e.stopPropagation()} style={styles.createMatchModalBox}>
-            <ScrollView showsVerticalScrollIndicator={false}>
+          <View style={styles.createMatchModalBox} onStartShouldSetResponder={() => true}>
+            <ScrollView
+              ref={editMatchScrollRef}
+              style={styles.createMatchModalScroll}
+              contentContainerStyle={styles.createMatchModalScrollContent}
+              nestedScrollEnabled
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator
+            >
               <Text style={styles.sectionTitle}>Modifica partita</Text>
               <Text style={styles.muted}>Step {editMatchStep} di 4</Text>
 
@@ -2363,8 +2397,8 @@ export default function ManageMatchesScreen() {
             ) : null}
               </View>
             </ScrollView>
-                          </TouchableOpacity>
-                          </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
       </Modal>
       {showKickoffPicker ? (
         <DateTimePicker
@@ -2835,12 +2869,19 @@ const styles = StyleSheet.create({
   },
   createMatchModalBox: {
     width: '100%',
-    maxHeight: '90%',
+    maxHeight: '98%',
     backgroundColor: '#fff',
     borderRadius: 14,
     padding: 14,
     borderWidth: 1,
     borderColor: '#e5e7eb',
+    overflow: 'hidden',
+  },
+  createMatchModalScroll: {
+    maxHeight: CREATE_MATCH_MODAL_SCROLL_MAX_HEIGHT,
+  },
+  createMatchModalScrollContent: {
+    paddingBottom: 12,
   },
   confirmTitle: { fontSize: 18, fontWeight: '700', color: '#222', marginBottom: 8 },
   confirmMessage: { fontSize: 14, color: '#555' },
