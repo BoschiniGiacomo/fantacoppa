@@ -544,8 +544,8 @@ export default function PlayerStatsScreen({ route, navigation }) {
       </View>
 
       {showAbsoluteRanksCard ? (
-        <View style={styles.card}>
-          <Text style={styles.cardSectionTitle}>All time</Text>
+        <View style={[styles.card, styles.overviewAllTimeCard]}>
+          <Text style={[styles.cardSectionTitle, styles.overviewAllTimeTitle]}>All time</Text>
           {loadingAbsoluteRanks ? (
             <View style={styles.overviewRanksLoading}>
               <ActivityIndicator size="small" color="#667eea" />
@@ -1230,6 +1230,14 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
     marginBottom: 14,
   },
+  overviewAllTimeCard: {
+    paddingTop: 10,
+    paddingBottom: 10,
+  },
+  overviewAllTimeTitle: {
+    textAlign: 'center',
+    marginBottom: 8,
+  },
   tileRow: {
     flexDirection: 'row',
     alignItems: 'stretch',
@@ -1359,7 +1367,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   overviewRanksLoading: {
-    paddingVertical: 18,
+    paddingVertical: 10,
     alignItems: 'center',
     justifyContent: 'center',
   },
