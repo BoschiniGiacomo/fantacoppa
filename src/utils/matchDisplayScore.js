@@ -1,15 +1,21 @@
 /** Pre-partita shootout: somma al punteggio mostrato, non alle statistiche. */
 
+function finiteShootoutSideScore(raw) {
+  if (raw == null) return null;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
 export function hasPreShootoutListScore(match) {
-  const h = Number(match?.home_pre_shootout_score);
-  const a = Number(match?.away_pre_shootout_score);
-  return Number.isFinite(h) && Number.isFinite(a);
+  const h = finiteShootoutSideScore(match?.home_pre_shootout_score);
+  const a = finiteShootoutSideScore(match?.away_pre_shootout_score);
+  return h != null && a != null;
 }
 
 export function hasPostMatchShootoutListScore(match) {
-  const h = Number(match?.home_shootout_score);
-  const a = Number(match?.away_shootout_score);
-  return Number.isFinite(h) && Number.isFinite(a);
+  const h = finiteShootoutSideScore(match?.home_shootout_score);
+  const a = finiteShootoutSideScore(match?.away_shootout_score);
+  return h != null && a != null;
 }
 
 function regularListScore(match) {

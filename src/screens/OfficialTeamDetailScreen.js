@@ -22,7 +22,7 @@ import OfficialKnockoutBracket from '../components/OfficialKnockoutBracket';
 import OfficialTeamTrophyBoard from '../components/OfficialTeamTrophyBoard';
 import { parseAppDate } from '../utils/dateTime';
 import { buildCompetitionRanks, formatCompetitionRank } from '../utils/standingsRanking';
-import { matchDisplayScoreParts } from '../utils/matchDisplayScore';
+import { hasPostMatchShootoutListScore, matchDisplayScoreParts } from '../utils/matchDisplayScore';
 
 function TeamLogo({ logoUrl, logoPath }) {
   return (
@@ -201,9 +201,9 @@ function getOutcomeAccentColor(match, watchedTeamName) {
   const hs = Number(match?.home_score);
   const as = Number(match?.away_score);
   if (!Number.isFinite(hs) || !Number.isFinite(as)) return '#cbd5e1';
-  const hps = Number(match?.home_shootout_score);
-  const aps = Number(match?.away_shootout_score);
-  const hasShootout = Number.isFinite(hps) && Number.isFinite(aps);
+  const hasShootout = hasPostMatchShootoutListScore(match);
+  const hps = hasShootout ? Number(match.home_shootout_score) : null;
+  const aps = hasShootout ? Number(match.away_shootout_score) : null;
   const outcomeHome = hs === as && hasShootout ? hps : hs;
   const outcomeAway = hs === as && hasShootout ? aps : as;
   const w = normalizeNameForCompare(watchedTeamName);

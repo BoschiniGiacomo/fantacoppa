@@ -1,10 +1,10 @@
 import React, { useCallback, useState } from 'react';
 import { View, Text, TouchableOpacity } from 'react-native';
 import { KNOCKOUT_BRACKET_LOGO_SIZE } from '../utils/knockoutBracket';
-import { matchDisplayScoreForSide } from '../utils/matchDisplayScore';
+import { hasPostMatchShootoutListScore, matchDisplayScoreForSide } from '../utils/matchDisplayScore';
 
 export function hasKnockoutShootoutScore(matchRow) {
-  return Number.isFinite(Number(matchRow?.home_shootout_score)) && Number.isFinite(Number(matchRow?.away_shootout_score));
+  return hasPostMatchShootoutListScore(matchRow);
 }
 
 export function KnockoutScoreText({ score, shootoutScore, styles }) {
