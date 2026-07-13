@@ -182,6 +182,16 @@ function EmptyTabPlaceholder({ icon, title, subtitle }) {
   );
 }
 
+function TileSplitRow({ left, right }) {
+  return (
+    <View style={styles.tileRow}>
+      <View style={styles.tile}>{left}</View>
+      <View style={styles.tileDivider} />
+      <View style={styles.tile}>{right}</View>
+    </View>
+  );
+}
+
 export default function PlayerStatsScreen({ route, navigation }) {
   const {
     playerId,
@@ -210,6 +220,7 @@ export default function PlayerStatsScreen({ route, navigation }) {
   const [toastMsg, setToastMsg] = useState(null);
   const [photoPath, setPhotoPath] = useState(() => String(initialPlayerPhotoPath || '').trim());
   const editionPickerAnchorRef = useRef(null);
+  const mainScrollRef = useRef(null);
 
   const clusterEditions = useMemo(() => {
     const editions = overview?.editions;
@@ -368,6 +379,7 @@ export default function PlayerStatsScreen({ route, navigation }) {
       setEditionPickerOpen(false);
     }
     setActiveMainTab(tabKey);
+    mainScrollRef.current?.scrollTo({ y: 0, animated: false });
     if (tabKey === 'fantacoppa' && activeFantaSubTab === 'total') {
       loadAggregatedStats();
     }
@@ -431,37 +443,45 @@ export default function PlayerStatsScreen({ route, navigation }) {
 
     const teamName = String(overview.team?.name || '').trim() || '–';
     const teamLogoPath = String(overview.team?.logo_path || '').trim();
+    const roleLabel = formatOverviewRole(overview.role);
+    const roleFontSize = roleLabel.length > 14 ? 17 : roleLabel.length > 11 ? 19 : 22;
 
     return (
       <View style={styles.card}>
-        <View style={styles.tileRow}>
-          <View style={styles.tile}>
-            <Text style={styles.tileValue}>{formatOverviewValue(overview.birth_year)}</Text>
-            <Text style={styles.tileLabel}>Anno</Text>
-          </View>
-          <View style={[styles.tile, styles.tileRight]}>
-            <Text
-              style={styles.tileValueRole}
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.6}
-            >
-              {formatOverviewRole(overview.role)}
-            </Text>
-            <Text style={styles.tileLabel}>Ruolo</Text>
-          </View>
-        </View>
+        <TileSplitRow
+          left={(
+            <>
+              <Text style={styles.tileValue}>{formatOverviewValue(overview.birth_year)}</Text>
+              <Text style={styles.tileLabel}>Anno</Text>
+            </>
+          )}
+          right={(
+            <>
+              <Text
+                style={[styles.tileValueRole, { fontSize: roleFontSize }]}
+                numberOfLines={1}
+              >
+                {roleLabel}
+              </Text>
+              <Text style={styles.tileLabel}>Ruolo</Text>
+            </>
+          )}
+        />
         <View style={styles.divider} />
-        <View style={styles.tileRow}>
-          <View style={styles.tile}>
-            <Text style={styles.tileValue}>{formatOverviewValue(overview.shirt_number)}</Text>
-            <Text style={styles.tileLabel}>Numero</Text>
-          </View>
-          <View style={[styles.tile, styles.tileRight]}>
-            <Text style={styles.tileValue}>{formatOverviewValue(overview.editions_played)}</Text>
-            <Text style={styles.tileLabel}>Edizioni giocate</Text>
-          </View>
-        </View>
+        <TileSplitRow
+          left={(
+            <>
+              <Text style={styles.tileValue}>{formatOverviewValue(overview.shirt_number)}</Text>
+              <Text style={styles.tileLabel}>Numero</Text>
+            </>
+          )}
+          right={(
+            <>
+              <Text style={styles.tileValue}>{formatOverviewValue(overview.editions_played)}</Text>
+              <Text style={styles.tileLabel}>Edizioni giocate</Text>
+            </>
+          )}
+        />
         <View style={styles.divider} />
         <View style={styles.tileRow}>
           <View style={[styles.tile, styles.tileFull]}>
@@ -499,27 +519,35 @@ export default function PlayerStatsScreen({ route, navigation }) {
       <View>
         <View style={styles.card}>
           <Text style={styles.cardSectionTitle}>Rendimento</Text>
-          <View style={styles.tileRow}>
-            <View style={styles.tile}>
-              <Text style={styles.tileValue}>{v(s.avg_rating).toFixed(2)}</Text>
-              <Text style={styles.tileLabel}>Media Voto</Text>
-            </View>
-            <View style={[styles.tile, styles.tileRight]}>
-              <Text style={[styles.tileValue, { color: '#667eea' }]}>{v(s.avg_rating_with_bonus).toFixed(2)}</Text>
-              <Text style={styles.tileLabel}>Media con Bonus</Text>
-            </View>
-          </View>
+          <TileSplitRow
+            left={(
+              <>
+                <Text style={styles.tileValue}>{v(s.avg_rating).toFixed(2)}</Text>
+                <Text style={styles.tileLabel}>Media Voto</Text>
+              </>
+            )}
+            right={(
+              <>
+                <Text style={[styles.tileValue, { color: '#667eea' }]}>{v(s.avg_rating_with_bonus).toFixed(2)}</Text>
+                <Text style={styles.tileLabel}>Media con Bonus</Text>
+              </>
+            )}
+          />
           <View style={styles.divider} />
-          <View style={styles.tileRow}>
-            <View style={styles.tile}>
-              <Text style={styles.tileValue}>{v(s.games_played)}</Text>
-              <Text style={styles.tileLabel}>Presenze</Text>
-            </View>
-            <View style={[styles.tile, styles.tileRight]}>
-              <Text style={styles.tileValue}>{v(s.games_with_rating)}</Text>
-              <Text style={styles.tileLabel}>Con Voto</Text>
-            </View>
-          </View>
+          <TileSplitRow
+            left={(
+              <>
+                <Text style={styles.tileValue}>{v(s.games_played)}</Text>
+                <Text style={styles.tileLabel}>Presenze</Text>
+              </>
+            )}
+            right={(
+              <>
+                <Text style={styles.tileValue}>{v(s.games_with_rating)}</Text>
+                <Text style={styles.tileLabel}>Con Voto</Text>
+              </>
+            )}
+          />
         </View>
 
         {displayPlayerRole === 'P' && (
@@ -611,6 +639,15 @@ export default function PlayerStatsScreen({ route, navigation }) {
       );
     }
 
+    const careerTotals = entries.reduce(
+      (acc, entry) => ({
+        appearances: acc.appearances + Number(entry?.appearances || 0),
+        goals: acc.goals + Number(entry?.goals || 0),
+        assists: acc.assists + Number(entry?.assists || 0),
+      }),
+      { appearances: 0, goals: 0, assists: 0 },
+    );
+
     return (
       <View style={styles.careerCard}>
         <View style={styles.careerHeader}>
@@ -678,6 +715,18 @@ export default function PlayerStatsScreen({ route, navigation }) {
             </View>
           );
         })}
+
+        <View style={styles.careerTotalsDivider} />
+        <View style={styles.careerTotalsRow}>
+          <View style={styles.careerTotalsLabelWrap}>
+            <Text style={styles.careerTotalsLabel}>Totali</Text>
+          </View>
+          <View style={styles.careerStats}>
+            <Text style={styles.careerStatTotal}>{careerTotals.appearances}</Text>
+            <Text style={styles.careerStatTotal}>{careerTotals.goals}</Text>
+            <Text style={styles.careerStatTotal}>{careerTotals.assists}</Text>
+          </View>
+        </View>
       </View>
     );
   };
@@ -867,6 +916,7 @@ export default function PlayerStatsScreen({ route, navigation }) {
       </ScrollView>
 
       <ScrollView
+        ref={mainScrollRef}
         style={styles.scroll}
         contentContainerStyle={[styles.scrollContent, { paddingBottom: 40 + insets.bottom }]}
       >
@@ -1117,9 +1167,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 4,
   },
-  tileRight: {
-    borderLeftWidth: 1,
-    borderLeftColor: '#eee',
+  tileDivider: {
+    width: 1,
+    alignSelf: 'stretch',
+    backgroundColor: '#eee',
   },
   tileValue: {
     fontSize: 22,
@@ -1289,33 +1340,34 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     minWidth: 0,
     marginRight: 8,
-    fontSize: 11,
+    fontSize: 13,
     fontWeight: '700',
     color: '#999',
     textTransform: 'uppercase',
-    letterSpacing: 0.25,
+    letterSpacing: 0.5,
   },
   careerHeaderStats: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 20,
+    gap: 8,
+    flexShrink: 0,
     paddingRight: 2,
   },
   careerHeaderStatCol: {
-    width: 28,
+    width: 22,
     alignItems: 'center',
     justifyContent: 'center',
   },
   careerDivider: {
     height: 1,
     backgroundColor: '#f0f0f0',
-    marginBottom: 4,
+    marginBottom: 0,
   },
   careerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 14,
-    gap: 12,
+    paddingVertical: 5,
+    gap: 8,
   },
   careerTeamPressable: {
     flex: 1,
@@ -1323,6 +1375,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
+    marginRight: 4,
   },
   careerTeamLogo: {
     width: 36,
@@ -1355,10 +1408,11 @@ const styles = StyleSheet.create({
   careerStats: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 20,
+    gap: 8,
+    flexShrink: 0,
   },
   careerStatValue: {
-    width: 28,
+    width: 22,
     textAlign: 'center',
     fontSize: 15,
     fontWeight: '600',
@@ -1368,6 +1422,36 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: '#f5f5f5',
     marginLeft: 48,
+  },
+  careerTotalsDivider: {
+    height: 1,
+    backgroundColor: '#e8ecf0',
+    marginTop: 2,
+  },
+  careerTotalsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingTop: 10,
+    paddingBottom: 6,
+    gap: 8,
+  },
+  careerTotalsLabelWrap: {
+    flex: 1,
+    minWidth: 0,
+    marginRight: 4,
+  },
+  careerTotalsLabel: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#1e293b',
+    letterSpacing: 0.2,
+  },
+  careerStatTotal: {
+    width: 22,
+    textAlign: 'center',
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#1e293b',
   },
 
   toast: {
