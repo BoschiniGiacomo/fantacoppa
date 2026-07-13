@@ -150,6 +150,11 @@ function getMatchTimingSegments(m) {
   if (isEnabledFlag(m.penalties_enabled)) {
     out.push({ key: 'pen', label: 'Rigori', value: 'Si' });
   }
+  if (isEnabledFlag(m.shootout_enabled)) {
+    const rounds = Number(m.shootout_rounds_per_team);
+    const n = Number.isFinite(rounds) && rounds >= 1 && rounds <= 10 ? Math.trunc(rounds) : 5;
+    out.push({ key: 'shootout', label: 'Shootout', value: `${n} tiri/squadra` });
+  }
   return out;
 }
 
@@ -476,9 +481,17 @@ function computeShootoutState(events) {
   return state;
 }
 
-function shootoutCanEnd(events) {
+function shootoutRoundsPerTeamFromMatch(match) {
+  if (Number(match?.shootout_enabled) === 1) {
+    const n = Number(match?.shootout_rounds_per_team);
+    if (Number.isFinite(n) && n >= 1 && n <= 10) return Math.trunc(n);
+  }
+  return 5;
+}
+
+function shootoutCanEnd(events, match) {
   const s = computeShootoutState(events);
-  const maxRegularKicks = 5;
+  const maxRegularKicks = shootoutRoundsPerTeamFromMatch(match);
   const homeRemaining = Math.max(0, maxRegularKicks - s.homeTaken);
   const awayRemaining = Math.max(0, maxRegularKicks - s.awayTaken);
   if (s.homeGoals > s.awayGoals + awayRemaining) return true;
@@ -1614,8 +1627,8 @@ export default function MatchDetailScreen({ navigation, route }) {
   );
   const shootoutWizardLastStep = 4;
   const showShootoutEndMatchAction = useMemo(
-    () => showShootoutEditorTab && shootoutCanEnd(liveEvents),
-    [showShootoutEditorTab, liveEvents]
+    () => showShootoutEditorTab && shootoutCanEnd(liveEvents, match),
+    [showShootoutEditorTab, liveEvents, match?.shootout_enabled, match?.shootout_rounds_per_team]
   );
   const isPlayPhaseAction =
     nextPhaseStep?.type === 'match_start' ||

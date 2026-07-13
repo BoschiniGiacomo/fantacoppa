@@ -29,6 +29,24 @@ function matchesNotConfigured(res, err) {
   });
 }
 
+let officialMatchShootoutSchemaReady = false;
+
+async function ensureOfficialMatchShootoutSchema() {
+  if (officialMatchShootoutSchemaReady) return;
+  await query(`ALTER TABLE official_matches ADD COLUMN IF NOT EXISTS shootout_enabled SMALLINT NOT NULL DEFAULT 0`);
+  await query(`ALTER TABLE official_matches ADD COLUMN IF NOT EXISTS shootout_rounds_per_team INTEGER NOT NULL DEFAULT 5`);
+  await query(`ALTER TABLE official_match_stages ADD COLUMN IF NOT EXISTS default_shootout_enabled SMALLINT NOT NULL DEFAULT 0`);
+  await query(`ALTER TABLE official_match_stages ADD COLUMN IF NOT EXISTS default_shootout_rounds_per_team INTEGER NOT NULL DEFAULT 5`);
+  officialMatchShootoutSchemaReady = true;
+}
+
+function parseShootoutRoundsPerTeam(raw, enabled = true) {
+  if (!enabled) return 5;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return 5;
+  return Math.min(10, Math.max(1, Math.trunc(n)));
+}
+
 function isRegularGoalEventType(eventType) {
   const t = String(eventType || '').trim();
   return t === 'goal' || t === 'penalty_goal';
@@ -1536,6 +1554,7 @@ ${SQL_WALKOVER_MATCHES_CTE}
 // GET /matches/:matchId/detail — dettaglio match con tabs (overview/formazione/classifica)
 router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
   try {
+    await ensureOfficialMatchShootoutSchema();
     const userId = Number(req.user?.userId);
     const matchId = Number(req.params.matchId);
     if (!matchId || matchId <= 0) return res.status(400).json({ message: 'matchId non valido' });
@@ -1561,6 +1580,8 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
         NULLIF(to_jsonb(m)->>'extra_first_half_minutes','')::int AS extra_first_half_minutes,
         NULLIF(to_jsonb(m)->>'extra_second_half_minutes','')::int AS extra_second_half_minutes,
         NULLIF(to_jsonb(m)->>'penalties_enabled','')::int AS penalties_enabled,
+        COALESCE(NULLIF(to_jsonb(m)->>'shootout_enabled','')::int, COALESCE(m.shootout_enabled, 0), 0) AS shootout_enabled,
+        COALESCE(NULLIF(to_jsonb(m)->>'shootout_rounds_per_team','')::int, COALESCE(m.shootout_rounds_per_team, 5), 5) AS shootout_rounds_per_team,
         og.name AS competition_name,
         ht.name AS home_team_name,
         at.name AS away_team_name,
@@ -1632,6 +1653,11 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
       extra_first_half_minutes: matchRow.extra_first_half_minutes != null ? Number(matchRow.extra_first_half_minutes) : 0,
       extra_second_half_minutes: matchRow.extra_second_half_minutes != null ? Number(matchRow.extra_second_half_minutes) : 0,
       penalties_enabled: matchRow.penalties_enabled != null ? Number(matchRow.penalties_enabled) : 0,
+      shootout_enabled: matchRow.shootout_enabled != null ? Number(matchRow.shootout_enabled) : 0,
+      shootout_rounds_per_team: parseShootoutRoundsPerTeam(
+        matchRow.shootout_rounds_per_team,
+        Number(matchRow.shootout_enabled) === 1
+      ),
     };
 
     const events = (Array.isArray(rawEvents) ? rawEvents : []).map(enrichEventForApi);
@@ -4498,6 +4524,7 @@ router.put(
 // GET /admin/matches?date=YYYY-MM-DD
 router.get('/admin/matches', authenticateToken, requireSuperuserLevels([1, 2]), async (req, res) => {
   try {
+    await ensureOfficialMatchShootoutSchema();
     const date = String(req.query?.date || '').trim();
 
     const rows = await query(
@@ -4526,7 +4553,9 @@ router.get('/admin/matches', authenticateToken, requireSuperuserLevels([1, 2]), 
         COALESCE(NULLIF(to_jsonb(m)->>'extra_time_enabled','')::int, NULL) AS extra_time_enabled,
         COALESCE(NULLIF(to_jsonb(m)->>'extra_first_half_minutes','')::int, NULL) AS extra_first_half_minutes,
         COALESCE(NULLIF(to_jsonb(m)->>'extra_second_half_minutes','')::int, NULL) AS extra_second_half_minutes,
-        COALESCE(NULLIF(to_jsonb(m)->>'penalties_enabled','')::int, NULL) AS penalties_enabled
+        COALESCE(NULLIF(to_jsonb(m)->>'penalties_enabled','')::int, NULL) AS penalties_enabled,
+        COALESCE(NULLIF(to_jsonb(m)->>'shootout_enabled','')::int, COALESCE(m.shootout_enabled, 0), 0) AS shootout_enabled,
+        COALESCE(NULLIF(to_jsonb(m)->>'shootout_rounds_per_team','')::int, COALESCE(m.shootout_rounds_per_team, 5), 5) AS shootout_rounds_per_team
       FROM official_matches m
       INNER JOIN official_league_groups og ON og.id = m.competition_id
       LEFT JOIN teams ht ON ht.id = m.home_team_id
@@ -4596,6 +4625,7 @@ router.get('/admin/matches/competition/:competitionId/teams', authenticateToken,
 // POST /admin/matches — crea match
 router.post('/admin/matches', authenticateToken, requireSuperuserLevels([1, 2]), async (req, res) => {
   try {
+    await ensureOfficialMatchShootoutSchema();
     const userId = Number(req.user?.userId);
     const competitionId = Number(req.body?.competition_id);
     const leagueId = Number(req.body?.league_id);
@@ -4665,6 +4695,8 @@ router.post('/admin/matches', authenticateToken, requireSuperuserLevels([1, 2]),
         ? Math.trunc(extraSecondHalfRaw)
         : 0;
     const penaltiesEnabled = Number(req.body?.penalties_enabled) ? 1 : 0;
+    const shootoutEnabled = Number(req.body?.shootout_enabled) ? 1 : 0;
+    const shootoutRoundsPerTeam = parseShootoutRoundsPerTeam(req.body?.shootout_rounds_per_team, shootoutEnabled === 1);
 
     const rows = await query(
       `
@@ -4672,10 +4704,11 @@ router.post('/admin/matches', authenticateToken, requireSuperuserLevels([1, 2]),
         (
           competition_id, league_id, home_team_id, away_team_id, kickoff_at, status, notes, created_by, venue, referee, match_stage_id,
           regulation_half_minutes, extra_time_enabled, extra_first_half_minutes, extra_second_half_minutes, penalties_enabled,
+          shootout_enabled, shootout_rounds_per_team,
           home_score, away_score, is_admin_only, created_at
         )
       VALUES
-        (?, ?, ?, ?, (?::timestamp AT TIME ZONE 'Europe/Rome'), 'scheduled', NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, NOW())
+        (?, ?, ?, ?, (?::timestamp AT TIME ZONE 'Europe/Rome'), 'scheduled', NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, NOW())
       RETURNING id
       `,
       [
@@ -4693,6 +4726,8 @@ router.post('/admin/matches', authenticateToken, requireSuperuserLevels([1, 2]),
         extraFirstHalfMinutes,
         extraSecondHalfMinutes,
         penaltiesEnabled,
+        shootoutEnabled,
+        shootoutRoundsPerTeam,
         isAdminOnly,
       ]
     );
@@ -4737,6 +4772,7 @@ router.put('/admin/matches/publish-hidden', authenticateToken, requireSuperuserL
 // PUT /admin/matches/:matchId — update base
 router.put('/admin/matches/:matchId', authenticateToken, requireSuperuserLevels([1, 2]), async (req, res) => {
   try {
+    await ensureOfficialMatchShootoutSchema();
     const matchId = Number(req.params.matchId);
     const competitionId = Number(req.body?.competition_id);
     const leagueId = Number(req.body?.league_id);
@@ -4766,6 +4802,8 @@ router.put('/admin/matches/:matchId', authenticateToken, requireSuperuserLevels(
         ? Math.trunc(extraSecondHalfRaw)
         : 0;
     const penaltiesEnabled = Number(req.body?.penalties_enabled) ? 1 : 0;
+    const shootoutEnabled = Number(req.body?.shootout_enabled) ? 1 : 0;
+    const shootoutRoundsPerTeam = parseShootoutRoundsPerTeam(req.body?.shootout_rounds_per_team, shootoutEnabled === 1);
     const venue = req.body?.venue != null ? String(req.body.venue).trim() : null;
     const referee = req.body?.referee != null ? String(req.body.referee).trim() : null;
     const isAdminOnly = parseBooleanishInt(req.body?.is_admin_only, 0);
@@ -4834,7 +4872,9 @@ router.put('/admin/matches/:matchId', authenticateToken, requireSuperuserLevels(
         extra_time_enabled = ?,
         extra_first_half_minutes = ?,
         extra_second_half_minutes = ?,
-        penalties_enabled = ?
+        penalties_enabled = ?,
+        shootout_enabled = ?,
+        shootout_rounds_per_team = ?
       WHERE id = ?
       RETURNING id, COALESCE(is_admin_only, 0) AS is_admin_only
       `,
@@ -4857,6 +4897,8 @@ router.put('/admin/matches/:matchId', authenticateToken, requireSuperuserLevels(
         extraFirstHalfMinutes,
         extraSecondHalfMinutes,
         penaltiesEnabled,
+        shootoutEnabled,
+        shootoutRoundsPerTeam,
         matchId,
       ]
     );
@@ -5238,6 +5280,7 @@ router.post('/admin/matches/standings/ties/resolve', authenticateToken, requireS
 // Match details options: venues/referees/stages
 router.get('/admin/match-details', authenticateToken, requireSuperuserLevels([1, 2]), async (_req, res) => {
   try {
+    await ensureOfficialMatchShootoutSchema();
     const venues = await query(`SELECT id, name FROM official_match_venues ORDER BY name ASC`);
     const referees = await query(`SELECT id, name FROM official_match_referees ORDER BY name ASC`);
     const stages = await query(
@@ -5248,7 +5291,9 @@ router.get('/admin/match-details', authenticateToken, requireSuperuserLevels([1,
          COALESCE(NULLIF(to_jsonb(s)->>'default_extra_time_enabled','')::int, 0) AS default_extra_time_enabled,
          COALESCE(NULLIF(to_jsonb(s)->>'default_extra_first_half_minutes','')::int, 15) AS default_extra_first_half_minutes,
          COALESCE(NULLIF(to_jsonb(s)->>'default_extra_second_half_minutes','')::int, 15) AS default_extra_second_half_minutes,
-         COALESCE(NULLIF(to_jsonb(s)->>'default_penalties_enabled','')::int, 0) AS default_penalties_enabled
+         COALESCE(NULLIF(to_jsonb(s)->>'default_penalties_enabled','')::int, 0) AS default_penalties_enabled,
+         COALESCE(NULLIF(to_jsonb(s)->>'default_shootout_enabled','')::int, COALESCE(s.default_shootout_enabled, 0), 0) AS default_shootout_enabled,
+         COALESCE(NULLIF(to_jsonb(s)->>'default_shootout_rounds_per_team','')::int, COALESCE(s.default_shootout_rounds_per_team, 5), 5) AS default_shootout_rounds_per_team
        FROM official_match_stages s
        ORDER BY name ASC`
     );
@@ -5358,6 +5403,7 @@ router.delete('/admin/match-details/referees/:id', authenticateToken, requireSup
 
 router.post('/admin/match-details/stages', authenticateToken, requireSuperuserLevels([1]), async (req, res) => {
   try {
+    await ensureOfficialMatchShootoutSchema();
     const userId = Number(req.user?.userId);
     const name = String(req.body?.name || '').trim();
     if (!name) return res.status(400).json({ message: 'name mancante' });
@@ -5366,30 +5412,32 @@ router.post('/admin/match-details/stages', authenticateToken, requireSuperuserLe
     const dExtra1 = safeInt(req.body?.default_extra_first_half_minutes, 15);
     const dExtra2 = safeInt(req.body?.default_extra_second_half_minutes, 15);
     const dPens = Number(req.body?.default_penalties_enabled) ? 1 : 0;
+    const dShootout = Number(req.body?.default_shootout_enabled) ? 1 : 0;
+    const dShootoutRounds = parseShootoutRoundsPerTeam(req.body?.default_shootout_rounds_per_team, dShootout === 1);
 
     let rows;
     try {
       rows = await query(
         `
         INSERT INTO official_match_stages
-          (name, created_by, created_at, default_regulation_half_minutes, default_extra_time_enabled, default_extra_first_half_minutes, default_extra_second_half_minutes, default_penalties_enabled)
+          (name, created_by, created_at, default_regulation_half_minutes, default_extra_time_enabled, default_extra_first_half_minutes, default_extra_second_half_minutes, default_penalties_enabled, default_shootout_enabled, default_shootout_rounds_per_team)
         VALUES
-          (?, ?, NOW(), ?, ?, ?, ?, ?)
+          (?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?)
         RETURNING id
         `,
-        [name, userId, dHalf, dExtraEnabled, dExtra1, dExtra2, dPens]
+        [name, userId, dHalf, dExtraEnabled, dExtra1, dExtra2, dPens, dShootout, dShootoutRounds]
       );
     } catch (err2) {
       if (err2 && err2.code === '42703' && /created_by/i.test(String(err2.message || ''))) {
         rows = await query(
           `
           INSERT INTO official_match_stages
-            (name, created_at, default_regulation_half_minutes, default_extra_time_enabled, default_extra_first_half_minutes, default_extra_second_half_minutes, default_penalties_enabled)
+            (name, created_at, default_regulation_half_minutes, default_extra_time_enabled, default_extra_first_half_minutes, default_extra_second_half_minutes, default_penalties_enabled, default_shootout_enabled, default_shootout_rounds_per_team)
           VALUES
-            (?, NOW(), ?, ?, ?, ?, ?)
+            (?, NOW(), ?, ?, ?, ?, ?, ?, ?)
           RETURNING id
           `,
-          [name, dHalf, dExtraEnabled, dExtra1, dExtra2, dPens]
+          [name, dHalf, dExtraEnabled, dExtra1, dExtra2, dPens, dShootout, dShootoutRounds]
         );
       } else {
         throw err2;
@@ -5405,12 +5453,15 @@ router.post('/admin/match-details/stages', authenticateToken, requireSuperuserLe
 
 router.put('/admin/match-details/stages/:id', authenticateToken, requireSuperuserLevels([1]), async (req, res) => {
   try {
+    await ensureOfficialMatchShootoutSchema();
     const id = Number(req.params.id);
     const dHalf = safeInt(req.body?.default_regulation_half_minutes, 30);
     const dExtraEnabled = Number(req.body?.default_extra_time_enabled) ? 1 : 0;
     const dExtra1 = safeInt(req.body?.default_extra_first_half_minutes, 15);
     const dExtra2 = safeInt(req.body?.default_extra_second_half_minutes, 15);
     const dPens = Number(req.body?.default_penalties_enabled) ? 1 : 0;
+    const dShootout = Number(req.body?.default_shootout_enabled) ? 1 : 0;
+    const dShootoutRounds = parseShootoutRoundsPerTeam(req.body?.default_shootout_rounds_per_team, dShootout === 1);
     await query(
       `
       UPDATE official_match_stages
@@ -5419,10 +5470,12 @@ router.put('/admin/match-details/stages/:id', authenticateToken, requireSuperuse
         default_extra_time_enabled = ?,
         default_extra_first_half_minutes = ?,
         default_extra_second_half_minutes = ?,
-        default_penalties_enabled = ?
+        default_penalties_enabled = ?,
+        default_shootout_enabled = ?,
+        default_shootout_rounds_per_team = ?
       WHERE id = ?
       `,
-      [dHalf, dExtraEnabled, dExtra1, dExtra2, dPens, id]
+      [dHalf, dExtraEnabled, dExtra1, dExtra2, dPens, dShootout, dShootoutRounds, id]
     );
     return res.json({ ok: true });
   } catch (err) {

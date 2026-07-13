@@ -27,6 +27,51 @@ const OFFICIAL_MATCH_STAGE_GIRONI_ID = 1;
 
 const TOAST_DURATION_MS = 2400;
 
+function clampShootoutRoundsInput(raw) {
+  const n = parseInt(String(raw), 10);
+  if (!Number.isFinite(n)) return 5;
+  return Math.min(10, Math.max(1, n));
+}
+
+function ShootoutConfigFields({ enabled, onEnabledChange, rounds, onRoundsChange, chipKeyPrefix, styles }) {
+  return (
+    <>
+      <View style={styles.switchRow}>
+        <Text style={styles.switchLabel}>Shootout</Text>
+        <Switch
+          value={enabled}
+          onValueChange={onEnabledChange}
+          trackColor={{ false: '#ccc', true: '#a5b4fc' }}
+          thumbColor={enabled ? '#667eea' : '#f4f3f4'}
+        />
+      </View>
+      {enabled ? (
+        <>
+          <Text style={styles.label}>Tiri a squadra (1–10)</Text>
+          <View style={styles.rowWrap}>
+            {[3, 5, 7, 10].map((n) => (
+              <TouchableOpacity
+                key={`${chipKeyPrefix}-shootout-${n}`}
+                style={[styles.chip, rounds === String(n) && styles.chipActive]}
+                onPress={() => onRoundsChange(String(n))}
+              >
+                <Text style={[styles.chipText, rounds === String(n) && styles.chipTextActive]}>{n}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          <TextInput
+            style={styles.input}
+            value={rounds}
+            onChangeText={onRoundsChange}
+            keyboardType="number-pad"
+            placeholder="1–10"
+          />
+        </>
+      ) : null}
+    </>
+  );
+}
+
 function todayYmd() {
   const d = new Date();
   const y = d.getFullYear();
@@ -138,12 +183,16 @@ export default function ManageMatchesScreen() {
   const [extraSecondMinutes, setExtraSecondMinutes] = useState('15');
   const [extraSecondHalfEnabled, setExtraSecondHalfEnabled] = useState(true);
   const [penaltiesEnabled, setPenaltiesEnabled] = useState(false);
+  const [shootoutEnabled, setShootoutEnabled] = useState(false);
+  const [shootoutRoundsPerTeam, setShootoutRoundsPerTeam] = useState('5');
   const [newStageHalfMin, setNewStageHalfMin] = useState('30');
   const [newStageExtraTime, setNewStageExtraTime] = useState(false);
   const [newStageExtra1, setNewStageExtra1] = useState('15');
   const [newStageExtra2, setNewStageExtra2] = useState('15');
   const [newStageExtraSecondEnabled, setNewStageExtraSecondEnabled] = useState(true);
   const [newStagePenalties, setNewStagePenalties] = useState(false);
+  const [newStageShootout, setNewStageShootout] = useState(false);
+  const [newStageShootoutRounds, setNewStageShootoutRounds] = useState('5');
   const [stagePresetModal, setStagePresetModal] = useState(null);
   const [stagePresetDraft, setStagePresetDraft] = useState(null);
   const [homeScore, setHomeScore] = useState('');
@@ -340,6 +389,10 @@ export default function ManageMatchesScreen() {
     pushRow('1° supp.', `${editOriginal.extraFirstMinutes || 0}'`, `${extraFirstMinutes || 0}'`);
     pushRow('2° supp.', `${editOriginal.extraSecondMinutes || 0}'`, `${extraSecondMinutes || 0}'`);
     pushRow('Rigori', editOriginal.penaltiesEnabled ? 'Si' : 'No', penaltiesEnabled ? 'Si' : 'No');
+    pushRow('Shootout', editOriginal.shootoutEnabled ? 'Si' : 'No', shootoutEnabled ? 'Si' : 'No');
+    if (editOriginal.shootoutEnabled || shootoutEnabled) {
+      pushRow('Tiri shootout', String(editOriginal.shootoutRoundsPerTeam || 5), String(shootoutRoundsPerTeam || 5));
+    }
     return rows;
   }, [
     editOriginal,
@@ -357,6 +410,8 @@ export default function ManageMatchesScreen() {
     extraFirstMinutes,
     extraSecondMinutes,
     penaltiesEnabled,
+    shootoutEnabled,
+    shootoutRoundsPerTeam,
   ]);
 
   const loadCompetitions = async () => {
@@ -494,6 +549,8 @@ export default function ManageMatchesScreen() {
     setExtraSecondMinutes('15');
     setExtraSecondHalfEnabled(true);
     setPenaltiesEnabled(false);
+    setShootoutEnabled(false);
+    setShootoutRoundsPerTeam('5');
   };
 
   const applyStageDefaultsToMatchForm = (stage) => {
@@ -511,6 +568,8 @@ export default function ManageMatchesScreen() {
     setExtraSecondMinutes(String(ex2 != null ? ex2 : 15));
     setExtraSecondHalfEnabled(Number(ex2) > 0);
     setPenaltiesEnabled(!!Number(stage.default_penalties_enabled));
+    setShootoutEnabled(!!Number(stage.default_shootout_enabled));
+    setShootoutRoundsPerTeam(String(stage.default_shootout_rounds_per_team ?? 5));
   };
 
   const selectMatchStageId = (stageIdRaw) => {
@@ -534,16 +593,20 @@ export default function ManageMatchesScreen() {
     if (!Number.isFinite(ex1) || ex1 < 1 || ex1 > 45) ex1 = 15;
     if (!Number.isFinite(ex2) || ex2 < 1 || ex2 > 45) ex2 = 15;
     const useSecondExtraHalf = extraSecondHalfEnabled ? 1 : 0;
+    const shootoutOn = shootoutEnabled ? 1 : 0;
+    const shootoutRounds = clampShootoutRoundsInput(shootoutRoundsPerTeam);
     return {
       regulation_half_minutes: half,
       extra_time_enabled: et,
       extra_first_half_minutes: et ? ex1 : 0,
       extra_second_half_minutes: et ? (useSecondExtraHalf ? ex2 : 0) : 0,
       penalties_enabled: penaltiesEnabled ? 1 : 0,
+      shootout_enabled: shootoutOn,
+      shootout_rounds_per_team: shootoutOn ? shootoutRounds : 5,
     };
   };
 
-  const buildStageDefaultsPayload = (halfStr, etOn, ex1Str, ex2Str, secondExtraHalfOn, penOn) => {
+  const buildStageDefaultsPayload = (halfStr, etOn, ex1Str, ex2Str, secondExtraHalfOn, penOn, shootoutOn, shootoutRoundsStr) => {
     let h = parseInt(String(halfStr), 10);
     if (!Number.isFinite(h) || h < 15 || h > 60) h = 30;
     const et = etOn ? 1 : 0;
@@ -552,12 +615,16 @@ export default function ManageMatchesScreen() {
     if (!Number.isFinite(x1) || x1 < 1 || x1 > 45) x1 = 15;
     if (!Number.isFinite(x2) || x2 < 1 || x2 > 45) x2 = 15;
     const useSecondExtraHalf = !!secondExtraHalfOn;
+    const shootoutEnabledFlag = shootoutOn ? 1 : 0;
+    const shootoutRounds = clampShootoutRoundsInput(shootoutRoundsStr);
     return {
       default_regulation_half_minutes: h,
       default_extra_time_enabled: et,
       default_extra_first_half_minutes: et ? x1 : 0,
       default_extra_second_half_minutes: et ? (useSecondExtraHalf ? x2 : 0) : 0,
       default_penalties_enabled: penOn ? 1 : 0,
+      default_shootout_enabled: shootoutEnabledFlag,
+      default_shootout_rounds_per_team: shootoutEnabledFlag ? shootoutRounds : 5,
     };
   };
 
@@ -570,6 +637,8 @@ export default function ManageMatchesScreen() {
       ex2: String(s.default_extra_second_half_minutes ?? 15),
       extraSecondHalfEnabled: Number(s.default_extra_second_half_minutes) > 0,
       penalties: !!Number(s.default_penalties_enabled),
+      shootout: !!Number(s.default_shootout_enabled),
+      shootoutRounds: String(s.default_shootout_rounds_per_team ?? 5),
     });
   };
 
@@ -582,7 +651,9 @@ export default function ManageMatchesScreen() {
         stagePresetDraft.ex1,
         stagePresetDraft.ex2,
         stagePresetDraft.extraSecondHalfEnabled,
-        stagePresetDraft.penalties
+        stagePresetDraft.penalties,
+        stagePresetDraft.shootout,
+        stagePresetDraft.shootoutRounds
       );
       const res = await adminMatchDetailsService.updateStageTimingDefaults(stagePresetModal.id, defs);
       const n = res?.data?.matches_with_stage;
@@ -658,6 +729,14 @@ export default function ManageMatchesScreen() {
         <Text style={styles.switchLabel}>Rigori</Text>
         <Switch value={penaltiesEnabled} onValueChange={setPenaltiesEnabled} trackColor={{ false: '#ccc', true: '#a5b4fc' }} thumbColor={penaltiesEnabled ? '#667eea' : '#f4f3f4'} />
       </View>
+      <ShootoutConfigFields
+        enabled={shootoutEnabled}
+        onEnabledChange={setShootoutEnabled}
+        rounds={shootoutRoundsPerTeam}
+        onRoundsChange={setShootoutRoundsPerTeam}
+        chipKeyPrefix="match"
+        styles={styles}
+      />
     </>
   );
 
@@ -768,6 +847,8 @@ export default function ManageMatchesScreen() {
       setExtraSecondMinutes(String(match?.extra_second_half_minutes ?? 15));
       setExtraSecondHalfEnabled(Number(match?.extra_second_half_minutes ?? 0) > 0);
       setPenaltiesEnabled(!!Number(match?.penalties_enabled));
+      setShootoutEnabled(!!Number(match?.shootout_enabled));
+      setShootoutRoundsPerTeam(String(match?.shootout_rounds_per_team ?? 5));
       setHomeScore(match?.home_score === null || typeof match?.home_score === 'undefined' ? '' : String(match.home_score));
       setAwayScore(match?.away_score === null || typeof match?.away_score === 'undefined' ? '' : String(match.away_score));
       setEditOriginal({
@@ -793,6 +874,8 @@ export default function ManageMatchesScreen() {
         extraFirstMinutes: Number(match?.extra_first_half_minutes || 0),
         extraSecondMinutes: Number(match?.extra_second_half_minutes || 0),
         penaltiesEnabled: !!Number(match?.penalties_enabled),
+        shootoutEnabled: !!Number(match?.shootout_enabled),
+        shootoutRoundsPerTeam: Number(match?.shootout_rounds_per_team || 5),
       });
       setEditMatchStep(1);
       setShowEditTimingDetails(false);
@@ -979,7 +1062,9 @@ export default function ManageMatchesScreen() {
           newStageExtra1,
           newStageExtra2,
           newStageExtraSecondEnabled,
-          newStagePenalties
+          newStagePenalties,
+          newStageShootout,
+          newStageShootoutRounds
         );
         await adminMatchDetailsService.createStage(clean, defs);
       }
@@ -994,6 +1079,8 @@ export default function ManageMatchesScreen() {
         setNewStageExtra2('15');
         setNewStageExtraSecondEnabled(true);
         setNewStagePenalties(false);
+        setNewStageShootout(false);
+        setNewStageShootoutRounds('5');
       }
       showToast('Valore aggiunto', 'success');
     } catch (e) {
@@ -1714,6 +1801,14 @@ export default function ManageMatchesScreen() {
               <Text style={styles.switchLabel}>Rigori</Text>
               <Switch value={newStagePenalties} onValueChange={setNewStagePenalties} trackColor={{ false: '#ccc', true: '#a5b4fc' }} thumbColor={newStagePenalties ? '#667eea' : '#f4f3f4'} />
             </View>
+            <ShootoutConfigFields
+              enabled={newStageShootout}
+              onEnabledChange={setNewStageShootout}
+              rounds={newStageShootoutRounds}
+              onRoundsChange={setNewStageShootoutRounds}
+              chipKeyPrefix="newst"
+              styles={styles}
+            />
             {(matchDetailsOptions.stages || []).map((s) => (
               <View key={`manage-stage-${s.id}`} style={styles.stageManageRow}>
                 <Text style={styles.stageManageName}>{s.name}</Text>
@@ -1978,7 +2073,7 @@ export default function ManageMatchesScreen() {
                 ) : null}
                   <TouchableOpacity style={styles.inlineLinkBtn} onPress={() => setShowCreateTimingDetails((v) => !v)}>
                     <Text style={styles.inlineLinkBtnText}>
-                      {showCreateTimingDetails ? 'Nascondi dettagli durata' : 'Modifica durata / supplementari / rigori'}
+                      {showCreateTimingDetails ? 'Nascondi dettagli durata' : 'Modifica durata / supplementari / rigori / shootout'}
                     </Text>
                   </TouchableOpacity>
                   {showCreateTimingDetails ? matchTimingEditor : null}
@@ -2206,7 +2301,7 @@ export default function ManageMatchesScreen() {
                     ) : null}
                   <TouchableOpacity style={styles.inlineLinkBtn} onPress={() => setShowEditTimingDetails((v) => !v)}>
                     <Text style={styles.inlineLinkBtnText}>
-                      {showEditTimingDetails ? 'Nascondi dettagli durata' : 'Modifica durata / supplementari / rigori'}
+                      {showEditTimingDetails ? 'Nascondi dettagli durata' : 'Modifica durata / supplementari / rigori / shootout'}
                     </Text>
                     </TouchableOpacity>
                   {showEditTimingDetails ? matchTimingEditor : null}
@@ -2391,6 +2486,14 @@ export default function ManageMatchesScreen() {
                 thumbColor={stagePresetDraft?.penalties ? '#667eea' : '#f4f3f4'}
               />
             </View>
+            <ShootoutConfigFields
+              enabled={!!stagePresetDraft?.shootout}
+              onEnabledChange={(v) => setStagePresetDraft((d) => (d ? { ...d, shootout: v } : d))}
+              rounds={stagePresetDraft?.shootoutRounds ?? '5'}
+              onRoundsChange={(t) => setStagePresetDraft((d) => (d ? { ...d, shootoutRounds: t } : d))}
+              chipKeyPrefix="pd"
+              styles={styles}
+            />
             <View style={styles.confirmActions}>
               <TouchableOpacity
                 style={styles.confirmButtonCancel}
