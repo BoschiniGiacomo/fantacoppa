@@ -1231,7 +1231,13 @@ function computePartialScoreBeforeEvent(liveEvents, targetEv, match) {
   const sorted = [...liveEvents].sort((a, b) => compareEventsForTimelineDisplay(a, b, match));
   const idx = sorted.findIndex((e) => e.id === targetEv.id);
   if (idx < 0) return { home: 0, away: 0 };
-  return computeLiveScoreFromEvents(sorted.slice(0, idx));
+  const slice = sorted.slice(0, idx);
+  const goals = computeLiveScoreFromEvents(slice);
+  const pre = computePreShootoutState(slice);
+  return {
+    home: goals.home + pre.homeGoals,
+    away: goals.away + pre.awayGoals,
+  };
 }
 
 function clockNowHHmm() {
@@ -1661,11 +1667,14 @@ export default function MatchDetailScreen({ navigation, route }) {
   const preShootoutRounds = useMemo(() => shootoutRoundsPerTeamFromMatch(match), [match?.shootout_enabled, match?.shootout_rounds_per_team]);
   const showPreShootoutEditorTab = useMemo(() => {
     if (!isEnabledFlag(match?.shootout_enabled)) return false;
-    if (matchHasStarted) return false;
     if (preShootoutSeriesFinished(liveEvents)) return false;
     if (preShootoutAllRoundsComplete(liveEvents, match)) return false;
-    return true;
-  }, [match?.shootout_enabled, matchHasStarted, liveEvents, match, preShootoutRounds]);
+    if (!matchHasStarted) return true;
+    // Partite già terminate senza shootout salvato (retroattivo).
+    if (hasMatchEndEvent) return true;
+    return false;
+  }, [match?.shootout_enabled, matchHasStarted, hasMatchEndEvent, liveEvents, match, preShootoutRounds]);
+  const preShootoutRetroSaveMode = showPreShootoutEditorTab && hasMatchEndEvent && matchHasStarted;
   const hasPreShootoutPhase = useMemo(
     () => liveEvents.some((e) => isPreShootoutEventType(e.event_type)),
     [liveEvents]
@@ -1673,7 +1682,8 @@ export default function MatchDetailScreen({ navigation, route }) {
   const forceShootoutOnlyEditorTabs = showShootoutEditorTab;
   const showTimerEditorTab = matchHasStarted && !hasMatchEndEvent;
   const hasOnlyPhaseEditorTab = preMatchEditorMode && showPhaseEditorTab && !showShootoutEditorTab && !showPreShootoutEditorTab;
-  const hasOnlyPreShootoutEditorTab = preMatchEditorMode && showPreShootoutEditorTab;
+  const hasOnlyPreShootoutEditorTab =
+    showPreShootoutEditorTab && !showPhaseEditorTab && !showShootoutEditorTab && !forceShootoutOnlyEditorTabs;
   const hasOnlyShootoutEditorTab = forceShootoutOnlyEditorTabs && showShootoutEditorTab;
   const hasShootoutPhase = useMemo(
     () => liveEvents.some((e) => e.event_type === 'penalties_start' || isShootoutEventType(e.event_type)),
@@ -2012,15 +2022,25 @@ export default function MatchDetailScreen({ navigation, route }) {
 
   useEffect(() => {
     if (showEventEditor && editorModalTab === 'preShootout' && !showPreShootoutEditorTab) {
-      setEditorModalTab('phases');
+      setEditorModalTab(showPhaseEditorTab ? 'phases' : 'events');
     }
-  }, [showEventEditor, editorModalTab, showPreShootoutEditorTab]);
+  }, [showEventEditor, editorModalTab, showPreShootoutEditorTab, showPhaseEditorTab]);
 
   useEffect(() => {
-    if (showEventEditor && editorModalTab === 'phases' && showPreShootoutEditorTab) {
+    if (!showEventEditor || !showPreShootoutEditorTab) return;
+    if (preMatchEditorMode && editorModalTab === 'phases') {
       setEditorModalTab('preShootout');
     }
-  }, [showEventEditor, editorModalTab, showPreShootoutEditorTab]);
+  }, [showEventEditor, editorModalTab, showPreShootoutEditorTab, preMatchEditorMode]);
+
+  useEffect(() => {
+    if (!showEventEditor || !preShootoutRetroSaveMode) return;
+    if (editorModalTab === 'events' || editorModalTab === 'phases') {
+      setEditorModalTab('preShootout');
+      setShootoutTeamSide(nextPreShootoutTeamSide);
+      setShootoutEventType('pre_shootout_goal');
+    }
+  }, [showEventEditor, preShootoutRetroSaveMode, editorModalTab, nextPreShootoutTeamSide]);
 
   useEffect(() => {
     if (showEventEditor && editorModalTab === 'phases' && !showPhaseEditorTab) {
@@ -3372,8 +3392,10 @@ export default function MatchDetailScreen({ navigation, route }) {
               onPress={() => {
                 setEventType('goal');
                 setEventTeamSide('home');
-                if (preMatchEditorMode) {
-                  setEditorModalTab(showPreShootoutEditorTab ? 'preShootout' : 'phases');
+                if (showPreShootoutEditorTab) {
+                  setEditorModalTab('preShootout');
+                } else if (preMatchEditorMode) {
+                  setEditorModalTab('phases');
                 } else {
                   setEditorModalTab(showShootoutEditorTab ? 'shootout' : 'events');
                 }
@@ -3735,6 +3757,11 @@ export default function MatchDetailScreen({ navigation, route }) {
                           </TouchableOpacity>
                         </View>
                       </View>
+                      {preShootoutRetroSaveMode ? (
+                        <Text style={styles.phaseMinuteHint}>
+                          Partita già terminata: completa gli shootout pre-partita mancanti.
+                        </Text>
+                      ) : null}
                       {editorModalTab === 'shootout' && showShootoutEndMatchAction ? (
                         <TouchableOpacity
                           style={[styles.shootoutEndMatchBtn, savingPhase && styles.actionBtnDisabled]}
