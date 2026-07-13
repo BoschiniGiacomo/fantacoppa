@@ -101,6 +101,12 @@ function formatEditionYearLabel(edition) {
   return leagueName || '–';
 }
 
+function formatCareerLeagueYear(entry) {
+  const year = Number(entry?.reference_year);
+  if (Number.isFinite(year) && year > 0) return String(Math.trunc(year));
+  return '–';
+}
+
 function SeasonYearPickerMenu({ open, onClose, anchorRef, options, onSelectOption }) {
   const [layout, setLayout] = useState(null);
 
@@ -608,7 +614,9 @@ export default function PlayerStatsScreen({ route, navigation }) {
     return (
       <View style={styles.careerCard}>
         <View style={styles.careerHeader}>
-          <Text style={styles.careerHeaderTitle}>Cronologia carriera</Text>
+          <Text style={styles.careerHeaderTitle} numberOfLines={1}>
+            Cronologia carriera
+          </Text>
           <View style={styles.careerHeaderStats}>
             <View style={styles.careerHeaderStatCol}>
               <MaterialCommunityIcons name="soccer-field" size={18} color="#94a3b8" />
@@ -627,6 +635,7 @@ export default function PlayerStatsScreen({ route, navigation }) {
         {entries.map((entry, index) => {
           const teamName = String(entry?.team_name || '').trim() || '–';
           const teamLogoPath = String(entry?.team_logo_path || '').trim();
+          const leagueYearLabel = formatCareerLeagueYear(entry);
           const appearances = Number(entry?.appearances || 0);
           const goals = Number(entry?.goals || 0);
           const assists = Number(entry?.assists || 0);
@@ -652,6 +661,9 @@ export default function PlayerStatsScreen({ route, navigation }) {
                   <View style={styles.careerTeamInfo}>
                     <Text style={styles.careerTeamName} numberOfLines={1}>
                       {teamName}
+                    </Text>
+                    <Text style={styles.careerLeagueYear} numberOfLines={1}>
+                      {leagueYearLabel}
                     </Text>
                   </View>
                 </TouchableOpacity>
@@ -1274,11 +1286,14 @@ const styles = StyleSheet.create({
   },
   careerHeaderTitle: {
     flex: 1,
-    fontSize: 13,
+    flexShrink: 1,
+    minWidth: 0,
+    marginRight: 8,
+    fontSize: 11,
     fontWeight: '700',
     color: '#999',
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    letterSpacing: 0.25,
   },
   careerHeaderStats: {
     flexDirection: 'row',
@@ -1325,11 +1340,17 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     justifyContent: 'center',
+    gap: 3,
   },
   careerTeamName: {
     fontSize: 16,
     fontWeight: '700',
     color: '#1e293b',
+  },
+  careerLeagueYear: {
+    fontSize: 13,
+    color: '#94a3b8',
+    fontWeight: '500',
   },
   careerStats: {
     flexDirection: 'row',
