@@ -1665,6 +1665,142 @@ ${SQL_WALKOVER_MATCHES_CTE}
   }
 });
 
+// GET /matches/search?q= — squadre e giocatori ufficiali (competizioni abilitate)
+router.get('/matches/search', authenticateToken, async (req, res) => {
+  try {
+    const userId = Number(req.user?.userId);
+    const q = String(req.query?.q || '').trim();
+    if (q.length < 2) {
+      return res.json({ teams: [], players: [] });
+    }
+
+    const su = await getSuperuserLevel(userId);
+    const canSeeAdminOnly = su === 1 || su === 2 ? 1 : 0;
+    const competitions = await listCompetitionsOnlyEnabled();
+    const compIds = competitions.map((c) => Number(c.id)).filter((x) => x > 0);
+    if (!compIds.length) {
+      return res.json({ teams: [], players: [] });
+    }
+
+    const compNameMap = new Map(competitions.map((c) => [Number(c.id), String(c.name || '').trim()]));
+    const like = `%${q}%`;
+    const ph = compIds.map(() => '?').join(', ');
+
+    const [teamRows, playerRows] = await Promise.all([
+      query(
+        `
+        WITH comp_teams AS (
+          SELECT m.competition_id, t.id AS team_id, t.name AS team_name
+          FROM official_matches m
+          INNER JOIN teams t ON t.id = m.home_team_id
+          LEFT JOIN leagues l ON l.id = t.league_id
+          WHERE m.competition_id IN (${ph})
+            AND (? = 1 OR COALESCE(m.is_admin_only, 0) = 0)
+            AND (l.id IS NULL OR COALESCE(l.is_official_squad_public, 0) = 1)
+          UNION ALL
+          SELECT m.competition_id, t.id AS team_id, t.name AS team_name
+          FROM official_matches m
+          INNER JOIN teams t ON t.id = m.away_team_id
+          LEFT JOIN leagues l ON l.id = t.league_id
+          WHERE m.competition_id IN (${ph})
+            AND (? = 1 OR COALESCE(m.is_admin_only, 0) = 0)
+            AND (l.id IS NULL OR COALESCE(l.is_official_squad_public, 0) = 1)
+        ),
+        ranked AS (
+          SELECT
+            competition_id,
+            team_id,
+            team_name,
+            ROW_NUMBER() OVER (
+              PARTITION BY competition_id, LOWER(TRIM(team_name))
+              ORDER BY team_id DESC
+            ) AS rn
+          FROM comp_teams
+          WHERE team_name IS NOT NULL AND TRIM(team_name) <> ''
+            AND LOWER(TRIM(team_name)) LIKE LOWER(?)
+        )
+        SELECT competition_id, team_id, team_name
+        FROM ranked
+        WHERE rn = 1
+        ORDER BY team_name ASC
+        LIMIT 20`,
+        [...compIds, canSeeAdminOnly, ...compIds, canSeeAdminOnly, like],
+      ),
+      query(
+        `
+        SELECT DISTINCT ON (p.id, l.official_group_id)
+          p.id AS player_id,
+          TRIM(CONCAT(COALESCE(p.first_name, ''), ' ', COALESCE(p.last_name, ''))) AS player_name,
+          p.role,
+          COALESCE(p.photo_path, '') AS photo_path,
+          t.name AS team_name,
+          l.id AS league_id,
+          l.official_group_id AS competition_id
+        FROM players p
+        INNER JOIN teams t ON t.id = p.team_id
+        INNER JOIN leagues l ON l.id = t.league_id
+        INNER JOIN official_league_groups og ON og.id = l.official_group_id
+        WHERE l.official_group_id IN (${ph})
+          AND COALESCE(l.is_official, 0) = 1
+          AND COALESCE(l.is_official_squad_public, 0) = 1
+          AND COALESCE(og.is_match_competition_enabled, 1) = 1
+          AND (
+            LOWER(COALESCE(p.first_name, '')) LIKE LOWER(?)
+            OR LOWER(COALESCE(p.last_name, '')) LIKE LOWER(?)
+            OR LOWER(TRIM(CONCAT(COALESCE(p.first_name, ''), ' ', COALESCE(p.last_name, '')))) LIKE LOWER(?)
+          )
+        ORDER BY p.id, l.official_group_id,
+          NULLIF(to_jsonb(l)->>'reference_year','')::int DESC NULLS LAST,
+          l.id DESC
+        LIMIT 30`,
+        [...compIds, like, like, like],
+      ),
+    ]);
+
+    const logoMap = await buildBestOfficialTeamLogoMap(compIds, canSeeAdminOnly === 1);
+
+    const teams = (teamRows || []).map((r) => {
+      const compId = Number(r.competition_id);
+      const name = String(r.team_name || '').trim();
+      const logoPath = pickBestOfficialTeamLogo(logoMap, compId, name, null);
+      return {
+        team_id: Number(r.team_id),
+        name,
+        competition_id: compId,
+        competition_name: compNameMap.get(compId) || null,
+        logo_path: logoPath,
+        logo_url: logoUrlForPath(logoPath),
+      };
+    });
+
+    const players = (playerRows || [])
+      .map((r) => {
+        const playerId = Number(r.player_id);
+        const leagueId = Number(r.league_id);
+        const compId = Number(r.competition_id);
+        const name = String(r.player_name || '').trim();
+        if (!playerId || !leagueId || !name) return null;
+        return {
+          player_id: playerId,
+          name,
+          role: String(r.role || '').trim().toUpperCase() || null,
+          photo_path: String(r.photo_path || '').trim() || null,
+          team_name: String(r.team_name || '').trim() || null,
+          league_id: leagueId,
+          competition_id: compId,
+          competition_name: compNameMap.get(compId) || null,
+        };
+      })
+      .filter(Boolean)
+      .slice(0, 20);
+
+    return res.json({ teams, players });
+  } catch (err) {
+    if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
+    return res.status(500).json({ message: 'Errore ricerca ufficiale', error: err.message });
+  }
+});
+
 // GET /matches/:matchId/detail — dettaglio match con tabs (overview/formazione/classifica)
 router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
   try {

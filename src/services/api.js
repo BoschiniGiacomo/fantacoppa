@@ -608,6 +608,8 @@ export const matchesService = {
   getStripTeams: () => api.get('matches/strip-teams'),
   /** Competizioni, squadre ufficiali e preferenze utente (stellina + notifiche squadra) */
   getFollowSetup: () => api.get('matches/follow-setup'),
+  searchOfficial: (queryText) =>
+    api.get('matches/search', { params: { q: String(queryText || '').trim() } }),
   /** Body: { competitions: [{ official_group_id, heart_team_names[], notify_team_names[] }] } */
   saveFollowPreferences: (payload) => api.put('matches/follow-preferences', payload),
 };

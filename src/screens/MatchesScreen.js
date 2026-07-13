@@ -9,6 +9,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -24,7 +25,7 @@ import {
   peekStripTeamsMemory,
   readStripTeamsDisk,
 } from '../services/matchesStripTeamsCache';
-import { TeamLogoImage } from '../components/StableCachedImage';
+import { PlayerPhotoImage, TeamLogoImage } from '../components/StableCachedImage';
 import { useAuth } from '../context/AuthContext';
 import {
   computeLiveHeroClock,
@@ -35,6 +36,7 @@ import {
 /** Elenco partite: refresh mentre il tab è aperto (punteggi / fasi da altri client o da DB). */
 const MATCHES_LIST_POLL_MS_LIVE = 4000;
 const MATCHES_LIST_POLL_MS_IDLE = 12000;
+const MATCHES_SEARCH_DEBOUNCE_MS = 300;
 
 const DAY_NAMES = ['Dom', 'Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab'];
 const MONTH_NAMES = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic'];
@@ -224,6 +226,14 @@ export default function MatchesScreen() {
   const [followError, setFollowError] = useState(null);
   const [liveListTick, setLiveListTick] = useState(0);
   const [heartTeams, setHeartTeams] = useState(() => peekStripTeamsMemory() || []);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchText, setSearchText] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchTeams, setSearchTeams] = useState([]);
+  const [searchPlayers, setSearchPlayers] = useState([]);
+  const searchInputRef = useRef(null);
+  const searchSeqRef = useRef(0);
 
   const loadStripTeams = useCallback(async () => {
     try {
@@ -380,6 +390,101 @@ export default function MatchesScreen() {
     navigation.navigate('ManageMatches');
   };
 
+  const closeSearch = useCallback(() => {
+    setSearchOpen(false);
+    setSearchText('');
+    setSearchQuery('');
+    setSearchTeams([]);
+    setSearchPlayers([]);
+    setSearchLoading(false);
+  }, []);
+
+  const toggleSearch = useCallback(() => {
+    setSearchOpen((open) => {
+      if (open) {
+        closeSearch();
+        return false;
+      }
+      setTimeout(() => searchInputRef.current?.focus(), 80);
+      return true;
+    });
+  }, [closeSearch]);
+
+  useEffect(() => {
+    const trimmed = String(searchText || '').trim();
+    const timer = setTimeout(() => setSearchQuery(trimmed), MATCHES_SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [searchText]);
+
+  useEffect(() => {
+    if (!searchOpen) return undefined;
+
+    const q = String(searchQuery || '').trim();
+    if (q.length < 2) {
+      setSearchTeams([]);
+      setSearchPlayers([]);
+      setSearchLoading(false);
+      return undefined;
+    }
+
+    searchSeqRef.current += 1;
+    const seq = searchSeqRef.current;
+    let cancelled = false;
+
+    const run = async () => {
+      try {
+        setSearchLoading(true);
+        const res = await matchesService.searchOfficial(q);
+        if (cancelled || seq !== searchSeqRef.current) return;
+        setSearchTeams(Array.isArray(res?.data?.teams) ? res.data.teams : []);
+        setSearchPlayers(Array.isArray(res?.data?.players) ? res.data.players : []);
+      } catch (_) {
+        if (cancelled || seq !== searchSeqRef.current) return;
+        setSearchTeams([]);
+        setSearchPlayers([]);
+      } finally {
+        if (!cancelled && seq === searchSeqRef.current) {
+          setSearchLoading(false);
+        }
+      }
+    };
+
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [searchOpen, searchQuery]);
+
+  const goToOfficialPlayer = useCallback((player) => {
+    const playerId = Number(player?.player_id);
+    const leagueId = Number(player?.league_id);
+    if (!playerId || !leagueId) return;
+    closeSearch();
+    navigation.navigate('PlayerStats', {
+      playerId,
+      leagueId,
+      playerName: String(player?.name || '').trim() || undefined,
+      playerRole: player?.role || undefined,
+      playerPhotoPath: player?.photo_path || undefined,
+      entrySource: 'official',
+    });
+  }, [navigation, closeSearch]);
+
+  const goToOfficialTeamFromSearch = useCallback((team) => {
+    const teamId = Number(team?.team_id);
+    const competitionId = Number(team?.competition_id);
+    if (!teamId || !competitionId) return;
+    closeSearch();
+    navigation.navigate('OfficialTeamDetail', {
+      teamId,
+      competitionId,
+      teamName: String(team?.name || '').trim() || undefined,
+    });
+  }, [navigation, closeSearch]);
+
+  const showSearchResults = searchOpen && (searchLoading || searchQuery.trim().length >= 2);
+  const hasSearchResults = searchTeams.length > 0 || searchPlayers.length > 0;
+
   const onRefresh = () => {
     setRefreshing(true);
     load(selectedDate, true);
@@ -489,18 +594,106 @@ export default function MatchesScreen() {
   return (
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: Math.max(insets.top + 6, 12) }]}>
-        <Text style={styles.headerTitle}>Partite</Text>
-        {canOpenMatchManagement ? (
-          <TouchableOpacity
-            style={styles.headerEditBtn}
-            onPress={goToManageMatches}
-          >
-            <Ionicons name="pencil-outline" size={18} color="#667eea" />
+        <Text style={[styles.headerTitle, searchOpen && styles.headerTitleCompact]} numberOfLines={1}>
+          Partite
+        </Text>
+        <View style={styles.headerActions}>
+          {searchOpen ? (
+            <View style={styles.headerSearchInputWrap}>
+              <TextInput
+                ref={searchInputRef}
+                style={styles.headerSearchInput}
+                placeholder="Squadra o giocatore..."
+                placeholderTextColor="#94a3b8"
+                value={searchText}
+                onChangeText={setSearchText}
+                returnKeyType="search"
+                autoCorrect={false}
+                autoCapitalize="none"
+              />
+              {searchText.length > 0 ? (
+                <TouchableOpacity
+                  onPress={() => setSearchText('')}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Ionicons name="close-circle" size={16} color="#94a3b8" />
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          ) : null}
+          <TouchableOpacity style={styles.headerEditBtn} onPress={toggleSearch} activeOpacity={0.8}>
+            <Ionicons name={searchOpen ? 'close' : 'search-outline'} size={18} color="#667eea" />
           </TouchableOpacity>
-        ) : (
-          <View style={styles.headerEditBtnPlaceholder} />
-        )}
+          {canOpenMatchManagement ? (
+            <TouchableOpacity
+              style={styles.headerEditBtn}
+              onPress={goToManageMatches}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="pencil-outline" size={18} color="#667eea" />
+            </TouchableOpacity>
+          ) : null}
+        </View>
       </View>
+
+      {showSearchResults ? (
+        <View style={styles.searchResultsPanel}>
+          {searchLoading ? (
+            <View style={styles.searchResultsLoading}>
+              <ActivityIndicator size="small" color="#667eea" />
+            </View>
+          ) : !hasSearchResults ? (
+            <Text style={styles.searchResultsEmpty}>Nessun risultato</Text>
+          ) : (
+            <ScrollView
+              style={styles.searchResultsScroll}
+              keyboardShouldPersistTaps="handled"
+              nestedScrollEnabled
+              showsVerticalScrollIndicator={false}
+            >
+              {searchTeams.map((team) => (
+                <TouchableOpacity
+                  key={`team-${team.team_id}-${team.competition_id}`}
+                  style={styles.searchResultRow}
+                  activeOpacity={0.75}
+                  onPress={() => goToOfficialTeamFromSearch(team)}
+                >
+                  <TeamRowLogo logoUrl={team.logo_url} logoPath={team.logo_path} />
+                  <View style={styles.searchResultMeta}>
+                    <Text style={styles.searchResultTitle} numberOfLines={1}>{team.name}</Text>
+                    <Text style={styles.searchResultSubtitle} numberOfLines={1}>
+                      {team.competition_name || 'Squadra ufficiale'}
+                    </Text>
+                  </View>
+                  <Ionicons name="shield-outline" size={16} color="#cbd5e1" />
+                </TouchableOpacity>
+              ))}
+              {searchPlayers.map((player) => (
+                <TouchableOpacity
+                  key={`player-${player.player_id}-${player.league_id}`}
+                  style={styles.searchResultRow}
+                  activeOpacity={0.75}
+                  onPress={() => goToOfficialPlayer(player)}
+                >
+                  <PlayerPhotoImage
+                    photoPath={player.photo_path || undefined}
+                    style={styles.searchPlayerPhoto}
+                    fallbackStyle={styles.searchPlayerPhotoFallback}
+                    fallbackIconSize={16}
+                  />
+                  <View style={styles.searchResultMeta}>
+                    <Text style={styles.searchResultTitle} numberOfLines={1}>{player.name}</Text>
+                    <Text style={styles.searchResultSubtitle} numberOfLines={1}>
+                      {[player.team_name, player.competition_name].filter(Boolean).join(' · ') || 'Giocatore ufficiale'}
+                    </Text>
+                  </View>
+                  <Ionicons name="person-outline" size={16} color="#cbd5e1" />
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          )}
+        </View>
+      ) : null}
 
       {heartTeams.length > 0 && (
         <View style={styles.heartStripWrap}>
@@ -769,8 +962,36 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    gap: 10,
   },
-  headerTitle: { fontSize: 24, fontWeight: '800', color: '#222' },
+  headerTitle: { flexShrink: 1, fontSize: 24, fontWeight: '800', color: '#222' },
+  headerTitleCompact: { fontSize: 20 },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 6,
+    flexShrink: 0,
+  },
+  headerSearchInputWrap: {
+    width: 168,
+    height: 34,
+    borderRadius: 17,
+    borderWidth: 1,
+    borderColor: '#dbe3ef',
+    backgroundColor: '#f8fafc',
+    paddingHorizontal: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  headerSearchInput: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 14,
+    color: '#1e293b',
+    paddingVertical: 0,
+  },
   headerEditBtn: {
     width: 34,
     height: 34,
@@ -781,7 +1002,65 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  headerEditBtnPlaceholder: { width: 34, height: 34 },
+  searchResultsPanel: {
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#ececec',
+    maxHeight: 280,
+    paddingHorizontal: 10,
+    paddingBottom: 8,
+  },
+  searchResultsScroll: {
+    maxHeight: 260,
+  },
+  searchResultsLoading: {
+    paddingVertical: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  searchResultsEmpty: {
+    paddingVertical: 16,
+    paddingHorizontal: 8,
+    fontSize: 13,
+    color: '#94a3b8',
+    textAlign: 'center',
+  },
+  searchResultRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+  },
+  searchResultMeta: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  searchResultTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#1e293b',
+  },
+  searchResultSubtitle: {
+    fontSize: 12,
+    color: '#94a3b8',
+  },
+  searchPlayerPhoto: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+  },
+  searchPlayerPhotoFallback: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#eef2ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   content: { flex: 1 },
   daysControlsRow: {
     paddingHorizontal: 6,
