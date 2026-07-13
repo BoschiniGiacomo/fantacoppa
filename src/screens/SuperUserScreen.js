@@ -3986,9 +3986,10 @@ export default function SuperUserScreen() {
                 clusterRoleDraft,
               );
               return (
-              <View style={styles.clusterMetaBar}>
-                <View style={styles.clusterMetaField}>
-                  <Text style={styles.clusterMetaLabel}>Anno</Text>
+              <View style={styles.clusterMetaWrap}>
+                <View style={styles.clusterMetaBar}>
+                  <View style={styles.clusterMetaField}>
+                    <Text style={styles.clusterMetaLabel} numberOfLines={1}>Anno</Text>
                   <TouchableOpacity
                     style={[
                       styles.clusterMetaPill,
@@ -4017,7 +4018,7 @@ export default function SuperUserScreen() {
                 </View>
 
                 <View style={styles.clusterMetaField}>
-                  <Text style={styles.clusterMetaLabel}>Ruolo</Text>
+                  <Text style={styles.clusterMetaLabel} numberOfLines={1}>Ruolo</Text>
                   <TouchableOpacity
                     style={[
                       styles.clusterMetaPill,
@@ -4043,6 +4044,8 @@ export default function SuperUserScreen() {
                       </>
                     )}
                   </TouchableOpacity>
+                </View>
+
                 </View>
 
                 {missingBirthYearCount > 0 && clusterBirthYearDraft ? (
@@ -4218,12 +4221,19 @@ export default function SuperUserScreen() {
 
       <Modal
         visible={showClusterRolePicker}
-        animationType="fade"
+        animationType="slide"
         transparent={true}
         onRequestClose={() => setShowClusterRolePicker(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={[styles.yearPickerModalContent, styles.clusterRolePickerModal]}>
+          <TouchableOpacity
+            style={styles.clusterRolePickerBackdrop}
+            activeOpacity={1}
+            onPress={() => setShowClusterRolePicker(false)}
+            accessibilityRole="button"
+            accessibilityLabel="Chiudi selezione ruolo"
+          />
+          <View style={styles.clusterRolePickerSheet}>
             <View style={styles.clusterRolePickerHeader}>
               <Text style={styles.clusterRolePickerTitle}>Ruolo</Text>
               <TouchableOpacity onPress={() => setShowClusterRolePicker(false)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
@@ -5292,25 +5302,30 @@ const styles = StyleSheet.create({
     color: '#666',
     marginTop: 2,
   },
-  clusterMetaBar: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+  clusterMetaWrap: {
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: '#e8e8e8',
-    gap: 10,
+    paddingBottom: 10,
+  },
+  clusterMetaBar: {
+    flexDirection: 'row',
+    flexWrap: 'nowrap',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    gap: 16,
   },
   clusterMetaField: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+    flexShrink: 0,
   },
   clusterMetaLabel: {
     fontSize: 13,
     color: '#94a3b8',
-    width: 36,
+    minWidth: 42,
+    flexShrink: 0,
   },
   clusterMetaPill: {
     flexDirection: 'row',
@@ -5343,8 +5358,8 @@ const styles = StyleSheet.create({
   clusterMetaPendingHint: {
     fontSize: 12,
     color: '#94a3b8',
-    flex: 1,
-    minWidth: 120,
+    paddingHorizontal: 16,
+    marginTop: 6,
   },
   clusterBirthYearBar: {
     flexDirection: 'row',
@@ -5422,7 +5437,15 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#94a3b8',
   },
-  clusterRolePickerModal: {
+  clusterRolePickerBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  clusterRolePickerSheet: {
+    width: '100%',
+    maxHeight: '50%',
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
     paddingBottom: 16,
   },
   clusterRolePickerHeader: {
