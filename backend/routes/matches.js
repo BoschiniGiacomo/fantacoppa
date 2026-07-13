@@ -1666,6 +1666,97 @@ ${SQL_WALKOVER_MATCHES_CTE}
 });
 
 // GET /matches/search?q= — squadre e giocatori ufficiali (competizioni abilitate)
+function pickBetterSearchPlayerRow(prev, next) {
+  const prevPhoto = String(prev.photo_path || '').trim();
+  const nextPhoto = String(next.photo_path || '').trim();
+  if (!prevPhoto && nextPhoto) return next;
+  if (prevPhoto && !nextPhoto) return prev;
+
+  const prevYear = Number(prev.reference_year) || 0;
+  const nextYear = Number(next.reference_year) || 0;
+  if (nextYear !== prevYear) return nextYear > prevYear ? next : prev;
+
+  const prevLeague = Number(prev.league_id) || 0;
+  const nextLeague = Number(next.league_id) || 0;
+  return nextLeague > prevLeague ? next : prev;
+}
+
+async function mapPlayerIdsToApprovedClusters(groupId, playerIds) {
+  const playerToCluster = new Map();
+  const gid = Number(groupId);
+  if (!gid || !playerIds.length) return playerToCluster;
+
+  const CLUSTER_LOOKUP_BATCH = 400;
+  for (let i = 0; i < playerIds.length; i += CLUSTER_LOOKUP_BATCH) {
+    const batch = playerIds.slice(i, i + CLUSTER_LOOKUP_BATCH);
+    const ph = batch.map(() => '?').join(', ');
+    const memberRows = await query(
+      `
+      SELECT pcm.player_id, pcm.cluster_id
+      FROM player_cluster_members pcm
+      INNER JOIN player_clusters pc ON pc.id = pcm.cluster_id
+      WHERE pc.official_group_id = ?
+        AND pc.status = 'approved'
+        AND pcm.player_id IN (${ph})
+      `,
+      [gid, ...batch]
+    );
+    for (const r of memberRows || []) {
+      const pid = Number(r.player_id);
+      const cid = Number(r.cluster_id);
+      if (pid > 0 && cid > 0) playerToCluster.set(pid, cid);
+    }
+  }
+  return playerToCluster;
+}
+
+async function dedupeSearchPlayersByCluster(mappedPlayers) {
+  if (!mappedPlayers.length) return [];
+
+  const byGroup = new Map();
+  for (const player of mappedPlayers) {
+    const groupId = Number(player.competition_id);
+    if (!byGroup.has(groupId)) byGroup.set(groupId, []);
+    byGroup.get(groupId).push(player);
+  }
+
+  const playerToCluster = new Map();
+  for (const [groupId, players] of byGroup) {
+    const playerIds = [...new Set(players.map((p) => Number(p.player_id)).filter((id) => id > 0))];
+    const groupMap = await mapPlayerIdsToApprovedClusters(groupId, playerIds);
+    for (const [playerId, clusterId] of groupMap) {
+      playerToCluster.set(`${groupId}:${playerId}`, clusterId);
+    }
+  }
+
+  const buckets = new Map();
+  for (const player of mappedPlayers) {
+    const groupId = Number(player.competition_id);
+    const playerId = Number(player.player_id);
+    const clusterId = playerToCluster.get(`${groupId}:${playerId}`);
+    const key = clusterId ? `c:${clusterId}` : `p:${groupId}:${playerId}`;
+
+    const prev = buckets.get(key);
+    if (!prev) {
+      buckets.set(key, { ...player });
+      continue;
+    }
+
+    const better = pickBetterSearchPlayerRow(prev, player);
+    const mergedPhoto =
+      String(prev.photo_path || '').trim() || String(player.photo_path || '').trim() || null;
+    buckets.set(key, {
+      ...better,
+      photo_path: mergedPhoto,
+    });
+  }
+
+  return [...buckets.values()]
+    .map(({ reference_year: _referenceYear, ...player }) => player)
+    .sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'it'))
+    .slice(0, 20);
+}
+
 router.get('/matches/search', authenticateToken, async (req, res) => {
   try {
     const userId = Number(req.user?.userId);
@@ -1735,7 +1826,8 @@ router.get('/matches/search', authenticateToken, async (req, res) => {
           COALESCE(p.photo_path, '') AS photo_path,
           t.name AS team_name,
           l.id AS league_id,
-          l.official_group_id AS competition_id
+          l.official_group_id AS competition_id,
+          NULLIF(to_jsonb(l)->>'reference_year','')::int AS reference_year
         FROM players p
         INNER JOIN teams t ON t.id = p.team_id
         INNER JOIN leagues l ON l.id = t.league_id
@@ -1752,7 +1844,7 @@ router.get('/matches/search', authenticateToken, async (req, res) => {
         ORDER BY p.id, l.official_group_id,
           NULLIF(to_jsonb(l)->>'reference_year','')::int DESC NULLS LAST,
           l.id DESC
-        LIMIT 30`,
+        LIMIT 80`,
         [...compIds, like, like, like],
       ),
     ]);
@@ -1773,7 +1865,7 @@ router.get('/matches/search', authenticateToken, async (req, res) => {
       };
     });
 
-    const players = (playerRows || [])
+    const mappedPlayers = (playerRows || [])
       .map((r) => {
         const playerId = Number(r.player_id);
         const leagueId = Number(r.league_id);
@@ -1789,10 +1881,12 @@ router.get('/matches/search', authenticateToken, async (req, res) => {
           league_id: leagueId,
           competition_id: compId,
           competition_name: compNameMap.get(compId) || null,
+          reference_year: Number(r.reference_year) || null,
         };
       })
-      .filter(Boolean)
-      .slice(0, 20);
+      .filter(Boolean);
+
+    const players = await dedupeSearchPlayersByCluster(mappedPlayers);
 
     return res.json({ teams, players });
   } catch (err) {

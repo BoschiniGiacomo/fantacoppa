@@ -232,8 +232,14 @@ export default function MatchesScreen() {
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchTeams, setSearchTeams] = useState([]);
   const [searchPlayers, setSearchPlayers] = useState([]);
+  const [headerHeight, setHeaderHeight] = useState(0);
   const searchInputRef = useRef(null);
   const searchSeqRef = useRef(0);
+
+  const onHeaderLayout = useCallback((event) => {
+    const nextHeight = Math.round(event.nativeEvent.layout.height);
+    setHeaderHeight((prev) => (prev === nextHeight ? prev : nextHeight));
+  }, []);
 
   const loadStripTeams = useCallback(async () => {
     try {
@@ -593,7 +599,10 @@ export default function MatchesScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={[styles.header, { paddingTop: Math.max(insets.top + 6, 12) }]}>
+      <View
+        style={[styles.header, { paddingTop: Math.max(insets.top + 6, 12) }]}
+        onLayout={onHeaderLayout}
+      >
         <Text style={[styles.headerTitle, searchOpen && styles.headerTitleCompact]} numberOfLines={1}>
           Partite
         </Text>
@@ -635,65 +644,6 @@ export default function MatchesScreen() {
           ) : null}
         </View>
       </View>
-
-      {showSearchResults ? (
-        <View style={styles.searchResultsPanel}>
-          {searchLoading ? (
-            <View style={styles.searchResultsLoading}>
-              <ActivityIndicator size="small" color="#667eea" />
-            </View>
-          ) : !hasSearchResults ? (
-            <Text style={styles.searchResultsEmpty}>Nessun risultato</Text>
-          ) : (
-            <ScrollView
-              style={styles.searchResultsScroll}
-              keyboardShouldPersistTaps="handled"
-              nestedScrollEnabled
-              showsVerticalScrollIndicator={false}
-            >
-              {searchTeams.map((team) => (
-                <TouchableOpacity
-                  key={`team-${team.team_id}-${team.competition_id}`}
-                  style={styles.searchResultRow}
-                  activeOpacity={0.75}
-                  onPress={() => goToOfficialTeamFromSearch(team)}
-                >
-                  <TeamRowLogo logoUrl={team.logo_url} logoPath={team.logo_path} />
-                  <View style={styles.searchResultMeta}>
-                    <Text style={styles.searchResultTitle} numberOfLines={1}>{team.name}</Text>
-                    <Text style={styles.searchResultSubtitle} numberOfLines={1}>
-                      {team.competition_name || 'Squadra ufficiale'}
-                    </Text>
-                  </View>
-                  <Ionicons name="shield-outline" size={16} color="#cbd5e1" />
-                </TouchableOpacity>
-              ))}
-              {searchPlayers.map((player) => (
-                <TouchableOpacity
-                  key={`player-${player.player_id}-${player.league_id}`}
-                  style={styles.searchResultRow}
-                  activeOpacity={0.75}
-                  onPress={() => goToOfficialPlayer(player)}
-                >
-                  <PlayerPhotoImage
-                    photoPath={player.photo_path || undefined}
-                    style={styles.searchPlayerPhoto}
-                    fallbackStyle={styles.searchPlayerPhotoFallback}
-                    fallbackIconSize={16}
-                  />
-                  <View style={styles.searchResultMeta}>
-                    <Text style={styles.searchResultTitle} numberOfLines={1}>{player.name}</Text>
-                    <Text style={styles.searchResultSubtitle} numberOfLines={1}>
-                      {[player.team_name, player.competition_name].filter(Boolean).join(' · ') || 'Giocatore ufficiale'}
-                    </Text>
-                  </View>
-                  <Ionicons name="person-outline" size={16} color="#cbd5e1" />
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          )}
-        </View>
-      ) : null}
 
       {heartTeams.length > 0 && (
         <View style={styles.heartStripWrap}>
@@ -877,6 +827,67 @@ export default function MatchesScreen() {
         </TouchableOpacity>
       ) : null}
 
+      {showSearchResults && headerHeight > 0 ? (
+        <View style={[styles.searchResultsOverlay, { top: headerHeight }]} pointerEvents="box-none">
+          <View style={styles.searchResultsPanel}>
+            {searchLoading ? (
+              <View style={styles.searchResultsLoading}>
+                <ActivityIndicator size="small" color="#667eea" />
+              </View>
+            ) : !hasSearchResults ? (
+              <Text style={styles.searchResultsEmpty}>Nessun risultato</Text>
+            ) : (
+              <ScrollView
+                style={styles.searchResultsScroll}
+                keyboardShouldPersistTaps="handled"
+                nestedScrollEnabled
+                showsVerticalScrollIndicator={false}
+              >
+                {searchTeams.map((team) => (
+                  <TouchableOpacity
+                    key={`team-${team.team_id}-${team.competition_id}`}
+                    style={styles.searchResultRow}
+                    activeOpacity={0.75}
+                    onPress={() => goToOfficialTeamFromSearch(team)}
+                  >
+                    <TeamRowLogo logoUrl={team.logo_url} logoPath={team.logo_path} />
+                    <View style={styles.searchResultMeta}>
+                      <Text style={styles.searchResultTitle} numberOfLines={1}>{team.name}</Text>
+                      <Text style={styles.searchResultSubtitle} numberOfLines={1}>
+                        {team.competition_name || 'Squadra ufficiale'}
+                      </Text>
+                    </View>
+                    <Ionicons name="shield-outline" size={16} color="#cbd5e1" />
+                  </TouchableOpacity>
+                ))}
+                {searchPlayers.map((player) => (
+                  <TouchableOpacity
+                    key={`player-${player.player_id}-${player.league_id}`}
+                    style={styles.searchResultRow}
+                    activeOpacity={0.75}
+                    onPress={() => goToOfficialPlayer(player)}
+                  >
+                    <PlayerPhotoImage
+                      photoPath={player.photo_path || undefined}
+                      style={styles.searchPlayerPhoto}
+                      fallbackStyle={styles.searchPlayerPhotoFallback}
+                      fallbackIconSize={16}
+                    />
+                    <View style={styles.searchResultMeta}>
+                      <Text style={styles.searchResultTitle} numberOfLines={1}>{player.name}</Text>
+                      <Text style={styles.searchResultSubtitle} numberOfLines={1}>
+                        {[player.team_name, player.competition_name].filter(Boolean).join(' · ') || 'Giocatore ufficiale'}
+                      </Text>
+                    </View>
+                    <Ionicons name="person-outline" size={16} color="#cbd5e1" />
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      ) : null}
+
       <Modal visible={followModalVisible} transparent animationType="fade" onRequestClose={() => setFollowModalVisible(false)}>
         <View style={styles.modalOverlay}>
           <View style={[styles.modalBox, { maxHeight: '85%' }]}>
@@ -1002,6 +1013,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  searchResultsOverlay: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    zIndex: 100,
+    elevation: 100,
+  },
   searchResultsPanel: {
     backgroundColor: '#fff',
     borderBottomWidth: 1,
@@ -1009,6 +1027,10 @@ const styles = StyleSheet.create({
     maxHeight: 280,
     paddingHorizontal: 10,
     paddingBottom: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
   },
   searchResultsScroll: {
     maxHeight: 260,
