@@ -435,6 +435,18 @@ async function propagateBirthYearToClusterMembers(clusterId, birthYear) {
   );
 }
 
+async function propagateRoleToClusterMembers(clusterId, role) {
+  if (!clusterId || !role) return;
+  await query(
+    `UPDATE players p
+     SET role = ?
+     FROM player_cluster_members pcm
+     WHERE pcm.cluster_id = ?
+       AND pcm.player_id = p.id`,
+    [role, clusterId]
+  );
+}
+
 function parseClusterBirthYearInput(raw) {
   if (raw === null || raw === undefined || raw === '') return { value: null };
   const s = String(raw).trim();
@@ -444,6 +456,13 @@ function parseClusterBirthYearInput(raw) {
   const maxY = new Date().getFullYear();
   if (!Number.isFinite(y) || y < 1900 || y > maxY) return { error: 'range' };
   return { value: y };
+}
+
+function parseClusterRoleInput(raw) {
+  if (raw === null || raw === undefined || raw === '') return { error: 'invalid' };
+  const code = String(raw).trim().toUpperCase();
+  if (!['P', 'D', 'C', 'A'].includes(code)) return { error: 'invalid' };
+  return { value: code };
 }
 
 async function loadClusterMeta(clusterId) {
@@ -1453,6 +1472,31 @@ router.put('/player-clusters/:clusterId/birth-year', authenticateToken, requireS
     });
   } catch (error) {
     return res.status(500).json({ message: 'Errore aggiornamento anno di nascita', error: error.message });
+  }
+});
+
+router.put('/player-clusters/:clusterId/role', authenticateToken, requireSuperuser, async (req, res) => {
+  try {
+    const clusterId = Number(req.params.clusterId);
+    if (!clusterId) return res.status(400).json({ message: 'Cluster non valido' });
+
+    const cluster = await loadClusterMeta(clusterId);
+    if (!cluster) return res.status(404).json({ message: 'Cluster non trovato' });
+
+    const parsed = parseClusterRoleInput(req.body?.role);
+    if (parsed.error === 'invalid') {
+      return res.status(400).json({ message: 'Ruolo non valido (P, D, C o A)' });
+    }
+
+    const role = parsed.value;
+    await propagateRoleToClusterMembers(clusterId, role);
+
+    return res.json({
+      message: `Ruolo ${role} applicato a tutto il cluster`,
+      role,
+    });
+  } catch (error) {
+    return res.status(500).json({ message: 'Errore aggiornamento ruolo cluster', error: error.message });
   }
 });
 
