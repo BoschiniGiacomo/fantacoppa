@@ -218,6 +218,8 @@ export default function PlayerStatsScreen({ route, navigation }) {
   const [hasOfficialGroup, setHasOfficialGroup] = useState(false);
   const [overview, setOverview] = useState(null);
   const [loadingOverview, setLoadingOverview] = useState(true);
+  const [absoluteRanks, setAbsoluteRanks] = useState(null);
+  const [loadingAbsoluteRanks, setLoadingAbsoluteRanks] = useState(false);
   const [careerHistory, setCareerHistory] = useState(null);
   const [loadingCareer, setLoadingCareer] = useState(false);
   const [selectedEditionKey, setSelectedEditionKey] = useState(null);
@@ -226,6 +228,7 @@ export default function PlayerStatsScreen({ route, navigation }) {
   const [photoPath, setPhotoPath] = useState(() => String(initialPlayerPhotoPath || '').trim());
   const editionPickerAnchorRef = useRef(null);
   const mainScrollRef = useRef(null);
+  const officialGroupCheckDoneRef = useRef(false);
 
   const clusterEditions = useMemo(() => {
     const editions = overview?.editions;
@@ -267,9 +270,19 @@ export default function PlayerStatsScreen({ route, navigation }) {
 
   useEffect(() => {
     setCareerHistory(null);
-    checkOfficialGroup();
+    setAbsoluteRanks(null);
+    setLoadingAbsoluteRanks(entrySource === 'official');
+    officialGroupCheckDoneRef.current = false;
     loadOverview();
+    if (initialTabs.mainTab === 'fantacoppa') {
+      void checkOfficialGroup();
+    }
   }, [playerId, leagueId]);
+
+  useEffect(() => {
+    if (entrySource === 'official' || !hasOfficialGroup || absoluteRanks || loadingAbsoluteRanks) return;
+    void loadAbsoluteRanks();
+  }, [hasOfficialGroup, entrySource, absoluteRanks, loadingAbsoluteRanks, playerId, leagueId]);
 
   const loadEditionStats = async (editionPlayerId, editionLeagueId) => {
     const targetPlayerId = Number(editionPlayerId);
@@ -291,6 +304,19 @@ export default function PlayerStatsScreen({ route, navigation }) {
     }
   };
 
+  const loadAbsoluteRanks = async () => {
+    try {
+      setLoadingAbsoluteRanks(true);
+      const response = await playerStatsService.getPlayerAbsoluteRanks(playerId, leagueId);
+      setAbsoluteRanks(response.data?.absolute_ranks || null);
+    } catch (error) {
+      setAbsoluteRanks(null);
+      console.error(error);
+    } finally {
+      setLoadingAbsoluteRanks(false);
+    }
+  };
+
   const loadOverview = async () => {
     try {
       setLoadingOverview(true);
@@ -302,11 +328,15 @@ export default function PlayerStatsScreen({ route, navigation }) {
       const defaultEdition = resolveDefaultEdition(editions, playerId, leagueId);
       const defaultKey = editionKey(defaultEdition);
       setSelectedEditionKey(defaultKey);
-      await loadEditionStats(defaultEdition.player_id, defaultEdition.league_id);
+
+      if (entrySource === 'official') {
+        void loadAbsoluteRanks();
+      }
+      void loadEditionStats(defaultEdition.player_id, defaultEdition.league_id);
     } catch (error) {
       setOverview(null);
       setSelectedEditionKey(editionKey({ player_id: playerId, league_id: leagueId }));
-      await loadEditionStats(playerId, leagueId);
+      void loadEditionStats(playerId, leagueId);
       console.error(error);
     } finally {
       setLoadingOverview(false);
@@ -314,6 +344,8 @@ export default function PlayerStatsScreen({ route, navigation }) {
   };
 
   const checkOfficialGroup = async () => {
+    if (officialGroupCheckDoneRef.current) return;
+    officialGroupCheckDoneRef.current = true;
     try {
       setLoadingAggregated(true);
       const response = await playerStatsService.getPlayerAggregatedStats(playerId, leagueId);
@@ -385,8 +417,11 @@ export default function PlayerStatsScreen({ route, navigation }) {
     }
     setActiveMainTab(tabKey);
     mainScrollRef.current?.scrollTo({ y: 0, animated: false });
-    if (tabKey === 'fantacoppa' && activeFantaSubTab === 'total') {
-      loadAggregatedStats();
+    if (tabKey === 'fantacoppa') {
+      void checkOfficialGroup();
+      if (activeFantaSubTab === 'total') {
+        loadAggregatedStats();
+      }
     }
     if (tabKey === 'career') {
       loadCareer();
@@ -450,11 +485,7 @@ export default function PlayerStatsScreen({ route, navigation }) {
     const teamLogoPath = String(overview.team?.logo_path || '').trim();
     const roleLabel = formatOverviewRole(overview.role);
     const roleFontSize = roleLabel.length > 14 ? 17 : roleLabel.length > 11 ? 19 : 22;
-    const absoluteRanks = overview?.absolute_ranks;
-    const showAbsoluteRanksCard = Boolean(
-      absoluteRanks
-        && (entrySource === 'official' || hasOfficialGroup),
-    );
+    const showAbsoluteRanksCard = entrySource === 'official' || hasOfficialGroup;
 
     return (
       <>
@@ -514,24 +545,31 @@ export default function PlayerStatsScreen({ route, navigation }) {
 
       {showAbsoluteRanksCard ? (
         <View style={styles.card}>
-          <TileSplitRow
-            left={(
-              <>
-                <Text style={styles.tileValue}>
-                  {formatOverviewAbsoluteRank(absoluteRanks?.appearances_rank)}
-                </Text>
-                <Text style={styles.tileLabel}>Presenze</Text>
-              </>
-            )}
-            right={(
-              <>
-                <Text style={styles.tileValue}>
-                  {formatOverviewAbsoluteRank(absoluteRanks?.goals_rank)}
-                </Text>
-                <Text style={styles.tileLabel}>Goal</Text>
-              </>
-            )}
-          />
+          <Text style={styles.cardSectionTitle}>All time</Text>
+          {loadingAbsoluteRanks ? (
+            <View style={styles.overviewRanksLoading}>
+              <ActivityIndicator size="small" color="#667eea" />
+            </View>
+          ) : (
+            <TileSplitRow
+              left={(
+                <>
+                  <Text style={styles.tileValue}>
+                    {formatOverviewAbsoluteRank(absoluteRanks?.appearances_rank)}
+                  </Text>
+                  <Text style={styles.tileLabel}>Presenze</Text>
+                </>
+              )}
+              right={(
+                <>
+                  <Text style={styles.tileValue}>
+                    {formatOverviewAbsoluteRank(absoluteRanks?.goals_rank)}
+                  </Text>
+                  <Text style={styles.tileLabel}>Goal</Text>
+                </>
+              )}
+            />
+          )}
         </View>
       ) : null}
       </>
@@ -1319,6 +1357,11 @@ const styles = StyleSheet.create({
   loadingBox: {
     paddingVertical: 60,
     alignItems: 'center',
+  },
+  overviewRanksLoading: {
+    paddingVertical: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   emptyBox: {
     alignItems: 'center',

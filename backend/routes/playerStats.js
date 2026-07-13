@@ -400,11 +400,22 @@ async function fetchPlayerEditionRows(playerIds) {
   );
 
   const visibleRows = [];
+  const uniqueLeagueIds = [
+    ...new Set(
+      (rows || [])
+        .map((row) => Number(row.league_id || 0))
+        .filter((leagueId) => Number.isFinite(leagueId) && leagueId > 0),
+    ),
+  ];
+
+  await Promise.all(
+    uniqueLeagueIds.map((leagueId) => isLeagueExcludedFromPlayerOverview(leagueId, hiddenCache)),
+  );
+
   for (const row of rows || []) {
     const leagueId = Number(row.league_id || 0);
     if (!leagueId) continue;
-    const excluded = await isLeagueExcludedFromPlayerOverview(leagueId, hiddenCache);
-    if (!excluded) visibleRows.push(row);
+    if (!hiddenCache.get(leagueId)) visibleRows.push(row);
   }
 
   return visibleRows;
@@ -603,8 +614,10 @@ router.get('/:playerId/overview/:leagueId', authenticateToken, async (req, res) 
     const groupId = await resolveOfficialGroupId(leagueId);
 
     const clusterContext = await fetchClusterContext(playerId, groupId);
-    const editionsPlayed = await countVisibleClusterMembers(clusterContext.playerIds);
-    const editions = await fetchPlayerEditionRows(clusterContext.playerIds);
+    const [editionsPlayed, editions] = await Promise.all([
+      countVisibleClusterMembers(clusterContext.playerIds),
+      fetchPlayerEditionRows(clusterContext.playerIds),
+    ]);
     const trophies = groupId
       ? await computePlayerOfficialTrophies(groupId, editions)
       : { championships: 0, wine_trophies: 0 };
@@ -615,13 +628,35 @@ router.get('/:playerId/overview/:leagueId', authenticateToken, async (req, res) 
       editionsPlayed,
       trophies
     );
-    overview.absolute_ranks = groupId
-      ? await fetchPlayerAbsoluteOverviewRanks(groupId, clusterContext.playerIds)
-      : { appearances_rank: null, goals_rank: null };
 
     return res.json({ overview });
   } catch (error) {
     return res.status(500).json({ message: 'Errore caricamento panoramica giocatore', error: error.message });
+  }
+});
+
+router.get('/:playerId/absolute-ranks/:leagueId', authenticateToken, async (req, res) => {
+  try {
+    const playerId = Number(req.params.playerId);
+    const leagueId = Number(req.params.leagueId);
+    if (!playerId || !leagueId) return res.status(400).json({ message: 'Parametri non validi' });
+
+    const playerRows = await query(
+      `SELECT id FROM players WHERE id = ? LIMIT 1`,
+      [playerId],
+    );
+    if (!playerRows.length) return res.status(404).json({ message: 'Giocatore non trovato' });
+
+    const groupId = await resolveOfficialGroupId(leagueId);
+    if (!groupId) {
+      return res.json({ absolute_ranks: { appearances_rank: null, goals_rank: null } });
+    }
+
+    const clusterContext = await fetchClusterContext(playerId, groupId);
+    const absoluteRanks = await fetchPlayerAbsoluteOverviewRanks(groupId, clusterContext.playerIds);
+    return res.json({ absolute_ranks: absoluteRanks });
+  } catch (error) {
+    return res.status(500).json({ message: 'Errore caricamento ranking assoluto giocatore', error: error.message });
   }
 });
 
