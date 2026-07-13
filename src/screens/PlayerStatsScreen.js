@@ -13,6 +13,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { playerStatsService } from '../services/api';
 import { PlayerPhotoImage, TeamLogoImage } from '../components/StableCachedImage';
+import { formatCompetitionRank } from '../utils/standingsRanking';
 import BonusIcon from '../components/BonusIcon';
 import PlayerHeroTrophyBadges from '../components/PlayerHeroTrophyBadges';
 
@@ -105,6 +106,10 @@ function formatCareerLeagueYear(entry) {
   const year = Number(entry?.reference_year);
   if (Number.isFinite(year) && year > 0) return String(Math.trunc(year));
   return '–';
+}
+
+function formatOverviewAbsoluteRank(rank) {
+  return formatCompetitionRank(rank);
 }
 
 function SeasonYearPickerMenu({ open, onClose, anchorRef, options, onSelectOption }) {
@@ -445,8 +450,14 @@ export default function PlayerStatsScreen({ route, navigation }) {
     const teamLogoPath = String(overview.team?.logo_path || '').trim();
     const roleLabel = formatOverviewRole(overview.role);
     const roleFontSize = roleLabel.length > 14 ? 17 : roleLabel.length > 11 ? 19 : 22;
+    const absoluteRanks = overview?.absolute_ranks;
+    const showAbsoluteRanksCard = Boolean(
+      absoluteRanks
+        && (entrySource === 'official' || hasOfficialGroup),
+    );
 
     return (
+      <>
       <View style={styles.card}>
         <TileSplitRow
           left={(
@@ -500,6 +511,30 @@ export default function PlayerStatsScreen({ route, navigation }) {
           </View>
         </View>
       </View>
+
+      {showAbsoluteRanksCard ? (
+        <View style={styles.card}>
+          <TileSplitRow
+            left={(
+              <>
+                <Text style={styles.tileValue}>
+                  {formatOverviewAbsoluteRank(absoluteRanks?.appearances_rank)}
+                </Text>
+                <Text style={styles.tileLabel}>Presenze</Text>
+              </>
+            )}
+            right={(
+              <>
+                <Text style={styles.tileValue}>
+                  {formatOverviewAbsoluteRank(absoluteRanks?.goals_rank)}
+                </Text>
+                <Text style={styles.tileLabel}>Goal</Text>
+              </>
+            )}
+          />
+        </View>
+      ) : null}
+      </>
     );
   };
 

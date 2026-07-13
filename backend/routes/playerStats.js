@@ -438,6 +438,69 @@ function resolveBirthYear(editions) {
   return null;
 }
 
+function resolveRankInLeaderboard(rows, clusterPlayerIds) {
+  const idSet = new Set(
+    (clusterPlayerIds || []).map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0),
+  );
+  if (!idSet.size) return null;
+
+  const list = Array.isArray(rows) ? rows : [];
+  if (!list.length) return null;
+
+  let lastScore = null;
+  let currentRank = 0;
+
+  for (let i = 0; i < list.length; i += 1) {
+    const row = list[i];
+    const score = Number(row?.value || 0);
+    if (i === 0 || score !== lastScore) {
+      currentRank = i + 1;
+      lastScore = score;
+    }
+    const rowPlayerId = Number(row?.player_id);
+    if (rowPlayerId > 0 && idSet.has(rowPlayerId)) {
+      return currentRank;
+    }
+  }
+
+  return null;
+}
+
+async function fetchPlayerAbsoluteOverviewRanks(groupId, clusterPlayerIds) {
+  const empty = { appearances_rank: null, goals_rank: null };
+  const gid = Number(groupId);
+  if (!Number.isFinite(gid) || gid <= 0 || !clusterPlayerIds?.length) {
+    return empty;
+  }
+
+  try {
+    const { officialGroupStatsApi } = require('./matches');
+    const listOfficialGroupSeasonLeagues = officialGroupStatsApi?.listOfficialGroupSeasonLeagues;
+    const computeOfficialGroupSeasonStats = officialGroupStatsApi?.computeOfficialGroupSeasonStats;
+    if (!listOfficialGroupSeasonLeagues || !computeOfficialGroupSeasonStats) {
+      return empty;
+    }
+
+    const seasonLeagues = await listOfficialGroupSeasonLeagues(gid);
+    const leagueIds = [
+      ...new Set(
+        (seasonLeagues || [])
+          .map((row) => Number(row.league_id))
+          .filter((id) => Number.isFinite(id) && id > 0),
+      ),
+    ];
+    if (!leagueIds.length) return empty;
+
+    const stats = await computeOfficialGroupSeasonStats(gid, leagueIds, true);
+    return {
+      appearances_rank: resolveRankInLeaderboard(stats?.presences, clusterPlayerIds),
+      goals_rank: resolveRankInLeaderboard(stats?.scorers, clusterPlayerIds),
+    };
+  } catch (_) {
+    return empty;
+  }
+}
+
 function mapEditionRow(row) {
   const year = Number(row.reference_year);
   return {
@@ -552,6 +615,9 @@ router.get('/:playerId/overview/:leagueId', authenticateToken, async (req, res) 
       editionsPlayed,
       trophies
     );
+    overview.absolute_ranks = groupId
+      ? await fetchPlayerAbsoluteOverviewRanks(groupId, clusterContext.playerIds)
+      : { appearances_rank: null, goals_rank: null };
 
     return res.json({ overview });
   } catch (error) {

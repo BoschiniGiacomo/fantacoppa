@@ -5665,4 +5665,9 @@ router.get(
   }
 );
 
+router.officialGroupStatsApi = {
+  listOfficialGroupSeasonLeagues,
+  computeOfficialGroupSeasonStats,
+};
+
 module.exports = router;
