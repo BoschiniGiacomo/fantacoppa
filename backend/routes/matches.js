@@ -789,6 +789,10 @@ function buildEventTitleForDb(eventType, teamSide, payload) {
   if (eventType === 'penalty_missed') return pn ? `Rigore sbagliato - ${pn}` : 'Rigore sbagliato';
   if (eventType === 'shootout_goal') return pn ? `Rigore segnato - ${pn}` : 'Rigore segnato';
   if (eventType === 'shootout_missed') return pn ? `Rigore no goal - ${pn}` : 'Rigore no goal';
+  if (eventType === 'pre_shootout_goal') return pn ? `Shootout segnato - ${pn}` : 'Shootout segnato';
+  if (eventType === 'pre_shootout_missed') return pn ? `Shootout no goal - ${pn}` : 'Shootout no goal';
+  if (eventType === 'pre_shootout_start') return 'Inizio shootout';
+  if (eventType === 'pre_shootout_end') return 'Fine shootout';
   if (eventType === 'match_start') return 'Inizio partita';
   if (eventType === 'match_end') return 'Fine partita';
   if (eventType === 'half_time') return 'Fine primo tempo';

@@ -448,6 +448,66 @@ function isShootoutEventType(eventType) {
   return eventType === 'shootout_goal' || eventType === 'shootout_missed';
 }
 
+function isPreShootoutKickEventType(eventType) {
+  return eventType === 'pre_shootout_goal' || eventType === 'pre_shootout_missed';
+}
+
+function isPreShootoutEventType(eventType) {
+  return (
+    isPreShootoutKickEventType(eventType) ||
+    eventType === 'pre_shootout_start' ||
+    eventType === 'pre_shootout_end'
+  );
+}
+
+function isPenaltySeriesKickEventType(eventType) {
+  return isShootoutEventType(eventType) || isPreShootoutKickEventType(eventType);
+}
+
+function computePreShootoutState(events) {
+  const state = { homeGoals: 0, awayGoals: 0, homeTaken: 0, awayTaken: 0 };
+  if (!Array.isArray(events)) return state;
+  for (const ev of events) {
+    if (!ev || !isPreShootoutKickEventType(ev.event_type)) continue;
+    if (ev.team_side === 'home') {
+      state.homeTaken += 1;
+      if (ev.event_type === 'pre_shootout_goal') state.homeGoals += 1;
+    } else if (ev.team_side === 'away') {
+      state.awayTaken += 1;
+      if (ev.event_type === 'pre_shootout_goal') state.awayGoals += 1;
+    }
+  }
+  return state;
+}
+
+function computePreShootoutScoreThroughEvent(events, targetEv) {
+  const score = { home: 0, away: 0 };
+  if (!Array.isArray(events) || !targetEv) return score;
+  const targetId = Number(targetEv.id);
+  const kickEvents = events
+    .filter((ev) => ev && isPreShootoutKickEventType(ev.event_type))
+    .sort((a, b) => (Number(a.id) || 0) - (Number(b.id) || 0));
+  for (const ev of kickEvents) {
+    if (ev.event_type === 'pre_shootout_goal') {
+      if (ev.team_side === 'home') score.home += 1;
+      if (ev.team_side === 'away') score.away += 1;
+    }
+    if (Number(ev.id) === targetId) break;
+  }
+  return score;
+}
+
+function preShootoutAllRoundsComplete(events, match) {
+  const s = computePreShootoutState(events);
+  const n = shootoutRoundsPerTeamFromMatch(match);
+  return s.homeTaken >= n && s.awayTaken >= n;
+}
+
+function preShootoutSeriesFinished(events) {
+  if (!Array.isArray(events)) return false;
+  return events.some((e) => e?.event_type === 'pre_shootout_end');
+}
+
 function computeShootoutScoreThroughEvent(events, targetEv) {
   const score = { home: 0, away: 0 };
   if (!Array.isArray(events) || !targetEv) return score;
@@ -898,7 +958,7 @@ function LineupPlayerRow({
 
 /** Stessi tipi di BonusIcon (bonus/malus) — vedi `BONUS_ICONS` in BonusIcon.js */
 const LIVE_EVENT_BONUS_TYPES = new Set(['goal', 'penalty_goal', 'yellow_card', 'red_card', 'penalty_missed', 'own_goal']);
-const EDITABLE_LIVE_EVENT_TYPES = new Set(['goal', 'penalty_goal', 'own_goal', 'yellow_card', 'red_card', 'penalty_missed', 'shootout_goal', 'shootout_missed']);
+const EDITABLE_LIVE_EVENT_TYPES = new Set(['goal', 'penalty_goal', 'own_goal', 'yellow_card', 'red_card', 'penalty_missed', 'shootout_goal', 'shootout_missed', 'pre_shootout_goal', 'pre_shootout_missed']);
 
 function resolveLiveEventPlayerId(ev) {
   const pid = Number(ev?.player_id ?? ev?.payload?.player_id ?? 0);
@@ -920,7 +980,13 @@ function resolveLiveEventLeagueId(ev, match) {
 
 function isLiveEventOpenableForPlayer(ev) {
   if (!ev) return false;
-  if (!LIVE_EVENT_BONUS_TYPES.has(ev.event_type) && !isShootoutEventType(ev.event_type)) return false;
+  if (
+    !LIVE_EVENT_BONUS_TYPES.has(ev.event_type) &&
+    !isShootoutEventType(ev.event_type) &&
+    !isPreShootoutKickEventType(ev.event_type)
+  ) {
+    return false;
+  }
   return resolveLiveEventPlayerId(ev) != null;
 }
 const LIVE_EVENT_TYPE_LABELS = {
@@ -932,6 +998,10 @@ const LIVE_EVENT_TYPE_LABELS = {
   penalty_missed: 'Rigore sbagliato',
   shootout_goal: 'Rigore segnato',
   shootout_missed: 'Rigore no goal',
+  pre_shootout_goal: 'Shootout segnato',
+  pre_shootout_missed: 'Shootout no goal',
+  pre_shootout_start: 'Inizio shootout',
+  pre_shootout_end: 'Fine shootout',
   match_start: 'Inizio partita',
   half_time: 'Fine primo tempo',
   second_half_start: 'Inizio secondo tempo',
@@ -979,7 +1049,8 @@ function computeLiveScoreFromEvents(events) {
 
 function timelineMinuteSortKey(ev) {
   if (!ev) return Number.POSITIVE_INFINITY;
-  if (ev.event_type === 'match_start') return Number.NEGATIVE_INFINITY;
+  if (ev.event_type === 'match_start') return -1e14;
+  if (isPreShootoutEventType(ev.event_type)) return -2e14;
   if (ev.minute == null || ev.minute === '') return Number.POSITIVE_INFINITY;
   const n = Number(ev.minute);
   return Number.isFinite(n) ? n : Number.POSITIVE_INFINITY;
@@ -1017,7 +1088,10 @@ function phaseContextForTimelineEvent(ev, match) {
  */
 function timelineDisplaySortKey(ev, match) {
   if (!ev) return Number.POSITIVE_INFINITY;
-  if (ev.event_type === 'match_start') return Number.NEGATIVE_INFINITY;
+  if (ev.event_type === 'pre_shootout_start') return -2e14 + 1;
+  if (isPreShootoutKickEventType(ev.event_type)) return -2e14 + 2 + (Number(ev.id) || 0) * 0.000001;
+  if (ev.event_type === 'pre_shootout_end') return -2e14 + 3;
+  if (ev.event_type === 'match_start') return -1e14;
   if (ev.event_type === 'match_end') return 1e15;
   if (isShootoutEventType(ev.event_type)) return 1e15 - 0.5;
   if (ev.event_type === 'penalties_start') return 1e15 - 1;
@@ -1571,9 +1645,22 @@ export default function MatchDetailScreen({ navigation, route }) {
     () => liveEvents.some((e) => e.event_type === 'penalties_start') && !hasMatchEndEvent,
     [liveEvents, hasMatchEndEvent]
   );
+  const preShootoutState = useMemo(() => computePreShootoutState(liveEvents), [liveEvents]);
+  const preShootoutRounds = useMemo(() => shootoutRoundsPerTeamFromMatch(match), [match?.shootout_enabled, match?.shootout_rounds_per_team]);
+  const showPreShootoutEditorTab = useMemo(() => {
+    if (!isEnabledFlag(match?.shootout_enabled)) return false;
+    if (matchHasStarted) return false;
+    if (preShootoutSeriesFinished(liveEvents)) return false;
+    if (preShootoutAllRoundsComplete(liveEvents, match)) return false;
+    return true;
+  }, [match?.shootout_enabled, matchHasStarted, liveEvents, match, preShootoutRounds]);
+  const hasPreShootoutPhase = useMemo(
+    () => liveEvents.some((e) => isPreShootoutEventType(e.event_type)),
+    [liveEvents]
+  );
   const forceShootoutOnlyEditorTabs = showShootoutEditorTab;
   const showTimerEditorTab = matchHasStarted && !hasMatchEndEvent;
-  const hasOnlyPhaseEditorTab = preMatchEditorMode && showPhaseEditorTab && !showShootoutEditorTab;
+  const hasOnlyPhaseEditorTab = preMatchEditorMode && showPhaseEditorTab && !showShootoutEditorTab && !showPreShootoutEditorTab;
   const hasOnlyShootoutEditorTab = forceShootoutOnlyEditorTabs && showShootoutEditorTab;
   const hasShootoutPhase = useMemo(
     () => liveEvents.some((e) => e.event_type === 'penalties_start' || isShootoutEventType(e.event_type)),
@@ -1584,18 +1671,35 @@ export default function MatchDetailScreen({ navigation, route }) {
   const shootoutTimelineLabel = hasShootoutPhase
     ? `Rigori [${shootoutState.homeGoals}] ${liveScorePreview.home} - ${liveScorePreview.away} [${shootoutState.awayGoals}]`
     : null;
-  const heroMainText =
-    shootoutHeroLabel &&
-    (heroClock.main === 'Rigori' ||
-      heroClock.main === OFFICIAL_MATCH_END_LABEL ||
-      heroClock.main === OFFICIAL_WALKOVER_END_LABEL)
-      ? shootoutHeroLabel
-      : heroClock.main;
+  const preShootoutTimelineLabel = hasPreShootoutPhase
+    ? `Shootout ${preShootoutState.homeGoals} - ${preShootoutState.awayGoals}`
+    : null;
+  const heroMainText = useMemo(() => {
+    if (!matchHasStarted && hasPreShootoutPhase && !preShootoutSeriesFinished(liveEvents)) {
+      return `Shootout ${preShootoutState.homeGoals} - ${preShootoutState.awayGoals}`;
+    }
+    if (
+      shootoutHeroLabel &&
+      (heroClock.main === 'Rigori' ||
+        heroClock.main === OFFICIAL_MATCH_END_LABEL ||
+        heroClock.main === OFFICIAL_WALKOVER_END_LABEL)
+    ) {
+      return shootoutHeroLabel;
+    }
+    return heroClock.main;
+  }, [matchHasStarted, hasPreShootoutPhase, liveEvents, preShootoutState, shootoutHeroLabel, heroClock.main]);
   const nextShootoutTeamSide = useMemo(() => {
     const shootoutEvents = (liveEvents || [])
       .filter((e) => e && isShootoutEventType(e.event_type))
       .sort((a, b) => (Number(a.id) || 0) - (Number(b.id) || 0));
     const last = shootoutEvents[shootoutEvents.length - 1];
+    return last?.team_side === 'home' ? 'away' : 'home';
+  }, [liveEvents]);
+  const nextPreShootoutTeamSide = useMemo(() => {
+    const kickEvents = (liveEvents || [])
+      .filter((e) => e && isPreShootoutKickEventType(e.event_type))
+      .sort((a, b) => (Number(a.id) || 0) - (Number(b.id) || 0));
+    const last = kickEvents[kickEvents.length - 1];
     return last?.team_side === 'home' ? 'away' : 'home';
   }, [liveEvents]);
   const shootoutPlayersOrdered = useMemo(() => {
@@ -1612,19 +1716,34 @@ export default function MatchDetailScreen({ navigation, route }) {
       return Number(a.order || 0) - Number(b.order || 0);
     });
   }, [liveEvents, shootoutTeamSide, teamPlayers]);
+  const preShootoutPlayersOrdered = useMemo(() => {
+    const takenIds = new Set(
+      (liveEvents || [])
+        .filter((e) => e && isPreShootoutKickEventType(e.event_type) && e.team_side === shootoutTeamSide)
+        .map((e) => Number(e.player_id || e.payload?.player_id || 0))
+        .filter((id) => Number.isFinite(id) && id > 0)
+    );
+    return [...(teamPlayers[shootoutTeamSide] || [])].sort((a, b) => {
+      const aTaken = takenIds.has(Number(a.id));
+      const bTaken = takenIds.has(Number(b.id));
+      if (aTaken !== bTaken) return aTaken ? 1 : -1;
+      return Number(a.order || 0) - Number(b.order || 0);
+    });
+  }, [liveEvents, shootoutTeamSide, teamPlayers]);
   const filteredShootoutPlayers = useMemo(() => {
     const q = String(shootoutPlayerSearch || '').trim().toLowerCase();
-    if (!q) return shootoutPlayersOrdered;
-    return shootoutPlayersOrdered.filter((p) => {
+    const base = editorModalTab === 'preShootout' ? preShootoutPlayersOrdered : shootoutPlayersOrdered;
+    if (!q) return base;
+    return base.filter((p) => {
       const name = String(p?.name || '').toLowerCase();
       const shirt = String(p?.shirt_number ?? '').trim().toLowerCase();
       return name.includes(q) || (shirt !== '' && shirt.includes(q));
     });
-  }, [shootoutPlayersOrdered, shootoutPlayerSearch]);
-  const selectedShootoutPlayer = useMemo(
-    () => shootoutPlayersOrdered.find((p) => Number(p?.id) === Number(shootoutPlayerId)) || null,
-    [shootoutPlayersOrdered, shootoutPlayerId]
-  );
+  }, [shootoutPlayersOrdered, preShootoutPlayersOrdered, shootoutPlayerSearch, editorModalTab]);
+  const selectedShootoutPlayer = useMemo(() => {
+    const base = editorModalTab === 'preShootout' ? preShootoutPlayersOrdered : shootoutPlayersOrdered;
+    return base.find((p) => Number(p?.id) === Number(shootoutPlayerId)) || null;
+  }, [shootoutPlayersOrdered, preShootoutPlayersOrdered, shootoutPlayerId, editorModalTab]);
   const shootoutWizardLastStep = 4;
   const showShootoutEndMatchAction = useMemo(
     () => showShootoutEditorTab && shootoutCanEnd(liveEvents, match),
@@ -1892,6 +2011,12 @@ export default function MatchDetailScreen({ navigation, route }) {
   };
 
   useEffect(() => {
+    if (showEventEditor && editorModalTab === 'preShootout' && !showPreShootoutEditorTab) {
+      setEditorModalTab('phases');
+    }
+  }, [showEventEditor, editorModalTab, showPreShootoutEditorTab]);
+
+  useEffect(() => {
     if (showEventEditor && editorModalTab === 'phases' && !showPhaseEditorTab) {
       setEditorModalTab('editEvents');
     }
@@ -2115,6 +2240,61 @@ export default function MatchDetailScreen({ navigation, route }) {
     }
   };
 
+  const submitPreShootoutEvent = async (eventType) => {
+    if (savingEvent) return;
+    if (!isPreShootoutKickEventType(eventType)) return;
+    const rounds = shootoutRoundsPerTeamFromMatch(match);
+    const taken = shootoutTeamSide === 'home' ? preShootoutState.homeTaken : preShootoutState.awayTaken;
+    if (taken >= rounds) {
+      Alert.alert('Limite raggiunto', `Sono previsti ${rounds} tiri per squadra.`);
+      return;
+    }
+    try {
+      setSavingEvent(true);
+      const hasStart = liveEvents.some((e) => e.event_type === 'pre_shootout_start');
+      if (!hasStart) {
+        await adminMatchesService.addEvent(match.id, { event_type: 'pre_shootout_start', minute: null });
+      }
+      await adminMatchesService.addEvent(match.id, {
+        event_type: eventType,
+        team_side: shootoutTeamSide,
+        minute: null,
+        team_id: shootoutTeamSide === 'home' ? match.home_team_id : match.away_team_id,
+        player_id: shootoutPlayerId || null,
+        player_name: shootoutPlayerName.trim() || null,
+      });
+      const nextState = { ...preShootoutState };
+      if (shootoutTeamSide === 'home') nextState.homeTaken += 1;
+      else nextState.awayTaken += 1;
+      if (eventType === 'pre_shootout_goal') {
+        if (shootoutTeamSide === 'home') nextState.homeGoals += 1;
+        else nextState.awayGoals += 1;
+      }
+      if (nextState.homeTaken >= rounds && nextState.awayTaken >= rounds) {
+        await adminMatchesService.addEvent(match.id, { event_type: 'pre_shootout_end', minute: null });
+      }
+      setShootoutPlayerName('');
+      setShootoutPlayerId(null);
+      setShootoutPlayerChosen(false);
+      setShootoutTeamSide(shootoutTeamSide === 'home' ? 'away' : 'home');
+      setShootoutPlayerSearch('');
+      setShootoutEventType('pre_shootout_goal');
+      setShootoutWizardStep(1);
+      await loadDetail({ showLoading: false });
+    } catch (err) {
+      const body = err?.response?.data;
+      const msg =
+        (typeof body === 'string' ? body : null) ||
+        body?.message ||
+        body?.error ||
+        err?.message ||
+        'Operazione non riuscita';
+      Alert.alert('Errore', String(msg));
+    } finally {
+      setSavingEvent(false);
+    }
+  };
+
   const draftFromLiveEvent = (ev) => {
     const payload = ev?.payload || {};
     const side = String(ev?.team_side || 'home').trim() || 'home';
@@ -2139,10 +2319,10 @@ export default function MatchDetailScreen({ navigation, route }) {
 
   const saveEditedLiveEvent = async () => {
     if (!editingLiveEventId || !editingLiveEventDraft) return;
-    const minuteNum = isShootoutEventType(editingLiveEventDraft.event_type)
+    const minuteNum = isPenaltySeriesKickEventType(editingLiveEventDraft.event_type)
       ? null
       : parseTimelineMinuteToInt(editingLiveEventDraft.minute);
-    if (!isShootoutEventType(editingLiveEventDraft.event_type) && (!Number.isFinite(minuteNum) || minuteNum < 0)) {
+    if (!isPenaltySeriesKickEventType(editingLiveEventDraft.event_type) && (!Number.isFinite(minuteNum) || minuteNum < 0)) {
       Alert.alert('Errore', 'Indica un minuto valido.');
       return;
     }
@@ -2581,7 +2761,8 @@ export default function MatchDetailScreen({ navigation, route }) {
                     heroMainText === 'Rigori' ||
                     heroMainText === OFFICIAL_MATCH_END_LABEL ||
                     heroMainText === OFFICIAL_WALKOVER_END_LABEL ||
-                    String(heroMainText || '').startsWith('Rig.:')) &&
+                    String(heroMainText || '').startsWith('Rig.:') ||
+                    String(heroMainText || '').startsWith('Shootout')) &&
                     styles.heroStaticPtFt,
                 ]}
               >
@@ -2823,6 +3004,29 @@ export default function MatchDetailScreen({ navigation, route }) {
             <View style={styles.card}>
               <View style={styles.timelineReverse}>
                 {liveEventsTimelineSorted.map((ev) => {
+                  if (ev.event_type === 'pre_shootout_start') {
+                    return (
+                      <View key={`ev-${ev.id}`} style={styles.preShootoutBanner}>
+                        <View style={styles.preShootoutBannerLine} />
+                        <Text style={styles.preShootoutBannerLabel} numberOfLines={2}>
+                          Inizio Shootout
+                        </Text>
+                        <View style={styles.preShootoutBannerLine} />
+                      </View>
+                    );
+                  }
+                  if (ev.event_type === 'pre_shootout_end') {
+                    const endScore = computePreShootoutScoreThroughEvent(liveEvents, ev);
+                    return (
+                      <View key={`ev-${ev.id}`} style={styles.preShootoutBanner}>
+                        <View style={styles.preShootoutBannerLine} />
+                        <Text style={styles.preShootoutBannerLabel} numberOfLines={2}>
+                          Fine Shootout {endScore.home} - {endScore.away}
+                        </Text>
+                        <View style={styles.preShootoutBannerLine} />
+                      </View>
+                    );
+                  }
                   if (ev.event_type === 'match_start') {
                     return (
                       <View key={`ev-${ev.id}`} style={styles.matchEndBanner}>
@@ -2941,27 +3145,34 @@ export default function MatchDetailScreen({ navigation, route }) {
                     );
                   }
                   const layoutHome = ev.event_type === 'own_goal' ? ev.team_side === 'away' : ev.team_side === 'home';
-                  const shootoutScore = isShootoutEventType(ev.event_type) ? computeShootoutScoreThroughEvent(liveEvents, ev) : null;
-                  const shootoutSubtext = isShootoutEventType(ev.event_type)
-                    ? `${ev.event_type === 'shootout_goal' ? 'Goal' : 'Sbagliato'} (${shootoutScore.home}-${shootoutScore.away})`
+                  const isPreKick = isPreShootoutKickEventType(ev.event_type);
+                  const shootoutScore = isShootoutEventType(ev.event_type)
+                    ? computeShootoutScoreThroughEvent(liveEvents, ev)
+                    : isPreKick
+                      ? computePreShootoutScoreThroughEvent(liveEvents, ev)
+                      : null;
+                  const shootoutSubtext = isPenaltySeriesKickEventType(ev.event_type)
+                    ? `${(ev.event_type === 'shootout_goal' || ev.event_type === 'pre_shootout_goal') ? 'Goal' : 'Sbagliato'} (${shootoutScore.home}-${shootoutScore.away})`
                     : '';
-                  const playerName = ev?.payload?.player_name || (isShootoutEventType(ev.event_type) ? 'Tiratore non scelto' : '-');
+                  const playerName = ev?.payload?.player_name || (isPenaltySeriesKickEventType(ev.event_type) ? 'Tiratore non scelto' : '-');
                   const assistPlayerName =
                     ev.event_type === 'goal' && ev?.payload?.assist_player_name
                       ? String(ev.payload.assist_player_name).trim()
                       : '';
                   const bonusType = LIVE_EVENT_BONUS_TYPES.has(ev.event_type) ? ev.event_type : null;
-                  const iconEl = ev.event_type === 'shootout_goal' ? (
-                    <Ionicons name="checkmark-circle" size={28} color="#198754" />
-                  ) : ev.event_type === 'shootout_missed' ? (
-                    <Ionicons name="close-circle" size={28} color="#e53935" />
+                  const iconEl = ev.event_type === 'shootout_goal' || ev.event_type === 'pre_shootout_goal' ? (
+                    <Ionicons name="checkmark-circle" size={28} color={isPreKick ? '#7c3aed' : '#198754'} />
+                  ) : ev.event_type === 'shootout_missed' || ev.event_type === 'pre_shootout_missed' ? (
+                    <Ionicons name="close-circle" size={28} color={isPreKick ? '#c026d3' : '#e53935'} />
                   ) : bonusType ? (
                     <BonusIcon type={bonusType} size={16} />
                   ) : (
                     <MaterialCommunityIcons name="alert-circle-outline" size={16} color="#667eea" />
                   );
                   const phaseCtx = phaseContextForTimelineEvent(ev, match);
-                  const minuteEl = isShootoutEventType(ev.event_type) ? null : (
+                  const minuteEl = isPenaltySeriesKickEventType(ev.event_type) ? (
+                    isPreKick ? <Text style={styles.preShootoutKickTag}>SO</Text> : null
+                  ) : (
                     <Text style={styles.eventMinute}>{formatStoredEventMinuteLabel(ev.minute, phaseCtx, match)}</Text>
                   );
                   const playerEl = (
@@ -2989,7 +3200,11 @@ export default function MatchDetailScreen({ navigation, route }) {
                     <EventRowWrapper
                       key={`ev-${ev.id}`}
                       {...eventRowProps}
-                      style={[styles.eventRow, layoutHome ? styles.eventLeft : styles.eventRight]}
+                      style={[
+                        styles.eventRow,
+                        layoutHome ? styles.eventLeft : styles.eventRight,
+                        isPreKick && styles.preShootoutEventRow,
+                      ]}
                     >
                       {layoutHome ? (
                         <>
@@ -3149,9 +3364,18 @@ export default function MatchDetailScreen({ navigation, route }) {
                 setEventType('goal');
                 setEventTeamSide('home');
                 if (preMatchEditorMode) {
-                  setEditorModalTab('phases');
+                  setEditorModalTab(showPreShootoutEditorTab ? 'preShootout' : 'phases');
                 } else {
                   setEditorModalTab(showShootoutEditorTab ? 'shootout' : 'events');
+                }
+                if (showPreShootoutEditorTab) {
+                  setShootoutTeamSide(nextPreShootoutTeamSide);
+                  setShootoutEventType('pre_shootout_goal');
+                  setShootoutPlayerName('');
+                  setShootoutPlayerId(null);
+                  setShootoutPlayerChosen(false);
+                  setShootoutPlayerSearch('');
+                  setShootoutWizardStep(1);
                 }
                 if (showShootoutEditorTab) {
                   setShootoutTeamSide(nextShootoutTeamSide);
@@ -3207,6 +3431,27 @@ export default function MatchDetailScreen({ navigation, route }) {
                       onPress={() => setEditorModalTab('events')}
                     >
                       <Text style={[styles.editorTabBtnText, editorModalTab === 'events' && styles.editorTabBtnTextActive]}>Eventi</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                  {showPreShootoutEditorTab ? (
+                    <TouchableOpacity
+                      style={[
+                        styles.editorTabBtn,
+                        editorModalTab === 'preShootout' && styles.editorTabBtnActive,
+                        editorModalTab === 'preShootout' && styles.preShootoutTabBtnActive,
+                      ]}
+                      onPress={() => {
+                        setEditorModalTab('preShootout');
+                        setShootoutTeamSide(nextPreShootoutTeamSide);
+                        setShootoutEventType('pre_shootout_goal');
+                        setShootoutPlayerName('');
+                        setShootoutPlayerId(null);
+                        setShootoutPlayerChosen(false);
+                        setShootoutPlayerSearch('');
+                        setShootoutWizardStep(1);
+                      }}
+                    >
+                      <Text style={[styles.editorTabBtnText, editorModalTab === 'preShootout' && styles.editorTabBtnTextActive]}>Shootout</Text>
                     </TouchableOpacity>
                   ) : null}
                   {showPhaseEditorTab && !forceShootoutOnlyEditorTabs ? (
@@ -3454,8 +3699,19 @@ export default function MatchDetailScreen({ navigation, route }) {
                         </TouchableOpacity>
                       </View>
                     </>
-                  ) : editorModalTab === 'shootout' ? (
+                  ) : editorModalTab === 'shootout' || editorModalTab === 'preShootout' ? (
                     <>
+                      {editorModalTab === 'preShootout' ? (
+                        <View style={styles.preShootoutProgressCard}>
+                          <Text style={styles.preShootoutProgressTitle}>Shootout pre-partita</Text>
+                          <Text style={styles.preShootoutProgressScore}>
+                            {match.home_team_name} {preShootoutState.homeGoals} - {preShootoutState.awayGoals} {match.away_team_name}
+                          </Text>
+                          <Text style={styles.preShootoutProgressMeta}>
+                            Tiri: Casa {preShootoutState.homeTaken}/{preShootoutRounds} · Ospiti {preShootoutState.awayTaken}/{preShootoutRounds}
+                          </Text>
+                        </View>
+                      ) : null}
                       <View style={styles.eventWizardTopBar}>
                         <Text style={styles.eventWizardStepText}>Step {shootoutWizardStep}/{shootoutWizardLastStep}</Text>
                         <View style={styles.eventWizardNavBtns}>
@@ -3481,7 +3737,7 @@ export default function MatchDetailScreen({ navigation, route }) {
                           </TouchableOpacity>
                         </View>
                       </View>
-                      {showShootoutEndMatchAction ? (
+                      {editorModalTab === 'shootout' && showShootoutEndMatchAction ? (
                         <TouchableOpacity
                           style={[styles.shootoutEndMatchBtn, savingPhase && styles.actionBtnDisabled]}
                           disabled={savingPhase}
@@ -3494,32 +3750,42 @@ export default function MatchDetailScreen({ navigation, route }) {
                         <>
                           <Text style={styles.editorLabel}>1) Scegli squadra</Text>
                           <View style={styles.eventTeamRow}>
+                            {(['home', 'away']).map((side) => {
+                              const atLimit =
+                                editorModalTab === 'preShootout' &&
+                                (side === 'home'
+                                  ? preShootoutState.homeTaken >= preShootoutRounds
+                                  : preShootoutState.awayTaken >= preShootoutRounds);
+                              const teamName = side === 'home' ? match.home_team_name : match.away_team_name;
+                              const logoUrl = side === 'home' ? match.home_team_logo_url : match.away_team_logo_url;
+                              const logoPath = side === 'home' ? match.home_team_logo_path : match.away_team_logo_path;
+                              return (
                             <TouchableOpacity
-                              style={[styles.eventTeamCard, shootoutTeamSide === 'home' && styles.eventTeamCardActive]}
+                              key={`shootout-team-${side}`}
+                              style={[
+                                styles.eventTeamCard,
+                                shootoutTeamSide === side && styles.eventTeamCardActive,
+                                atLimit && styles.eventTeamCardDisabled,
+                              ]}
+                              disabled={atLimit}
                               onPress={() => {
-                                setShootoutTeamSide('home');
+                                setShootoutTeamSide(side);
                                 setShootoutPlayerName('');
                                 setShootoutPlayerId(null);
                                 setShootoutPlayerSearch('');
                                 setShootoutWizardStep(2);
                               }}
                             >
-                              <TableTeamLogo logoUrl={match.home_team_logo_url} logoPath={match.home_team_logo_path} size={44} />
-                              <Text style={[styles.eventTeamCardText, shootoutTeamSide === 'home' && styles.eventTeamCardTextActive]}>{match.home_team_name}</Text>
+                              <TableTeamLogo logoUrl={logoUrl} logoPath={logoPath} size={44} />
+                              <Text style={[styles.eventTeamCardText, shootoutTeamSide === side && styles.eventTeamCardTextActive]}>{teamName}</Text>
+                              {editorModalTab === 'preShootout' ? (
+                                <Text style={styles.preShootoutTeamCount}>
+                                  {side === 'home' ? preShootoutState.homeTaken : preShootoutState.awayTaken}/{preShootoutRounds}
+                                </Text>
+                              ) : null}
                             </TouchableOpacity>
-                            <TouchableOpacity
-                              style={[styles.eventTeamCard, shootoutTeamSide === 'away' && styles.eventTeamCardActive]}
-                              onPress={() => {
-                                setShootoutTeamSide('away');
-                                setShootoutPlayerName('');
-                                setShootoutPlayerId(null);
-                                setShootoutPlayerSearch('');
-                                setShootoutWizardStep(2);
-                              }}
-                            >
-                              <TableTeamLogo logoUrl={match.away_team_logo_url} logoPath={match.away_team_logo_path} size={44} />
-                              <Text style={[styles.eventTeamCardText, shootoutTeamSide === 'away' && styles.eventTeamCardTextActive]}>{match.away_team_name}</Text>
-                            </TouchableOpacity>
+                              );
+                            })}
                           </View>
                         </>
                       ) : null}
@@ -3600,10 +3866,13 @@ export default function MatchDetailScreen({ navigation, route }) {
                             <TouchableOpacity
                               style={[
                                 styles.shootoutActionBtn,
-                                shootoutEventType === 'shootout_goal' && styles.shootoutActionBtnActive,
+                                (editorModalTab === 'preShootout'
+                                  ? shootoutEventType === 'pre_shootout_goal'
+                                  : shootoutEventType === 'shootout_goal') && styles.shootoutActionBtnActive,
+                                editorModalTab === 'preShootout' && styles.preShootoutActionBtn,
                               ]}
                               onPress={() => {
-                                setShootoutEventType('shootout_goal');
+                                setShootoutEventType(editorModalTab === 'preShootout' ? 'pre_shootout_goal' : 'shootout_goal');
                                 setShootoutWizardStep(4);
                               }}
                             >
@@ -3614,10 +3883,13 @@ export default function MatchDetailScreen({ navigation, route }) {
                               style={[
                                 styles.shootoutActionBtn,
                                 styles.shootoutActionBtnMissed,
-                                shootoutEventType === 'shootout_missed' && styles.shootoutActionBtnActive,
+                                (editorModalTab === 'preShootout'
+                                  ? shootoutEventType === 'pre_shootout_missed'
+                                  : shootoutEventType === 'shootout_missed') && styles.shootoutActionBtnActive,
+                                editorModalTab === 'preShootout' && styles.preShootoutActionBtnMissed,
                               ]}
                               onPress={() => {
-                                setShootoutEventType('shootout_missed');
+                                setShootoutEventType(editorModalTab === 'preShootout' ? 'pre_shootout_missed' : 'shootout_missed');
                                 setShootoutWizardStep(4);
                               }}
                             >
@@ -3629,7 +3901,9 @@ export default function MatchDetailScreen({ navigation, route }) {
                       ) : null}
                       {shootoutWizardStep === 4 ? (
                         <>
-                          <Text style={styles.editorLabel}>4) Conferma rigore</Text>
+                          <Text style={styles.editorLabel}>
+                            {editorModalTab === 'preShootout' ? '4) Conferma tiro shootout' : '4) Conferma rigore'}
+                          </Text>
                           <View style={styles.eventSummaryCard}>
                             <View style={styles.eventSummaryRow}>
                               <Text style={styles.eventSummaryKey}>Squadra</Text>
@@ -3637,7 +3911,11 @@ export default function MatchDetailScreen({ navigation, route }) {
                             </View>
                             <View style={styles.eventSummaryRow}>
                               <Text style={styles.eventSummaryKey}>Esito</Text>
-                              <Text style={styles.eventSummaryVal}>{shootoutEventType === 'shootout_goal' ? 'Goal' : 'No goal'}</Text>
+                              <Text style={styles.eventSummaryVal}>
+                                {(editorModalTab === 'preShootout' ? shootoutEventType === 'pre_shootout_goal' : shootoutEventType === 'shootout_goal')
+                                  ? 'Goal'
+                                  : 'No goal'}
+                              </Text>
                             </View>
                             <View style={styles.eventSummaryRow}>
                               <Text style={styles.eventSummaryKey}>Tiratore</Text>
@@ -3645,11 +3923,21 @@ export default function MatchDetailScreen({ navigation, route }) {
                             </View>
                           </View>
                           <TouchableOpacity
-                            style={[styles.createEventBtn, savingEvent && styles.actionBtnDisabled]}
+                            style={[
+                              styles.createEventBtn,
+                              editorModalTab === 'preShootout' && styles.preShootoutConfirmBtn,
+                              savingEvent && styles.actionBtnDisabled,
+                            ]}
                             disabled={savingEvent}
-                            onPress={() => submitShootoutEvent(shootoutEventType)}
+                            onPress={() =>
+                              editorModalTab === 'preShootout'
+                                ? submitPreShootoutEvent(shootoutEventType)
+                                : submitShootoutEvent(shootoutEventType)
+                            }
                           >
-                            <Text style={styles.createEventBtnText}>{savingEvent ? 'Salvataggio...' : 'Conferma rigore'}</Text>
+                            <Text style={styles.createEventBtnText}>
+                              {savingEvent ? 'Salvataggio...' : editorModalTab === 'preShootout' ? 'Conferma shootout' : 'Conferma rigore'}
+                            </Text>
                           </TouchableOpacity>
                         </>
                       ) : null}
@@ -3691,7 +3979,7 @@ export default function MatchDetailScreen({ navigation, route }) {
                               </View>
                               {isEditing && editingLiveEventDraft ? (
                                 <View style={styles.liveEditForm}>
-                                  {!isShootoutEventType(editingLiveEventDraft.event_type) ? (
+                                  {!isPenaltySeriesKickEventType(editingLiveEventDraft.event_type) ? (
                                     <>
                                       <Text style={styles.editorLabel}>Tipo evento</Text>
                                       <ScrollView horizontal showsHorizontalScrollIndicator={false}>
@@ -3749,7 +4037,7 @@ export default function MatchDetailScreen({ navigation, route }) {
                                     </>
                                   ) : null}
 
-                                  {!isShootoutEventType(editingLiveEventDraft.event_type) ? (
+                                  {!isPenaltySeriesKickEventType(editingLiveEventDraft.event_type) ? (
                                     <>
                                       <Text style={styles.editorLabel}>Minuto</Text>
                                       <TextInput
@@ -3762,7 +4050,7 @@ export default function MatchDetailScreen({ navigation, route }) {
                                     </>
                                   ) : null}
 
-                                  {!isShootoutEventType(editingLiveEventDraft.event_type) && isStoppageEditableEventType(editingLiveEventDraft.event_type) && editStoppageEnd != null ? (
+                                  {!isPenaltySeriesKickEventType(editingLiveEventDraft.event_type) && isStoppageEditableEventType(editingLiveEventDraft.event_type) && editStoppageEnd != null ? (
                                     <TouchableOpacity
                                       style={styles.stoppageCheckRow}
                                       activeOpacity={0.75}
@@ -3780,10 +4068,10 @@ export default function MatchDetailScreen({ navigation, route }) {
                                     </TouchableOpacity>
                                   ) : null}
 
-                                  <Text style={styles.editorLabel}>{isShootoutEventType(editingLiveEventDraft.event_type) ? 'Tiratore' : 'Giocatore'}</Text>
+                                  <Text style={styles.editorLabel}>{isPenaltySeriesKickEventType(editingLiveEventDraft.event_type) ? 'Tiratore' : 'Giocatore'}</Text>
                                   <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                                     <View style={styles.rowChips}>
-                                      {isShootoutEventType(editingLiveEventDraft.event_type) ? (
+                                      {isPenaltySeriesKickEventType(editingLiveEventDraft.event_type) ? (
                                         <TouchableOpacity
                                           style={[styles.chip, !editingLiveEventDraft.player_id && styles.chipActive]}
                                           onPress={() => setEditingLiveEventDraft((d) => ({ ...d, player_id: null, player_name: '' }))}
@@ -3805,20 +4093,37 @@ export default function MatchDetailScreen({ navigation, route }) {
                                     </View>
                                   </ScrollView>
 
-                                  {isShootoutEventType(editingLiveEventDraft.event_type) ? (
+                                  {isPenaltySeriesKickEventType(editingLiveEventDraft.event_type) ? (
                                     <>
                                       <Text style={styles.editorLabel}>Esito</Text>
                                       <View style={styles.shootoutActionsRow}>
                                         <TouchableOpacity
-                                          style={[styles.shootoutActionBtn, editingLiveEventDraft.event_type === 'shootout_goal' && styles.shootoutActionBtnActive]}
-                                          onPress={() => setEditingLiveEventDraft((d) => ({ ...d, event_type: 'shootout_goal' }))}
+                                          style={[
+                                            styles.shootoutActionBtn,
+                                            (editingLiveEventDraft.event_type === 'shootout_goal' || editingLiveEventDraft.event_type === 'pre_shootout_goal') && styles.shootoutActionBtnActive,
+                                          ]}
+                                          onPress={() =>
+                                            setEditingLiveEventDraft((d) => ({
+                                              ...d,
+                                              event_type: isPreShootoutKickEventType(d.event_type) ? 'pre_shootout_goal' : 'shootout_goal',
+                                            }))
+                                          }
                                         >
                                           <Ionicons name="checkmark-circle" size={26} color="#198754" />
                                           <Text style={styles.shootoutActionText}>Goal</Text>
                                         </TouchableOpacity>
                                         <TouchableOpacity
-                                          style={[styles.shootoutActionBtn, styles.shootoutActionBtnMissed, editingLiveEventDraft.event_type === 'shootout_missed' && styles.shootoutActionBtnActive]}
-                                          onPress={() => setEditingLiveEventDraft((d) => ({ ...d, event_type: 'shootout_missed' }))}
+                                          style={[
+                                            styles.shootoutActionBtn,
+                                            styles.shootoutActionBtnMissed,
+                                            (editingLiveEventDraft.event_type === 'shootout_missed' || editingLiveEventDraft.event_type === 'pre_shootout_missed') && styles.shootoutActionBtnActive,
+                                          ]}
+                                          onPress={() =>
+                                            setEditingLiveEventDraft((d) => ({
+                                              ...d,
+                                              event_type: isPreShootoutKickEventType(d.event_type) ? 'pre_shootout_missed' : 'shootout_missed',
+                                            }))
+                                          }
                                         >
                                           <Ionicons name="close-circle" size={26} color="#e53935" />
                                           <Text style={styles.shootoutActionText}>No goal</Text>
@@ -5159,6 +5464,53 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   shootoutEndMatchText: { color: '#fff', fontSize: 15, fontWeight: '800' },
+  preShootoutTabBtnActive: { borderColor: '#7c3aed', backgroundColor: '#f5f3ff' },
+  preShootoutProgressCard: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#ddd6fe',
+    backgroundColor: '#faf5ff',
+    padding: 14,
+    marginBottom: 12,
+  },
+  preShootoutProgressTitle: { color: '#6d28d9', fontSize: 12, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.4 },
+  preShootoutProgressScore: { color: '#4c1d95', fontSize: 18, fontWeight: '800', marginTop: 6 },
+  preShootoutProgressMeta: { color: '#7c3aed', fontSize: 12, fontWeight: '600', marginTop: 4 },
+  preShootoutTeamCount: { color: '#7c3aed', fontSize: 11, fontWeight: '700', marginTop: 2 },
+  eventTeamCardDisabled: { opacity: 0.45 },
+  preShootoutActionBtn: { borderColor: '#ddd6fe', backgroundColor: '#faf5ff' },
+  preShootoutActionBtnMissed: { borderColor: '#f5d0fe', backgroundColor: '#fdf4ff' },
+  preShootoutConfirmBtn: { backgroundColor: '#7c3aed' },
+  preShootoutBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginVertical: 10,
+    paddingHorizontal: 4,
+  },
+  preShootoutBannerLine: { flex: 1, height: 1, backgroundColor: '#c4b5fd' },
+  preShootoutBannerLabel: {
+    color: '#6d28d9',
+    fontSize: 12,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
+    textAlign: 'center',
+    maxWidth: '72%',
+  },
+  preShootoutEventRow: {
+    backgroundColor: '#faf5ff',
+    borderRadius: 12,
+    paddingVertical: 4,
+    marginVertical: 2,
+  },
+  preShootoutKickTag: {
+    color: '#7c3aed',
+    fontSize: 11,
+    fontWeight: '800',
+    minWidth: 24,
+    textAlign: 'center',
+  },
   livePhaseRow: {
     alignSelf: 'stretch',
     flexDirection: 'row',
