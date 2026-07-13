@@ -412,6 +412,43 @@ async function fetchOfficialMatchLiveScore(matchId) {
   };
 }
 
+/** Punteggio esito per push/UI: reg+pre, oppure rigori se pareggio regolamentare. */
+async function fetchOfficialMatchOutcomeDisplayScore(matchId) {
+  const mid = Number(matchId);
+  if (!mid) return null;
+  const matchRows = await safeQuery(
+    `SELECT id, home_team_id, away_team_id, home_score, away_score
+     FROM official_matches WHERE id = ? LIMIT 1`,
+    [mid]
+  );
+  const m = matchRows[0];
+  if (!m) return null;
+
+  const evRows = await safeQuery(
+    `SELECT event_type, team_side, team_id
+     FROM official_match_events
+     WHERE match_id = ?`,
+    [mid]
+  );
+  const tallied = tallyOfficialMatchEventScores(evRows, m.home_team_id, m.away_team_id);
+  const regHome = tallied.hasGoalEvents
+    ? tallied.homeGoals
+    : (m.home_score != null && Number.isFinite(Number(m.home_score)) ? Number(m.home_score) : 0);
+  const regAway = tallied.hasGoalEvents
+    ? tallied.awayGoals
+    : (m.away_score != null && Number.isFinite(Number(m.away_score)) ? Number(m.away_score) : 0);
+  const outcome = resolveOfficialMatchOutcome({
+    regHome,
+    regAway,
+    preHome: tallied.homePreShootout,
+    preAway: tallied.awayPreShootout,
+    rigHome: tallied.homeRig,
+    rigAway: tallied.awayRig,
+    hasRig: tallied.hasRigEvents,
+  });
+  return { home: outcome.home, away: outcome.away };
+}
+
 async function safeQuery(sql, params = [], fallback = []) {
   try {
     const rows = await query(sql, params);
@@ -560,7 +597,13 @@ async function notifyUsersForOfficialMatchEvent({ eventId, matchId, eventType, p
 
   let homeGoals = null;
   let awayGoals = null;
-  if (isRegularGoalEventType(eventType) || eventType === 'own_goal' || eventType === 'match_end') {
+  if (eventType === 'match_end') {
+    const display = await fetchOfficialMatchOutcomeDisplayScore(matchId);
+    if (display) {
+      homeGoals = display.home;
+      awayGoals = display.away;
+    }
+  } else if (isRegularGoalEventType(eventType) || eventType === 'own_goal') {
     const live = await fetchOfficialMatchLiveScore(matchId);
     if (live) {
       homeGoals = live.home;
@@ -1156,11 +1199,11 @@ async function computeStandingsFromMatches({ leagueId, groupId, allowedTeamIds =
       if (!direct) continue;
       found = true;
       if (m.homeId === aId) {
-        aGoals += Number(m.hs);
-        bGoals += Number(m.as);
+        aGoals += Number(m.outcomeHome);
+        bGoals += Number(m.outcomeAway);
       } else {
-        aGoals += Number(m.as);
-        bGoals += Number(m.hs);
+        aGoals += Number(m.outcomeAway);
+        bGoals += Number(m.outcomeHome);
       }
     }
     if (!found || aGoals === bGoals) return null;

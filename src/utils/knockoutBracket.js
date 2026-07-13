@@ -1,4 +1,6 @@
 /** Coppia squadre (andata/ritorno) indipendente da chi è in casa. */
+import { matchOutcomeScoreParts } from './matchDisplayScore';
+
 export function knockoutTiePairKey(match) {
   const h = Number(match?.home_team_id);
   const a = Number(match?.away_team_id);
@@ -61,13 +63,14 @@ export function groupKnockoutMatchesIntoTies(matches, maxTies = 2) {
         aggComplete = false;
         break;
       }
+      const outcome = matchOutcomeScoreParts(leg);
       const hId = Number(leg.home_team_id);
       if (hId === teamA.id) {
-        aggA += Number(hs);
-        aggB += Number(as);
+        aggA += outcome.home;
+        aggB += outcome.away;
       } else {
-        aggA += Number(as);
-        aggB += Number(hs);
+        aggA += outcome.away;
+        aggB += outcome.home;
       }
     }
 
