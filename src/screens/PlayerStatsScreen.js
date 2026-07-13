@@ -10,7 +10,7 @@ import {
   Pressable,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { playerStatsService } from '../services/api';
 import { PlayerPhotoImage, TeamLogoImage } from '../components/StableCachedImage';
 import BonusIcon from '../components/BonusIcon';
@@ -197,6 +197,8 @@ export default function PlayerStatsScreen({ route, navigation }) {
   const [hasOfficialGroup, setHasOfficialGroup] = useState(false);
   const [overview, setOverview] = useState(null);
   const [loadingOverview, setLoadingOverview] = useState(true);
+  const [careerHistory, setCareerHistory] = useState(null);
+  const [loadingCareer, setLoadingCareer] = useState(false);
   const [selectedEditionKey, setSelectedEditionKey] = useState(null);
   const [editionPickerOpen, setEditionPickerOpen] = useState(false);
   const [toastMsg, setToastMsg] = useState(null);
@@ -338,6 +340,22 @@ export default function PlayerStatsScreen({ route, navigation }) {
     }
   };
 
+  const loadCareer = async () => {
+    if (careerHistory) return;
+    try {
+      setLoadingCareer(true);
+      const response = await playerStatsService.getPlayerCareer(playerId, leagueId);
+      const entries = Array.isArray(response.data?.career) ? response.data.career : [];
+      setCareerHistory(entries);
+    } catch (error) {
+      showToast('Impossibile caricare la carriera del giocatore');
+      console.error(error);
+      setCareerHistory([]);
+    } finally {
+      setLoadingCareer(false);
+    }
+  };
+
   const handleMainTabPress = (tabKey) => {
     if (tabKey !== 'fantacoppa') {
       setEditionPickerOpen(false);
@@ -345,6 +363,9 @@ export default function PlayerStatsScreen({ route, navigation }) {
     setActiveMainTab(tabKey);
     if (tabKey === 'fantacoppa' && activeFantaSubTab === 'total') {
       loadAggregatedStats();
+    }
+    if (tabKey === 'career') {
+      loadCareer();
     }
   };
 
@@ -545,6 +566,83 @@ export default function PlayerStatsScreen({ route, navigation }) {
     );
   };
 
+  const renderCareer = () => {
+    if (loadingCareer) {
+      return (
+        <View style={styles.loadingBox}>
+          <ActivityIndicator size="large" color="#667eea" />
+        </View>
+      );
+    }
+
+    const entries = Array.isArray(careerHistory) ? careerHistory : [];
+
+    if (!entries.length) {
+      return (
+        <View style={styles.card}>
+          <Text style={styles.emptyOverviewText}>
+            Nessuna cronologia carriera disponibile per le edizioni visibili.
+          </Text>
+        </View>
+      );
+    }
+
+    return (
+      <View style={styles.careerCard}>
+        <View style={styles.careerHeader}>
+          <Text style={styles.careerHeaderTitle}>Cronologia carriera</Text>
+          <View style={styles.careerHeaderStats}>
+            <View style={styles.careerHeaderStatCol}>
+              <MaterialCommunityIcons name="soccer-field" size={18} color="#94a3b8" />
+            </View>
+            <View style={styles.careerHeaderStatCol}>
+              <MaterialCommunityIcons name="soccer" size={18} color="#94a3b8" />
+            </View>
+          </View>
+        </View>
+
+        <View style={styles.careerDivider} />
+
+        {entries.map((entry, index) => {
+          const teamName = String(entry?.team_name || '').trim() || '–';
+          const teamLogoPath = String(entry?.team_logo_path || '').trim();
+          const periodLabel = String(entry?.period_label || '–').trim() || '–';
+          const appearances = Number(entry?.appearances || 0);
+          const goals = Number(entry?.goals || 0);
+          const rowKey = `${entry?.player_id || 0}-${entry?.league_id || 0}-${entry?.reference_year || index}`;
+
+          return (
+            <View key={rowKey}>
+              <View style={styles.careerRow}>
+                <TeamLogoImage
+                  logoPath={teamLogoPath || undefined}
+                  style={styles.careerTeamLogo}
+                  fallbackStyle={styles.careerTeamLogoFallback}
+                  fallbackIconSize={18}
+                />
+
+                <View style={styles.careerTeamInfo}>
+                  <Text style={styles.careerTeamName} numberOfLines={1}>
+                    {teamName}
+                  </Text>
+                  <Text style={styles.careerPeriod} numberOfLines={1}>
+                    {periodLabel}
+                  </Text>
+                </View>
+
+                <View style={styles.careerStats}>
+                  <Text style={styles.careerStatValue}>{appearances}</Text>
+                  <Text style={styles.careerStatValue}>{goals}</Text>
+                </View>
+              </View>
+              {index < entries.length - 1 ? <View style={styles.careerRowDivider} /> : null}
+            </View>
+          );
+        })}
+      </View>
+    );
+  };
+
   const renderMainTabContent = () => {
     switch (activeMainTab) {
       case 'overview':
@@ -558,13 +656,7 @@ export default function PlayerStatsScreen({ route, navigation }) {
           />
         );
       case 'career':
-        return (
-          <EmptyTabPlaceholder
-            icon="time-outline"
-            title="Carriera"
-            subtitle="Storico club, trasferimenti e percorsi nelle stagioni passate."
-          />
-        );
+        return renderCareer();
       case 'fantacoppa':
         return (
           <>
@@ -1132,6 +1224,100 @@ const styles = StyleSheet.create({
     color: '#64748b',
     textAlign: 'center',
     lineHeight: 20,
+  },
+
+  careerCard: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 8,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 1,
+  },
+  careerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  careerHeaderTitle: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#999',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  careerHeaderStats: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 20,
+    paddingRight: 2,
+  },
+  careerHeaderStatCol: {
+    width: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  careerDivider: {
+    height: 1,
+    backgroundColor: '#f0f0f0',
+    marginBottom: 4,
+  },
+  careerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    gap: 12,
+  },
+  careerTeamLogo: {
+    width: 36,
+    height: 36,
+  },
+  careerTeamLogoFallback: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    backgroundColor: '#eef2ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  careerTeamInfo: {
+    flex: 1,
+    minWidth: 0,
+    gap: 3,
+  },
+  careerTeamName: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1e293b',
+  },
+  careerPeriod: {
+    fontSize: 13,
+    color: '#94a3b8',
+    fontWeight: '500',
+  },
+  careerStats: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 20,
+  },
+  careerStatValue: {
+    width: 28,
+    textAlign: 'center',
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#64748b',
+  },
+  careerRowDivider: {
+    height: 1,
+    backgroundColor: '#f5f5f5',
+    marginLeft: 48,
   },
 
   toast: {

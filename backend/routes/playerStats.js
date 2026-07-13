@@ -448,6 +448,58 @@ function mapEditionRow(row) {
   };
 }
 
+function formatCareerPeriod(referenceYear, isCurrent) {
+  const year = Number(referenceYear);
+  if (!Number.isFinite(year) || year <= 0) return '–';
+  const start = `Luglio ${Math.trunc(year)}`;
+  const end = isCurrent ? 'Ora' : `Giugno ${Math.trunc(year) + 1}`;
+  return `${start} - ${end}`;
+}
+
+async function fetchPlayerCareerHistory(playerId, leagueId) {
+  const groupId = await resolveOfficialGroupId(leagueId);
+  const clusterContext = await fetchClusterContext(playerId, groupId);
+  const editions = await fetchPlayerEditionRows(clusterContext.playerIds);
+  const sorted = sortEditionsByYearDesc(editions);
+
+  const maxYear = sorted.reduce((max, row) => {
+    const year = Number(row.reference_year);
+    if (!Number.isFinite(year) || year <= 0) return max;
+    return Math.max(max, Math.trunc(year));
+  }, 0);
+
+  return Promise.all(
+    sorted.map(async (row) => {
+      const editionPlayerId = Number(row.player_id);
+      const editionLeagueId = Number(row.league_id);
+      const leagueIds = editionLeagueId
+        ? await resolveLeagueIdsForRatings(editionLeagueId)
+        : [];
+      const stats = await fetchPlayerStatsAggregates(
+        editionPlayerId ? [editionPlayerId] : [],
+        leagueIds,
+      );
+
+      const refYear = Number(row.reference_year);
+      const hasYear = Number.isFinite(refYear) && refYear > 0;
+      const isCurrent = hasYear && Math.trunc(refYear) === maxYear;
+
+      return {
+        team_id: Number(row.team_id) || null,
+        team_name: String(row.team_name || '').trim() || null,
+        team_logo_path: String(row.team_logo_path || '').trim() || null,
+        reference_year: hasYear ? Math.trunc(refYear) : null,
+        period_label: formatCareerPeriod(refYear, isCurrent),
+        is_current: isCurrent,
+        appearances: Number(stats.games_played || 0),
+        goals: Number(stats.total_goals || 0),
+        player_id: editionPlayerId || null,
+        league_id: editionLeagueId || null,
+      };
+    }),
+  );
+}
+
 function buildPlayerOverviewPayload(editions, hasCluster, editionsPlayed, trophies = null) {
   const sorted = sortEditionsByYearDesc(editions);
   const latest = sorted[0];
@@ -518,6 +570,25 @@ router.get('/:playerId/overview/:leagueId', authenticateToken, async (req, res) 
     return res.json({ overview });
   } catch (error) {
     return res.status(500).json({ message: 'Errore caricamento panoramica giocatore', error: error.message });
+  }
+});
+
+router.get('/:playerId/career/:leagueId', authenticateToken, async (req, res) => {
+  try {
+    const playerId = Number(req.params.playerId);
+    const leagueId = Number(req.params.leagueId);
+    if (!playerId || !leagueId) return res.status(400).json({ message: 'Parametri non validi' });
+
+    const playerRows = await query(
+      `SELECT id FROM players WHERE id = ? LIMIT 1`,
+      [playerId],
+    );
+    if (!playerRows.length) return res.status(404).json({ message: 'Giocatore non trovato' });
+
+    const career = await fetchPlayerCareerHistory(playerId, leagueId);
+    return res.json({ career });
+  } catch (error) {
+    return res.status(500).json({ message: 'Errore caricamento carriera giocatore', error: error.message });
   }
 });
 
