@@ -16,6 +16,12 @@ const {
   getMatchLinkContext,
   isOfficialLeague,
 } = require('../utils/officialMatchMatchdayLinks');
+const {
+  resolveOfficialMatchOutcome,
+  tallyOfficialMatchEventScores,
+  determineKnockoutMatchWinner,
+  buildHallMatchFromRow: buildHallMatchScoresFromRow,
+} = require('../utils/officialMatchOutcome');
 
 function isMissingDbObjectError(err) {
   return err && (err.code === '42P01' || err.code === '42703'); // undefined_table / undefined_column
@@ -975,90 +981,6 @@ function resolveOfficialMatchResultForStandings(m, evScore, isMatchEnded) {
 }
 
 /** Esito partita per V/P/S e punti: reg+pre, oppure rigori se pareggio regolamentare. */
-function resolveOfficialMatchOutcome({
-  regHome,
-  regAway,
-  preHome = 0,
-  preAway = 0,
-  rigHome = 0,
-  rigAway = 0,
-  hasRig = false,
-}) {
-  const rh = Number(regHome) || 0;
-  const ra = Number(regAway) || 0;
-  if (hasRig && rh === ra) {
-    return { home: Number(rigHome) || 0, away: Number(rigAway) || 0 };
-  }
-  return { home: rh + (Number(preHome) || 0), away: ra + (Number(preAway) || 0) };
-}
-
-function tallyOfficialMatchEventScores(events, homeTeamId, awayTeamId) {
-  let homeGoals = 0;
-  let awayGoals = 0;
-  let homePreShootout = 0;
-  let awayPreShootout = 0;
-  let homeRig = 0;
-  let awayRig = 0;
-  let hasGoalEvents = false;
-  let hasRigEvents = false;
-  const homeId = Number(homeTeamId);
-  const awayId = Number(awayTeamId);
-
-  for (const e of events || []) {
-    const evTeamId = Number(e.team_id);
-    const byTeamId = Number.isFinite(evTeamId) && evTeamId > 0 && homeId > 0 && awayId > 0;
-    if (e.event_type === 'shootout_goal') {
-      hasRigEvents = true;
-      if (byTeamId) {
-        if (evTeamId === homeId) homeRig += 1;
-        if (evTeamId === awayId) awayRig += 1;
-      } else {
-        if (e.team_side === 'home') homeRig += 1;
-        if (e.team_side === 'away') awayRig += 1;
-      }
-    } else if (e.event_type === 'shootout_missed') {
-      hasRigEvents = true;
-    } else if (e.event_type === 'pre_shootout_goal') {
-      if (byTeamId) {
-        if (evTeamId === homeId) homePreShootout += 1;
-        if (evTeamId === awayId) awayPreShootout += 1;
-      } else {
-        if (e.team_side === 'home') homePreShootout += 1;
-        if (e.team_side === 'away') awayPreShootout += 1;
-      }
-    } else if (isRegularGoalEventType(e.event_type)) {
-      hasGoalEvents = true;
-      if (byTeamId) {
-        if (evTeamId === homeId) homeGoals += 1;
-        if (evTeamId === awayId) awayGoals += 1;
-      } else {
-        if (e.team_side === 'home') homeGoals += 1;
-        if (e.team_side === 'away') awayGoals += 1;
-      }
-    } else if (e.event_type === 'own_goal') {
-      hasGoalEvents = true;
-      if (byTeamId) {
-        if (evTeamId === homeId) awayGoals += 1;
-        if (evTeamId === awayId) homeGoals += 1;
-      } else {
-        if (e.team_side === 'home') awayGoals += 1;
-        if (e.team_side === 'away') homeGoals += 1;
-      }
-    }
-  }
-
-  return {
-    homeGoals,
-    awayGoals,
-    homePreShootout,
-    awayPreShootout,
-    homeRig,
-    awayRig,
-    hasGoalEvents,
-    hasRigEvents,
-  };
-}
-
 async function fetchMatchEndedIds(matchIds) {
   const ids = (Array.isArray(matchIds) ? matchIds : [])
     .map((id) => Number(id))
@@ -2841,106 +2763,18 @@ async function listOfficialGroupSeasonLeagues(competitionId) {
   );
 }
 
-function determineKnockoutMatchWinner(match) {
-  if (!match) return null;
-  const hs = match.home_score != null ? Number(match.home_score) : null;
-  const as = match.away_score != null ? Number(match.away_score) : null;
-  if (!Number.isFinite(hs) || !Number.isFinite(as)) return null;
-  const hps = match.home_shootout_score != null ? Number(match.home_shootout_score) : null;
-  const aps = match.away_shootout_score != null ? Number(match.away_shootout_score) : null;
-  const outcomeHome = hs === as && Number.isFinite(hps) && Number.isFinite(aps) ? hps : hs;
-  const outcomeAway = hs === as && Number.isFinite(hps) && Number.isFinite(aps) ? aps : as;
-  if (outcomeHome > outcomeAway) {
-    return {
-      team_id: match.home_team_id != null ? Number(match.home_team_id) : null,
-      team_name: match.home_team_name != null ? String(match.home_team_name) : null,
-      logo_path: match.home_team_logo_path || null,
-    };
-  }
-  if (outcomeAway > outcomeHome) {
-    return {
-      team_id: match.away_team_id != null ? Number(match.away_team_id) : null,
-      team_name: match.away_team_name != null ? String(match.away_team_name) : null,
-      logo_path: match.away_team_logo_path || null,
-    };
-  }
-  return null;
-}
-
 const HALL_CAMPIONATO_FINAL_STAGE_ID = 3;
 const HALL_WINE_TROPHY_STAGE_ID = 6;
 
 function buildHallMatchFromRow(row, evRows) {
-  if (!row) return null;
-  const mid = Number(row.id);
-  let hs = row.home_score != null ? Number(row.home_score) : null;
-  let as = row.away_score != null ? Number(row.away_score) : null;
-  let hps = null;
-  let aps = null;
-  const homeId = Number(row.home_team_id);
-  const awayId = Number(row.away_team_id);
-
-  let homeGoals = 0;
-  let awayGoals = 0;
-  let homeShootout = 0;
-  let awayShootout = 0;
-  let hasGoalEvents = false;
-  let hasShootout = false;
-
-  for (const e of evRows || []) {
-    const evTeamId = Number(e.team_id);
-    const byTeamId = Number.isFinite(evTeamId) && evTeamId > 0;
-    if (e.event_type === 'shootout_goal') {
-      hasShootout = true;
-      if (byTeamId) {
-        if (evTeamId === homeId) homeShootout += 1;
-        if (evTeamId === awayId) awayShootout += 1;
-      } else {
-        if (e.team_side === 'home') homeShootout += 1;
-        if (e.team_side === 'away') awayShootout += 1;
-      }
-    } else if (isRegularGoalEventType(e.event_type)) {
-      hasGoalEvents = true;
-      if (byTeamId) {
-        if (evTeamId === homeId) homeGoals += 1;
-        if (evTeamId === awayId) awayGoals += 1;
-      } else {
-        if (e.team_side === 'home') homeGoals += 1;
-        if (e.team_side === 'away') awayGoals += 1;
-      }
-    } else if (e.event_type === 'own_goal') {
-      hasGoalEvents = true;
-      if (byTeamId) {
-        if (evTeamId === homeId) awayGoals += 1;
-        if (evTeamId === awayId) homeGoals += 1;
-      } else {
-        if (e.team_side === 'home') awayGoals += 1;
-        if (e.team_side === 'away') homeGoals += 1;
-      }
-    }
-  }
-
-  if (hasGoalEvents) {
-    hs = homeGoals;
-    as = awayGoals;
-  }
-  if (hasShootout) {
-    hps = homeShootout;
-    aps = awayShootout;
-  }
-
+  const built = buildHallMatchScoresFromRow(row, evRows);
+  if (!built) return null;
   return {
-    id: mid,
-    home_team_id: homeId,
+    ...built,
     home_team_name: String(row.home_team_name || ''),
     home_team_logo_path: normalizeTeamLogoPathForApi(row.home_team_logo_path),
-    away_team_id: awayId,
     away_team_name: String(row.away_team_name || ''),
     away_team_logo_path: normalizeTeamLogoPathForApi(row.away_team_logo_path),
-    home_score: Number.isFinite(hs) ? hs : null,
-    away_score: Number.isFinite(as) ? as : null,
-    home_shootout_score: Number.isFinite(hps) && Number.isFinite(aps) ? hps : null,
-    away_shootout_score: Number.isFinite(hps) && Number.isFinite(aps) ? aps : null,
   };
 }
 
