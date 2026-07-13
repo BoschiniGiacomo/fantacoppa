@@ -265,12 +265,12 @@ const GroupMatchRow = React.memo(function GroupMatchRow({ match, onPress }) {
           <View style={styles.matchTeamRow}>
             <TeamRowLogo logoUrl={match.home_team_logo_url} logoPath={match.home_team_logo_path} />
             <Text style={styles.matchTeamName} numberOfLines={1}>{match.home_team_name || '-'}</Text>
-            {hasScore ? <TeamMatchScore score={scoreParts.home} shootoutScore={scoreParts.hasRig ? scoreParts.rigHome : null} /> : null}
+            {hasScore ? <TeamMatchScore score={scoreParts.listHome} shootoutScore={scoreParts.hasRig ? scoreParts.rigHome : null} /> : null}
           </View>
           <View style={[styles.matchTeamRow, styles.matchTeamRowSecond]}>
             <TeamRowLogo logoUrl={match.away_team_logo_url} logoPath={match.away_team_logo_path} />
             <Text style={styles.matchTeamName} numberOfLines={1}>{match.away_team_name || '-'}</Text>
-            {hasScore ? <TeamMatchScore score={scoreParts.away} shootoutScore={scoreParts.hasRig ? scoreParts.rigAway : null} /> : null}
+            {hasScore ? <TeamMatchScore score={scoreParts.listAway} shootoutScore={scoreParts.hasRig ? scoreParts.rigAway : null} /> : null}
           </View>
         </View>
         <View style={styles.matchMetaCol}>

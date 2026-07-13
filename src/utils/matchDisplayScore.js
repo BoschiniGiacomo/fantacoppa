@@ -33,9 +33,16 @@ export function matchDisplayScoreParts(match) {
   const rigHome = hasRig ? Number(match.home_shootout_score) : null;
   const rigAway = hasRig ? Number(match.away_shootout_score) : null;
 
+  const combinedHome = reg.home + preHome;
+  const combinedAway = reg.away + preAway;
+
   return {
-    home: reg.home + preHome,
-    away: reg.away + preAway,
+    /** Hero / risultato combinato (regolamentari + shootout pre-partita). */
+    home: combinedHome,
+    away: combinedAway,
+    /** Liste partite: con rigori solo gol reg. prima del "|", altrimenti reg+pre. */
+    listHome: hasRig ? reg.home : combinedHome,
+    listAway: hasRig ? reg.away : combinedAway,
     show: hasPre || reg.hasRegular,
     hasPre,
     hasRig,
@@ -57,12 +64,12 @@ export function matchDisplayScoreForSide(match, side) {
   const parts = matchDisplayScoreParts(match);
   if (side === 'home') {
     return {
-      score: parts.show ? parts.home : null,
+      score: parts.show ? parts.listHome : null,
       shootoutScore: parts.hasRig ? parts.rigHome : null,
     };
   }
   return {
-    score: parts.show ? parts.away : null,
+    score: parts.show ? parts.listAway : null,
     shootoutScore: parts.hasRig ? parts.rigAway : null,
   };
 }

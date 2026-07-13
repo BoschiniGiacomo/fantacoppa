@@ -150,7 +150,7 @@ function MatchListMatchRow({ match, formatTimeFn, liveListTick, onPress, onToggl
             </View>
             {showScore ? (
               <View style={styles.teamScoreCol}>
-                <Text style={styles.teamScoreInRow}>{scoreParts.home}</Text>
+                <Text style={styles.teamScoreInRow}>{scoreParts.listHome}</Text>
                 {scoreParts.hasRig ? (
                   <>
                     <View style={styles.teamShootoutDivider} />
@@ -171,7 +171,7 @@ function MatchListMatchRow({ match, formatTimeFn, liveListTick, onPress, onToggl
             </View>
             {showScore ? (
               <View style={styles.teamScoreCol}>
-                <Text style={styles.teamScoreInRow}>{scoreParts.away}</Text>
+                <Text style={styles.teamScoreInRow}>{scoreParts.listAway}</Text>
                 {scoreParts.hasRig ? (
                   <>
                     <View style={styles.teamShootoutDivider} />

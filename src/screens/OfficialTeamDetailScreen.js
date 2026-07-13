@@ -957,12 +957,12 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
                               <View style={styles.matchTeamRow}>
                                 <TeamRowLogo logoUrl={m.home_team_logo_url} logoPath={m.home_team_logo_path} />
                                 <Text style={styles.matchTeamName} numberOfLines={1}>{m.home_team_name || '-'}</Text>
-                                {hasScore ? <TeamMatchScore score={scoreParts.home} shootoutScore={scoreParts.hasRig ? scoreParts.rigHome : null} /> : null}
+                                {hasScore ? <TeamMatchScore score={scoreParts.listHome} shootoutScore={scoreParts.hasRig ? scoreParts.rigHome : null} /> : null}
                               </View>
                               <View style={[styles.matchTeamRow, styles.matchTeamRowSecond]}>
                                 <TeamRowLogo logoUrl={m.away_team_logo_url} logoPath={m.away_team_logo_path} />
                                 <Text style={styles.matchTeamName} numberOfLines={1}>{m.away_team_name || '-'}</Text>
-                                {hasScore ? <TeamMatchScore score={scoreParts.away} shootoutScore={scoreParts.hasRig ? scoreParts.rigAway : null} /> : null}
+                                {hasScore ? <TeamMatchScore score={scoreParts.listAway} shootoutScore={scoreParts.hasRig ? scoreParts.rigAway : null} /> : null}
                               </View>
                             </View>
                             <View style={styles.matchMetaCol}>
