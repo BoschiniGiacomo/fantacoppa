@@ -1,6 +1,7 @@
 const { query } = require('../config/database');
 const { isOfficialLeague } = require('./matchdayGhost');
 const { normalizeVoteRating, isSvVoteRating } = require('./voteRating');
+const { isOfficialMatchWalkover } = require('./officialMatchWalkover');
 
 let schemaReady = false;
 
@@ -1109,6 +1110,7 @@ async function saveMatchVotes(matchId, body) {
   const bonusSettings = bundle.bonus_settings || (await getBonusSettings(bundle.league_id));
   const liveEvents = await fetchMatchLiveDirectEvents(matchId);
   const createdBy = body?.created_by != null ? Number(body.created_by) : null;
+  const isWalkoverMatch = await isOfficialMatchWalkover(matchId);
 
   const teamsToSave = saveTeamId
     ? bundle.teams.filter((t) => t.id === saveTeamId)
@@ -1137,7 +1139,9 @@ async function saveMatchVotes(matchId, body) {
       requireMvbPresence = await teamHasAnySavedVotesInDb(opponentTeam, effectiveLeagueId);
     }
   }
-  assertMvbPerMatch(matchRatingsForMvb, bonusSettings, { requireMvbPresence });
+  assertMvbPerMatch(matchRatingsForMvb, bonusSettings, {
+    requireMvbPresence: isWalkoverMatch ? false : requireMvbPresence,
+  });
 
   const giornateTouched = new Set();
   let lastUnavailable = null;
@@ -1157,14 +1161,16 @@ async function saveMatchVotes(matchId, body) {
       liveEvents,
       bonusSettings
     );
-    assertGoalsConcededBalance({
-      team,
-      teamRatings,
-      opponentRatings,
-      bonusSettings,
-      rawRatings: ratings,
-      liveByPlayer,
-    });
+    if (!isWalkoverMatch) {
+      assertGoalsConcededBalance({
+        team,
+        teamRatings,
+        opponentRatings,
+        bonusSettings,
+        rawRatings: ratings,
+        liveByPlayer,
+      });
+    }
     await upsertPlayerRatings(effectiveLeagueId, team.giornata, teamRatings);
     giornateTouched.add(team.giornata);
     lastUnavailable = await syncUnavailableFromTeamVotes(matchId, team, teamRatings, createdBy);
