@@ -2,6 +2,10 @@ const { query } = require('../config/database');
 const { isOfficialLeague } = require('./matchdayGhost');
 const { normalizeVoteRating, isSvVoteRating } = require('./voteRating');
 const { isOfficialMatchWalkover } = require('./officialMatchWalkover');
+const {
+  scheduleOfficialGroupAbsoluteStatsRefreshForLeague,
+  scheduleOfficialGroupAbsoluteStatsRefreshForMatch,
+} = require('./officialGroupAbsoluteStatsRefresh');
 
 let schemaReady = false;
 
@@ -1190,6 +1194,9 @@ async function saveMatchVotes(matchId, body) {
   for (const g of giornateTouched) {
     Object.assign(savedDbAfter, await loadRatingsForGiornata(effectiveLeagueId, g));
   }
+
+  void scheduleOfficialGroupAbsoluteStatsRefreshForMatch(matchId, 'official_match_save_votes');
+  void scheduleOfficialGroupAbsoluteStatsRefreshForLeague(effectiveLeagueId, 'official_match_save_votes');
 
   return {
     message: 'Voti salvati',

@@ -515,7 +515,7 @@ function resolveRankInLeaderboard(rows, clusterPlayerIds) {
   return null;
 }
 
-async function fetchPlayerAbsoluteOverviewRanks(groupId, clusterPlayerIds) {
+async function fetchPlayerAbsoluteOverviewRanks(groupId, clusterPlayerIds, perf = null) {
   const empty = { appearances_rank: null, goals_rank: null };
   const gid = Number(groupId);
   if (!Number.isFinite(gid) || gid <= 0 || !clusterPlayerIds?.length) {
@@ -523,6 +523,23 @@ async function fetchPlayerAbsoluteOverviewRanks(groupId, clusterPlayerIds) {
   }
 
   try {
+    const {
+      fetchClusterAbsoluteRanksFromStore,
+      isOfficialGroupAbsoluteStatsStoreAvailable,
+    } = require('../utils/officialGroupAbsoluteStatsStore');
+    const {
+      scheduleOfficialGroupAbsoluteStatsRefresh,
+    } = require('../utils/officialGroupAbsoluteStatsRefresh');
+
+    if (await isOfficialGroupAbsoluteStatsStoreAvailable()) {
+      const stored = await fetchClusterAbsoluteRanksFromStore(gid, clusterPlayerIds);
+      if (stored.found) {
+        perf?.mark('absolute-ranks:store-hit', { refreshed_at: stored.refreshed_at });
+        return stored.ranks;
+      }
+      perf?.mark('absolute-ranks:store-miss');
+    }
+
     const { officialGroupStatsApi } = require('./matches');
     const listOfficialGroupSeasonLeagues = officialGroupStatsApi?.listOfficialGroupSeasonLeagues;
     const computeOfficialGroupSeasonStats = officialGroupStatsApi?.computeOfficialGroupSeasonStats;
@@ -543,10 +560,16 @@ async function fetchPlayerAbsoluteOverviewRanks(groupId, clusterPlayerIds) {
     const stats = await computeOfficialGroupSeasonStats(gid, leagueIds, true, {
       leaderboards: ['scorers', 'presences'],
     });
-    return {
+    const ranks = {
       appearances_rank: resolveRankInLeaderboard(stats?.presences, clusterPlayerIds),
       goals_rank: resolveRankInLeaderboard(stats?.scorers, clusterPlayerIds),
     };
+
+    void scheduleOfficialGroupAbsoluteStatsRefresh(gid, 'absolute-ranks-fallback').catch((error) => {
+      console.error('[officialGroupAbsoluteStatsRefresh] fallback schedule failed:', error?.message || error);
+    });
+
+    return ranks;
   } catch (_) {
     return empty;
   }
@@ -702,7 +725,7 @@ router.get('/:playerId/absolute-ranks/:leagueId', authenticateToken, async (req,
 
     const clusterContext = await perf.step('fetchClusterContext', () => fetchClusterContext(playerId, groupId));
     const absoluteRanks = await perf.step('fetchPlayerAbsoluteOverviewRanks', () => (
-      fetchPlayerAbsoluteOverviewRanks(groupId, clusterContext.playerIds)
+      fetchPlayerAbsoluteOverviewRanks(groupId, clusterContext.playerIds, perf)
     ));
     perf.end('ok');
     return res.json({ absolute_ranks: absoluteRanks });

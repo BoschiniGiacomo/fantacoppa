@@ -22,6 +22,9 @@ const {
   determineKnockoutMatchWinner,
   buildHallMatchFromRow: buildHallMatchScoresFromRow,
 } = require('../utils/officialMatchOutcome');
+const {
+  scheduleOfficialGroupAbsoluteStatsRefreshForMatch,
+} = require('../utils/officialGroupAbsoluteStatsRefresh');
 
 function isMissingDbObjectError(err) {
   return err && (err.code === '42P01' || err.code === '42703'); // undefined_table / undefined_column
@@ -5381,6 +5384,7 @@ router.post('/admin/matches/:matchId/events', authenticateToken, requireSuperuse
         errors: 1,
       };
     }
+    void scheduleOfficialGroupAbsoluteStatsRefreshForMatch(matchId, 'official_match_event_create');
     return res.json({
       ok: true,
       id: eventId || null,
@@ -5441,6 +5445,7 @@ router.put('/admin/matches/:matchId/events/:eventId', authenticateToken, require
         throw err2;
       }
     }
+    void scheduleOfficialGroupAbsoluteStatsRefreshForMatch(matchId, 'official_match_event_update');
     return res.json({ ok: true });
   } catch (err) {
     if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
@@ -5455,6 +5460,7 @@ router.delete('/admin/matches/:matchId/events/:eventId', authenticateToken, requ
     const eventId = Number(req.params.eventId);
     if (!matchId || !eventId) return res.status(400).json({ message: 'Parametri evento non validi' });
     await query(`DELETE FROM official_match_events WHERE id = ? AND match_id = ?`, [eventId, matchId]);
+    void scheduleOfficialGroupAbsoluteStatsRefreshForMatch(matchId, 'official_match_event_delete');
     return res.json({ ok: true });
   } catch (err) {
     if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);

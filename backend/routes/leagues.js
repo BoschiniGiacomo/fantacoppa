@@ -45,6 +45,9 @@ const {
   filterGhostMatchdaysForUser,
   CURRENT_MATCHDAY_SUBQUERY,
 } = require('../utils/matchdayGhost');
+const {
+  scheduleOfficialGroupAbsoluteStatsRefreshForLeague,
+} = require('../utils/officialGroupAbsoluteStatsRefresh');
 
 const MR_EXCLUDE_GHOST_JOIN = `INNER JOIN matchdays md_ghost ON md_ghost.league_id = ? AND md_ghost.giornata = mr.giornata AND COALESCE(md_ghost.is_ghost, 0) = 0`;
 
@@ -3735,6 +3738,7 @@ router.post('/:id/votes/:giornata', authenticateToken, async (req, res) => {
         ]
       );
     }
+    void scheduleOfficialGroupAbsoluteStatsRefreshForLeague(leagueId, 'save_votes');
     res.json({ message: 'Voti salvati con successo' });
   } catch (error) {
     console.error('Save votes error:', error);
@@ -4073,6 +4077,8 @@ router.post('/:id/calculate/:giornata', authenticateToken, async (req, res) => {
         /* soppressione opzionale: evita reinvio dal cron */
       }
     }
+
+    void scheduleOfficialGroupAbsoluteStatsRefreshForLeague(leagueId, 'calculate_matchday');
 
     return res.json({
       success: true,
