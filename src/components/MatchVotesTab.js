@@ -15,6 +15,7 @@ import { adminMatchesService } from '../services/api';
 import { TeamLogoImage } from './StableCachedImage';
 import VotesPlayerRow, {
   EMPTY_VOTE,
+  applyVoteInputCommitToVote,
   buildRatingsPayload,
   DEFAULT_BONUS_SETTINGS,
   LIVE_DIRECT_VOTE_FIELDS,
@@ -323,7 +324,21 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
   const [toastMsg, setToastMsg] = useState(null);
   const [linkData, setLinkData] = useState(null);
   const [votesData, setVotesData] = useState(null);
-  const [votes, setVotes] = useState({});
+  const [votes, _setVotes] = useState({});
+  const votesRef = useRef(votes);
+  const setVotes = useCallback((updater) => {
+    if (typeof updater === 'function') {
+      _setVotes((prev) => {
+        const next = updater(prev);
+        votesRef.current = next;
+        return next;
+      });
+    } else {
+      votesRef.current = updater;
+      _setVotes(updater);
+    }
+  }, []);
+  votesRef.current = votes;
   const [savedVotePlayerIds, setSavedVotePlayerIds] = useState(() => new Set());
   const [explicitNdPlayerIds, setExplicitNdPlayerIds] = useState(() => new Set());
   const [bonusSettings, setBonusSettings] = useState(DEFAULT_BONUS_SETTINGS);
@@ -337,6 +352,7 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
   const toastTimerRef = useRef(null);
   const inputRefsMap = useRef({});
   const playerRowRefsMap = useRef({});
+  const voteRowRefsMap = useRef({});
   const scrollInputIntoView = useScrollInputAboveKeyboard(scrollViewRef, scrollYRef);
 
   const showToast = useCallback((text, type = 'error') => {
@@ -379,6 +395,10 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
 
   const getRowRef = useCallback((playerId) => (ref) => {
     playerRowRefsMap.current[playerId] = ref;
+  }, []);
+
+  const getVoteRowRef = useCallback((playerId) => (ref) => {
+    voteRowRefsMap.current[playerId] = ref;
   }, []);
 
   const scrollToPlayer = useCallback((playerId) => {
@@ -689,7 +709,39 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
     });
   }, [isLiveDirectField]);
 
-  const buildSavePayload = useCallback((teamId = null) => {
+  const flushPendingVoteInputs = useCallback((players) => {
+    Keyboard.dismiss();
+    let merged = votesRef.current;
+    let changed = false;
+    const ndPlayerIds = [];
+    const ratedPlayerIds = [];
+
+    (players || []).forEach((player) => {
+      const pid = Number(player.id);
+      const rowHandle = voteRowRefsMap.current[pid] || voteRowRefsMap.current[player.id];
+      const commit = rowHandle?.getPendingCommit?.();
+      if (!commit) return;
+
+      const current = merged[pid] || merged[String(pid)] || EMPTY_VOTE;
+      merged = { ...merged, [pid]: applyVoteInputCommitToVote(current, commit) };
+      changed = true;
+
+      if (commit.type === 'nd') ndPlayerIds.push(pid);
+      else if (commit.type === 'rating' || commit.type === 'sv') ratedPlayerIds.push(pid);
+    });
+
+    if (ndPlayerIds.length) {
+      setExplicitNdPlayerIds((prev) => new Set([...prev, ...ndPlayerIds]));
+    }
+    ratedPlayerIds.forEach((pid) => clearExplicitNd(pid));
+
+    if (changed) {
+      setVotes(merged);
+    }
+    return merged;
+  }, [clearExplicitNd]);
+
+  const buildSavePayload = useCallback((teamId = null, votesMap = votesRef.current) => {
     const teamList = votesData?.teams || [];
     const players = [];
     if (teamId) {
@@ -698,24 +750,36 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
     } else {
       teamList.forEach((t) => players.push(...t.players));
     }
-    return buildRatingsPayload(players, votes);
-  }, [votesData?.teams, votes]);
+    return buildRatingsPayload(players, votesMap);
+  }, [votesData?.teams]);
 
   const handleSaveTeam = async (teamId) => {
     try {
       setSaving(true);
       setToastMsg(null);
+      const teamList = votesData?.teams || [];
+      const players = [];
+      if (teamId) {
+        const team = teamList.find((t) => t.id === teamId);
+        if (team) players.push(...team.players);
+      } else {
+        teamList.forEach((t) => players.push(...t.players));
+      }
+      const votesToSave = flushPendingVoteInputs(players);
       const res = await adminMatchesService.saveMatchVotes(matchId, {
-        ratings: buildSavePayload(teamId),
+        ratings: buildSavePayload(teamId, votesToSave),
         team_id: teamId,
       });
-      const freshRaw = res.data?.votes || votes;
+      const freshRaw = res.data?.votes || votesToSave;
       const fresh = {};
       Object.entries(freshRaw).forEach(([k, vote]) => {
         fresh[Number(k)] = vote;
       });
-      setVotes(fresh);
-      savedSnapshot.current = JSON.stringify(fresh);
+      setVotes((prev) => {
+        const merged = { ...prev, ...fresh };
+        savedSnapshot.current = JSON.stringify(merged);
+        return merged;
+      });
       const savedIds = res.data?.saved_vote_player_ids;
       if (Array.isArray(savedIds)) {
         setSavedVotePlayerIds((prev) => new Set([
@@ -901,6 +965,7 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
                           return (
                           <VotesPlayerRow
                             key={p.id}
+                            ref={getVoteRowRef(p.id)}
                             player={p}
                             playerVote={playerVote}
                             voteUiMode={voteUiMode}

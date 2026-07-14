@@ -1,8 +1,8 @@
-import React, { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import React, { memo, useCallback, useEffect, useImperativeHandle, useMemo, useState, forwardRef } from 'react';
 import { View, Text, TouchableOpacity, TextInput, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import BonusIcon from './BonusIcon';
-import { formatVoteRating, isSvVoteRating, SV_VOTE_RATING } from '../utils/voteRating';
+import { formatVoteRating, isSvVoteRating, normalizeVoteRating, SV_VOTE_RATING } from '../utils/voteRating';
 
 export const LIVE_DIRECT_VOTE_FIELDS = [
   'goals',
@@ -265,7 +265,7 @@ function VotesBonusMalusBlock({
   );
 }
 
-function VotesPlayerRow({
+const VotesPlayerRow = forwardRef(function VotesPlayerRow({
   player,
   playerVote,
   voteUiMode = 'unset',
@@ -285,7 +285,7 @@ function VotesPlayerRow({
   onSubmitNext,
   onInputFocus,
   isLastInput = false,
-}) {
+}, ref) {
   const pv = playerVote || { rating: 0 };
   const liveDirect = new Set(liveDirectFields || LIVE_DIRECT_VOTE_FIELDS);
   const isCentralNd = voteUiMode === 'saved_nd' || voteUiMode === 'draft_nd';
@@ -296,6 +296,57 @@ function VotesPlayerRow({
   const [editingText, setEditingText] = useState(null);
   const isEditing = editingText !== null;
 
+  useImperativeHandle(ref, () => ({
+    getPendingCommit() {
+      if (editingText === null) return null;
+      return resolveVoteInputCommit(editingText, { enableOfficialSvVote });
+    },
+    blurInput() {
+      inputRef?.current?.blur?.();
+    },
+  }), [editingText, enableOfficialSvVote, inputRef]);
+
+  const commitEditingText = useCallback(() => {
+    if (editingText === null) return;
+    const commit = resolveVoteInputCommit(editingText, { enableOfficialSvVote });
+    if (!commit) {
+      setEditingText(null);
+      return;
+    }
+    if (commit.type === 'nd') {
+      onActivateND(player.id);
+    } else if (commit.type === 'sv') {
+      onSetRating(player.id, SV_VOTE_RATING);
+    } else {
+      onSetRating(player.id, commit.rating);
+    }
+    setEditingText(null);
+  }, [editingText, enableOfficialSvVote, onActivateND, onSetRating, player.id]);
+
+  const handleRatingStep = useCallback((change) => {
+    if (isEditing) {
+      const commit = resolveVoteInputCommit(editingText, { enableOfficialSvVote });
+      let baseRating = Number(pv.rating || 0);
+      if (commit?.type === 'rating') baseRating = commit.rating;
+      else if (commit?.type === 'sv') baseRating = SV_VOTE_RATING;
+      else if (commit?.type === 'nd') baseRating = 0;
+
+      const nextRating = stepRatingFromValue(baseRating, change, enableOfficialSvVote);
+      setEditingText(null);
+      onSetRating(player.id, nextRating);
+      return;
+    }
+    onUpdateRating(player.id, change);
+  }, [
+    isEditing,
+    editingText,
+    enableOfficialSvVote,
+    pv.rating,
+    onSetRating,
+    onUpdateRating,
+    player.id,
+  ]);
+
   const bonusItems = useMemo(
     () => (bonusSettings ? buildBonusItemLists(player, bonusSettings) : []),
     [player, bonusSettings]
@@ -305,20 +356,7 @@ function VotesPlayerRow({
   const roleColor = roleColors[player.role] || '#6c757d';
 
   const handleBlur = () => {
-    if (editingText !== null) {
-      if (isVoteNdInputText(editingText)) {
-        onActivateND(player.id);
-        setEditingText(null);
-        return;
-      }
-      if (enableOfficialSvVote && isVoteSvInputText(editingText)) {
-        onSetRating(player.id, SV_VOTE_RATING);
-        setEditingText(null);
-        return;
-      }
-      onSetRating(player.id, editingText);
-      setEditingText(null);
-    }
+    commitEditingText();
   };
 
   const handleSubmitEditing = () => {
@@ -374,7 +412,7 @@ function VotesPlayerRow({
             <View style={styles.ratingGroup}>
               <TouchableOpacity
                 style={[styles.ratingBtn, styles.ratingBtnMinus]}
-                onPress={() => onUpdateRating(player.id, -0.25)}
+                onPress={() => handleRatingStep(-0.25)}
               >
                 <Text style={styles.ratingBtnText}>−</Text>
               </TouchableOpacity>
@@ -406,7 +444,7 @@ function VotesPlayerRow({
               />
               <TouchableOpacity
                 style={[styles.ratingBtn, styles.ratingBtnPlus]}
-                onPress={() => onUpdateRating(player.id, 0.25)}
+                onPress={() => handleRatingStep(0.25)}
               >
                 <Text style={styles.ratingBtnText}>+</Text>
               </TouchableOpacity>
@@ -428,7 +466,7 @@ function VotesPlayerRow({
       ) : null}
     </View>
   );
-}
+});
 
 export default memo(VotesPlayerRow, (prev, next) => (
   prev.playerVote === next.playerVote
@@ -456,6 +494,70 @@ export function isVoteNdInputText(text) {
 export function isVoteSvInputText(text) {
   const t = String(text || '').trim().toUpperCase();
   return t === 'S.V.' || t === 'S.V' || t === 'SV';
+}
+
+/** Interpreta testo ancora non committato nel campo voto. */
+export function resolveVoteInputCommit(text, { enableOfficialSvVote = false } = {}) {
+  if (text === null || text === undefined) return null;
+  if (isVoteNdInputText(text)) return { type: 'nd' };
+  if (enableOfficialSvVote && isVoteSvInputText(text)) return { type: 'sv' };
+  const raw = String(text).trim();
+  if (!raw) return null;
+  let rating = parseFloat(raw.replace(',', '.'));
+  if (Number.isNaN(rating)) return null;
+  if (isSvVoteRating(rating)) return { type: 'sv' };
+  if (rating < 1) rating = 0;
+  if (rating > 10) rating = 10;
+  if (!isSvVoteRating(rating)) rating = normalizeVoteRating(rating);
+  return { type: 'rating', rating };
+}
+
+export function applyVoteInputCommitToVote(current, commit) {
+  const base = current || EMPTY_VOTE;
+  if (!commit) return base;
+  if (commit.type === 'nd') {
+    const cleared = { ...EMPTY_VOTE };
+    LIVE_DIRECT_VOTE_FIELDS.forEach((field) => {
+      cleared[field] = base[field];
+    });
+    return cleared;
+  }
+  const rating = commit.type === 'sv' ? SV_VOTE_RATING : commit.rating;
+  const zeroBonus = rating === 0 || isSvVoteRating(rating);
+  return {
+    ...base,
+    rating,
+    goals: zeroBonus ? 0 : base.goals,
+    assists: zeroBonus ? 0 : base.assists,
+    yellow_cards: zeroBonus ? 0 : base.yellow_cards,
+    red_cards: zeroBonus ? 0 : base.red_cards,
+  };
+}
+
+function stepRatingFromValue(currentRating, change, enableOfficialSvVote) {
+  const r = Number(currentRating || 0);
+
+  if (isSvVoteRating(r)) {
+    if (change < 0) return 0;
+    if (change > 0) return 1;
+    return r;
+  }
+
+  if (r === 0) {
+    if (change < 0) return r;
+    return enableOfficialSvVote ? SV_VOTE_RATING : 6;
+  }
+
+  let nr = normalizeVoteRating(r + change);
+  if (nr < 1) {
+    if (enableOfficialSvVote && Math.abs(r - 1) < 0.001) {
+      nr = SV_VOTE_RATING;
+    } else {
+      nr = 0;
+    }
+  }
+  if (nr > 10) nr = 10;
+  return nr;
 }
 
 export const EMPTY_VOTE = {
