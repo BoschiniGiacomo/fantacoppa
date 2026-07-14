@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   Modal,
   Pressable,
+  InteractionManager,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -16,6 +17,11 @@ import { PlayerPhotoImage, TeamLogoImage } from '../components/StableCachedImage
 import { formatCompetitionRank } from '../utils/standingsRanking';
 import BonusIcon from '../components/BonusIcon';
 import PlayerHeroTrophyBadges from '../components/PlayerHeroTrophyBadges';
+import {
+  createPlayerStatsPerfSession,
+  logPlayerStatsTabSwitch,
+  PLAYER_STATS_PERF_ENABLED,
+} from '../utils/playerStatsPerf';
 
 const ROLE_COLORS = {
   P: '#0d6efd',
@@ -229,6 +235,10 @@ export default function PlayerStatsScreen({ route, navigation }) {
   const editionPickerAnchorRef = useRef(null);
   const mainScrollRef = useRef(null);
   const officialGroupCheckDoneRef = useRef(false);
+  const perfSessionRef = useRef(null);
+  const statsLoadGenRef = useRef(0);
+  const careerPrefetchStartedRef = useRef(false);
+  const initialReadyLoggedRef = useRef(false);
 
   const clusterEditions = useMemo(() => {
     const editions = overview?.editions;
@@ -273,42 +283,103 @@ export default function PlayerStatsScreen({ route, navigation }) {
     setAbsoluteRanks(null);
     setLoadingAbsoluteRanks(entrySource === 'official');
     officialGroupCheckDoneRef.current = false;
-    loadOverview();
+    careerPrefetchStartedRef.current = false;
+    initialReadyLoggedRef.current = false;
+    statsLoadGenRef.current = 0;
+
+    const session = createPlayerStatsPerfSession({
+      playerId,
+      leagueId,
+      entrySource,
+      initialTab: initialTabs.mainTab,
+    });
+    perfSessionRef.current = session;
+
+    void bootstrapPlayerScreen(session);
     if (initialTabs.mainTab === 'fantacoppa') {
-      void checkOfficialGroup();
+      void checkOfficialGroup(session);
     }
+
+    return () => {
+      perfSessionRef.current = null;
+    };
   }, [playerId, leagueId]);
 
   useEffect(() => {
     if (entrySource === 'official' || !hasOfficialGroup || absoluteRanks || loadingAbsoluteRanks) return;
-    void loadAbsoluteRanks();
+    void loadAbsoluteRanks(perfSessionRef.current);
   }, [hasOfficialGroup, entrySource, absoluteRanks, loadingAbsoluteRanks, playerId, leagueId]);
 
-  const loadEditionStats = async (editionPlayerId, editionLeagueId) => {
+  useEffect(() => {
+    if (!PLAYER_STATS_PERF_ENABLED || initialReadyLoggedRef.current) return;
+    if (loadingOverview || loadingLeague) return;
+
+    initialReadyLoggedRef.current = true;
+    perfSessionRef.current?.mark('ui:initial-content-ready', {
+      activeMainTab,
+      hasOverview: Boolean(overview),
+      hasLeagueStats: Boolean(leagueStats),
+    });
+  }, [loadingOverview, loadingLeague, activeMainTab, overview, leagueStats]);
+
+  useEffect(() => {
+    if (!PLAYER_STATS_PERF_ENABLED || activeMainTab !== 'career' || loadingCareer) return;
+    perfSessionRef.current?.mark('ui:career-tab-ready', {
+      entries: Array.isArray(careerHistory) ? careerHistory.length : 0,
+      prefetched: careerPrefetchStartedRef.current,
+    });
+  }, [activeMainTab, loadingCareer, careerHistory]);
+
+  const applyEditionStats = (response, loadGen) => {
+    if (loadGen !== statsLoadGenRef.current) return false;
+
+    setLeagueStats(response.data);
+    if (response.data?.player?.photo_path) {
+      setPhotoPath((prev) => prev || String(response.data.player.photo_path || '').trim());
+    }
+    return true;
+  };
+
+  const loadEditionStats = async (editionPlayerId, editionLeagueId, session = perfSessionRef.current, options = {}) => {
     const targetPlayerId = Number(editionPlayerId);
     const targetLeagueId = Number(editionLeagueId);
     if (!targetPlayerId || !targetLeagueId) return;
 
+    const loadGen = ++statsLoadGenRef.current;
+    const { reusePromise = null } = options;
+
     try {
       setLoadingLeague(true);
-      const response = await playerStatsService.getPlayerStats(targetPlayerId, targetLeagueId);
-      setLeagueStats(response.data);
-      if (response.data?.player?.photo_path) {
-        setPhotoPath((prev) => prev || String(response.data.player.photo_path || '').trim());
+      session?.mark('load:edition-stats:start', { targetPlayerId, targetLeagueId, loadGen });
+
+      const response = reusePromise
+        ? await reusePromise
+        : await playerStatsService.getPlayerStats(targetPlayerId, targetLeagueId);
+
+      if (applyEditionStats(response, loadGen)) {
+        session?.mark('load:edition-stats:applied', { targetPlayerId, targetLeagueId, loadGen });
+      } else {
+        session?.mark('load:edition-stats:stale-discarded', { targetPlayerId, targetLeagueId, loadGen });
       }
     } catch (error) {
-      showToast('Impossibile caricare le statistiche del giocatore');
+      if (loadGen === statsLoadGenRef.current) {
+        showToast('Impossibile caricare le statistiche del giocatore');
+      }
       console.error(error);
     } finally {
-      setLoadingLeague(false);
+      if (loadGen === statsLoadGenRef.current) {
+        setLoadingLeague(false);
+      }
     }
   };
 
-  const loadAbsoluteRanks = async () => {
+  const loadAbsoluteRanks = async (session = perfSessionRef.current) => {
     try {
       setLoadingAbsoluteRanks(true);
+      session?.mark('load:absolute-ranks:start');
       const response = await playerStatsService.getPlayerAbsoluteRanks(playerId, leagueId);
       setAbsoluteRanks(response.data?.absolute_ranks || null);
+      session?.mark('load:absolute-ranks:done');
     } catch (error) {
       setAbsoluteRanks(null);
       console.error(error);
@@ -317,10 +388,23 @@ export default function PlayerStatsScreen({ route, navigation }) {
     }
   };
 
-  const loadOverview = async () => {
+  const bootstrapPlayerScreen = async (session) => {
+    let routeEditionPromise = null;
+
     try {
       setLoadingOverview(true);
-      const response = await playerStatsService.getPlayerOverview(playerId, leagueId);
+      setLoadingLeague(true);
+      session?.mark('bootstrap:parallel-start');
+
+      const overviewPromise = playerStatsService.getPlayerOverview(playerId, leagueId);
+
+      routeEditionPromise = playerStatsService.getPlayerStats(playerId, leagueId);
+
+      if (entrySource === 'official') {
+        void loadAbsoluteRanks(session);
+      }
+
+      const response = await overviewPromise;
       const nextOverview = response.data?.overview || null;
       setOverview(nextOverview);
 
@@ -329,33 +413,65 @@ export default function PlayerStatsScreen({ route, navigation }) {
       const defaultKey = editionKey(defaultEdition);
       setSelectedEditionKey(defaultKey);
 
-      if (entrySource === 'official') {
-        void loadAbsoluteRanks();
+      const routeMatchesDefault = Number(defaultEdition.player_id) === Number(playerId)
+        && Number(defaultEdition.league_id) === Number(leagueId);
+
+      if (routeMatchesDefault) {
+        await loadEditionStats(playerId, leagueId, session, { reusePromise: routeEditionPromise });
+      } else {
+        session?.mark('bootstrap:edition-mismatch', {
+          route: { playerId, leagueId },
+          default: {
+            playerId: defaultEdition.player_id,
+            leagueId: defaultEdition.league_id,
+          },
+        });
+        void loadEditionStats(defaultEdition.player_id, defaultEdition.league_id, session);
       }
-      void loadEditionStats(defaultEdition.player_id, defaultEdition.league_id);
+
+      session?.end('bootstrap:success');
+
+      InteractionManager.runAfterInteractions(() => {
+        if (careerPrefetchStartedRef.current || careerHistory) return;
+        careerPrefetchStartedRef.current = true;
+        session?.mark('prefetch:career:start');
+        void loadCareer(session, { prefetch: true });
+      });
     } catch (error) {
       setOverview(null);
       setSelectedEditionKey(editionKey({ player_id: playerId, league_id: leagueId }));
-      void loadEditionStats(playerId, leagueId);
+
+      try {
+        await loadEditionStats(playerId, leagueId, session, {
+          reusePromise: routeEditionPromise,
+        });
+      } catch (_) {
+        void loadEditionStats(playerId, leagueId, session);
+      }
+
+      session?.end('bootstrap:fallback', { error: error?.message || String(error) });
       console.error(error);
     } finally {
       setLoadingOverview(false);
     }
   };
 
-  const checkOfficialGroup = async () => {
+  const checkOfficialGroup = async (session = perfSessionRef.current) => {
     if (officialGroupCheckDoneRef.current) return;
     officialGroupCheckDoneRef.current = true;
     try {
       setLoadingAggregated(true);
+      session?.mark('load:official-group-check:start');
       const response = await playerStatsService.getPlayerAggregatedStats(playerId, leagueId);
       setAggregatedStats(response.data.stats);
       setHasOfficialGroup(true);
       if (response.data?.player?.photo_path) {
         setPhotoPath((prev) => prev || String(response.data.player.photo_path || '').trim());
       }
+      session?.mark('load:official-group-check:ok');
     } catch (error) {
       setHasOfficialGroup(false);
+      session?.mark('load:official-group-check:unavailable');
     } finally {
       setLoadingAggregated(false);
     }
@@ -380,13 +496,18 @@ export default function PlayerStatsScreen({ route, navigation }) {
       setEditionPickerOpen((open) => !open);
     }
   };
-  const loadAggregatedStats = async () => {
-    if (aggregatedStats) return;
+  const loadAggregatedStats = async (session = perfSessionRef.current) => {
+    if (aggregatedStats) {
+      session?.mark('load:aggregated:cache-hit');
+      return;
+    }
     try {
       setLoadingAggregated(true);
+      session?.mark('load:aggregated:start');
       const response = await playerStatsService.getPlayerAggregatedStats(playerId, leagueId);
       setAggregatedStats(response.data.stats);
       setHasOfficialGroup(true);
+      session?.mark('load:aggregated:done');
     } catch (error) {
       showToast('Impossibile caricare le statistiche aggregate');
       console.error(error);
@@ -395,23 +516,37 @@ export default function PlayerStatsScreen({ route, navigation }) {
     }
   };
 
-  const loadCareer = async () => {
-    if (careerHistory) return;
+  const loadCareer = async (session = perfSessionRef.current, options = {}) => {
+    const { prefetch = false } = options;
+    if (careerHistory) {
+      session?.mark('load:career:cache-hit', { prefetch });
+      return;
+    }
     try {
-      setLoadingCareer(true);
+      if (!prefetch) setLoadingCareer(true);
+      session?.mark(prefetch ? 'load:career:prefetch-start' : 'load:career:start');
       const response = await playerStatsService.getPlayerCareer(playerId, leagueId);
       const entries = Array.isArray(response.data?.career) ? response.data.career : [];
       setCareerHistory(entries);
+      session?.mark(prefetch ? 'load:career:prefetch-done' : 'load:career:done', {
+        entries: entries.length,
+      });
     } catch (error) {
-      showToast('Impossibile caricare la carriera del giocatore');
+      if (!prefetch) {
+        showToast('Impossibile caricare la carriera del giocatore');
+      }
       console.error(error);
       setCareerHistory([]);
     } finally {
-      setLoadingCareer(false);
+      if (!prefetch) setLoadingCareer(false);
     }
   };
 
   const handleMainTabPress = (tabKey) => {
+    logPlayerStatsTabSwitch(tabKey, activeMainTab === 'fantacoppa' ? activeFantaSubTab : null, {
+      from: activeMainTab,
+    });
+    perfSessionRef.current?.mark('ui:tab-press', { tab: tabKey });
     if (tabKey !== 'fantacoppa') {
       setEditionPickerOpen(false);
     }
@@ -429,6 +564,8 @@ export default function PlayerStatsScreen({ route, navigation }) {
   };
 
   const handleFantaSubTabPress = (subTabKey) => {
+    logPlayerStatsTabSwitch('fantacoppa', subTabKey);
+    perfSessionRef.current?.mark('ui:subtab-press', { subTab: subTabKey });
     setEditionPickerOpen(false);
     setActiveFantaSubTab(subTabKey);
     if (subTabKey === 'total') {
