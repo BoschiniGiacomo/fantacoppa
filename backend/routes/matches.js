@@ -2876,6 +2876,7 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
           value: 1,
           player_id: Number.isFinite(pid) && pid > 0 ? pid : null,
           league_id: Number.isFinite(leagueId) && leagueId > 0 ? leagueId : null,
+          team_name: teamName || null,
         });
         return;
       }
@@ -2954,17 +2955,25 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
     const pct = (x) => (played > 0 ? Math.round((x / played) * 1000) / 10 : 0);
     const listFromMap = (mp) =>
       Array.from(mp.values())
-        .map(({ name, value, player_id, league_id }) => ({
+        .map(({ name, value, player_id, league_id, team_name }) => ({
           name,
           value: Number(value || 0),
           player_id: Number(player_id) > 0 ? Number(player_id) : null,
           league_id: Number(league_id) > 0 ? Number(league_id) : null,
+          team_name: team_name != null ? String(team_name).trim() || null : null,
         }))
         .sort((a, b) => (b.value - a.value) || a.name.localeCompare(b.name, 'it'));
 
     const presences = await presencesPromise;
     const selectedLeagueId =
       targetLeagueIds.length === 1 ? Number(targetLeagueIds[0]) : null;
+
+    let scorers = listFromMap(scorersMap);
+    let assistmen = listFromMap(assistsMap);
+    if (isAbsoluteMode && Number(competitionId) > 0) {
+      scorers = await mergeAbsoluteStatsByCluster(scorers, competitionId);
+      assistmen = await mergeAbsoluteStatsByCluster(assistmen, competitionId);
+    }
 
     return res.json({
       team: { id: teamId, name: teamName },
@@ -2986,8 +2995,8 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
         draws_pct: pct(draws),
         losses_pct: pct(losses),
       },
-      scorers: listFromMap(scorersMap),
-      assistmen: listFromMap(assistsMap),
+      scorers,
+      assistmen,
       presences: Array.isArray(presences) ? presences : [],
     });
   } catch (err) {
