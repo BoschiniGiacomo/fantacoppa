@@ -802,30 +802,13 @@ export const superuserService = {
   deleteLoginBackground: () => api.delete('/superuser/login-background'),
 };
 
-import { trackPlayerStatsApiCall } from '../utils/playerStatsPerf';
-
 // Player statistics service
 export const playerStatsService = {
-  getPlayerStats: (playerId, leagueId) => trackPlayerStatsApiCall(
-    `GET /players/${playerId}/stats/${leagueId}`,
-    () => api.get(`/players/${playerId}/stats/${leagueId}`),
-  ),
-  getPlayerAggregatedStats: (playerId, leagueId) => trackPlayerStatsApiCall(
-    `GET /players/${playerId}/stats/aggregated/${leagueId}`,
-    () => api.get(`/players/${playerId}/stats/aggregated/${leagueId}`),
-  ),
-  getPlayerOverview: (playerId, leagueId) => trackPlayerStatsApiCall(
-    `GET /players/${playerId}/overview/${leagueId}`,
-    () => api.get(`/players/${playerId}/overview/${leagueId}`),
-  ),
-  getPlayerAbsoluteRanks: (playerId, leagueId) => trackPlayerStatsApiCall(
-    `GET /players/${playerId}/absolute-ranks/${leagueId}`,
-    () => api.get(`/players/${playerId}/absolute-ranks/${leagueId}`),
-  ),
-  getPlayerCareer: (playerId, leagueId) => trackPlayerStatsApiCall(
-    `GET /players/${playerId}/career/${leagueId}`,
-    () => api.get(`/players/${playerId}/career/${leagueId}`),
-  ),
+  getPlayerStats: (playerId, leagueId) => api.get(`/players/${playerId}/stats/${leagueId}`),
+  getPlayerAggregatedStats: (playerId, leagueId) => api.get(`/players/${playerId}/stats/aggregated/${leagueId}`),
+  getPlayerOverview: (playerId, leagueId) => api.get(`/players/${playerId}/overview/${leagueId}`),
+  getPlayerAbsoluteRanks: (playerId, leagueId) => api.get(`/players/${playerId}/absolute-ranks/${leagueId}`),
+  getPlayerCareer: (playerId, leagueId) => api.get(`/players/${playerId}/career/${leagueId}`),
 };
 
 export default api;

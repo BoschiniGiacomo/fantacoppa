@@ -225,12 +225,7 @@ async function fetchClusterAbsoluteRanksFromStore(groupId, clusterPlayerIds) {
 }
 
 async function refreshOfficialGroupAbsoluteStatsStore(groupId, stats) {
-  const t0 = Date.now();
-  const result = await upsertLeaderboardsSnapshot(groupId, stats);
-  console.log(
-    `[PERF][officialGroupAbsoluteStatsStore] refresh groupId=${groupId} rows=${result.upserted} TOTAL=${Date.now() - t0}ms`
-  );
-  return result;
+  return upsertLeaderboardsSnapshot(groupId, stats);
 }
 
 async function recomputeAndStoreOfficialGroupAbsoluteStats(groupId) {

@@ -4,44 +4,6 @@ const { query } = require('../config/database');
 const { authenticateToken } = require('../middleware/auth');
 const { computePlayerOfficialTrophies } = require('../utils/officialHallTrophies');
 
-function createPlayerStatsRoutePerf(routeLabel) {
-  const startedAt = Date.now();
-  const marks = [];
-
-  const mark = (label, extra) => {
-    const elapsed = Date.now() - startedAt;
-    marks.push({ label, elapsed });
-    if (extra != null) {
-      console.log(`[PERF][${routeLabel}] ${label} @ ${elapsed}ms`, extra);
-    } else {
-      console.log(`[PERF][${routeLabel}] ${label} @ ${elapsed}ms`);
-    }
-  };
-
-  return {
-    mark,
-    async step(label, fn) {
-      const stepStart = Date.now();
-      try {
-        const result = await fn();
-        mark(`${label} (${Date.now() - stepStart}ms)`);
-        return result;
-      } catch (error) {
-        mark(`${label} ERROR (${Date.now() - stepStart}ms)`, { error: error.message });
-        throw error;
-      }
-    },
-    end(status = 'ok', extra) {
-      const total = Date.now() - startedAt;
-      console.log(`[PERF][${routeLabel}] TOTAL=${total}ms status=${status}`, {
-        steps: marks.length,
-        ...extra,
-      });
-      return total;
-    },
-  };
-}
-
 async function getLeagueOfficialMeta(leagueId) {
   const rows = await query(
     `SELECT COALESCE(is_official, 0) AS is_official, official_group_id
@@ -515,7 +477,7 @@ function resolveRankInLeaderboard(rows, clusterPlayerIds) {
   return null;
 }
 
-async function fetchPlayerAbsoluteOverviewRanks(groupId, clusterPlayerIds, perf = null) {
+async function fetchPlayerAbsoluteOverviewRanks(groupId, clusterPlayerIds) {
   const empty = { appearances_rank: null, goals_rank: null };
   const gid = Number(groupId);
   if (!Number.isFinite(gid) || gid <= 0 || !clusterPlayerIds?.length) {
@@ -534,10 +496,8 @@ async function fetchPlayerAbsoluteOverviewRanks(groupId, clusterPlayerIds, perf 
     if (await isOfficialGroupAbsoluteStatsStoreAvailable()) {
       const stored = await fetchClusterAbsoluteRanksFromStore(gid, clusterPlayerIds);
       if (stored.found) {
-        perf?.mark('absolute-ranks:store-hit', { refreshed_at: stored.refreshed_at });
         return stored.ranks;
       }
-      perf?.mark('absolute-ranks:store-miss');
     }
 
     const { officialGroupStatsApi } = require('./matches');
@@ -565,9 +525,7 @@ async function fetchPlayerAbsoluteOverviewRanks(groupId, clusterPlayerIds, perf 
       goals_rank: resolveRankInLeaderboard(stats?.scorers, clusterPlayerIds),
     };
 
-    void scheduleOfficialGroupAbsoluteStatsRefresh(gid, 'absolute-ranks-fallback').catch((error) => {
-      console.error('[officialGroupAbsoluteStatsRefresh] fallback schedule failed:', error?.message || error);
-    });
+    void scheduleOfficialGroupAbsoluteStatsRefresh(gid).catch(() => {});
 
     return ranks;
   } catch (_) {
@@ -663,27 +621,26 @@ function buildPlayerOverviewPayload(editions, hasCluster, editionsPlayed, trophi
 }
 
 router.get('/:playerId/overview/:leagueId', authenticateToken, async (req, res) => {
-  const perf = createPlayerStatsRoutePerf(`GET overview/${req.params.playerId}/${req.params.leagueId}`);
   try {
     const playerId = Number(req.params.playerId);
     const leagueId = Number(req.params.leagueId);
     if (!playerId || !leagueId) return res.status(400).json({ message: 'Parametri non validi' });
 
-    const playerRows = await perf.step('player_exists', () => query(
+    const playerRows = await query(
       `SELECT id FROM players WHERE id = ? LIMIT 1`,
       [playerId]
-    ));
+    );
     if (!playerRows.length) return res.status(404).json({ message: 'Giocatore non trovato' });
 
-    const groupId = await perf.step('resolveOfficialGroupId', () => resolveOfficialGroupId(leagueId));
+    const groupId = await resolveOfficialGroupId(leagueId);
 
-    const clusterContext = await perf.step('fetchClusterContext', () => fetchClusterContext(playerId, groupId));
-    const [editionsPlayed, editions] = await perf.step('editions+visibleCount', () => Promise.all([
+    const clusterContext = await fetchClusterContext(playerId, groupId);
+    const [editionsPlayed, editions] = await Promise.all([
       countVisibleClusterMembers(clusterContext.playerIds),
       fetchPlayerEditionRows(clusterContext.playerIds),
-    ]));
+    ]);
     const trophies = groupId
-      ? await perf.step('computePlayerOfficialTrophies', () => computePlayerOfficialTrophies(groupId, editions))
+      ? await computePlayerOfficialTrophies(groupId, editions)
       : { championships: 0, wine_trophies: 0 };
 
     const overview = buildPlayerOverviewPayload(
@@ -693,90 +650,74 @@ router.get('/:playerId/overview/:leagueId', authenticateToken, async (req, res) 
       trophies
     );
 
-    perf.end('ok', {
-      editions: editions.length,
-      clusterMembers: clusterContext.playerIds.length,
-    });
     return res.json({ overview });
   } catch (error) {
-    perf.end('error', { error: error.message });
     return res.status(500).json({ message: 'Errore caricamento panoramica giocatore', error: error.message });
   }
 });
 
 router.get('/:playerId/absolute-ranks/:leagueId', authenticateToken, async (req, res) => {
-  const perf = createPlayerStatsRoutePerf(`GET absolute-ranks/${req.params.playerId}/${req.params.leagueId}`);
   try {
     const playerId = Number(req.params.playerId);
     const leagueId = Number(req.params.leagueId);
     if (!playerId || !leagueId) return res.status(400).json({ message: 'Parametri non validi' });
 
-    const playerRows = await perf.step('player_exists', () => query(
+    const playerRows = await query(
       `SELECT id FROM players WHERE id = ? LIMIT 1`,
       [playerId],
-    ));
+    );
     if (!playerRows.length) return res.status(404).json({ message: 'Giocatore non trovato' });
 
-    const groupId = await perf.step('resolveOfficialGroupId', () => resolveOfficialGroupId(leagueId));
+    const groupId = await resolveOfficialGroupId(leagueId);
     if (!groupId) {
-      perf.end('ok-empty');
       return res.json({ absolute_ranks: { appearances_rank: null, goals_rank: null } });
     }
 
-    const clusterContext = await perf.step('fetchClusterContext', () => fetchClusterContext(playerId, groupId));
-    const absoluteRanks = await perf.step('fetchPlayerAbsoluteOverviewRanks', () => (
-      fetchPlayerAbsoluteOverviewRanks(groupId, clusterContext.playerIds, perf)
-    ));
-    perf.end('ok');
+    const clusterContext = await fetchClusterContext(playerId, groupId);
+    const absoluteRanks = await fetchPlayerAbsoluteOverviewRanks(groupId, clusterContext.playerIds);
     return res.json({ absolute_ranks: absoluteRanks });
   } catch (error) {
-    perf.end('error', { error: error.message });
     return res.status(500).json({ message: 'Errore caricamento ranking assoluto giocatore', error: error.message });
   }
 });
 
 router.get('/:playerId/career/:leagueId', authenticateToken, async (req, res) => {
-  const perf = createPlayerStatsRoutePerf(`GET career/${req.params.playerId}/${req.params.leagueId}`);
   try {
     const playerId = Number(req.params.playerId);
     const leagueId = Number(req.params.leagueId);
     if (!playerId || !leagueId) return res.status(400).json({ message: 'Parametri non validi' });
 
-    const playerRows = await perf.step('player_exists', () => query(
+    const playerRows = await query(
       `SELECT id FROM players WHERE id = ? LIMIT 1`,
       [playerId],
-    ));
+    );
     if (!playerRows.length) return res.status(404).json({ message: 'Giocatore non trovato' });
 
-    const career = await perf.step('fetchPlayerCareerHistory', () => fetchPlayerCareerHistory(playerId, leagueId));
-    perf.end('ok', { entries: Array.isArray(career) ? career.length : 0 });
+    const career = await fetchPlayerCareerHistory(playerId, leagueId);
     return res.json({ career });
   } catch (error) {
-    perf.end('error', { error: error.message });
     return res.status(500).json({ message: 'Errore caricamento carriera giocatore', error: error.message });
   }
 });
 
 router.get('/:playerId/stats/:leagueId', authenticateToken, async (req, res) => {
-  const perf = createPlayerStatsRoutePerf(`GET stats/${req.params.playerId}/${req.params.leagueId}`);
   try {
     const playerId = Number(req.params.playerId);
     const leagueId = Number(req.params.leagueId);
     if (!playerId || !leagueId) return res.status(400).json({ message: 'Parametri non validi' });
 
-    const playerRows = await perf.step('player_row', () => query(
+    const playerRows = await query(
       `SELECT id, first_name, last_name, role, rating, COALESCE(photo_path, '') AS photo_path
        FROM players
        WHERE id = ?
        LIMIT 1`,
       [playerId]
-    ));
+    );
     if (!playerRows.length) return res.status(404).json({ message: 'Giocatore non trovato' });
 
-    const leagueIds = await perf.step('resolveLeagueIdsForRatings', () => resolveLeagueIdsForRatings(leagueId));
-    const stats = await perf.step('fetchPlayerStatsAggregates', () => fetchPlayerStatsAggregates([playerId], leagueIds));
+    const leagueIds = await resolveLeagueIdsForRatings(leagueId);
+    const stats = await fetchPlayerStatsAggregates([playerId], leagueIds);
 
-    perf.end('ok', { leagueIds: leagueIds.length });
     return res.json({
       player: {
         id: Number(playerRows[0].id),
@@ -789,65 +730,59 @@ router.get('/:playerId/stats/:leagueId', authenticateToken, async (req, res) => 
       stats,
     });
   } catch (error) {
-    perf.end('error', { error: error.message });
     return res.status(500).json({ message: 'Errore caricamento statistiche giocatore', error: error.message });
   }
 });
 
 router.get('/:playerId/stats/aggregated/:leagueId', authenticateToken, async (req, res) => {
-  const perf = createPlayerStatsRoutePerf(`GET stats/aggregated/${req.params.playerId}/${req.params.leagueId}`);
   try {
     const playerId = Number(req.params.playerId);
     const leagueId = Number(req.params.leagueId);
     if (!playerId || !leagueId) return res.status(400).json({ message: 'Parametri non validi' });
 
-    const leagueMetaRows = await perf.step('league_meta', () => query(
+    const leagueMetaRows = await query(
       `SELECT id, linked_to_league_id, COALESCE(is_official, 0) AS is_official, official_group_id
        FROM leagues
        WHERE id = ?
        LIMIT 1`,
       [leagueId]
-    ));
+    );
     const leagueMeta = leagueMetaRows[0];
     if (!leagueMeta) return res.status(404).json({ message: 'Lega non trovata' });
 
     let groupId = leagueMeta.official_group_id ? Number(leagueMeta.official_group_id) : null;
     if (!groupId && Number(leagueMeta.linked_to_league_id || 0) > 0) {
-      const linkedMeta = await perf.step('linked_league_meta', () => (
-        getLeagueOfficialMeta(Number(leagueMeta.linked_to_league_id))
-      ));
+      const linkedMeta = await getLeagueOfficialMeta(Number(leagueMeta.linked_to_league_id));
       groupId = linkedMeta?.official_group_id ? Number(linkedMeta.official_group_id) : null;
     }
     if (!groupId) {
-      perf.end('404-no-group');
       return res.status(404).json({ message: 'Statistiche aggregate non disponibili per questa lega' });
     }
 
-    const playerRows = await perf.step('player_row', () => query(
+    const playerRows = await query(
       `SELECT id, first_name, last_name, role, rating, COALESCE(photo_path, '') AS photo_path
        FROM players
        WHERE id = ?
        LIMIT 1`,
       [playerId]
-    ));
+    );
     if (!playerRows.length) return res.status(404).json({ message: 'Giocatore non trovato' });
     const basePlayer = playerRows[0];
 
-    const groupLeagueRows = await perf.step('group_leagues', () => query(
+    const groupLeagueRows = await query(
       `SELECT id
        FROM leagues
        WHERE official_group_id = ?
          AND COALESCE(is_official, 0) = 1
          AND COALESCE(is_official_squad_public, 0) = 1`,
       [groupId]
-    ));
+    );
     const groupLeagueIds = groupLeagueRows.map((r) => Number(r.id)).filter((n) => Number.isFinite(n) && n > 0);
     if (!groupLeagueIds.length) {
-      perf.end('404-no-public-leagues');
       return res.status(404).json({ message: 'Statistiche aggregate non disponibili per questo gruppo ufficiale' });
     }
 
-    const clusterRows = await perf.step('cluster_members', () => query(
+    const clusterRows = await query(
       `SELECT DISTINCT pcm2.player_id
        FROM player_clusters pc
        JOIN player_cluster_members pcm1 ON pcm1.cluster_id = pc.id
@@ -856,22 +791,19 @@ router.get('/:playerId/stats/aggregated/:leagueId', authenticateToken, async (re
          AND pc.status = 'approved'
          AND pcm1.player_id = ?`,
       [groupId, playerId]
-    ));
+    );
     const aggregatedPlayerIds = clusterRows.map((r) => Number(r.player_id)).filter((n) => Number.isFinite(n) && n > 0);
 
     if (aggregatedPlayerIds.length < 2) {
-      perf.end('404-no-cluster');
       return res.status(404).json({ message: 'Giocatore non associato a un cluster' });
     }
 
-    const stats = await perf.step('fetchPlayerStatsAggregates', () => (
-      fetchPlayerStatsAggregates(aggregatedPlayerIds, groupLeagueIds)
-    ));
+    const stats = await fetchPlayerStatsAggregates(aggregatedPlayerIds, groupLeagueIds);
 
     let bestPhoto = basePlayer.photo_path || '';
     if (!bestPhoto && aggregatedPlayerIds.length > 1) {
       try {
-        const photoRows = await perf.step('fallback_photo', () => query(
+        const photoRows = await query(
           `SELECT p.photo_path
            FROM players p
            JOIN teams t ON t.id = p.team_id
@@ -881,15 +813,11 @@ router.get('/:playerId/stats/aggregated/:leagueId', authenticateToken, async (re
            ORDER BY l.name DESC
            LIMIT 1`,
           aggregatedPlayerIds
-        ));
+        );
         if (photoRows.length > 0) bestPhoto = photoRows[0].photo_path || '';
       } catch (_) {}
     }
 
-    perf.end('ok', {
-      groupLeagues: groupLeagueIds.length,
-      clusterPlayers: aggregatedPlayerIds.length,
-    });
     return res.json({
       player: {
         id: Number(basePlayer.id),
@@ -907,7 +835,6 @@ router.get('/:playerId/stats/aggregated/:leagueId', authenticateToken, async (re
       },
     });
   } catch (error) {
-    perf.end('error', { error: error.message });
     return res.status(500).json({ message: 'Errore caricamento statistiche aggregate', error: error.message });
   }
 });

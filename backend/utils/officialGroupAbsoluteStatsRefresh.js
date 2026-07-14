@@ -40,7 +40,7 @@ async function resolveOfficialGroupIdFromMatch(matchId) {
   return Number.isFinite(groupId) && groupId > 0 ? groupId : null;
 }
 
-async function scheduleOfficialGroupAbsoluteStatsRefresh(groupId, reason = 'unknown') {
+async function scheduleOfficialGroupAbsoluteStatsRefresh(groupId) {
   const gid = Number(groupId);
   if (!Number.isFinite(gid) || gid <= 0) return null;
 
@@ -49,40 +49,28 @@ async function scheduleOfficialGroupAbsoluteStatsRefresh(groupId, reason = 'unkn
   }
 
   const job = (async () => {
-    const t0 = Date.now();
     try {
-      const result = await recomputeAndStoreOfficialGroupAbsoluteStats(gid);
-      console.log(
-        `[officialGroupAbsoluteStatsRefresh] done groupId=${gid} reason=${reason} rows=${result.upserted} TOTAL=${Date.now() - t0}ms`
-      );
-      return result;
-    } catch (error) {
-      console.error(
-        `[officialGroupAbsoluteStatsRefresh] failed groupId=${gid} reason=${reason}:`,
-        error?.message || error
-      );
-      throw error;
+      return await recomputeAndStoreOfficialGroupAbsoluteStats(gid);
     } finally {
       inflightByGroupId.delete(gid);
     }
   })();
 
   inflightByGroupId.set(gid, job);
-  console.log(`[officialGroupAbsoluteStatsRefresh] scheduled groupId=${gid} reason=${reason}`);
   return job;
 }
 
-async function scheduleOfficialGroupAbsoluteStatsRefreshForLeague(leagueId, reason = 'league') {
+async function scheduleOfficialGroupAbsoluteStatsRefreshForLeague(leagueId) {
   const groupId = await resolveOfficialGroupIdFromLeague(leagueId);
   if (!groupId) return null;
-  void scheduleOfficialGroupAbsoluteStatsRefresh(groupId, reason);
+  void scheduleOfficialGroupAbsoluteStatsRefresh(groupId);
   return groupId;
 }
 
-async function scheduleOfficialGroupAbsoluteStatsRefreshForMatch(matchId, reason = 'official_match') {
+async function scheduleOfficialGroupAbsoluteStatsRefreshForMatch(matchId) {
   const groupId = await resolveOfficialGroupIdFromMatch(matchId);
   if (!groupId) return null;
-  void scheduleOfficialGroupAbsoluteStatsRefresh(groupId, reason);
+  void scheduleOfficialGroupAbsoluteStatsRefresh(groupId);
   return groupId;
 }
 

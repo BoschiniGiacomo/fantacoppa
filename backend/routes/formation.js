@@ -272,7 +272,6 @@ router.get('/:leagueId/:giornata/deadline', authenticateToken, async (req, res) 
 // GET /api/formation/:leagueId/:giornata
 router.get('/:leagueId/:giornata', authenticateToken, async (req, res) => {
   try {
-    const t0 = Date.now();
     const leagueId = Number(req.params.leagueId);
     const giornata = Number(req.params.giornata);
     const userId = Number(req.user.userId);
@@ -491,7 +490,6 @@ router.get('/:leagueId/:giornata', authenticateToken, async (req, res) => {
       };
     });
 
-    console.log(`[PERF][GET /formation/:id/:g] leagueId=${leagueId} g=${giornata} TOTAL=${Date.now() - t0}ms`);
     res.json({
       formation,
       formation_players: formationPlayersWithSurnameDisambig,

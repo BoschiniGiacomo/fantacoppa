@@ -3738,7 +3738,7 @@ router.post('/:id/votes/:giornata', authenticateToken, async (req, res) => {
         ]
       );
     }
-    void scheduleOfficialGroupAbsoluteStatsRefreshForLeague(leagueId, 'save_votes');
+    void scheduleOfficialGroupAbsoluteStatsRefreshForLeague(leagueId);
     res.json({ message: 'Voti salvati con successo' });
   } catch (error) {
     console.error('Save votes error:', error);
@@ -4078,7 +4078,7 @@ router.post('/:id/calculate/:giornata', authenticateToken, async (req, res) => {
       }
     }
 
-    void scheduleOfficialGroupAbsoluteStatsRefreshForLeague(leagueId, 'calculate_matchday');
+    void scheduleOfficialGroupAbsoluteStatsRefreshForLeague(leagueId);
 
     return res.json({
       success: true,

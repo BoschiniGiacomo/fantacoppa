@@ -1195,8 +1195,8 @@ async function saveMatchVotes(matchId, body) {
     Object.assign(savedDbAfter, await loadRatingsForGiornata(effectiveLeagueId, g));
   }
 
-  void scheduleOfficialGroupAbsoluteStatsRefreshForMatch(matchId, 'official_match_save_votes');
-  void scheduleOfficialGroupAbsoluteStatsRefreshForLeague(effectiveLeagueId, 'official_match_save_votes');
+  void scheduleOfficialGroupAbsoluteStatsRefreshForMatch(matchId);
+  void scheduleOfficialGroupAbsoluteStatsRefreshForLeague(effectiveLeagueId);
 
   return {
     message: 'Voti salvati',

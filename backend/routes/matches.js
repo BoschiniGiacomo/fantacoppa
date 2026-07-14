@@ -3332,11 +3332,9 @@ async function computeOfficialGroupSeasonStats(competitionId, targetLeagueIds, i
     const cacheKey = absoluteGroupStatsCacheKey(compId, statsMode);
     const cached = ABSOLUTE_GROUP_STATS_CACHE.get(cacheKey);
     if (cached && cached.expiresAt > Date.now()) {
-      console.log(`[PERF][computeOfficialGroupSeasonStats] groupId=${compId} mode=${statsMode} CACHE_HIT`);
       return cached.data;
     }
 
-    const t0 = Date.now();
     const poolSize = Math.min(6, Math.max(3, leagueIds.length));
     const parts = await mapInPool(leagueIds, poolSize, async (lid) => {
       const [goalsPart, presences] = await Promise.all([
@@ -3377,9 +3375,6 @@ async function computeOfficialGroupSeasonStats(competitionId, targetLeagueIds, i
       data: result,
       expiresAt: Date.now() + ABSOLUTE_GROUP_STATS_TTL_MS,
     });
-    console.log(
-      `[PERF][computeOfficialGroupSeasonStats] groupId=${compId} mode=${statsMode} leagues=${leagueIds.length} TOTAL=${Date.now() - t0}ms`
-    );
     return result;
   }
 
@@ -5384,7 +5379,7 @@ router.post('/admin/matches/:matchId/events', authenticateToken, requireSuperuse
         errors: 1,
       };
     }
-    void scheduleOfficialGroupAbsoluteStatsRefreshForMatch(matchId, 'official_match_event_create');
+    void scheduleOfficialGroupAbsoluteStatsRefreshForMatch(matchId);
     return res.json({
       ok: true,
       id: eventId || null,
@@ -5445,7 +5440,7 @@ router.put('/admin/matches/:matchId/events/:eventId', authenticateToken, require
         throw err2;
       }
     }
-    void scheduleOfficialGroupAbsoluteStatsRefreshForMatch(matchId, 'official_match_event_update');
+    void scheduleOfficialGroupAbsoluteStatsRefreshForMatch(matchId);
     return res.json({ ok: true });
   } catch (err) {
     if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
@@ -5460,7 +5455,7 @@ router.delete('/admin/matches/:matchId/events/:eventId', authenticateToken, requ
     const eventId = Number(req.params.eventId);
     if (!matchId || !eventId) return res.status(400).json({ message: 'Parametri evento non validi' });
     await query(`DELETE FROM official_match_events WHERE id = ? AND match_id = ?`, [eventId, matchId]);
-    void scheduleOfficialGroupAbsoluteStatsRefreshForMatch(matchId, 'official_match_event_delete');
+    void scheduleOfficialGroupAbsoluteStatsRefreshForMatch(matchId);
     return res.json({ ok: true });
   } catch (err) {
     if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
