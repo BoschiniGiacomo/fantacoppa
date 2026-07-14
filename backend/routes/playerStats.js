@@ -4,17 +4,7 @@ const { query } = require('../config/database');
 const { authenticateToken } = require('../middleware/auth');
 const { computePlayerOfficialTrophies } = require('../utils/officialHallTrophies');
 
-const PLAYER_STATS_API_PERF = process.env.NODE_ENV !== 'production';
-
 function createPlayerStatsRoutePerf(routeLabel) {
-  if (!PLAYER_STATS_API_PERF) {
-    return {
-      mark: () => {},
-      step: async (_label, fn) => fn(),
-      end: () => {},
-    };
-  }
-
   const startedAt = Date.now();
   const marks = [];
 
@@ -22,9 +12,9 @@ function createPlayerStatsRoutePerf(routeLabel) {
     const elapsed = Date.now() - startedAt;
     marks.push({ label, elapsed });
     if (extra != null) {
-      console.log(`[PlayerStatsAPI] ${routeLabel} · ${label} @ ${elapsed}ms`, extra);
+      console.log(`[PERF][${routeLabel}] ${label} @ ${elapsed}ms`, extra);
     } else {
-      console.log(`[PlayerStatsAPI] ${routeLabel} · ${label} @ ${elapsed}ms`);
+      console.log(`[PERF][${routeLabel}] ${label} @ ${elapsed}ms`);
     }
   };
 
@@ -43,7 +33,7 @@ function createPlayerStatsRoutePerf(routeLabel) {
     },
     end(status = 'ok', extra) {
       const total = Date.now() - startedAt;
-      console.log(`[PlayerStatsAPI] ${routeLabel} ■ ${status} total ${total}ms`, {
+      console.log(`[PERF][${routeLabel}] TOTAL=${total}ms status=${status}`, {
         steps: marks.length,
         ...extra,
       });
@@ -550,7 +540,9 @@ async function fetchPlayerAbsoluteOverviewRanks(groupId, clusterPlayerIds) {
     ];
     if (!leagueIds.length) return empty;
 
-    const stats = await computeOfficialGroupSeasonStats(gid, leagueIds, true);
+    const stats = await computeOfficialGroupSeasonStats(gid, leagueIds, true, {
+      leaderboards: ['scorers', 'presences'],
+    });
     return {
       appearances_rank: resolveRankInLeaderboard(stats?.presences, clusterPlayerIds),
       goals_rank: resolveRankInLeaderboard(stats?.scorers, clusterPlayerIds),

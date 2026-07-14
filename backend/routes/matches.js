@@ -3301,7 +3301,22 @@ async function fetchOfficialGroupPresencesForLeague(leagueId) {
   return fetchOfficialTeamPresencesWithVoteRanking(seasonTeamRows, { keepPlayerIds: true }).catch(() => []);
 }
 
-async function computeOfficialGroupSeasonStats(competitionId, targetLeagueIds, isAbsoluteMode) {
+const ABSOLUTE_GROUP_STATS_CACHE = new Map();
+const ABSOLUTE_GROUP_STATS_TTL_MS = 10 * 60 * 1000;
+
+function absoluteGroupStatsCacheKey(compId, mode) {
+  return `${compId}:${mode}`;
+}
+
+function resolveAbsoluteStatsMode(options = {}) {
+  const leaderboards = options.leaderboards;
+  if (!Array.isArray(leaderboards) || !leaderboards.length) return 'full';
+  const normalized = [...new Set(leaderboards.map(String))].sort().join('+');
+  if (normalized === 'presences+scorers') return 'scorers_presences';
+  return normalized;
+}
+
+async function computeOfficialGroupSeasonStats(competitionId, targetLeagueIds, isAbsoluteMode, options = {}) {
   const compId = Number(competitionId);
   const leagueIds = [...new Set((targetLeagueIds || []).map(Number).filter((id) => Number.isFinite(id) && id > 0))];
   if (!leagueIds.length) {
@@ -3309,33 +3324,60 @@ async function computeOfficialGroupSeasonStats(competitionId, targetLeagueIds, i
   }
 
   if (isAbsoluteMode && leagueIds.length > 1) {
-    const parts = await mapInPool(leagueIds, 3, async (lid) => {
+    const statsMode = resolveAbsoluteStatsMode(options);
+    const scorersOnly = statsMode === 'scorers_presences';
+    const cacheKey = absoluteGroupStatsCacheKey(compId, statsMode);
+    const cached = ABSOLUTE_GROUP_STATS_CACHE.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      console.log(`[PERF][computeOfficialGroupSeasonStats] groupId=${compId} mode=${statsMode} CACHE_HIT`);
+      return cached.data;
+    }
+
+    const t0 = Date.now();
+    const poolSize = Math.min(6, Math.max(3, leagueIds.length));
+    const parts = await mapInPool(leagueIds, poolSize, async (lid) => {
       const [goalsPart, presences] = await Promise.all([
         computeOfficialGroupSeasonStatsCore(compId, [lid], false, {
           keepPlayerIds: true,
           skipPresences: true,
+          scorersOnly,
         }),
         fetchOfficialGroupPresencesForLeague(lid),
       ]);
       return {
         scorers: goalsPart.scorers,
-        assistmen: goalsPart.assistmen,
-        yellow_cards: goalsPart.yellow_cards,
-        red_cards: goalsPart.red_cards,
+        assistmen: scorersOnly ? [] : goalsPart.assistmen,
+        yellow_cards: scorersOnly ? [] : goalsPart.yellow_cards,
+        red_cards: scorersOnly ? [] : goalsPart.red_cards,
         presences,
       };
     });
     const scorersRaw = parts.flatMap((p) => (Array.isArray(p.scorers) ? p.scorers : []));
-    const assistRaw = parts.flatMap((p) => (Array.isArray(p.assistmen) ? p.assistmen : []));
-    const yellowRaw = parts.flatMap((p) => (Array.isArray(p.yellow_cards) ? p.yellow_cards : []));
-    const redRaw = parts.flatMap((p) => (Array.isArray(p.red_cards) ? p.red_cards : []));
     const presRaw = parts.flatMap((p) => (Array.isArray(p.presences) ? p.presences : []));
     const scorers = await mergeAbsoluteStatsByCluster(scorersRaw, compId);
-    const assistmen = await mergeAbsoluteStatsByCluster(assistRaw, compId);
-    const yellow_cards = await mergeAbsoluteStatsByCluster(yellowRaw, compId);
-    const red_cards = await mergeAbsoluteStatsByCluster(redRaw, compId);
     const presences = await mergeAbsoluteStatsByCluster(presRaw, compId);
-    return { scorers, assistmen, presences, yellow_cards, red_cards };
+
+    let result;
+    if (scorersOnly) {
+      result = { scorers, assistmen: [], presences, yellow_cards: [], red_cards: [] };
+    } else {
+      const assistRaw = parts.flatMap((p) => (Array.isArray(p.assistmen) ? p.assistmen : []));
+      const yellowRaw = parts.flatMap((p) => (Array.isArray(p.yellow_cards) ? p.yellow_cards : []));
+      const redRaw = parts.flatMap((p) => (Array.isArray(p.red_cards) ? p.red_cards : []));
+      const assistmen = await mergeAbsoluteStatsByCluster(assistRaw, compId);
+      const yellow_cards = await mergeAbsoluteStatsByCluster(yellowRaw, compId);
+      const red_cards = await mergeAbsoluteStatsByCluster(redRaw, compId);
+      result = { scorers, assistmen, presences, yellow_cards, red_cards };
+    }
+
+    ABSOLUTE_GROUP_STATS_CACHE.set(cacheKey, {
+      data: result,
+      expiresAt: Date.now() + ABSOLUTE_GROUP_STATS_TTL_MS,
+    });
+    console.log(
+      `[PERF][computeOfficialGroupSeasonStats] groupId=${compId} mode=${statsMode} leagues=${leagueIds.length} TOTAL=${Date.now() - t0}ms`
+    );
+    return result;
   }
 
   return computeOfficialGroupSeasonStatsCore(compId, leagueIds, isAbsoluteMode, { keepPlayerIds: true });
@@ -3345,7 +3387,7 @@ async function computeOfficialGroupSeasonStatsCore(
   competitionId,
   leagueIds,
   isAbsoluteMode,
-  { keepPlayerIds = false, skipPresences = false } = {}
+  { keepPlayerIds = false, skipPresences = false, scorersOnly = false } = {}
 ) {
   const compId = Number(competitionId);
   if (!leagueIds.length) {
@@ -3492,23 +3534,25 @@ async function computeOfficialGroupSeasonStatsCore(
       const pid = Number(e.player_id) || Number(payload?.player_id);
 
       if (e.event_type === 'yellow_card' || e.event_type === 'red_card') {
-        const pn =
-          (Number.isFinite(pid) && pid > 0 ? String(playerNameMap.get(pid) || '').trim() : '') ||
-          String(payload?.player_name || '').trim();
-        const cardOnLeagueTeam =
-          (Number.isFinite(pid) && pid > 0 && seasonTeamIds.includes(Number(playerTeamMap.get(pid)))) ||
-          seasonTeamIds.includes(Number(e.team_id) || Number(payload?.team_id));
-        if (cardOnLeagueTeam && pn) {
-          const cardTeamId =
-            Number.isFinite(pid) && pid > 0 ? playerTeamMap.get(pid) : Number(e.team_id) || Number(payload?.team_id);
-          const cardMap = e.event_type === 'yellow_card' ? yellowCardsMap : redCardsMap;
-          bumpLeaderboard(
-            cardMap,
-            leaderboardKey(pid, pn, cardTeamId),
-            pn,
-            resolveTeamName(cardTeamId),
-            pid
-          );
+        if (!scorersOnly) {
+          const pn =
+            (Number.isFinite(pid) && pid > 0 ? String(playerNameMap.get(pid) || '').trim() : '') ||
+            String(payload?.player_name || '').trim();
+          const cardOnLeagueTeam =
+            (Number.isFinite(pid) && pid > 0 && seasonTeamIds.includes(Number(playerTeamMap.get(pid)))) ||
+            seasonTeamIds.includes(Number(e.team_id) || Number(payload?.team_id));
+          if (cardOnLeagueTeam && pn) {
+            const cardTeamId =
+              Number.isFinite(pid) && pid > 0 ? playerTeamMap.get(pid) : Number(e.team_id) || Number(payload?.team_id);
+            const cardMap = e.event_type === 'yellow_card' ? yellowCardsMap : redCardsMap;
+            bumpLeaderboard(
+              cardMap,
+              leaderboardKey(pid, pn, cardTeamId),
+              pn,
+              resolveTeamName(cardTeamId),
+              pid
+            );
+          }
         }
         continue;
       }
@@ -3533,22 +3577,24 @@ async function computeOfficialGroupSeasonStatsCore(
           pid
         );
       }
-      const an =
-        (Number.isFinite(aid) && aid > 0 ? String(playerNameMap.get(aid) || '').trim() : '') ||
-        String(payload?.assist_player_name || payload?.assist_name || '').trim();
-      const assistOnLeagueTeam =
-        (Number.isFinite(aid) && aid > 0 && seasonTeamIds.includes(Number(playerTeamMap.get(aid)))) ||
-        seasonTeamIds.includes(Number(e.team_id) || Number(payload?.team_id));
-      if (assistOnLeagueTeam && an) {
-        const assistTeamId =
-          Number.isFinite(aid) && aid > 0 ? playerTeamMap.get(aid) : Number(e.team_id) || Number(payload?.team_id);
-        bumpLeaderboard(
-          assistsMap,
-          leaderboardKey(aid, an, assistTeamId),
-          an,
-          resolveTeamName(assistTeamId),
-          aid
-        );
+      if (!scorersOnly) {
+        const an =
+          (Number.isFinite(aid) && aid > 0 ? String(playerNameMap.get(aid) || '').trim() : '') ||
+          String(payload?.assist_player_name || payload?.assist_name || '').trim();
+        const assistOnLeagueTeam =
+          (Number.isFinite(aid) && aid > 0 && seasonTeamIds.includes(Number(playerTeamMap.get(aid)))) ||
+          seasonTeamIds.includes(Number(e.team_id) || Number(payload?.team_id));
+        if (assistOnLeagueTeam && an) {
+          const assistTeamId =
+            Number.isFinite(aid) && aid > 0 ? playerTeamMap.get(aid) : Number(e.team_id) || Number(payload?.team_id);
+          bumpLeaderboard(
+            assistsMap,
+            leaderboardKey(aid, an, assistTeamId),
+            an,
+            resolveTeamName(assistTeamId),
+            aid
+          );
+        }
       }
     }
   }

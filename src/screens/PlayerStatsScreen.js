@@ -296,7 +296,7 @@ export default function PlayerStatsScreen({ route, navigation }) {
     perfSessionRef.current = session;
 
     void bootstrapPlayerScreen(session);
-    if (initialTabs.mainTab === 'fantacoppa') {
+    if (initialTabs.mainTab === 'fantacoppa' || entrySource === 'official') {
       void checkOfficialGroup(session);
     }
 
