@@ -112,22 +112,33 @@ async function upsertLeaderboardsSnapshot(groupId, stats) {
     [gid],
   );
 
+  const entries = [...byCluster.entries()];
+  if (!entries.length) return { upserted: 0 };
+
+  const CHUNK_SIZE = 150;
   let upserted = 0;
-  for (const [clusterId, row] of byCluster.entries()) {
-    await query(
-      `INSERT INTO ${TABLE} (
-         official_group_id, cluster_id, representative_player_id,
-         total_goals, total_presences, refreshed_at
-       ) VALUES (?, ?, ?, ?, ?, NOW())`,
-      [
+  for (let offset = 0; offset < entries.length; offset += CHUNK_SIZE) {
+    const chunk = entries.slice(offset, offset + CHUNK_SIZE);
+    const params = [];
+    const valueParts = chunk.map(([clusterId, row]) => {
+      params.push(
         gid,
         Number(clusterId),
         row.representative_player_id,
         Number(row.total_goals) || 0,
         Number(row.total_presences) || 0,
-      ],
+      );
+      return '(?, ?, ?, ?, ?, NOW())';
+    });
+
+    await query(
+      `INSERT INTO ${TABLE} (
+         official_group_id, cluster_id, representative_player_id,
+         total_goals, total_presences, refreshed_at
+       ) VALUES ${valueParts.join(', ')}`,
+      params,
     );
-    upserted += 1;
+    upserted += chunk.length;
   }
 
   return { upserted };

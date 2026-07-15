@@ -51,6 +51,12 @@ async function scheduleOfficialGroupAbsoluteStatsRefresh(groupId) {
   const job = (async () => {
     try {
       return await recomputeAndStoreOfficialGroupAbsoluteStats(gid);
+    } catch (error) {
+      console.error('[OfficialGroupAbsoluteStatsRefresh] refresh failed:', {
+        groupId: gid,
+        message: error?.message || String(error),
+      });
+      return { upserted: 0, failed: true };
     } finally {
       inflightByGroupId.delete(gid);
     }
@@ -61,17 +67,33 @@ async function scheduleOfficialGroupAbsoluteStatsRefresh(groupId) {
 }
 
 async function scheduleOfficialGroupAbsoluteStatsRefreshForLeague(leagueId) {
-  const groupId = await resolveOfficialGroupIdFromLeague(leagueId);
-  if (!groupId) return null;
-  void scheduleOfficialGroupAbsoluteStatsRefresh(groupId);
-  return groupId;
+  try {
+    const groupId = await resolveOfficialGroupIdFromLeague(leagueId);
+    if (!groupId) return null;
+    void scheduleOfficialGroupAbsoluteStatsRefresh(groupId);
+    return groupId;
+  } catch (error) {
+    console.error('[OfficialGroupAbsoluteStatsRefresh] resolve league failed:', {
+      leagueId,
+      message: error?.message || String(error),
+    });
+    return null;
+  }
 }
 
 async function scheduleOfficialGroupAbsoluteStatsRefreshForMatch(matchId) {
-  const groupId = await resolveOfficialGroupIdFromMatch(matchId);
-  if (!groupId) return null;
-  void scheduleOfficialGroupAbsoluteStatsRefresh(groupId);
-  return groupId;
+  try {
+    const groupId = await resolveOfficialGroupIdFromMatch(matchId);
+    if (!groupId) return null;
+    void scheduleOfficialGroupAbsoluteStatsRefresh(groupId);
+    return groupId;
+  } catch (error) {
+    console.error('[OfficialGroupAbsoluteStatsRefresh] resolve match failed:', {
+      matchId,
+      message: error?.message || String(error),
+    });
+    return null;
+  }
 }
 
 module.exports = {
