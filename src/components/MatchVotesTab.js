@@ -391,19 +391,23 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
 
   const getInputRef = useCallback((playerId) => (ref) => {
     inputRefsMap.current[playerId] = ref;
+    inputRefsMap.current[Number(playerId)] = ref;
   }, []);
 
   const getRowRef = useCallback((playerId) => (ref) => {
     playerRowRefsMap.current[playerId] = ref;
+    playerRowRefsMap.current[Number(playerId)] = ref;
   }, []);
 
   const getVoteRowRef = useCallback((playerId) => (ref) => {
     voteRowRefsMap.current[playerId] = ref;
+    voteRowRefsMap.current[Number(playerId)] = ref;
   }, []);
 
   const scrollToPlayer = useCallback((playerId) => {
-    const row = playerRowRefsMap.current[playerId];
-    const input = inputRefsMap.current[playerId];
+    const pid = Number(playerId);
+    const row = playerRowRefsMap.current[pid] || playerRowRefsMap.current[playerId];
+    const input = inputRefsMap.current[pid] || inputRefsMap.current[playerId];
     const node = row || input;
     if (!node) return;
     scrollInputIntoView(node, {
@@ -425,10 +429,17 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
     if (needsExpand) {
       setExpandedTeams((prev) => ({ ...prev, [next.teamId]: true }));
     }
+    // Solo focus: onInputFocus/scrollToPlayer allinea il campo (niente doppio scroll).
     setTimeout(() => {
-      inputRefsMap.current[next.playerId]?.focus();
-      scrollToPlayer(next.playerId);
-    }, needsExpand ? 150 : 50);
+      const nextInput =
+        inputRefsMap.current[next.playerId]
+        || inputRefsMap.current[String(next.playerId)];
+      if (nextInput) {
+        nextInput.focus();
+      } else {
+        scrollToPlayer(next.playerId);
+      }
+    }, needsExpand ? 220 : 40);
   }, [scrollToPlayer]);
 
   const applySuggestionsToDraft = useCallback((links) => {

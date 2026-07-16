@@ -829,13 +829,17 @@ export default function InsertVotesScreen({ route, navigation }) {
       setExpandedTeams((prev) => ({ ...prev, [team.id]: true }));
     }
 
+    // Solo focus: onInputFocus allinea il campo (evita doppio scroll avanti/indietro).
     setTimeout(() => {
       const nextInput =
         inputRefsMap.current[targetId]
         || inputRefsMap.current[String(targetId)];
-      if (nextInput) nextInput.focus();
-      scrollToPlayer(targetId);
-    }, needsExpand ? 150 : 50);
+      if (nextInput) {
+        nextInput.focus();
+      } else {
+        scrollToPlayer(targetId);
+      }
+    }, needsExpand ? 220 : 40);
   }, [findTeamForPlayer, scrollToPlayer]);
 
   // Funzioni per creare/ottenere ref per un player
