@@ -3,6 +3,7 @@ const {
   determineKnockoutMatchWinner,
   buildHallMatchFromRow,
 } = require('./officialMatchOutcome');
+const { SQL_WHERE_PRESENCE_VOTE } = require('./voteRating');
 
 const HALL_CAMPIONATO_FINAL_STAGE_ID = 3;
 const HALL_WINE_TROPHY_STAGE_ID = 6;
@@ -104,21 +105,119 @@ async function fetchHallFinalMatchesByLeagueStage(competitionId, leagueIds) {
   return out;
 }
 
-function buildPlayerTeamByLeagueId(editionRows) {
+function buildPlayerEditionByLeagueId(editionRows) {
   const map = new Map();
   for (const row of editionRows || []) {
     const leagueId = Number(row.league_id);
     const teamId = Number(row.team_id);
+    const playerId = Number(row.player_id);
     if (!Number.isFinite(leagueId) || leagueId <= 0) continue;
     if (!Number.isFinite(teamId) || teamId <= 0) continue;
-    map.set(leagueId, teamId);
+    if (!Number.isFinite(playerId) || playerId <= 0) continue;
+    map.set(leagueId, { teamId, playerId });
   }
   return map;
 }
 
+/** Espande ogni league_id al set di id dove possono stare i voti (parent + figli linked). */
+async function expandLeagueIdsForRatings(leagueIds) {
+  const lids = [...new Set((leagueIds || []).map(Number).filter((id) => id > 0))];
+  const byInput = new Map();
+  if (!lids.length) return { allIds: [], byInput };
+
+  const ph = lids.map(() => '?').join(', ');
+  const metaRows = await query(
+    `SELECT id, COALESCE(NULLIF(linked_to_league_id, 0), id) AS eff
+     FROM leagues
+     WHERE id IN (${ph})`,
+    lids,
+  );
+
+  const effByInput = new Map();
+  const effSet = new Set();
+  for (const row of metaRows || []) {
+    const id = Number(row.id);
+    const eff = Number(row.eff);
+    if (!(id > 0) || !(eff > 0)) continue;
+    effByInput.set(id, eff);
+    effSet.add(eff);
+  }
+
+  const byEff = new Map();
+  for (const eff of effSet) byEff.set(eff, new Set([eff]));
+
+  if (effSet.size) {
+    const effPh = [...effSet].map(() => '?').join(', ');
+    const childRows = await query(
+      `SELECT id, linked_to_league_id
+       FROM leagues
+       WHERE linked_to_league_id IN (${effPh})`,
+      [...effSet],
+    );
+    for (const row of childRows || []) {
+      const eff = Number(row.linked_to_league_id);
+      const id = Number(row.id);
+      if (!byEff.has(eff) || !(id > 0)) continue;
+      byEff.get(eff).add(id);
+    }
+  }
+
+  for (const lid of lids) {
+    const eff = effByInput.get(lid) || lid;
+    byInput.set(lid, [...(byEff.get(eff) || new Set([lid]))]);
+  }
+
+  const allIds = [...new Set([...byInput.values()].flat())];
+  return { allIds, byInput };
+}
+
 /**
- * Trofei vinti per league_id: la squadra del giocatore in quella stagione
- * coincide con la vincitrice della finale (campionato / wine).
+ * Ritorna Set di editionLeagueId in cui il player dell'edizione ha almeno
+ * una presenza (voto numerico o S.V.) nella lega (o leghe collegate voti).
+ */
+async function fetchEditionLeaguesWithPresence(editionByLeague) {
+  const withPresence = new Set();
+  const entries = [...(editionByLeague || new Map()).entries()];
+  if (!entries.length) return withPresence;
+
+  const editionLeagueIds = entries.map(([leagueId]) => leagueId);
+  const { allIds: ratingLeagueIds, byInput } = await expandLeagueIdsForRatings(editionLeagueIds);
+  const playerIds = [...new Set(entries.map(([, e]) => Number(e.playerId)).filter((id) => id > 0))];
+  if (!ratingLeagueIds.length || !playerIds.length) return withPresence;
+
+  const pPh = playerIds.map(() => '?').join(', ');
+  const lPh = ratingLeagueIds.map(() => '?').join(', ');
+  const rows = await query(
+    `SELECT DISTINCT player_id, league_id
+     FROM player_ratings
+     WHERE player_id IN (${pPh})
+       AND league_id IN (${lPh})
+       AND ${SQL_WHERE_PRESENCE_VOTE}`,
+    [...playerIds, ...ratingLeagueIds],
+  );
+
+  const presenceKeys = new Set();
+  for (const row of rows || []) {
+    const pid = Number(row.player_id);
+    const lid = Number(row.league_id);
+    if (pid > 0 && lid > 0) presenceKeys.add(`${pid}:${lid}`);
+  }
+
+  for (const [editionLeagueId, edition] of entries) {
+    const playerId = Number(edition.playerId);
+    const scope = byInput.get(editionLeagueId) || [editionLeagueId];
+    const hasPresence = scope.some((ratingLeagueId) => (
+      presenceKeys.has(`${playerId}:${Number(ratingLeagueId)}`)
+    ));
+    if (hasPresence) withPresence.add(editionLeagueId);
+  }
+
+  return withPresence;
+}
+
+/**
+ * Trofei vinti per league_id: squadra del giocatore = vincitrice finale
+ * E il giocatore ha almeno una presenza (voto o S.V.) in quella lega.
  * @returns {Map<number, { championship: boolean, wine: boolean }>}
  */
 async function computePlayerOfficialTrophyWinsByLeague(competitionId, editionRows) {
@@ -126,8 +225,8 @@ async function computePlayerOfficialTrophyWinsByLeague(competitionId, editionRow
   const out = new Map();
   if (!Number.isFinite(groupId) || groupId <= 0) return out;
 
-  const playerTeamByLeague = buildPlayerTeamByLeagueId(editionRows);
-  if (!playerTeamByLeague.size) return out;
+  const editionByLeague = buildPlayerEditionByLeagueId(editionRows);
+  if (!editionByLeague.size) return out;
 
   const leagues = await listOfficialGroupSeasonLeagues(groupId);
   const leagueIds = (leagues || [])
@@ -136,26 +235,29 @@ async function computePlayerOfficialTrophyWinsByLeague(competitionId, editionRow
   if (!leagueIds.length) return out;
 
   const finals = await fetchHallFinalMatchesByLeagueStage(groupId, leagueIds);
+  const leaguesWithPresence = await fetchEditionLeaguesWithPresence(editionByLeague);
 
   for (const row of leagues || []) {
     const leagueId = Number(row.league_id);
     if (!Number.isFinite(leagueId) || leagueId <= 0) continue;
 
-    const playerTeamId = playerTeamByLeague.get(leagueId);
-    if (!playerTeamId) continue;
+    const edition = editionByLeague.get(leagueId);
+    if (!edition) continue;
+    // Senza almeno una presenza (voto / S.V.) il trofeo non conta
+    if (!leaguesWithPresence.has(leagueId)) continue;
 
     let championship = false;
     let wine = false;
 
     const champMatch = finals.get(`${leagueId}:${HALL_CAMPIONATO_FINAL_STAGE_ID}`) || null;
     const champWinner = determineKnockoutMatchWinner(champMatch);
-    if (champWinner?.team_id && Number(champWinner.team_id) === Number(playerTeamId)) {
+    if (champWinner?.team_id && Number(champWinner.team_id) === Number(edition.teamId)) {
       championship = true;
     }
 
     const wineMatch = finals.get(`${leagueId}:${HALL_WINE_TROPHY_STAGE_ID}`) || null;
     const wineWinner = determineKnockoutMatchWinner(wineMatch);
-    if (wineWinner?.team_id && Number(wineWinner.team_id) === Number(playerTeamId)) {
+    if (wineWinner?.team_id && Number(wineWinner.team_id) === Number(edition.teamId)) {
       wine = true;
     }
 
@@ -168,8 +270,7 @@ async function computePlayerOfficialTrophyWinsByLeague(competitionId, editionRow
 }
 
 /**
- * Conta i trofei vinti dal giocatore: per ogni stagione visibile del cluster,
- * verifica se la squadra di appartenenza coincide con la vincitrice della finale.
+ * Conta i trofei vinti dal giocatore: squadra vincitrice + almeno una presenza in lega.
  */
 async function computePlayerOfficialTrophies(competitionId, editionRows) {
   const winsByLeague = await computePlayerOfficialTrophyWinsByLeague(competitionId, editionRows);

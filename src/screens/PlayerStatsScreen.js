@@ -824,19 +824,19 @@ export default function PlayerStatsScreen({ route, navigation }) {
                     fallbackIconSize={18}
                   />
 
-                  <View style={styles.careerTeamInfo}>
-                    <Text style={styles.careerTeamName} numberOfLines={1}>
-                      {teamName}
-                    </Text>
-                    <View style={styles.careerLeagueYearRow}>
+                  <View style={styles.careerTeamTextBlock}>
+                    <View style={styles.careerTeamInfo}>
+                      <Text style={styles.careerTeamName} numberOfLines={1}>
+                        {teamName}
+                      </Text>
                       <Text style={styles.careerLeagueYear} numberOfLines={1}>
                         {leagueYearLabel}
                       </Text>
-                      <CareerEditionTrophyIcons
-                        championship={!!entry?.won_championship}
-                        wine={!!entry?.won_wine_trophy}
-                      />
                     </View>
+                    <CareerEditionTrophyIcons
+                      championship={!!entry?.won_championship}
+                      wine={!!entry?.won_wine_trophy}
+                    />
                   </View>
                 </TouchableOpacity>
 
@@ -1537,10 +1537,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  careerTeamInfo: {
+  careerTeamTextBlock: {
     flex: 1,
     minWidth: 0,
-    justifyContent: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  careerTeamInfo: {
+    flexShrink: 1,
+    minWidth: 0,
     gap: 3,
   },
   careerTeamName: {
@@ -1548,16 +1554,10 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#1e293b',
   },
-  careerLeagueYearRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    minWidth: 0,
-  },
   careerLeagueYear: {
     fontSize: 13,
     color: '#94a3b8',
     fontWeight: '500',
-    flexShrink: 1,
   },
   careerStats: {
     flexDirection: 'row',

@@ -382,18 +382,18 @@ const styles = StyleSheet.create({
   careerIconsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 3,
-    marginLeft: 6,
-    height: 16,
+    justifyContent: 'center',
+    gap: 4,
+    flexShrink: 0,
   },
   careerIconScale: {
-    width: 15,
-    height: 16,
+    width: 24,
+    height: 28,
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
   },
   careerIconVisual: {
-    transform: [{ scale: 0.42 }],
+    transform: [{ scale: 0.65 }],
   },
 });
