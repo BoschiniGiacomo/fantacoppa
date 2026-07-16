@@ -25,6 +25,7 @@ import { matchDisplayScoreParts } from '../utils/matchDisplayScore';
 const SEASON_YEAR_PICKER_MAX_HEIGHT = 180;
 const ABSOLUTE_STATS_KEY = 'absolute';
 const STATS_LEADERBOARD_PREVIEW = 10;
+const HALL_WINNERS_PREVIEW = 5;
 const MATCH_LIST_ROW_HEIGHT = 127;
 const MATCH_LIST_YEAR_HEIGHT = 34;
 const MATCHES_LIST_CONTENT_PADDING_BOTTOM = 12;
@@ -351,6 +352,9 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
   const [hallLoading, setHallLoading] = useState(false);
   const [hallRanking, setHallRanking] = useState([]);
   const [hallWinnersByYear, setHallWinnersByYear] = useState([]);
+  const [hallWineWinnersByYear, setHallWineWinnersByYear] = useState([]);
+  const [hallWinnersExpanded, setHallWinnersExpanded] = useState(false);
+  const [hallWineWinnersExpanded, setHallWineWinnersExpanded] = useState(false);
   const [hallRankingSort, setHallRankingSort] = useState('titles');
   const matchesListRef = useRef(null);
   const matchesLoadSeqRef = useRef(0);
@@ -510,10 +514,16 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
       const res = await matchesService.getOfficialGroupHallOfFame(competitionId);
       setHallRanking(Array.isArray(res?.data?.ranking) ? res.data.ranking : []);
       setHallWinnersByYear(Array.isArray(res?.data?.winners_by_year) ? res.data.winners_by_year : []);
+      setHallWineWinnersByYear(
+        Array.isArray(res?.data?.wine_winners_by_year) ? res.data.wine_winners_by_year : [],
+      );
+      setHallWinnersExpanded(false);
+      setHallWineWinnersExpanded(false);
     } catch (err) {
       console.error('Error loading group hall of fame:', err);
       setHallRanking([]);
       setHallWinnersByYear([]);
+      setHallWineWinnersByYear([]);
     } finally {
       setHallLoading(false);
     }
@@ -642,6 +652,53 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
     }
     return list;
   }, [hallRanking, hallRankingSort]);
+
+  const renderHallWinnersChronology = (items, title, expanded, onToggleExpand, listKey) => {
+    const list = Array.isArray(items) ? items : [];
+    if (!list.length) return null;
+    const canExpand = list.length > HALL_WINNERS_PREVIEW;
+    const visible = !canExpand || expanded ? list : list.slice(0, HALL_WINNERS_PREVIEW);
+    return (
+      <>
+        <Text style={[styles.hallSectionTitle, styles.hallSectionTitleSpaced]}>{title}</Text>
+        <View style={styles.hallYearsListWrap}>
+          {visible.map((w, idx) => {
+            const rowTeamId = Number(w?.team_id);
+            const isLast = idx === visible.length - 1 && !canExpand;
+            return (
+              <View
+                key={`${listKey}-${w.year}-${rowTeamId || idx}`}
+                style={[styles.hallYearRow, isLast && styles.hallYearRowLast]}
+              >
+                <Text style={styles.hallYearLabel}>{w.year}</Text>
+                <TouchableOpacity
+                  style={styles.hallYearTeam}
+                  activeOpacity={0.75}
+                  disabled={!rowTeamId || rowTeamId <= 0}
+                  onPress={() => openOfficialTeamDetail(rowTeamId, w.team_name)}
+                >
+                  <TeamRowLogo logoUrl={w.team_logo_url} logoPath={w.team_logo_path} />
+                  <Text style={styles.hallYearTeamName} numberOfLines={1}>{w.team_name || '-'}</Text>
+                </TouchableOpacity>
+              </View>
+            );
+          })}
+          {canExpand ? (
+            <TouchableOpacity
+              style={styles.hallChronologyExpandBtn}
+              onPress={onToggleExpand}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.hallChronologyExpandText}>
+                {expanded ? 'Mostra meno' : `Mostra tutti (${list.length})`}
+              </Text>
+              <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={16} color="#111827" />
+            </TouchableOpacity>
+          ) : null}
+        </View>
+      </>
+    );
+  };
 
   const seasonYearOptions = useMemo(
     () =>
@@ -1115,7 +1172,7 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
               <View style={styles.matchesLoadingBox}>
                 <ActivityIndicator color="#667eea" />
               </View>
-            ) : hallRanking.length === 0 && hallWinnersByYear.length === 0 ? (
+            ) : hallRanking.length === 0 && hallWinnersByYear.length === 0 && hallWineWinnersByYear.length === 0 ? (
               <Text style={styles.placeholderText}>Nessun vincitore di finale registrato.</Text>
             ) : (
               <ScrollView
@@ -1205,31 +1262,20 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
                     );
                   })}
                 </View>
-                {hallWinnersByYear.length > 0 ? (
-                  <>
-                    <Text style={[styles.hallSectionTitle, styles.hallSectionTitleSpaced]}>Vincitori per stagione</Text>
-                    <View style={styles.hallYearsListWrap}>
-                    {hallWinnersByYear.map((w, idx) => {
-                      const rowTeamId = Number(w?.team_id);
-                      const isLast = idx === hallWinnersByYear.length - 1;
-                      return (
-                      <View key={`hall-year-${w.year}`} style={[styles.hallYearRow, isLast && styles.hallYearRowLast]}>
-                        <Text style={styles.hallYearLabel}>{w.year}</Text>
-                        <TouchableOpacity
-                          style={styles.hallYearTeam}
-                          activeOpacity={0.75}
-                          disabled={!rowTeamId || rowTeamId <= 0}
-                          onPress={() => openOfficialTeamDetail(rowTeamId, w.team_name)}
-                        >
-                          <TeamRowLogo logoUrl={w.team_logo_url} logoPath={w.team_logo_path} />
-                          <Text style={styles.hallYearTeamName} numberOfLines={1}>{w.team_name || '-'}</Text>
-                        </TouchableOpacity>
-                      </View>
-                      );
-                    })}
-                    </View>
-                  </>
-                ) : null}
+                {renderHallWinnersChronology(
+                  hallWinnersByYear,
+                  `Cronologia vincitori (${groupName})`,
+                  hallWinnersExpanded,
+                  () => setHallWinnersExpanded((prev) => !prev),
+                  'hall-champ',
+                )}
+                {renderHallWinnersChronology(
+                  hallWineWinnersByYear,
+                  'Cronologia vincitori Trofeo del Vino',
+                  hallWineWinnersExpanded,
+                  () => setHallWineWinnersExpanded((prev) => !prev),
+                  'hall-wine',
+                )}
               </ScrollView>
             )}
           </View>
@@ -1724,6 +1770,21 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     overflow: 'hidden',
     backgroundColor: '#fff',
+  },
+  hallChronologyExpandBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    paddingVertical: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#eef2f7',
+    backgroundColor: '#fff',
+  },
+  hallChronologyExpandText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#111827',
   },
   hallYearRow: {
     flexDirection: 'row',

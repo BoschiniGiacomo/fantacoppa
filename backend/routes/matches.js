@@ -3409,6 +3409,7 @@ async function fetchHallFinalMatchesByLeagueStage(competitionId, leagueIds) {
 async function buildOfficialGroupHallOfFame(competitionId) {
   const leagues = await listOfficialGroupSeasonLeagues(competitionId);
   const winnersByYear = [];
+  const wineWinnersByYear = [];
   const titleBuckets = new Map();
 
   const setBucketTeamId = (bucket, teamId, year) => {
@@ -3474,6 +3475,13 @@ async function buildOfficialGroupHallOfFame(competitionId) {
       const wineWinner = determineKnockoutMatchWinner(wineMatch);
       if (wineWinner?.team_name) {
         const wineLogoPath = normalizeTeamLogoPathForApi(wineWinner.logo_path);
+        wineWinnersByYear.push({
+          year,
+          team_id: wineWinner.team_id,
+          team_name: wineWinner.team_name,
+          team_logo_path: wineLogoPath,
+          team_logo_url: logoUrlForPath(wineLogoPath),
+        });
         const wineNorm = normalizeTeamNameForFavorite(wineWinner.team_name);
         const wineBucket = ensureTeamBucket(wineNorm, wineWinner.team_name, wineLogoPath);
         wineBucket.wine_trophies += 1;
@@ -3484,6 +3492,7 @@ async function buildOfficialGroupHallOfFame(competitionId) {
   }
 
   winnersByYear.sort((a, b) => Number(b.year) - Number(a.year));
+  wineWinnersByYear.sort((a, b) => Number(b.year) - Number(a.year));
   const ranking = [...titleBuckets.values()]
     .filter((r) => Number(r.titles) > 0 || Number(r.wine_trophies) > 0)
     .map((r) => ({
@@ -3503,7 +3512,11 @@ async function buildOfficialGroupHallOfFame(competitionId) {
         || a.team_name.localeCompare(b.team_name, 'it')
     );
 
-  return { winners_by_year: winnersByYear, ranking };
+  return {
+    winners_by_year: winnersByYear,
+    wine_winners_by_year: wineWinnersByYear,
+    ranking,
+  };
 }
 
 async function buildOfficialTeamTrophies(competitionId, teamNameNorm) {
@@ -4406,6 +4419,7 @@ router.get('/matches/groups/:groupId/hall-of-fame', authenticateToken, async (re
     return res.json({
       group: { id: groupId, name: String(group.name || '').trim() },
       winners_by_year: hall.winners_by_year,
+      wine_winners_by_year: hall.wine_winners_by_year,
       ranking: hall.ranking,
     });
   } catch (err) {
