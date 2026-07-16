@@ -641,7 +641,9 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
   }, [enableOfficialSvVote, clearExplicitNd]);
 
   const setRatingValue = useCallback((playerId, value) => {
-    let rating = value === '' || value == null ? 0 : parseFloat(String(value).replace(',', '.'));
+    // Campo lasciato vuoto: non forzare N.D., resta il voto precedente (es. S.V.)
+    if (value === '' || value == null) return;
+    let rating = parseFloat(String(value).replace(',', '.'));
     if (isNaN(rating)) return;
     if (isSvVoteRating(rating)) {
       // keep S.V.

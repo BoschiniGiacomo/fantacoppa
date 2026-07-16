@@ -500,14 +500,12 @@ export default function InsertVotesScreen({ route, navigation }) {
   }, [enableOfficialSvVote]);
 
   const setRatingValue = useCallback((playerId, value) => {
-    if (value === '' || value === null) {
-      setVotes(prev => {
-        const current = prev[playerId] || { rating: 0, goals: 0, assists: 0, yellow_cards: 0, red_cards: 0 };
-        return { ...prev, [playerId]: { ...current, rating: 0 } };
-      });
+    // Campo lasciato vuoto: non forzare N.D., resta il voto precedente (es. S.V.)
+    if (value === '' || value === null || value === undefined) {
       return;
     }
     const raw = String(value).trim().toUpperCase();
+    if (!raw) return;
     if (enableOfficialSvVote && (raw === 'S.V.' || raw === 'S.V' || raw === 'SV')) {
       setVotes(prev => {
         const current = prev[playerId] || { rating: 0, goals: 0, assists: 0, yellow_cards: 0, red_cards: 0 };

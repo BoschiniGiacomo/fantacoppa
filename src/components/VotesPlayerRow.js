@@ -479,12 +479,11 @@ export default memo(VotesPlayerRow, (prev, next) => (
 export const VOTE_ND_LABEL = 'N.D.';
 export const VOTE_SV_LABEL = 'S.V.';
 
-/** Testo campo voto che significa non disponibile (accetta anche S.V. legacy come N.D. solo se non abilitato S.V. ufficiale). */
+/** Testo campo voto che significa non disponibile (solo N.D. esplicito, non stringa vuota). */
 export function isVoteNdInputText(text) {
   const t = String(text || '').trim().toUpperCase();
   return (
-    t === ''
-    || t === 'N.D.'
+    t === 'N.D.'
     || t === 'N.D'
     || t === 'ND'
   );
@@ -499,10 +498,11 @@ export function isVoteSvInputText(text) {
 /** Interpreta testo ancora non committato nel campo voto. */
 export function resolveVoteInputCommit(text, { enableOfficialSvVote = false } = {}) {
   if (text === null || text === undefined) return null;
-  if (isVoteNdInputText(text)) return { type: 'nd' };
-  if (enableOfficialSvVote && isVoteSvInputText(text)) return { type: 'sv' };
   const raw = String(text).trim();
+  // Campo lasciato vuoto: non forzare N.D., resta il valore precedente (es. S.V.)
   if (!raw) return null;
+  if (isVoteNdInputText(raw)) return { type: 'nd' };
+  if (enableOfficialSvVote && isVoteSvInputText(raw)) return { type: 'sv' };
   let rating = parseFloat(raw.replace(',', '.'));
   if (Number.isNaN(rating)) return null;
   if (isSvVoteRating(rating)) return { type: 'sv' };
