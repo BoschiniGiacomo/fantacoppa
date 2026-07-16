@@ -1420,18 +1420,7 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
                 </View>
 
                 <View style={styles.statsBlock}>
-                  <TouchableOpacity
-                    style={styles.statsBlockTitleRow}
-                    onPress={toggleOutcomesOpponents}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={[styles.statsBlockTitle, styles.statsBlockTitleInline]}>Risultati</Text>
-                    <Ionicons
-                      name={outcomesOpponentsExpanded ? 'chevron-up' : 'chevron-down'}
-                      size={16}
-                      color="#111827"
-                    />
-                  </TouchableOpacity>
+                  <Text style={styles.statsBlockTitle}>Risultati</Text>
                   <View style={styles.statsValueRow}>
                     <Text style={styles.statsLabel}>Vittorie</Text>
                     <Text style={styles.statsValue}>
@@ -1458,13 +1447,15 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
                           <ActivityIndicator color="#667eea" size="small" />
                         </View>
                       ) : sortedOutcomesOpponents.length === 0 ? (
-                        <Text style={styles.placeholderText}>Nessun avversario con partite conteggiate.</Text>
+                        <Text style={[styles.placeholderText, styles.outcomesOpponentsEmpty]}>
+                          Nessun avversario con partite conteggiate.
+                        </Text>
                       ) : (
-                        <View style={styles.statsTableWrap}>
+                        <View style={[styles.statsTableWrap, styles.outcomesOppTable]}>
                           <View style={[styles.statsTableRow, styles.statsTableHeaderRow, styles.outcomesOppHeaderRow]}>
                             {[
                               { key: 'name', label: 'Avversario', style: styles.outcomesOppThTeam },
-                              { key: 'played', label: 'Inc.', style: styles.outcomesOppThNum },
+                              { key: 'played', label: 'PG', style: styles.outcomesOppThNum },
                               { key: 'wins', label: 'V', style: styles.outcomesOppThNum },
                               { key: 'draws', label: 'P', style: styles.outcomesOppThNum },
                               { key: 'losses', label: 'S', style: styles.outcomesOppThNum },
@@ -1556,6 +1547,21 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
                       )}
                     </View>
                   ) : null}
+
+                  <TouchableOpacity
+                    style={styles.statsTableExpandBtn}
+                    onPress={toggleOutcomesOpponents}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.statsTableExpandText}>
+                      {outcomesOpponentsExpanded ? 'Nascondi' : 'Esplora'}
+                    </Text>
+                    <Ionicons
+                      name={outcomesOpponentsExpanded ? 'chevron-up' : 'chevron-down'}
+                      size={16}
+                      color="#111827"
+                    />
+                  </TouchableOpacity>
                 </View>
 
                 <View style={styles.statsLeaderboardBlock}>
@@ -2183,21 +2189,15 @@ const styles = StyleSheet.create({
     color: '#334155',
     marginBottom: 4,
   },
-  statsBlockTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 4,
-    paddingVertical: 2,
-  },
-  statsBlockTitleInline: {
-    marginBottom: 0,
+  outcomesOppTable: {
+    borderRadius: 12,
+    overflow: 'hidden',
   },
   outcomesOpponentsWrap: {
     marginTop: 10,
-    paddingTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: '#f1f5f9',
+  },
+  outcomesOpponentsEmpty: {
+    paddingBottom: 4,
   },
   outcomesOpponentsLoading: {
     paddingVertical: 14,
@@ -2226,7 +2226,7 @@ const styles = StyleSheet.create({
   outcomesOppThPct: {
     width: 42,
     flexShrink: 0,
-    justifyContent: 'flex-end',
+    justifyContent: 'center',
   },
   outcomesOppHeaderText: {
     fontSize: 11,
@@ -2277,7 +2277,7 @@ const styles = StyleSheet.create({
   },
   outcomesOppPct: {
     width: 42,
-    textAlign: 'right',
+    textAlign: 'center',
     flexShrink: 0,
     fontSize: 12,
     fontWeight: '700',
