@@ -1189,33 +1189,44 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
                       activeOpacity={0.7}
                       onPress={() => setHallRankingSort('titles')}
                     >
-                      <Text
-                        style={[
-                          styles.seasonTh,
-                          styles.hallThTitoli,
-                          hallRankingSort === 'titles' && styles.hallThSortActive,
-                          { textAlign: 'center' },
-                        ]}
-                      >
-                        Titoli
-                      </Text>
+                      <View style={styles.hallSortableThInner}>
+                        <Text
+                          style={[
+                            styles.seasonTh,
+                            styles.hallThTitoli,
+                            hallRankingSort === 'titles' && styles.hallThSortActive,
+                            { textAlign: 'center' },
+                          ]}
+                          numberOfLines={2}
+                        >
+                          {groupName}
+                        </Text>
+                        {hallRankingSort === 'titles' ? (
+                          <Ionicons name="caret-down" size={11} color="#4f46e5" style={styles.hallSortCaret} />
+                        ) : null}
+                      </View>
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={styles.hallSortableThWine}
                       activeOpacity={0.7}
                       onPress={() => setHallRankingSort('wine_trophies')}
                     >
-                      <Text
-                        style={[
-                          styles.seasonTh,
-                          styles.hallThWine,
-                          hallRankingSort === 'wine_trophies' && styles.hallThSortActive,
-                          { textAlign: 'center' },
-                        ]}
-                        numberOfLines={2}
-                      >
-                        Trofeo del Vino
-                      </Text>
+                      <View style={styles.hallSortableThInnerWine}>
+                        <Text
+                          style={[
+                            styles.seasonTh,
+                            styles.hallThWine,
+                            hallRankingSort === 'wine_trophies' && styles.hallThSortActive,
+                            { textAlign: 'center' },
+                          ]}
+                          numberOfLines={2}
+                        >
+                          Trofeo del Vino
+                        </Text>
+                        {hallRankingSort === 'wine_trophies' ? (
+                          <Ionicons name="caret-down" size={11} color="#4f46e5" style={styles.hallSortCaret} />
+                        ) : null}
+                      </View>
                     </TouchableOpacity>
                   </View>
                   {sortedHallRanking.map((r, i) => {
@@ -1264,7 +1275,7 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
                 </View>
                 {renderHallWinnersChronology(
                   hallWinnersByYear,
-                  `Cronologia vincitori (${groupName})`,
+                  `Cronologia vincitori ${groupName}`,
                   hallWinnersExpanded,
                   () => setHallWinnersExpanded((prev) => !prev),
                   'hall-champ',
@@ -1708,27 +1719,44 @@ const styles = StyleSheet.create({
     alignSelf: 'stretch',
   },
   hallTableHeader: {
-    paddingLeft: 12,
+    paddingLeft: 6,
     paddingRight: 12,
     paddingVertical: 10,
     backgroundColor: '#f8fafc',
   },
-  hallThPos: { width: 48 },
+  hallThPos: { width: 38 },
   hallThTeam: { fontSize: 13 },
-  hallSortableTh: { width: 52, flexShrink: 0 },
-  hallSortableThWine: { width: 68, flexShrink: 0, justifyContent: 'center' },
-  hallThTitoli: { width: 52 },
-  hallThWine: { width: 68, fontSize: 11, lineHeight: 13 },
+  hallSortableTh: { width: 72, flexShrink: 0, alignItems: 'center', justifyContent: 'center' },
+  hallSortableThWine: { width: 68, flexShrink: 0, alignItems: 'center', justifyContent: 'center' },
+  hallSortableThInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
+    maxWidth: 72,
+  },
+  hallSortableThInnerWine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
+    maxWidth: 68,
+  },
+  hallThTitoli: { flexShrink: 1, fontSize: 11, lineHeight: 13 },
+  hallThWine: { flexShrink: 1, fontSize: 11, lineHeight: 13 },
   hallThSortActive: { color: '#4f46e5' },
+  hallSortCaret: {
+    marginTop: 1,
+  },
   hallTableRow: {
     alignItems: 'stretch',
-    paddingLeft: 12,
+    paddingLeft: 6,
     paddingRight: 12,
     paddingVertical: 12,
     backgroundColor: '#fff',
   },
   hallPosCol: {
-    width: 48,
+    width: 38,
     flexShrink: 0,
     alignSelf: 'stretch',
     justifyContent: 'center',
@@ -1736,7 +1764,7 @@ const styles = StyleSheet.create({
   },
   hallTdPos: { fontWeight: '700', fontSize: 15, textAlign: 'center' },
   hallMetricCol: {
-    width: 52,
+    width: 72,
     flexShrink: 0,
     alignSelf: 'stretch',
     justifyContent: 'center',
