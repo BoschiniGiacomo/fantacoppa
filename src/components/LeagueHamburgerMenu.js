@@ -101,6 +101,13 @@ export default function LeagueHamburgerMenu({ leagueId, navigation, isAdmin, use
 
   const menuItems = [
     {
+      id: 'calendar',
+      label: 'Calendario',
+      icon: 'calendar-outline',
+      screen: 'Calendar',
+      params: { leagueId },
+    },
+    {
       id: 'market',
       label: 'Mercato',
       icon: 'bag-outline',
