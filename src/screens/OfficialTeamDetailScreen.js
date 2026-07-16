@@ -363,6 +363,13 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
   const itemLayoutsRef = useRef({});
   const [matchesTick, setMatchesTick] = useState(0);
   const initialScrollDoneRef = useRef(false);
+  const seasonLoadSeqRef = useRef(0);
+  const teamSeasonLoadSeqRef = useRef(0);
+  const statsLoadSeqRef = useRef(0);
+  const selectedSeasonYearRef = useRef(null);
+  const selectedTeamSeasonYearRef = useRef(null);
+  const selectedStatsYearRef = useRef(null);
+  const appliedInitialRouteKeyRef = useRef('');
   const seasonPickerAnchorRef = useRef(null);
   const statsPickerAnchorRef = useRef(null);
   const teamPickerAnchorRef = useRef(null);
@@ -410,10 +417,13 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
   const loadSeasonStandings = useCallback(
     async (yearOverride = null) => {
       if (!teamId || !competitionId) return;
+      seasonLoadSeqRef.current += 1;
+      const seq = seasonLoadSeqRef.current;
+      const targetYear = yearOverride != null ? yearOverride : selectedSeasonYearRef.current;
       try {
         setSeasonLoading(true);
-        const targetYear = yearOverride != null ? yearOverride : selectedSeasonYear;
         const res = await matchesService.getOfficialTeamSeasonStandings(teamId, competitionId, targetYear);
+        if (seq !== seasonLoadSeqRef.current) return;
         const years = Array.isArray(res?.data?.available_years) ? res.data.available_years : [];
         const standingsRows = Array.isArray(res?.data?.standings) ? res.data.standings : [];
         const groupsRaw = Array.isArray(res?.data?.standings_groups) ? res.data.standings_groups : null;
@@ -429,15 +439,21 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
           final: knockoutRows?.final || null,
         });
         setSelectedSeasonYear((prev) => {
+          if (yearOverride != null && Number.isFinite(Number(yearOverride))) return Number(yearOverride);
           if (backendSelected == null || !Number.isFinite(backendSelected)) return prev;
           return prev === backendSelected ? prev : backendSelected;
         });
+      } catch (err) {
+        if (seq !== seasonLoadSeqRef.current) return;
+        console.error('Error loading team season standings:', err);
       } finally {
-        setSeasonLoading(false);
+        if (seq === seasonLoadSeqRef.current) setSeasonLoading(false);
       }
     },
-    [teamId, competitionId, selectedSeasonYear]
+    [teamId, competitionId]
   );
+
+  selectedSeasonYearRef.current = selectedSeasonYear;
 
   useEffect(() => {
     if (activeTab !== 'season') return;
@@ -448,10 +464,13 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
   const loadTeamSeasonSquad = useCallback(
     async (yearOverride = null) => {
       if (!teamId || !competitionId) return;
+      teamSeasonLoadSeqRef.current += 1;
+      const seq = teamSeasonLoadSeqRef.current;
+      const targetYear = yearOverride != null ? yearOverride : selectedTeamSeasonYearRef.current;
       try {
         setTeamSeasonLoading(true);
-        const targetYear = yearOverride != null ? yearOverride : selectedTeamSeasonYear;
         const res = await matchesService.getOfficialTeamSeasonSquad(teamId, competitionId, targetYear);
+        if (seq !== teamSeasonLoadSeqRef.current) return;
         const years = Array.isArray(res?.data?.available_years) ? res.data.available_years : [];
         const squad = Array.isArray(res?.data?.squad) ? res.data.squad : [];
         const backendSelected = res?.data?.selected_year != null ? Number(res.data.selected_year) : null;
@@ -460,24 +479,35 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
         setTeamSeasonLeagueId(res?.data?.league_id != null ? Number(res.data.league_id) : null);
         setTeamSeasonJerseyColor(String(res?.data?.jersey_color || DEFAULT_JERSEY_COLOR));
         setSelectedTeamSeasonYear((prev) => {
+          if (yearOverride != null && Number.isFinite(Number(yearOverride))) return Number(yearOverride);
           if (backendSelected == null || !Number.isFinite(backendSelected)) return prev;
           return prev === backendSelected ? prev : backendSelected;
         });
+      } catch (err) {
+        if (seq !== teamSeasonLoadSeqRef.current) return;
+        console.error('Error loading team season squad:', err);
       } finally {
-        setTeamSeasonLoading(false);
+        if (seq === teamSeasonLoadSeqRef.current) setTeamSeasonLoading(false);
       }
     },
-    [teamId, competitionId, selectedTeamSeasonYear]
+    [teamId, competitionId]
   );
+
+  selectedTeamSeasonYearRef.current = selectedTeamSeasonYear;
 
   useEffect(() => {
     const nextTab = resolveRouteInitialTab(route?.params);
     const nextYear = resolveRouteInitialSeasonYear(route?.params);
     if (!nextTab) return;
 
+    const routeKey = `${teamId}:${competitionId}:${nextTab}:${nextYear ?? ''}`;
+    if (appliedInitialRouteKeyRef.current === routeKey) return;
+    appliedInitialRouteKeyRef.current = routeKey;
+
     setActiveTab(nextTab);
     if (nextTab === 'team' && nextYear != null) {
       setSelectedTeamSeasonYear(nextYear);
+      selectedTeamSeasonYearRef.current = nextYear;
       void loadTeamSeasonSquad(nextYear);
     }
   }, [route?.params?.initialTab, route?.params?.initialSeasonYear, teamId, competitionId, loadTeamSeasonSquad]);
@@ -497,10 +527,17 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
   const loadTeamSeasonStats = useCallback(
     async (yearOverride = null) => {
       if (!teamId || !competitionId) return;
+      statsLoadSeqRef.current += 1;
+      const seq = statsLoadSeqRef.current;
+      const rawYear = yearOverride != null ? yearOverride : selectedStatsYearRef.current;
+      const targetYear =
+        rawYear === ABSOLUTE_STATS_KEY || String(rawYear || '').toLowerCase() === ABSOLUTE_STATS_KEY
+          ? ABSOLUTE_STATS_KEY
+          : rawYear;
       try {
         setStatsLoading(true);
-        const targetYear = yearOverride != null ? yearOverride : selectedStatsYear;
         const res = await matchesService.getOfficialTeamSeasonStats(teamId, competitionId, targetYear);
+        if (seq !== statsLoadSeqRef.current) return;
         const years = Array.isArray(res?.data?.available_years) ? res.data.available_years : [];
         const rawBackendSelected = res?.data?.selected_year;
         const backendSelected =
@@ -515,16 +552,25 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
         setStatsPresences(Array.isArray(res?.data?.presences) ? res.data.presences : []);
         setStatsSeasonLeagueId(res?.data?.selected_league_id != null ? Number(res.data.selected_league_id) : null);
         setSelectedStatsYear((prev) => {
+          if (yearOverride != null) {
+            if (yearOverride === ABSOLUTE_STATS_KEY) return ABSOLUTE_STATS_KEY;
+            if (Number.isFinite(Number(yearOverride))) return Number(yearOverride);
+          }
           if (backendSelected === ABSOLUTE_STATS_KEY) return ABSOLUTE_STATS_KEY;
           if (backendSelected == null || !Number.isFinite(backendSelected)) return prev;
           return prev === backendSelected ? prev : backendSelected;
         });
+      } catch (err) {
+        if (seq !== statsLoadSeqRef.current) return;
+        console.error('Error loading team season stats:', err);
       } finally {
-        setStatsLoading(false);
+        if (seq === statsLoadSeqRef.current) setStatsLoading(false);
       }
     },
-    [teamId, competitionId, selectedStatsYear]
+    [teamId, competitionId]
   );
+
+  selectedStatsYearRef.current = selectedStatsYear;
 
   useEffect(() => {
     if (activeTab !== 'stats') return;
@@ -1037,6 +1083,8 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
                 options={seasonYearOptions}
                 onSelectOption={(item) => {
                   setSeasonPickerOpen(false);
+                  setSelectedSeasonYear(item.value);
+                  selectedSeasonYearRef.current = item.value;
                   void loadSeasonStandings(item.value);
                 }}
               />
@@ -1187,6 +1235,8 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
                 options={statsYearOptions}
                 onSelectOption={(item) => {
                   setStatsPickerOpen(false);
+                  setSelectedStatsYear(item.value);
+                  selectedStatsYearRef.current = item.value;
                   void loadTeamSeasonStats(item.value);
                 }}
               />
@@ -1288,6 +1338,8 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
                 options={teamYearOptions}
                 onSelectOption={(item) => {
                   setTeamPickerOpen(false);
+                  setSelectedTeamSeasonYear(item.value);
+                  selectedTeamSeasonYearRef.current = item.value;
                   void loadTeamSeasonSquad(item.value);
                 }}
               />

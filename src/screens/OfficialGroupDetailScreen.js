@@ -358,7 +358,9 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
   const [hallRankingSort, setHallRankingSort] = useState('titles');
   const matchesListRef = useRef(null);
   const matchesLoadSeqRef = useRef(0);
+  const seasonLoadSeqRef = useRef(0);
   const statsLoadSeqRef = useRef(0);
+  const selectedSeasonYearRef = useRef(null);
   const selectedStatsYearRef = useRef(null);
   const matchesViewportHeightRef = useRef(0);
   const initialMatchesScrollDoneRef = useRef(false);
@@ -419,10 +421,13 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
   const loadSeasonStandings = useCallback(
     async (yearOverride = null) => {
       if (!competitionId) return;
+      seasonLoadSeqRef.current += 1;
+      const seq = seasonLoadSeqRef.current;
+      const targetYear = yearOverride != null ? yearOverride : selectedSeasonYearRef.current;
       try {
         setSeasonLoading(true);
-        const targetYear = yearOverride != null ? yearOverride : selectedSeasonYear;
         const res = await matchesService.getOfficialGroupSeasonStandings(competitionId, targetYear);
+        if (seq !== seasonLoadSeqRef.current) return;
         const years = Array.isArray(res?.data?.available_years) ? res.data.available_years : [];
         const standingsRows = Array.isArray(res?.data?.standings) ? res.data.standings : [];
         const groupsRaw = Array.isArray(res?.data?.standings_groups) ? res.data.standings_groups : null;
@@ -438,15 +443,21 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
           final: knockoutRows?.final || null,
         });
         setSelectedSeasonYear((prev) => {
+          if (yearOverride != null && Number.isFinite(Number(yearOverride))) return Number(yearOverride);
           if (backendSelected == null || !Number.isFinite(backendSelected)) return prev;
           return prev === backendSelected ? prev : backendSelected;
         });
+      } catch (err) {
+        if (seq !== seasonLoadSeqRef.current) return;
+        console.error('Error loading group season standings:', err);
       } finally {
-        setSeasonLoading(false);
+        if (seq === seasonLoadSeqRef.current) setSeasonLoading(false);
       }
     },
-    [competitionId, selectedSeasonYear]
+    [competitionId]
   );
+
+  selectedSeasonYearRef.current = selectedSeasonYear;
 
   useEffect(() => {
     if (activeTab !== 'season') return;
@@ -1013,6 +1024,8 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
                   options={seasonYearOptions}
                   onSelectOption={(item) => {
                     setSeasonPickerOpen(false);
+                    setSelectedSeasonYear(item.value);
+                    selectedSeasonYearRef.current = item.value;
                     void loadSeasonStandings(item.value);
                   }}
                 />
