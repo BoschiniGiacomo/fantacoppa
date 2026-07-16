@@ -1721,6 +1721,60 @@ function annotateDuplicateSearchPlayerNames(players) {
   });
 }
 
+/**
+ * Come la ricerca: in una classifica stats, se 2+ righe hanno stesso nome,
+ * aggiunge ('98) usando birth_year da players.
+ */
+async function annotateDuplicateLeaderboardPlayerNames(rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  if (list.length < 2) return list;
+
+  const counts = new Map();
+  for (const row of list) {
+    const key = String(row?.name || '').trim().toLowerCase();
+    if (!key) continue;
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+
+  const duplicateKeys = new Set(
+    [...counts.entries()].filter(([, n]) => n >= 2).map(([k]) => k),
+  );
+  if (!duplicateKeys.size) return list;
+
+  const playerIds = [
+    ...new Set(
+      list
+        .filter((row) => duplicateKeys.has(String(row?.name || '').trim().toLowerCase()))
+        .map((row) => Number(row.player_id))
+        .filter((id) => id > 0),
+    ),
+  ];
+  if (!playerIds.length) return list;
+
+  const birthByPlayer = new Map();
+  const ph = playerIds.map(() => '?').join(', ');
+  const birthRows = await query(
+    `SELECT id, birth_year FROM players WHERE id IN (${ph})`,
+    playerIds,
+  );
+  for (const row of birthRows || []) {
+    const pid = Number(row.id);
+    const year = Number(row.birth_year);
+    if (pid > 0 && Number.isFinite(year) && year >= 1900) {
+      birthByPlayer.set(pid, year);
+    }
+  }
+
+  return list.map((row) => {
+    const name = String(row?.name || '').trim();
+    const key = name.toLowerCase();
+    if (!key || !duplicateKeys.has(key)) return row;
+    const suffix = formatSearchBirthYearSuffix(birthByPlayer.get(Number(row.player_id)));
+    if (!suffix) return row;
+    return { ...row, name: `${name} ${suffix}` };
+  });
+}
+
 async function mapPlayerIdsToApprovedClusters(groupId, playerIds) {
   const playerToCluster = new Map();
   const gid = Number(groupId);
@@ -2693,16 +2747,20 @@ async function mergeAbsoluteStatsByCluster(perPlayer, officialGroupId) {
 
   const groupId = Number(officialGroupId);
   if (!Number.isFinite(groupId) || groupId <= 0) {
-    return entries
-      .map(mapEntryIds)
-      .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name, 'it'));
+    return annotateDuplicateLeaderboardPlayerNames(
+      entries
+        .map(mapEntryIds)
+        .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name, 'it')),
+    );
   }
 
   const playerIds = [...new Set(entries.map((e) => Number(e.player_id)).filter((id) => id > 0))];
   if (!playerIds.length) {
-    return entries
-      .map(mapEntryIds)
-      .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name, 'it'));
+    return annotateDuplicateLeaderboardPlayerNames(
+      entries
+        .map(mapEntryIds)
+        .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name, 'it')),
+    );
   }
 
   const playerToCluster = new Map();
@@ -2759,16 +2817,18 @@ async function mergeAbsoluteStatsByCluster(perPlayer, officialGroupId) {
     }
   }
 
-  return [...buckets.values()]
-    .filter((b) => b.value > 0)
-    .map((b) => ({
-      name: b.name,
-      team_name: formatAbsoluteTeamBreakdown(b.teamTotals),
-      value: b.value,
-      player_id: b.player_id || null,
-      league_id: b.league_id || null,
-    }))
-    .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name, 'it'));
+  return annotateDuplicateLeaderboardPlayerNames(
+    [...buckets.values()]
+      .filter((b) => b.value > 0)
+      .map((b) => ({
+        name: b.name,
+        team_name: formatAbsoluteTeamBreakdown(b.teamTotals),
+        value: b.value,
+        player_id: b.player_id || null,
+        league_id: b.league_id || null,
+      }))
+      .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name, 'it')),
+  );
 }
 
 async function mergeAbsolutePresencesByCluster(perPlayer, officialGroupId) {
@@ -2854,15 +2914,17 @@ async function fetchOfficialTeamPresencesWithVoteRanking(seasonTeamRows, opts = 
     return mergeAbsolutePresencesByCluster(perPlayer, Number(opts.competitionId));
   }
 
-  return perPlayer
-    .map(({ name, value, team_name, player_id, league_id }) => ({
-      name,
-      value,
-      team_name: team_name || null,
-      player_id: Number(player_id) > 0 ? Number(player_id) : null,
-      league_id: Number(league_id) > 0 ? Number(league_id) : null,
-    }))
-    .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name, 'it'));
+  return annotateDuplicateLeaderboardPlayerNames(
+    perPlayer
+      .map(({ name, value, team_name, player_id, league_id }) => ({
+        name,
+        value,
+        team_name: team_name || null,
+        player_id: Number(player_id) > 0 ? Number(player_id) : null,
+        league_id: Number(league_id) > 0 ? Number(league_id) : null,
+      }))
+      .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name, 'it')),
+  );
 }
 
 // GET /matches/teams/:teamId/season-stats?competition_id=xx&reference_year=yyyy
@@ -3176,6 +3238,9 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
     if (isAbsoluteMode && Number(competitionId) > 0) {
       scorers = await mergeAbsoluteStatsByCluster(scorers, competitionId);
       assistmen = await mergeAbsoluteStatsByCluster(assistmen, competitionId);
+    } else {
+      scorers = await annotateDuplicateLeaderboardPlayerNames(scorers);
+      assistmen = await annotateDuplicateLeaderboardPlayerNames(assistmen);
     }
 
     return res.json({
@@ -3817,12 +3882,20 @@ async function computeOfficialGroupSeasonStatsCore(
       .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name, 'it'));
 
   const presences = await presencesPromise;
+  const [scorers, assistmen, yellow_cards, red_cards, presenceRows] = await Promise.all([
+    annotateDuplicateLeaderboardPlayerNames(listFromMap(scorersMap)),
+    annotateDuplicateLeaderboardPlayerNames(listFromMap(assistsMap)),
+    annotateDuplicateLeaderboardPlayerNames(listFromMap(yellowCardsMap)),
+    annotateDuplicateLeaderboardPlayerNames(listFromMap(redCardsMap)),
+    annotateDuplicateLeaderboardPlayerNames(Array.isArray(presences) ? presences : []),
+  ]);
+
   return {
-    scorers: listFromMap(scorersMap),
-    assistmen: listFromMap(assistsMap),
-    presences: Array.isArray(presences) ? presences : [],
-    yellow_cards: listFromMap(yellowCardsMap),
-    red_cards: listFromMap(redCardsMap),
+    scorers,
+    assistmen,
+    presences: presenceRows,
+    yellow_cards,
+    red_cards,
   };
 }
 
