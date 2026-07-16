@@ -192,29 +192,39 @@ async function fetchClusterAbsoluteRanksFromStore(groupId, clusterPlayerIds) {
     return { found: false, ranks: { appearances_rank: null, goals_rank: null }, refreshed_at: null };
   }
 
+  // Parimerito come buildCompetitionRanks / resolveRankInLeaderboard: RANK solo sul valore
+  // (senza cluster_id nell'ORDER BY, altrimenti a parità di score non risultano pari).
   const rows = await query(
-    `WITH ranked AS (
-       SELECT
-         cluster_id,
-         RANK() OVER (ORDER BY total_presences DESC, cluster_id ASC) AS appearances_rank,
-         RANK() OVER (ORDER BY total_goals DESC, cluster_id ASC) AS goals_rank
-       FROM ${TABLE}
-       WHERE official_group_id = ?
-         AND (total_presences > 0 OR total_goals > 0)
-     ),
-     target AS (
+    `WITH target AS (
        SELECT DISTINCT pcm.cluster_id
        FROM player_cluster_members pcm
        INNER JOIN player_clusters pc ON pc.id = pcm.cluster_id
        WHERE pc.official_group_id = ?
          AND pc.status = 'approved'
          AND pcm.player_id = ANY(?)
+     ),
+     ranked_presences AS (
+       SELECT
+         cluster_id,
+         RANK() OVER (ORDER BY total_presences DESC) AS appearances_rank
+       FROM ${TABLE}
+       WHERE official_group_id = ?
+         AND total_presences > 0
+     ),
+     ranked_goals AS (
+       SELECT
+         cluster_id,
+         RANK() OVER (ORDER BY total_goals DESC) AS goals_rank
+       FROM ${TABLE}
+       WHERE official_group_id = ?
+         AND total_goals > 0
      )
-     SELECT r.appearances_rank, r.goals_rank
-     FROM ranked r
-     INNER JOIN target t ON t.cluster_id = r.cluster_id
+     SELECT rp.appearances_rank, rg.goals_rank
+     FROM target t
+     LEFT JOIN ranked_presences rp ON rp.cluster_id = t.cluster_id
+     LEFT JOIN ranked_goals rg ON rg.cluster_id = t.cluster_id
      LIMIT 1`,
-    [gid, gid, playerIds],
+    [gid, playerIds, gid, gid],
   );
 
   if (!rows.length) {
