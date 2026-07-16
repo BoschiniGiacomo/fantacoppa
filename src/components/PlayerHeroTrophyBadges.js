@@ -98,6 +98,30 @@ export default function PlayerHeroTrophyBadges({ championships = 0, wineTrophies
   );
 }
 
+/** Mini trofei inline per riga carriera (senza contatore). */
+export function CareerEditionTrophyIcons({ championship = false, wine = false }) {
+  if (!championship && !wine) return null;
+
+  return (
+    <View style={styles.careerIconsRow} pointerEvents="none">
+      {championship ? (
+        <View style={styles.careerIconScale}>
+          <View style={styles.careerIconVisual}>
+            <MiniChampionshipTrophy />
+          </View>
+        </View>
+      ) : null}
+      {wine ? (
+        <View style={styles.careerIconScale}>
+          <View style={styles.careerIconVisual}>
+            <MiniWineTrophy />
+          </View>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
@@ -354,5 +378,22 @@ const styles = StyleSheet.create({
     backgroundColor: '#4a2030',
     borderBottomLeftRadius: 2,
     borderBottomRightRadius: 2,
+  },
+  careerIconsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    marginLeft: 6,
+    height: 16,
+  },
+  careerIconScale: {
+    width: 15,
+    height: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  careerIconVisual: {
+    transform: [{ scale: 0.42 }],
   },
 });

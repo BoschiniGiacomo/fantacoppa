@@ -117,31 +117,25 @@ function buildPlayerTeamByLeagueId(editionRows) {
 }
 
 /**
- * Conta i trofei vinti dal giocatore: per ogni stagione visibile del cluster,
- * verifica se la squadra di appartenenza coincide con la vincitrice della finale.
+ * Trofei vinti per league_id: la squadra del giocatore in quella stagione
+ * coincide con la vincitrice della finale (campionato / wine).
+ * @returns {Map<number, { championship: boolean, wine: boolean }>}
  */
-async function computePlayerOfficialTrophies(competitionId, editionRows) {
+async function computePlayerOfficialTrophyWinsByLeague(competitionId, editionRows) {
   const groupId = Number(competitionId);
-  if (!Number.isFinite(groupId) || groupId <= 0) {
-    return { championships: 0, wine_trophies: 0 };
-  }
+  const out = new Map();
+  if (!Number.isFinite(groupId) || groupId <= 0) return out;
 
   const playerTeamByLeague = buildPlayerTeamByLeagueId(editionRows);
-  if (!playerTeamByLeague.size) {
-    return { championships: 0, wine_trophies: 0 };
-  }
+  if (!playerTeamByLeague.size) return out;
 
   const leagues = await listOfficialGroupSeasonLeagues(groupId);
   const leagueIds = (leagues || [])
     .map((row) => Number(row.league_id))
     .filter((id) => Number.isFinite(id) && id > 0);
-  if (!leagueIds.length) {
-    return { championships: 0, wine_trophies: 0 };
-  }
+  if (!leagueIds.length) return out;
 
   const finals = await fetchHallFinalMatchesByLeagueStage(groupId, leagueIds);
-  let championships = 0;
-  let wineTrophies = 0;
 
   for (const row of leagues || []) {
     const leagueId = Number(row.league_id);
@@ -150,19 +144,41 @@ async function computePlayerOfficialTrophies(competitionId, editionRows) {
     const playerTeamId = playerTeamByLeague.get(leagueId);
     if (!playerTeamId) continue;
 
+    let championship = false;
+    let wine = false;
+
     const champMatch = finals.get(`${leagueId}:${HALL_CAMPIONATO_FINAL_STAGE_ID}`) || null;
     const champWinner = determineKnockoutMatchWinner(champMatch);
     if (champWinner?.team_id && Number(champWinner.team_id) === Number(playerTeamId)) {
-      championships += 1;
+      championship = true;
     }
 
     const wineMatch = finals.get(`${leagueId}:${HALL_WINE_TROPHY_STAGE_ID}`) || null;
     const wineWinner = determineKnockoutMatchWinner(wineMatch);
     if (wineWinner?.team_id && Number(wineWinner.team_id) === Number(playerTeamId)) {
-      wineTrophies += 1;
+      wine = true;
+    }
+
+    if (championship || wine) {
+      out.set(leagueId, { championship, wine });
     }
   }
 
+  return out;
+}
+
+/**
+ * Conta i trofei vinti dal giocatore: per ogni stagione visibile del cluster,
+ * verifica se la squadra di appartenenza coincide con la vincitrice della finale.
+ */
+async function computePlayerOfficialTrophies(competitionId, editionRows) {
+  const winsByLeague = await computePlayerOfficialTrophyWinsByLeague(competitionId, editionRows);
+  let championships = 0;
+  let wineTrophies = 0;
+  for (const win of winsByLeague.values()) {
+    if (win.championship) championships += 1;
+    if (win.wine) wineTrophies += 1;
+  }
   return { championships, wine_trophies: wineTrophies };
 }
 
@@ -170,6 +186,7 @@ module.exports = {
   HALL_CAMPIONATO_FINAL_STAGE_ID,
   HALL_WINE_TROPHY_STAGE_ID,
   computePlayerOfficialTrophies,
+  computePlayerOfficialTrophyWinsByLeague,
   determineKnockoutMatchWinner,
   fetchHallFinalMatchesByLeagueStage,
   listOfficialGroupSeasonLeagues,

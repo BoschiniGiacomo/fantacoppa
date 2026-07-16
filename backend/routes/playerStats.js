@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { query } = require('../config/database');
 const { authenticateToken } = require('../middleware/auth');
-const { computePlayerOfficialTrophies } = require('../utils/officialHallTrophies');
+const { computePlayerOfficialTrophies, computePlayerOfficialTrophyWinsByLeague } = require('../utils/officialHallTrophies');
 
 async function getLeagueOfficialMeta(leagueId) {
   const rows = await query(
@@ -549,6 +549,9 @@ async function fetchPlayerCareerHistory(playerId, leagueId) {
   const clusterContext = await fetchClusterContext(playerId, groupId);
   const editions = await fetchPlayerEditionRows(clusterContext.playerIds);
   const sorted = sortEditionsByYearDesc(editions);
+  const trophiesByLeague = groupId
+    ? await computePlayerOfficialTrophyWinsByLeague(groupId, editions)
+    : new Map();
 
   return Promise.all(
     sorted.map(async (row) => {
@@ -564,6 +567,9 @@ async function fetchPlayerCareerHistory(playerId, leagueId) {
 
       const refYear = Number(row.reference_year);
       const hasYear = Number.isFinite(refYear) && refYear > 0;
+      const trophyWin = editionLeagueId > 0
+        ? (trophiesByLeague.get(editionLeagueId) || null)
+        : null;
 
       return {
         team_id: Number(row.team_id) || null,
@@ -576,6 +582,8 @@ async function fetchPlayerCareerHistory(playerId, leagueId) {
         assists: Number(stats.total_assists || 0),
         player_id: editionPlayerId || null,
         league_id: editionLeagueId || null,
+        won_championship: !!trophyWin?.championship,
+        won_wine_trophy: !!trophyWin?.wine,
       };
     }),
   );

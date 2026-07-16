@@ -16,7 +16,7 @@ import { playerStatsService } from '../services/api';
 import { PlayerPhotoImage, TeamLogoImage } from '../components/StableCachedImage';
 import { formatCompetitionRank } from '../utils/standingsRanking';
 import BonusIcon from '../components/BonusIcon';
-import PlayerHeroTrophyBadges from '../components/PlayerHeroTrophyBadges';
+import PlayerHeroTrophyBadges, { CareerEditionTrophyIcons } from '../components/PlayerHeroTrophyBadges';
 
 const ROLE_COLORS = {
   P: '#0d6efd',
@@ -828,9 +828,15 @@ export default function PlayerStatsScreen({ route, navigation }) {
                     <Text style={styles.careerTeamName} numberOfLines={1}>
                       {teamName}
                     </Text>
-                    <Text style={styles.careerLeagueYear} numberOfLines={1}>
-                      {leagueYearLabel}
-                    </Text>
+                    <View style={styles.careerLeagueYearRow}>
+                      <Text style={styles.careerLeagueYear} numberOfLines={1}>
+                        {leagueYearLabel}
+                      </Text>
+                      <CareerEditionTrophyIcons
+                        championship={!!entry?.won_championship}
+                        wine={!!entry?.won_wine_trophy}
+                      />
+                    </View>
                   </View>
                 </TouchableOpacity>
 
@@ -1542,10 +1548,16 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#1e293b',
   },
+  careerLeagueYearRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minWidth: 0,
+  },
   careerLeagueYear: {
     fontSize: 13,
     color: '#94a3b8',
     fontWeight: '500',
+    flexShrink: 1,
   },
   careerStats: {
     flexDirection: 'row',
