@@ -1675,6 +1675,13 @@ function pickBetterSearchPlayerRow(prev, next) {
   if (!prevPhoto && nextPhoto) return next;
   if (prevPhoto && !nextPhoto) return prev;
 
+  const prevBirth = Number(prev.birth_year);
+  const nextBirth = Number(next.birth_year);
+  const prevHasBirth = Number.isFinite(prevBirth) && prevBirth >= 1900;
+  const nextHasBirth = Number.isFinite(nextBirth) && nextBirth >= 1900;
+  if (!prevHasBirth && nextHasBirth) return next;
+  if (prevHasBirth && !nextHasBirth) return prev;
+
   const prevYear = Number(prev.reference_year) || 0;
   const nextYear = Number(next.reference_year) || 0;
   if (nextYear !== prevYear) return nextYear > prevYear ? next : prev;
@@ -1682,6 +1689,36 @@ function pickBetterSearchPlayerRow(prev, next) {
   const prevLeague = Number(prev.league_id) || 0;
   const nextLeague = Number(next.league_id) || 0;
   return nextLeague > prevLeague ? next : prev;
+}
+
+function formatSearchBirthYearSuffix(birthYear) {
+  const y = Number(birthYear);
+  if (!Number.isFinite(y) || y < 1900 || y > 2100) return null;
+  return `('${String(Math.trunc(y)).slice(-2)})`;
+}
+
+/** Per omonimi nei risultati (2+ stesso nome+cognome) aggiunge ('98) per distinguerli. */
+function annotateDuplicateSearchPlayerNames(players) {
+  const list = Array.isArray(players) ? players : [];
+  if (list.length < 2) {
+    return list.map(({ birth_year: _birthYear, reference_year: _referenceYear, ...player }) => player);
+  }
+
+  const counts = new Map();
+  for (const p of list) {
+    const key = String(p.name || '').trim().toLowerCase();
+    if (!key) continue;
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+
+  return list.map((p) => {
+    const { birth_year: birthYear, reference_year: _referenceYear, ...player } = p;
+    const key = String(player.name || '').trim().toLowerCase();
+    if (!key || (counts.get(key) || 0) < 2) return player;
+    const suffix = formatSearchBirthYearSuffix(birthYear);
+    if (!suffix) return player;
+    return { ...player, name: `${player.name} ${suffix}` };
+  });
 }
 
 async function mapPlayerIdsToApprovedClusters(groupId, playerIds) {
@@ -1748,16 +1785,26 @@ async function dedupeSearchPlayersByCluster(mappedPlayers) {
     const better = pickBetterSearchPlayerRow(prev, player);
     const mergedPhoto =
       String(prev.photo_path || '').trim() || String(player.photo_path || '').trim() || null;
+    const prevBirth = Number(prev.birth_year);
+    const nextBirth = Number(player.birth_year);
+    const mergedBirth =
+      (Number.isFinite(better.birth_year) && Number(better.birth_year) >= 1900
+        ? Number(better.birth_year)
+        : null)
+      || (Number.isFinite(prevBirth) && prevBirth >= 1900 ? prevBirth : null)
+      || (Number.isFinite(nextBirth) && nextBirth >= 1900 ? nextBirth : null);
     buckets.set(key, {
       ...better,
       photo_path: mergedPhoto,
+      birth_year: mergedBirth,
     });
   }
 
-  return [...buckets.values()]
-    .map(({ reference_year: _referenceYear, ...player }) => player)
-    .sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'it'))
-    .slice(0, 20);
+  return annotateDuplicateSearchPlayerNames(
+    [...buckets.values()]
+      .sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'it'))
+      .slice(0, 20),
+  );
 }
 
 router.get('/matches/search', authenticateToken, async (req, res) => {
@@ -1826,6 +1873,7 @@ router.get('/matches/search', authenticateToken, async (req, res) => {
           p.id AS player_id,
           TRIM(CONCAT(COALESCE(p.first_name, ''), ' ', COALESCE(p.last_name, ''))) AS player_name,
           p.role,
+          p.birth_year,
           COALESCE(p.photo_path, '') AS photo_path,
           t.name AS team_name,
           l.id AS league_id,
@@ -1875,6 +1923,7 @@ router.get('/matches/search', authenticateToken, async (req, res) => {
         const compId = Number(r.competition_id);
         const name = String(r.player_name || '').trim();
         if (!playerId || !leagueId || !name) return null;
+        const birthYear = Number(r.birth_year);
         return {
           player_id: playerId,
           name,
@@ -1885,6 +1934,7 @@ router.get('/matches/search', authenticateToken, async (req, res) => {
           competition_id: compId,
           competition_name: compNameMap.get(compId) || null,
           reference_year: Number(r.reference_year) || null,
+          birth_year: Number.isFinite(birthYear) && birthYear >= 1900 ? birthYear : null,
         };
       })
       .filter(Boolean);
