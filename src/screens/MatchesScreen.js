@@ -93,6 +93,35 @@ function TeamRowLogo({ logoUrl, logoPath }) {
   );
 }
 
+function SearchPlayerCareerLogos({ teams }) {
+  const list = Array.isArray(teams) ? teams.filter((t) => String(t?.name || '').trim()) : [];
+  if (!list.length) {
+    return <Ionicons name="person-outline" size={16} color="#cbd5e1" />;
+  }
+  return (
+    <View style={styles.searchCareerLogos}>
+      {list.map((team, index) => (
+        <View
+          key={`${team.name || 't'}-${index}`}
+          style={[
+            styles.searchCareerLogoWrap,
+            index > 0 ? styles.searchCareerLogoOverlap : null,
+            { zIndex: list.length - index },
+          ]}
+        >
+          <TeamLogoImage
+            logoUrl={team.logo_url}
+            logoPath={team.logo_path}
+            style={styles.searchCareerLogo}
+            fallbackStyle={styles.searchCareerLogoFallback}
+            fallbackIconSize={10}
+          />
+        </View>
+      ))}
+    </View>
+  );
+}
+
 const LIST_RING_SIZE = 32;
 const LIST_RING_STROKE = 2.5;
 const LIST_RING_TRACK = '#e5e7eb';
@@ -879,7 +908,7 @@ export default function MatchesScreen() {
                         {[player.team_name, player.competition_name].filter(Boolean).join(' · ') || 'Giocatore ufficiale'}
                       </Text>
                     </View>
-                    <Ionicons name="person-outline" size={16} color="#cbd5e1" />
+                    <SearchPlayerCareerLogos teams={player.career_teams} />
                   </TouchableOpacity>
                 ))}
               </ScrollView>
@@ -1079,6 +1108,39 @@ const styles = StyleSheet.create({
     width: 34,
     height: 34,
     borderRadius: 17,
+    backgroundColor: '#eef2ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  searchCareerLogos: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    minWidth: 22,
+    maxWidth: 78,
+  },
+  searchCareerLogoWrap: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: '#fff',
+    borderWidth: 1.5,
+    borderColor: '#fff',
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  searchCareerLogoOverlap: {
+    marginLeft: -7,
+  },
+  searchCareerLogo: {
+    width: 18,
+    height: 18,
+  },
+  searchCareerLogoFallback: {
+    width: 18,
+    height: 18,
+    borderRadius: 4,
     backgroundColor: '#eef2ff',
     alignItems: 'center',
     justifyContent: 'center',

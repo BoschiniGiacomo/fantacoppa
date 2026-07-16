@@ -1778,7 +1778,7 @@ async function dedupeSearchPlayersByCluster(mappedPlayers) {
 
     const prev = buckets.get(key);
     if (!prev) {
-      buckets.set(key, { ...player });
+      buckets.set(key, { ...player, cluster_id: clusterId || null });
       continue;
     }
 
@@ -1797,7 +1797,17 @@ async function dedupeSearchPlayersByCluster(mappedPlayers) {
       ...better,
       photo_path: mergedPhoto,
       birth_year: mergedBirth,
+      cluster_id: clusterId || null,
     });
+  }
+
+  // Assicura cluster_id anche sui bucket non mergeati
+  for (const [key, player] of buckets) {
+    if (player.cluster_id != null) continue;
+    const groupId = Number(player.competition_id);
+    const playerId = Number(player.player_id);
+    const clusterId = playerToCluster.get(`${groupId}:${playerId}`) || null;
+    buckets.set(key, { ...player, cluster_id: clusterId });
   }
 
   return annotateDuplicateSearchPlayerNames(
@@ -1805,6 +1815,143 @@ async function dedupeSearchPlayersByCluster(mappedPlayers) {
       .sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'it'))
       .slice(0, 20),
   );
+}
+
+async function fetchApprovedClusterMemberIds(clusterIds) {
+  const ids = [...new Set((clusterIds || []).map(Number).filter((id) => id > 0))];
+  const map = new Map();
+  if (!ids.length) return map;
+
+  const ph = ids.map(() => '?').join(', ');
+  const rows = await query(
+    `
+    SELECT pcm.cluster_id, pcm.player_id
+    FROM player_cluster_members pcm
+    INNER JOIN player_clusters pc ON pc.id = pcm.cluster_id
+    WHERE pcm.cluster_id IN (${ph})
+      AND pc.status = 'approved'
+    `,
+    ids,
+  );
+  for (const r of rows || []) {
+    const cid = Number(r.cluster_id);
+    const pid = Number(r.player_id);
+    if (!(cid > 0) || !(pid > 0)) continue;
+    if (!map.has(cid)) map.set(cid, []);
+    map.get(cid).push(pid);
+  }
+  return map;
+}
+
+async function fetchSearchCareerTeamRows(playerIds, competitionIds) {
+  const pids = [...new Set((playerIds || []).map(Number).filter((id) => id > 0))];
+  const gids = [...new Set((competitionIds || []).map(Number).filter((id) => id > 0))];
+  if (!pids.length || !gids.length) return [];
+
+  const pPh = pids.map(() => '?').join(', ');
+  const gPh = gids.map(() => '?').join(', ');
+  return query(
+    `
+    SELECT
+      p.id AS player_id,
+      l.official_group_id AS competition_id,
+      COALESCE(NULLIF(to_jsonb(t)->>'name',''), NULLIF(t.name,''), '') AS team_name,
+      COALESCE(NULLIF(to_jsonb(t)->>'logo_path',''), NULLIF(t.logo_path,''), '') AS team_logo_path,
+      NULLIF(to_jsonb(l)->>'reference_year','')::int AS reference_year
+    FROM players p
+    INNER JOIN teams t ON t.id = p.team_id
+    INNER JOIN leagues l ON l.id = t.league_id
+    WHERE p.id IN (${pPh})
+      AND l.official_group_id IN (${gPh})
+      AND COALESCE(l.is_official, 0) = 1
+      AND COALESCE(l.is_official_squad_public, 0) = 1
+    `,
+    [...pids, ...gids],
+  );
+}
+
+const SEARCH_CAREER_TEAMS_MAX = 4;
+
+async function attachSearchPlayerCareerTeams(players, logoMap) {
+  const list = Array.isArray(players) ? players : [];
+  if (!list.length) return [];
+
+  const clusterIds = [
+    ...new Set(list.map((p) => Number(p.cluster_id)).filter((id) => id > 0)),
+  ];
+  const clusterMembers = await fetchApprovedClusterMemberIds(clusterIds);
+
+  const playerIdsForTeams = new Set();
+  for (const p of list) {
+    const cid = Number(p.cluster_id);
+    if (cid > 0 && clusterMembers.has(cid)) {
+      for (const pid of clusterMembers.get(cid)) playerIdsForTeams.add(pid);
+    } else {
+      const pid = Number(p.player_id);
+      if (pid > 0) playerIdsForTeams.add(pid);
+    }
+  }
+
+  const competitionIds = [
+    ...new Set(list.map((p) => Number(p.competition_id)).filter((id) => id > 0)),
+  ];
+  const teamRows = await fetchSearchCareerTeamRows([...playerIdsForTeams], competitionIds);
+
+  const rowsByPlayer = new Map();
+  for (const row of teamRows || []) {
+    const pid = Number(row.player_id);
+    if (!(pid > 0)) continue;
+    if (!rowsByPlayer.has(pid)) rowsByPlayer.set(pid, []);
+    rowsByPlayer.get(pid).push(row);
+  }
+
+  return list.map((player) => {
+    const { cluster_id: clusterIdRaw, ...rest } = player;
+    const cid = Number(clusterIdRaw);
+    const memberIds =
+      cid > 0 && clusterMembers.has(cid)
+        ? clusterMembers.get(cid)
+        : [Number(player.player_id)].filter((id) => id > 0);
+    const competitionId = Number(player.competition_id);
+
+    const seen = new Map();
+    for (const pid of memberIds) {
+      for (const row of rowsByPlayer.get(pid) || []) {
+        if (Number(row.competition_id) !== competitionId) continue;
+        const teamName = String(row.team_name || '').trim();
+        const norm = normalizeTeamNameForFavorite(teamName);
+        if (!norm) continue;
+        const year = Number(row.reference_year) || 0;
+        const prev = seen.get(norm);
+        if (!prev || year > (Number(prev.reference_year) || 0)) {
+          seen.set(norm, {
+            name: teamName,
+            reference_year: year || null,
+            fallback_logo_path: row.team_logo_path,
+          });
+        }
+      }
+    }
+
+    const careerTeams = [...seen.values()]
+      .sort((a, b) => (Number(b.reference_year) || 0) - (Number(a.reference_year) || 0))
+      .slice(0, SEARCH_CAREER_TEAMS_MAX)
+      .map((t) => {
+        const logoPath = pickBestOfficialTeamLogo(
+          logoMap,
+          competitionId,
+          t.name,
+          t.fallback_logo_path,
+        );
+        return {
+          name: t.name,
+          logo_path: logoPath,
+          logo_url: logoUrlForPath(logoPath),
+        };
+      });
+
+    return { ...rest, career_teams: careerTeams };
+  });
 }
 
 router.get('/matches/search', authenticateToken, async (req, res) => {
@@ -1939,7 +2086,10 @@ router.get('/matches/search', authenticateToken, async (req, res) => {
       })
       .filter(Boolean);
 
-    const players = await dedupeSearchPlayersByCluster(mappedPlayers);
+    const players = await attachSearchPlayerCareerTeams(
+      await dedupeSearchPlayersByCluster(mappedPlayers),
+      logoMap,
+    );
 
     return res.json({ teams, players });
   } catch (err) {
