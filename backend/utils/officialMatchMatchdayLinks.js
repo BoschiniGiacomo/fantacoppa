@@ -2,6 +2,7 @@ const { query } = require('../config/database');
 const { isOfficialLeague } = require('./matchdayGhost');
 const { normalizeVoteRating, isSvVoteRating } = require('./voteRating');
 const { isOfficialMatchWalkover } = require('./officialMatchWalkover');
+const { tallyOfficialMatchEventScores } = require('./officialMatchOutcome');
 const {
   scheduleOfficialGroupAbsoluteStatsRefreshForLeague,
   scheduleOfficialGroupAbsoluteStatsRefreshForMatch,
@@ -646,8 +647,162 @@ function ensureLivePlayerRow(byPlayer, pid) {
 
 function isLiveBonusEnabled(bonusSettings, enableKey) {
   if (!bonusSettings) return false;
-  if (Number(bonusSettings.enable_bonus_malus) !== 1) return false;
-  return Number(bonusSettings[enableKey]) === 1;
+  const master = bonusSettings.enable_bonus_malus;
+  if (!(Number(master) === 1 || master === true || master === '1')) return false;
+  const v = bonusSettings[enableKey];
+  return Number(v) === 1 || v === true || v === '1';
+}
+
+function resolveEventTeamSide(event, homeTeamId, awayTeamId, homePlayerIds, awayPlayerIds) {
+  const side = String(event?.team_side || '').trim();
+  if (side === 'home' || side === 'away') return side;
+  const evTeamId = Number(event?.team_id);
+  if (Number.isFinite(evTeamId) && evTeamId > 0) {
+    if (evTeamId === Number(homeTeamId)) return 'home';
+    if (evTeamId === Number(awayTeamId)) return 'away';
+  }
+  const payload = parseEventPayload(event);
+  const pid = Number(event?.player_id) || Number(payload?.player_id) || 0;
+  if (pid > 0) {
+    if ((homePlayerIds || []).includes(pid)) return 'home';
+    if ((awayPlayerIds || []).includes(pid)) return 'away';
+  }
+  return null;
+}
+
+/**
+ * Gol regolamentari della partita (eventi goal/rigore/autogol, altrimenti colonne score).
+ * Fonte affidabile per i "gol subiti" attesi, indipendente dalle pagelle.
+ */
+async function resolveMatchRegulationScores(matchId, homeTeamId, awayTeamId, homePlayerIds, awayPlayerIds) {
+  const rows = await query(
+    `SELECT home_score, away_score
+     FROM official_matches
+     WHERE id = ?
+     LIMIT 1`,
+    [matchId]
+  );
+  const m = rows[0];
+  if (!m) return null;
+
+  let evRows = [];
+  try {
+    evRows = await query(
+      `SELECT event_type, team_side, team_id, player_id, payload_json
+       FROM official_match_events
+       WHERE match_id = ?
+         AND event_type IN ('goal', 'penalty_goal', 'own_goal')
+       ORDER BY id ASC`,
+      [matchId]
+    );
+  } catch (_) {
+    evRows = [];
+  }
+
+  const enriched = (evRows || []).map((e) => {
+    const side = resolveEventTeamSide(e, homeTeamId, awayTeamId, homePlayerIds, awayPlayerIds);
+    if (!side) return e;
+    return {
+      ...e,
+      team_side: side,
+      team_id: side === 'home' ? Number(homeTeamId) : Number(awayTeamId),
+    };
+  });
+
+  const tallied = tallyOfficialMatchEventScores(enriched, homeTeamId, awayTeamId);
+  const attributedEvents = (enriched || []).filter(
+    (e) => String(e?.team_side || '').trim() === 'home'
+      || String(e?.team_side || '').trim() === 'away'
+      || (Number(e?.team_id) > 0)
+  ).length;
+  if (tallied.hasGoalEvents && attributedEvents > 0) {
+    return {
+      home: Number(tallied.homeGoals || 0),
+      away: Number(tallied.awayGoals || 0),
+      source: 'events',
+    };
+  }
+
+  const hs = m.home_score != null && m.home_score !== '' ? Number(m.home_score) : null;
+  const as = m.away_score != null && m.away_score !== '' ? Number(m.away_score) : null;
+  if (Number.isFinite(hs) && Number.isFinite(as)) {
+    return { home: hs, away: as, source: 'columns' };
+  }
+  return null;
+}
+
+function expectedGoalsConcededForTeam(team, matchScore, opponentRatings, rawRatings, liveByPlayer) {
+  const tid = Number(team?.id);
+  if (
+    matchScore
+    && Number.isFinite(Number(matchScore.home))
+    && Number.isFinite(Number(matchScore.away))
+  ) {
+    if (String(team?.side || '') === 'home' || tid === Number(matchScore.homeTeamId)) {
+      return Number(matchScore.away);
+    }
+    if (String(team?.side || '') === 'away' || tid === Number(matchScore.awayTeamId)) {
+      return Number(matchScore.home);
+    }
+  }
+
+  // Fallback se il risultato partita non è ancora disponibile: gol avversari + autogol
+  const teamPids = (team?.players || []).map((p) => Number(p.id)).filter((n) => n > 0);
+  const opponentPids = Object.keys(opponentRatings || {})
+    .map(Number)
+    .filter((n) => Number.isFinite(n) && n > 0);
+  const opponentGoals = sumPlayersStat(opponentRatings, opponentPids, 'goals');
+  const ownGoals = teamPids.reduce((sum, pid) => {
+    const raw = rawRatings[String(pid)] || rawRatings[pid] || {};
+    return sum + resolvePlayerStatFromDbOrLive(raw, liveByPlayer[pid], 'own_goals');
+  }, 0);
+  return opponentGoals + ownGoals;
+}
+
+function assertMvbPerMatch(matchRatings, bonusSettings, { requireMvbPresence = true } = {}) {
+  if (!isLiveBonusEnabled(bonusSettings, 'enable_briso')) return;
+
+  const count = countMvbPlayers(matchRatings);
+  if (requireMvbPresence && count === 0) {
+    const err = new Error('MVB: assegna il bonus a un giocatore della partita');
+    err.status = 400;
+    throw err;
+  }
+  if (count > 1) {
+    const err = new Error(`MVB: ${count} giocatori assegnati (massimo 1 per partita)`);
+    err.status = 400;
+    throw err;
+  }
+}
+
+function assertGoalsConcededBalance({
+  team,
+  teamRatings,
+  opponentRatings,
+  bonusSettings,
+  rawRatings,
+  liveByPlayer,
+  matchScore,
+}) {
+  if (!isLiveBonusEnabled(bonusSettings, 'enable_goals_conceded')) return;
+
+  const teamPids = (team.players || []).map((p) => Number(p.id)).filter((n) => n > 0);
+  const conceded = sumPlayersStat(teamRatings, teamPids, 'goals_conceded');
+  const expected = expectedGoalsConcededForTeam(
+    team,
+    matchScore,
+    opponentRatings,
+    rawRatings,
+    liveByPlayer
+  );
+
+  if (conceded !== expected) {
+    const err = new Error(
+      `Gol subiti: ${conceded} su ${expected} attesi`
+    );
+    err.status = 400;
+    throw err;
+  }
 }
 
 function buildLiveDirectBonusFromEvents(events, bonusSettings, allowedPlayerIds) {
@@ -818,53 +973,6 @@ async function teamHasAnySavedVotesInDb(team, effectiveLeagueId) {
   if (!playerIds.length) return false;
   const fromDb = await loadRatingsForGiornata(effectiveLeagueId, team.giornata, playerIds);
   return savedVotePlayerIdsFromDbMap(fromDb).length > 0;
-}
-
-function assertMvbPerMatch(matchRatings, bonusSettings, { requireMvbPresence = true } = {}) {
-  if (!isLiveBonusEnabled(bonusSettings, 'enable_briso')) return;
-
-  const count = countMvbPlayers(matchRatings);
-  if (requireMvbPresence && count === 0) {
-    const err = new Error('MVB: assegna il bonus a un giocatore della partita');
-    err.status = 400;
-    throw err;
-  }
-  if (count > 1) {
-    const err = new Error(`MVB: ${count} giocatori assegnati (massimo 1 per partita)`);
-    err.status = 400;
-    throw err;
-  }
-}
-
-function assertGoalsConcededBalance({
-  team,
-  teamRatings,
-  opponentRatings,
-  bonusSettings,
-  rawRatings,
-  liveByPlayer,
-}) {
-  if (!isLiveBonusEnabled(bonusSettings, 'enable_goals_conceded')) return;
-
-  const teamPids = (team.players || []).map((p) => Number(p.id)).filter((n) => n > 0);
-  const conceded = sumPlayersStat(teamRatings, teamPids, 'goals_conceded');
-  const opponentPids = Object.keys(opponentRatings || {})
-    .map(Number)
-    .filter((n) => Number.isFinite(n) && n > 0);
-  const opponentGoals = sumPlayersStat(opponentRatings, opponentPids, 'goals');
-  const ownGoals = teamPids.reduce((sum, pid) => {
-    const raw = rawRatings[String(pid)] || rawRatings[pid] || {};
-    return sum + resolvePlayerStatFromDbOrLive(raw, liveByPlayer[pid], 'own_goals');
-  }, 0);
-  const expected = opponentGoals + ownGoals;
-
-  if (conceded !== expected) {
-    const err = new Error(
-      `Gol subiti: ${conceded} su ${expected} attesi`
-    );
-    err.status = 400;
-    throw err;
-  }
 }
 
 async function fetchMatchLiveDirectEvents(matchId) {
@@ -1147,6 +1255,29 @@ async function saveMatchVotes(matchId, body) {
     requireMvbPresence: isWalkoverMatch ? false : requireMvbPresence,
   });
 
+  const homeTeam = (bundle.teams || []).find((t) => t.side === 'home') || bundle.teams?.[0];
+  const awayTeam = (bundle.teams || []).find((t) => t.side === 'away')
+    || (bundle.teams || []).find((t) => Number(t.id) !== Number(homeTeam?.id));
+  const homePlayerIds = (homeTeam?.players || []).map((p) => Number(p.id)).filter((n) => n > 0);
+  const awayPlayerIds = (awayTeam?.players || []).map((p) => Number(p.id)).filter((n) => n > 0);
+  const regulationScores = !isWalkoverMatch
+    ? await resolveMatchRegulationScores(
+      matchId,
+      homeTeam?.id,
+      awayTeam?.id,
+      homePlayerIds,
+      awayPlayerIds
+    )
+    : null;
+  const matchScore = regulationScores
+    ? {
+      homeTeamId: Number(homeTeam?.id),
+      awayTeamId: Number(awayTeam?.id),
+      home: regulationScores.home,
+      away: regulationScores.away,
+    }
+    : null;
+
   const giornateTouched = new Set();
   let lastUnavailable = null;
   for (const team of teamsToSave) {
@@ -1173,6 +1304,7 @@ async function saveMatchVotes(matchId, body) {
         bonusSettings,
         rawRatings: ratings,
         liveByPlayer,
+        matchScore,
       });
     }
     await upsertPlayerRatings(effectiveLeagueId, team.giornata, teamRatings);
