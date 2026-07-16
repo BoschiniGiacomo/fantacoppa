@@ -247,13 +247,21 @@ const ABSOLUTE_STATS_KEY = 'absolute';
 
 function renderOfficialMatchRecord(record, styles) {
   if (!record || typeof record !== 'object') {
-    return <Text style={styles.statsValue}>-</Text>;
+    return (
+      <View style={styles.statsRecordValue}>
+        <Text style={styles.statsRecordEmpty}>-</Text>
+      </View>
+    );
   }
   const hs = Number(record.home_score);
   const as = Number(record.away_score);
   const date = String(record.date || '').trim();
   if (!Number.isFinite(hs) || !Number.isFinite(as)) {
-    return <Text style={styles.statsValue}>-</Text>;
+    return (
+      <View style={styles.statsRecordValue}>
+        <Text style={styles.statsRecordEmpty}>-</Text>
+      </View>
+    );
   }
   return (
     <View style={styles.statsRecordValue}>
@@ -1324,12 +1332,16 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
                       {Number(statsGeneral.yellow_cards || 0)} / {Number(statsGeneral.red_cards || 0)}
                     </Text>
                   </View>
-                  <View style={[styles.statsValueRow, styles.statsValueRowTop]}>
-                    <Text style={styles.statsLabel}>Vittoria più larga</Text>
+                  <View style={styles.statsRecordRow}>
+                    <Text style={styles.statsRecordLabel} numberOfLines={1}>
+                      Vittoria più larga
+                    </Text>
                     {renderOfficialMatchRecord(statsGeneral.biggest_win, styles)}
                   </View>
-                  <View style={[styles.statsValueRow, styles.statsValueRowTop]}>
-                    <Text style={styles.statsLabel}>Sconfitta più pesante</Text>
+                  <View style={styles.statsRecordRow}>
+                    <Text style={styles.statsRecordLabel} numberOfLines={1}>
+                      Sconfitta più pesante
+                    </Text>
                     {renderOfficialMatchRecord(statsGeneral.heaviest_defeat, styles)}
                   </View>
                 </View>
@@ -2003,8 +2015,20 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     gap: 8,
   },
-  statsValueRowTop: {
+  statsRecordRow: {
+    flexDirection: 'row',
     alignItems: 'flex-start',
+    justifyContent: 'flex-start',
+    paddingVertical: 4,
+    gap: 4,
+  },
+  statsRecordLabel: {
+    flexGrow: 0,
+    flexShrink: 1,
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#1f2937',
+    lineHeight: 22,
   },
   statsLabel: {
     flex: 1,
@@ -2020,14 +2044,26 @@ const styles = StyleSheet.create({
     textAlign: 'right',
   },
   statsRecordValue: {
-    flex: 1.35,
-    minWidth: 0,
-    alignItems: 'flex-end',
+    flexGrow: 0,
+    flexShrink: 0,
+    marginLeft: 'auto',
+    alignItems: 'center',
+    minWidth: 88,
   },
   statsRecordScoreRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    justifyContent: 'center',
+    gap: 6,
+    minHeight: 22,
+  },
+  statsRecordEmpty: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#0f172a',
+    textAlign: 'center',
+    lineHeight: 22,
+    minWidth: 88,
   },
   statsRecordLogo: {
     width: 22,
@@ -2046,14 +2082,15 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#0f172a',
     textAlign: 'center',
-    minWidth: 44,
+    minWidth: 40,
   },
   statsRecordDate: {
     fontSize: 11,
     fontWeight: '500',
     color: '#9ca3af',
-    textAlign: 'right',
+    textAlign: 'center',
     marginTop: 2,
+    alignSelf: 'stretch',
   },
   statsTableWrap: {
     width: '100%',
