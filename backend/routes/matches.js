@@ -492,6 +492,51 @@ function isOfficialMatchKickoffBeforeTodayItaly(kickoffAt) {
   return matchYmd < todayYmd;
 }
 
+function formatItalyKickoffDateDdMmYyyy(kickoffAt) {
+  const ymd = calendarYmdItaly(kickoffAt);
+  if (!ymd) return null;
+  const [y, m, d] = ymd.split('-');
+  if (!y || !m || !d) return null;
+  return `${d}/${m}/${y}`;
+}
+
+function formatOfficialTeamMatchRecordLabel({ homeName, awayName, homeScore, awayScore, kickoffAt }) {
+  const home = String(homeName || '').trim() || '—';
+  const away = String(awayName || '').trim() || '—';
+  const hs = Number(homeScore);
+  const as = Number(awayScore);
+  const score = `${Number.isFinite(hs) ? hs : 0} – ${Number.isFinite(as) ? as : 0}`;
+  const base = `${home} – ${away} ${score}`;
+  const date = formatItalyKickoffDateDdMmYyyy(kickoffAt);
+  return date ? `${base} (${date})` : base;
+}
+
+function isBetterOfficialMatchMarginRecord(candidate, current) {
+  if (!current) return true;
+  if (candidate.margin !== current.margin) return candidate.margin > current.margin;
+  if (candidate.goalsFor !== current.goalsFor) return candidate.goalsFor > current.goalsFor;
+  if (candidate.kickoffMs !== current.kickoffMs) return candidate.kickoffMs < current.kickoffMs;
+  return candidate.id < current.id;
+}
+
+const EMPTY_TEAM_SEASON_GENERAL = {
+  played: 0,
+  goals: 0,
+  goals_conceded: 0,
+  yellow_cards: 0,
+  red_cards: 0,
+  biggest_win: null,
+  heaviest_defeat: null,
+};
+const EMPTY_TEAM_SEASON_OUTCOMES = {
+  wins: 0,
+  draws: 0,
+  losses: 0,
+  wins_pct: 0,
+  draws_pct: 0,
+  losses_pct: 0,
+};
+
 async function sendExpoMessages(messages) {
   if (!Array.isArray(messages) || messages.length <= 0) return { sent: 0, invalidated: 0, errors: 0 };
   let sent = 0;
@@ -2963,7 +3008,7 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
     if (!teamName) {
       const fb = await query(`SELECT name FROM teams WHERE id = ? LIMIT 1`, [teamId]);
       if (!fb[0]) return res.status(404).json({ message: 'Squadra non trovata' });
-      return res.json({ team: { id: teamId, name: String(fb[0].name || '').trim() }, available_years: [], selected_year: null, general: { played: 0, goals: 0, goals_conceded: 0, yellow_cards: 0, red_cards: 0 }, outcomes: { wins: 0, draws: 0, losses: 0, wins_pct: 0, draws_pct: 0, losses_pct: 0 }, scorers: [], assistmen: [], presences: [] });
+      return res.json({ team: { id: teamId, name: String(fb[0].name || '').trim() }, available_years: [], selected_year: null, general: { ...EMPTY_TEAM_SEASON_GENERAL }, outcomes: { ...EMPTY_TEAM_SEASON_OUTCOMES }, scorers: [], assistmen: [], presences: [] });
     }
 
     const availableYears = Array.from(
@@ -3009,8 +3054,8 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
         team: { id: teamId, name: teamName },
         available_years: availableYears,
         selected_year: selectedYear,
-        general: { played: 0, goals: 0, goals_conceded: 0, yellow_cards: 0, red_cards: 0 },
-        outcomes: { wins: 0, draws: 0, losses: 0, wins_pct: 0, draws_pct: 0, losses_pct: 0 },
+        general: { ...EMPTY_TEAM_SEASON_GENERAL },
+        outcomes: { ...EMPTY_TEAM_SEASON_OUTCOMES },
         scorers: [],
         assistmen: [],
         presences: [],
@@ -3026,12 +3071,15 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
         [...targetLeagueIds, teamName]
       ),
       query(
-        `SELECT id, home_team_id, away_team_id, home_score, away_score
-         FROM official_matches
-         WHERE competition_id = ?
-           AND home_team_id IN (SELECT id FROM teams WHERE league_id IN (${phLeagueIds}))
-           AND away_team_id IN (SELECT id FROM teams WHERE league_id IN (${phLeagueIds}))
-         ORDER BY id ASC`,
+        `SELECT m.id, m.home_team_id, m.away_team_id, m.home_score, m.away_score, m.kickoff_at,
+                ht.name AS home_team_name, at.name AS away_team_name
+         FROM official_matches m
+         INNER JOIN teams ht ON ht.id = m.home_team_id
+         INNER JOIN teams at ON at.id = m.away_team_id
+         WHERE m.competition_id = ?
+           AND m.home_team_id IN (SELECT id FROM teams WHERE league_id IN (${phLeagueIds}))
+           AND m.away_team_id IN (SELECT id FROM teams WHERE league_id IN (${phLeagueIds}))
+         ORDER BY m.id ASC`,
         [competitionId, ...targetLeagueIds, ...targetLeagueIds]
       ),
     ]);
@@ -3043,8 +3091,8 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
         team: { id: teamId, name: teamName },
         available_years: availableYears,
         selected_year: selectedYear,
-        general: { played: 0, goals: 0, goals_conceded: 0, yellow_cards: 0, red_cards: 0 },
-        outcomes: { wins: 0, draws: 0, losses: 0, wins_pct: 0, draws_pct: 0, losses_pct: 0 },
+        general: { ...EMPTY_TEAM_SEASON_GENERAL },
+        outcomes: { ...EMPTY_TEAM_SEASON_OUTCOMES },
         scorers: [],
         assistmen: [],
         presences: [],
@@ -3122,6 +3170,8 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
     let losses = 0;
     let yellowCards = 0;
     let redCards = 0;
+    let biggestWinRecord = null;
+    let heaviestDefeatRecord = null;
     const scorersMap = new Map();
     const assistsMap = new Map();
     const teamLeagueMap = new Map(
@@ -3212,9 +3262,30 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
       });
       const outcomeGf = isHome ? outcome.home : outcome.away;
       const outcomeGa = isHome ? outcome.away : outcome.home;
-      if (outcomeGf > outcomeGa) wins += 1;
-      else if (outcomeGf === outcomeGa) draws += 1;
-      else losses += 1;
+      const kickoffMs = (() => {
+        const t = new Date(m.kickoff_at).getTime();
+        return Number.isFinite(t) ? t : Number.POSITIVE_INFINITY;
+      })();
+      const recordBase = {
+        id: Number(m.id) || 0,
+        kickoffMs,
+        homeName: m.home_team_name,
+        awayName: m.away_team_name,
+        homeScore: hs,
+        awayScore: as,
+        kickoffAt: m.kickoff_at,
+      };
+      if (outcomeGf > outcomeGa) {
+        wins += 1;
+        const candidate = { ...recordBase, margin: gf - ga, goalsFor: gf };
+        if (isBetterOfficialMatchMarginRecord(candidate, biggestWinRecord)) biggestWinRecord = candidate;
+      } else if (outcomeGf === outcomeGa) {
+        draws += 1;
+      } else {
+        losses += 1;
+        const candidate = { ...recordBase, margin: ga - gf, goalsFor: ga };
+        if (isBetterOfficialMatchMarginRecord(candidate, heaviestDefeatRecord)) heaviestDefeatRecord = candidate;
+      }
     }
 
     const pct = (x) => (played > 0 ? Math.round((x / played) * 1000) / 10 : 0);
@@ -3254,6 +3325,12 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
         goals_conceded: goalsConceded,
         yellow_cards: yellowCards,
         red_cards: redCards,
+        biggest_win: biggestWinRecord
+          ? formatOfficialTeamMatchRecordLabel(biggestWinRecord)
+          : null,
+        heaviest_defeat: heaviestDefeatRecord
+          ? formatOfficialTeamMatchRecordLabel(heaviestDefeatRecord)
+          : null,
       },
       outcomes: {
         wins,

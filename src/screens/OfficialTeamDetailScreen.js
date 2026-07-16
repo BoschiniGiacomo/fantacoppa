@@ -336,7 +336,15 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
   const [statsLoading, setStatsLoading] = useState(false);
   const [statsYears, setStatsYears] = useState([]);
   const [selectedStatsYear, setSelectedStatsYear] = useState(null);
-  const [statsGeneral, setStatsGeneral] = useState({ played: 0, goals: 0, goals_conceded: 0, yellow_cards: 0, red_cards: 0 });
+  const [statsGeneral, setStatsGeneral] = useState({
+    played: 0,
+    goals: 0,
+    goals_conceded: 0,
+    yellow_cards: 0,
+    red_cards: 0,
+    biggest_win: null,
+    heaviest_defeat: null,
+  });
   const [statsOutcomes, setStatsOutcomes] = useState({ wins: 0, draws: 0, losses: 0, wins_pct: 0, draws_pct: 0, losses_pct: 0 });
   const [statsScorers, setStatsScorers] = useState([]);
   const [statsAssistmen, setStatsAssistmen] = useState([]);
@@ -545,7 +553,15 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
             ? ABSOLUTE_STATS_KEY
             : (rawBackendSelected != null ? Number(rawBackendSelected) : null);
         setStatsYears(years);
-        setStatsGeneral(res?.data?.general || { played: 0, goals: 0, goals_conceded: 0, yellow_cards: 0, red_cards: 0 });
+        setStatsGeneral(res?.data?.general || {
+          played: 0,
+          goals: 0,
+          goals_conceded: 0,
+          yellow_cards: 0,
+          red_cards: 0,
+          biggest_win: null,
+          heaviest_defeat: null,
+        });
         setStatsOutcomes(res?.data?.outcomes || { wins: 0, draws: 0, losses: 0, wins_pct: 0, draws_pct: 0, losses_pct: 0 });
         setStatsScorers(Array.isArray(res?.data?.scorers) ? res.data.scorers : []);
         setStatsAssistmen(Array.isArray(res?.data?.assistmen) ? res.data.assistmen : []);
@@ -1272,6 +1288,18 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
                       {Number(statsGeneral.yellow_cards || 0)} / {Number(statsGeneral.red_cards || 0)}
                     </Text>
                   </View>
+                  <View style={[styles.statsValueRow, styles.statsValueRowTop]}>
+                    <Text style={styles.statsLabel}>Vittoria più larga</Text>
+                    <Text style={[styles.statsValue, styles.statsValueFlex]}>
+                      {String(statsGeneral.biggest_win || '').trim() || '-'}
+                    </Text>
+                  </View>
+                  <View style={[styles.statsValueRow, styles.statsValueRowTop]}>
+                    <Text style={styles.statsLabel}>Sconfitta più pesante</Text>
+                    <Text style={[styles.statsValue, styles.statsValueFlex]}>
+                      {String(statsGeneral.heaviest_defeat || '').trim() || '-'}
+                    </Text>
+                  </View>
                 </View>
 
                 <View style={styles.statsBlock}>
@@ -1943,6 +1971,9 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     gap: 8,
   },
+  statsValueRowTop: {
+    alignItems: 'flex-start',
+  },
   statsLabel: {
     flex: 1,
     minWidth: 0,
@@ -1955,6 +1986,10 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#0f172a',
     textAlign: 'right',
+  },
+  statsValueFlex: {
+    flex: 1.35,
+    minWidth: 0,
   },
   statsTableWrap: {
     width: '100%',
