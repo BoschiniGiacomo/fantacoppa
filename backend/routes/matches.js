@@ -500,15 +500,29 @@ function formatItalyKickoffDateDdMmYyyy(kickoffAt) {
   return `${d}/${m}/${y}`;
 }
 
-function buildOfficialTeamMatchRecord({ homeName, awayName, homeScore, awayScore, kickoffAt }) {
+function buildOfficialTeamMatchRecord({
+  homeName,
+  awayName,
+  homeScore,
+  awayScore,
+  kickoffAt,
+  homeLogoPath,
+  awayLogoPath,
+}) {
   const hs = Number(homeScore);
   const as = Number(awayScore);
+  const homeLp = normalizeTeamLogoPathForApi(homeLogoPath);
+  const awayLp = normalizeTeamLogoPathForApi(awayLogoPath);
   return {
     home_team: String(homeName || '').trim() || '—',
     away_team: String(awayName || '').trim() || '—',
     home_score: Number.isFinite(hs) ? hs : 0,
     away_score: Number.isFinite(as) ? as : 0,
     date: formatItalyKickoffDateDdMmYyyy(kickoffAt),
+    home_team_logo_path: homeLp,
+    home_team_logo_url: logoUrlForPath(homeLp),
+    away_team_logo_path: awayLp,
+    away_team_logo_url: logoUrlForPath(awayLp),
   };
 }
 
@@ -3073,7 +3087,9 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
       ),
       query(
         `SELECT m.id, m.home_team_id, m.away_team_id, m.home_score, m.away_score, m.kickoff_at,
-                ht.name AS home_team_name, at.name AS away_team_name
+                ht.name AS home_team_name, at.name AS away_team_name,
+                COALESCE(NULLIF(to_jsonb(ht)->>'logo_path',''), NULLIF(ht.logo_path,'')) AS home_team_logo_path,
+                COALESCE(NULLIF(to_jsonb(at)->>'logo_path',''), NULLIF(at.logo_path,'')) AS away_team_logo_path
          FROM official_matches m
          INNER JOIN teams ht ON ht.id = m.home_team_id
          INNER JOIN teams at ON at.id = m.away_team_id
@@ -3275,6 +3291,8 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
         homeScore: hs,
         awayScore: as,
         kickoffAt: m.kickoff_at,
+        homeLogoPath: m.home_team_logo_path,
+        awayLogoPath: m.away_team_logo_path,
       };
       if (outcomeGf > outcomeGa) {
         wins += 1;

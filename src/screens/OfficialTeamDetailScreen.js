@@ -249,22 +249,33 @@ function renderOfficialMatchRecord(record, styles) {
   if (!record || typeof record !== 'object') {
     return <Text style={styles.statsValue}>-</Text>;
   }
-  const home = String(record.home_team || '').trim();
-  const away = String(record.away_team || '').trim();
   const hs = Number(record.home_score);
   const as = Number(record.away_score);
   const date = String(record.date || '').trim();
-  if (!home && !away) {
+  if (!Number.isFinite(hs) || !Number.isFinite(as)) {
     return <Text style={styles.statsValue}>-</Text>;
   }
   return (
     <View style={styles.statsRecordValue}>
-      <Text style={styles.statsRecordTeams}>
-        {home || '—'} - {away || '—'}
-      </Text>
-      <Text style={styles.statsRecordScore}>
-        {Number.isFinite(hs) ? hs : 0} - {Number.isFinite(as) ? as : 0}
-      </Text>
+      <View style={styles.statsRecordScoreRow}>
+        <TeamLogoImage
+          logoUrl={record.home_team_logo_url}
+          logoPath={record.home_team_logo_path}
+          style={styles.statsRecordLogo}
+          fallbackStyle={styles.statsRecordLogoFallback}
+          fallbackIconSize={14}
+        />
+        <Text style={styles.statsRecordScore}>
+          {hs} - {as}
+        </Text>
+        <TeamLogoImage
+          logoUrl={record.away_team_logo_url}
+          logoPath={record.away_team_logo_path}
+          style={styles.statsRecordLogo}
+          fallbackStyle={styles.statsRecordLogoFallback}
+          fallbackIconSize={14}
+        />
+      </View>
       {date ? <Text style={styles.statsRecordDate}>{date}</Text> : null}
     </View>
   );
@@ -2013,25 +2024,36 @@ const styles = StyleSheet.create({
     minWidth: 0,
     alignItems: 'flex-end',
   },
-  statsRecordTeams: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#0f172a',
-    textAlign: 'right',
+  statsRecordScoreRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  statsRecordLogo: {
+    width: 22,
+    height: 22,
+  },
+  statsRecordLogoFallback: {
+    width: 22,
+    height: 22,
+    borderRadius: 5,
+    backgroundColor: '#eef2ff',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   statsRecordScore: {
     fontSize: 14,
     fontWeight: '700',
     color: '#0f172a',
-    textAlign: 'right',
-    marginTop: 1,
+    textAlign: 'center',
+    minWidth: 44,
   },
   statsRecordDate: {
     fontSize: 11,
     fontWeight: '500',
     color: '#9ca3af',
     textAlign: 'right',
-    marginTop: 1,
+    marginTop: 2,
   },
   statsTableWrap: {
     width: '100%',
