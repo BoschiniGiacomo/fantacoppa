@@ -245,6 +245,31 @@ const DEFAULT_JERSEY_COLOR = '#a5b4fc';
 const ROLE_ORDER = { P: 0, D: 1, C: 2, A: 3 };
 const ABSOLUTE_STATS_KEY = 'absolute';
 
+function renderOfficialMatchRecord(record, styles) {
+  if (!record || typeof record !== 'object') {
+    return <Text style={styles.statsValue}>-</Text>;
+  }
+  const home = String(record.home_team || '').trim();
+  const away = String(record.away_team || '').trim();
+  const hs = Number(record.home_score);
+  const as = Number(record.away_score);
+  const date = String(record.date || '').trim();
+  if (!home && !away) {
+    return <Text style={styles.statsValue}>-</Text>;
+  }
+  return (
+    <View style={styles.statsRecordValue}>
+      <Text style={styles.statsRecordTeams}>
+        {home || '—'} - {away || '—'}
+      </Text>
+      <Text style={styles.statsRecordScore}>
+        {Number.isFinite(hs) ? hs : 0} - {Number.isFinite(as) ? as : 0}
+      </Text>
+      {date ? <Text style={styles.statsRecordDate}>{date}</Text> : null}
+    </View>
+  );
+}
+
 function isValidJerseyHex(s) {
   if (s == null || typeof s !== 'string') return false;
   return /^#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})$/.test(s.trim());
@@ -1290,15 +1315,11 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
                   </View>
                   <View style={[styles.statsValueRow, styles.statsValueRowTop]}>
                     <Text style={styles.statsLabel}>Vittoria più larga</Text>
-                    <Text style={[styles.statsValue, styles.statsValueFlex]}>
-                      {String(statsGeneral.biggest_win || '').trim() || '-'}
-                    </Text>
+                    {renderOfficialMatchRecord(statsGeneral.biggest_win, styles)}
                   </View>
                   <View style={[styles.statsValueRow, styles.statsValueRowTop]}>
                     <Text style={styles.statsLabel}>Sconfitta più pesante</Text>
-                    <Text style={[styles.statsValue, styles.statsValueFlex]}>
-                      {String(statsGeneral.heaviest_defeat || '').trim() || '-'}
-                    </Text>
+                    {renderOfficialMatchRecord(statsGeneral.heaviest_defeat, styles)}
                   </View>
                 </View>
 
@@ -1987,9 +2008,30 @@ const styles = StyleSheet.create({
     color: '#0f172a',
     textAlign: 'right',
   },
-  statsValueFlex: {
+  statsRecordValue: {
     flex: 1.35,
     minWidth: 0,
+    alignItems: 'flex-end',
+  },
+  statsRecordTeams: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#0f172a',
+    textAlign: 'right',
+  },
+  statsRecordScore: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#0f172a',
+    textAlign: 'right',
+    marginTop: 1,
+  },
+  statsRecordDate: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: '#9ca3af',
+    textAlign: 'right',
+    marginTop: 1,
   },
   statsTableWrap: {
     width: '100%',

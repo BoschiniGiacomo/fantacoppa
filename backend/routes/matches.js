@@ -500,15 +500,16 @@ function formatItalyKickoffDateDdMmYyyy(kickoffAt) {
   return `${d}/${m}/${y}`;
 }
 
-function formatOfficialTeamMatchRecordLabel({ homeName, awayName, homeScore, awayScore, kickoffAt }) {
-  const home = String(homeName || '').trim() || '—';
-  const away = String(awayName || '').trim() || '—';
+function buildOfficialTeamMatchRecord({ homeName, awayName, homeScore, awayScore, kickoffAt }) {
   const hs = Number(homeScore);
   const as = Number(awayScore);
-  const score = `${Number.isFinite(hs) ? hs : 0} – ${Number.isFinite(as) ? as : 0}`;
-  const base = `${home} – ${away} ${score}`;
-  const date = formatItalyKickoffDateDdMmYyyy(kickoffAt);
-  return date ? `${base} (${date})` : base;
+  return {
+    home_team: String(homeName || '').trim() || '—',
+    away_team: String(awayName || '').trim() || '—',
+    home_score: Number.isFinite(hs) ? hs : 0,
+    away_score: Number.isFinite(as) ? as : 0,
+    date: formatItalyKickoffDateDdMmYyyy(kickoffAt),
+  };
 }
 
 function isBetterOfficialMatchMarginRecord(candidate, current) {
@@ -3326,10 +3327,10 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
         yellow_cards: yellowCards,
         red_cards: redCards,
         biggest_win: biggestWinRecord
-          ? formatOfficialTeamMatchRecordLabel(biggestWinRecord)
+          ? buildOfficialTeamMatchRecord(biggestWinRecord)
           : null,
         heaviest_defeat: heaviestDefeatRecord
-          ? formatOfficialTeamMatchRecordLabel(heaviestDefeatRecord)
+          ? buildOfficialTeamMatchRecord(heaviestDefeatRecord)
           : null,
       },
       outcomes: {
