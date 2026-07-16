@@ -188,10 +188,10 @@ async function fetchEditionLeaguesWithPresence(editionByLeague) {
   const pPh = playerIds.map(() => '?').join(', ');
   const lPh = ratingLeagueIds.map(() => '?').join(', ');
   const rows = await query(
-    `SELECT DISTINCT player_id, league_id
-     FROM player_ratings
-     WHERE player_id IN (${pPh})
-       AND league_id IN (${lPh})
+    `SELECT DISTINCT pr.player_id, pr.league_id
+     FROM player_ratings pr
+     WHERE pr.player_id IN (${pPh})
+       AND pr.league_id IN (${lPh})
        AND ${SQL_WHERE_PRESENCE_VOTE}`,
     [...playerIds, ...ratingLeagueIds],
   );
