@@ -532,12 +532,16 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
   const openOfficialTeamDetail = useCallback((teamId, teamName) => {
     const tid = Number(teamId);
     if (!tid || tid <= 0 || !competitionId) return;
+    const resolvedGroupName = String(
+      data?.group?.name || route?.params?.groupName || '',
+    ).trim();
     navigation.navigate('OfficialTeamDetail', {
       teamId: tid,
       competitionId,
       teamName: String(teamName || '').trim() || '-',
+      groupName: resolvedGroupName || undefined,
     });
-  }, [navigation, competitionId]);
+  }, [navigation, competitionId, data?.group?.name, route?.params?.groupName]);
 
   const openPlayerFromStatsRow = useCallback((row) => {
     const playerId = Number(row?.player_id);
@@ -1061,6 +1065,7 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
                                       teamId: rowTeamId,
                                       competitionId,
                                       teamName: String(r.team_name_display || r.team_name || '').trim() || '-',
+                                      groupName: String(groupName || '').trim() || undefined,
                                     });
                                   }}
                                 >

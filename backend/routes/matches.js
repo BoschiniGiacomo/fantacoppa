@@ -4397,8 +4397,13 @@ router.get('/matches/teams/:teamId/trophies', authenticateToken, async (req, res
     if (!teamName) return res.status(404).json({ message: 'Squadra non valida' });
 
     const trophies = await buildOfficialTeamTrophies(competitionId, normalizeTeamNameForFavorite(teamName));
+    const group = await fetchOfficialGroupRow(competitionId);
     return res.json({
       team: { id: teamId, name: teamName, competition_id: competitionId },
+      competition: {
+        id: competitionId,
+        name: String(group?.name || '').trim() || null,
+      },
       championships: trophies.championships,
       wine_trophies: trophies.wine_trophies,
     });

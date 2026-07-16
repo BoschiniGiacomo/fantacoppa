@@ -350,6 +350,9 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
   const [trophiesLoading, setTrophiesLoading] = useState(false);
   const [teamChampionships, setTeamChampionships] = useState([]);
   const [teamWineTrophies, setTeamWineTrophies] = useState([]);
+  const [competitionName, setCompetitionName] = useState(
+    () => String(route?.params?.groupName || '').trim(),
+  );
   const [displayedFavoriteCount, setDisplayedFavoriteCount] = useState(0);
   const favoriteAnim = React.useRef(new Animated.Value(0)).current;
   const favoriteAnimListenerRef = React.useRef(null);
@@ -536,6 +539,8 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
       const res = await matchesService.getOfficialTeamTrophies(teamId, competitionId);
       setTeamChampionships(Array.isArray(res?.data?.championships) ? res.data.championships : []);
       setTeamWineTrophies(Array.isArray(res?.data?.wine_trophies) ? res.data.wine_trophies : []);
+      const apiGroupName = String(res?.data?.competition?.name || '').trim();
+      if (apiGroupName) setCompetitionName(apiGroupName);
     } catch (err) {
       console.error('Error loading team trophies:', err);
       setTeamChampionships([]);
@@ -1155,6 +1160,7 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
                 <OfficialTeamTrophyBoard
                   championships={teamChampionships}
                   wineTrophies={teamWineTrophies}
+                  championshipTitle={competitionName}
                 />
               </ScrollView>
             )}

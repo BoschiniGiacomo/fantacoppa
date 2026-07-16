@@ -121,7 +121,9 @@ function TrophyShelf({ title, trophies, type, emptyHint }) {
   return (
     <View style={styles.shelfBlock}>
       <View style={[styles.shelfNameplate, isWine ? styles.shelfNameplateWine : styles.shelfNameplateChamp]}>
-        <Text style={styles.shelfNameplateText}>{title}</Text>
+        <Text style={styles.shelfNameplateText} numberOfLines={2}>
+          {title}
+        </Text>
         {trophies.length > 0 ? (
           <View style={styles.shelfNameplateCount}>
             <Text style={styles.shelfNameplateCountText}>{trophies.length}</Text>
@@ -152,10 +154,15 @@ function TrophyShelf({ title, trophies, type, emptyHint }) {
   );
 }
 
-export default function OfficialTeamTrophyBoard({ championships = [], wineTrophies = [] }) {
+export default function OfficialTeamTrophyBoard({
+  championships = [],
+  wineTrophies = [],
+  championshipTitle = 'Campionato',
+}) {
   const champList = Array.isArray(championships) ? championships : [];
   const wineList = Array.isArray(wineTrophies) ? wineTrophies : [];
   const total = champList.length + wineList.length;
+  const champShelfTitle = String(championshipTitle || '').trim() || 'Campionato';
 
   if (total === 0) {
     return (
@@ -192,7 +199,7 @@ export default function OfficialTeamTrophyBoard({ championships = [], wineTrophi
           <View style={styles.boardGlass} pointerEvents="none" />
           <View style={styles.cabinetInner}>
             <TrophyShelf
-              title="Campionato"
+              title={champShelfTitle}
               trophies={champList}
               type="championship"
               emptyHint="Nessun titolo esposto"
@@ -325,11 +332,14 @@ const styles = StyleSheet.create({
     borderColor: '#6b3050',
   },
   shelfNameplateText: {
+    flexShrink: 1,
+    minWidth: 0,
     fontSize: 11,
     fontWeight: '800',
     color: '#e8d4b0',
-    letterSpacing: 0.6,
+    letterSpacing: 0.4,
     textTransform: 'uppercase',
+    textAlign: 'center',
   },
   shelfNameplateCount: {
     minWidth: 18,
