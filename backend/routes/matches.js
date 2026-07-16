@@ -3369,6 +3369,201 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
   }
 });
 
+// GET /matches/teams/:teamId/opponent-records?competition_id=xx
+// Bilancio assoluto vs ogni avversario (sempre tutte le stagioni ufficiali del gruppo).
+router.get('/matches/teams/:teamId/opponent-records', authenticateToken, async (req, res) => {
+  try {
+    const teamId = Number(req.params.teamId);
+    const competitionId = Number(req.query?.competition_id);
+    if (!teamId || teamId <= 0) return res.status(400).json({ message: 'teamId non valido' });
+    if (!competitionId || competitionId <= 0) return res.status(400).json({ message: 'competition_id non valido' });
+
+    const seasonLeagues = await query(
+      `SELECT root.id AS team_id, root.name AS team_name,
+        l.id AS league_id, NULLIF(to_jsonb(l)->>'reference_year','')::int AS reference_year
+      FROM teams root
+      INNER JOIN leagues l ON l.official_group_id = ?
+        AND COALESCE(l.is_official, 0) = 1 AND COALESCE(l.is_official_squad_public, 0) = 1
+      INNER JOIN teams t ON t.league_id = l.id AND LOWER(TRIM(t.name)) = LOWER(TRIM(root.name))
+      WHERE root.id = ?
+      GROUP BY root.id, root.name, l.id, NULLIF(to_jsonb(l)->>'reference_year','')::int
+      ORDER BY NULLIF(to_jsonb(l)->>'reference_year','')::int DESC NULLS LAST, l.id DESC`,
+      [competitionId, teamId]
+    );
+    const teamName = String(seasonLeagues[0]?.team_name || '').trim();
+    if (!teamName) {
+      const fb = await query(`SELECT name FROM teams WHERE id = ? LIMIT 1`, [teamId]);
+      if (!fb[0]) return res.status(404).json({ message: 'Squadra non trovata' });
+      return res.json({ team: { id: teamId, name: String(fb[0].name || '').trim() }, opponents: [] });
+    }
+
+    const targetLeagueIds = Array.from(
+      new Set(
+        (Array.isArray(seasonLeagues) ? seasonLeagues : [])
+          .map((r) => Number(r.league_id))
+          .filter((id) => Number.isFinite(id) && id > 0)
+      )
+    );
+    if (targetLeagueIds.length === 0) {
+      return res.json({ team: { id: teamId, name: teamName }, opponents: [] });
+    }
+
+    const phLeagueIds = targetLeagueIds.map(() => '?').join(', ');
+    const [seasonTeamRows, seasonMatches, logoMap] = await Promise.all([
+      query(
+        `SELECT id FROM teams
+         WHERE league_id IN (${phLeagueIds}) AND LOWER(TRIM(name)) = LOWER(TRIM(?))
+         ORDER BY id DESC`,
+        [...targetLeagueIds, teamName]
+      ),
+      query(
+        `SELECT m.id, m.home_team_id, m.away_team_id, m.home_score, m.away_score, m.kickoff_at,
+                ht.name AS home_team_name, at.name AS away_team_name
+         FROM official_matches m
+         INNER JOIN teams ht ON ht.id = m.home_team_id
+         INNER JOIN teams at ON at.id = m.away_team_id
+         WHERE m.competition_id = ?
+           AND m.home_team_id IN (SELECT id FROM teams WHERE league_id IN (${phLeagueIds}))
+           AND m.away_team_id IN (SELECT id FROM teams WHERE league_id IN (${phLeagueIds}))
+         ORDER BY m.id ASC`,
+        [competitionId, ...targetLeagueIds, ...targetLeagueIds]
+      ),
+      buildBestOfficialTeamLogoMap([competitionId], false).catch(() => new Map()),
+    ]);
+
+    const seasonTeamIds = new Set(
+      (seasonTeamRows || []).map((r) => Number(r.id)).filter((id) => Number.isFinite(id) && id > 0)
+    );
+    if (seasonTeamIds.size === 0) {
+      return res.json({ team: { id: teamId, name: teamName }, opponents: [] });
+    }
+
+    const relevantMatches = (seasonMatches || []).filter((m) => {
+      const isHome = seasonTeamIds.has(Number(m.home_team_id));
+      const isAway = seasonTeamIds.has(Number(m.away_team_id));
+      return (isHome || isAway) && !(isHome && isAway);
+    });
+    const matchIds = relevantMatches.map((m) => Number(m.id)).filter((n) => Number.isFinite(n) && n > 0);
+    const [seasonEndedMatchIds, evRows] = await Promise.all([
+      fetchMatchEndedIds(matchIds),
+      matchIds.length > 0
+        ? query(
+            `SELECT match_id, event_type, team_side, team_id
+             FROM official_match_events
+             WHERE match_id IN (${matchIds.map(() => '?').join(', ')})
+               AND event_type IN (
+                 'goal', 'penalty_goal', 'own_goal',
+                 'shootout_goal', 'shootout_missed',
+                 'pre_shootout_goal', 'pre_shootout_missed'
+               )
+             ORDER BY id ASC`,
+            matchIds
+          )
+        : Promise.resolve([]),
+    ]);
+
+    const evByMatch = new Map();
+    for (const ev of evRows || []) {
+      const mid = Number(ev.match_id);
+      if (!evByMatch.has(mid)) evByMatch.set(mid, []);
+      evByMatch.get(mid).push(ev);
+    }
+
+    const byOpponent = new Map();
+    for (const m of relevantMatches) {
+      const homeId = Number(m.home_team_id);
+      const awayId = Number(m.away_team_id);
+      const isHome = seasonTeamIds.has(homeId);
+
+      const events = evByMatch.get(Number(m.id)) || [];
+      const tallied = tallyOfficialMatchEventScores(events, homeId, awayId);
+      const evScore = { has: tallied.hasGoalEvents, home: tallied.homeGoals, away: tallied.awayGoals };
+      const resolved = resolveOfficialMatchResultForStandings(m, evScore, seasonEndedMatchIds.has(Number(m.id)));
+      let hs = resolved.counted ? resolved.home : null;
+      let as = resolved.counted ? resolved.away : null;
+      if (hs == null && (tallied.hasRigEvents || tallied.homePreShootout > 0 || tallied.awayPreShootout > 0)) hs = 0;
+      if (as == null && (tallied.hasRigEvents || tallied.homePreShootout > 0 || tallied.awayPreShootout > 0)) as = 0;
+      if (!Number.isFinite(hs) || !Number.isFinite(as)) continue;
+
+      const outcome = resolveOfficialMatchOutcome({
+        regHome: hs,
+        regAway: as,
+        preHome: tallied.homePreShootout,
+        preAway: tallied.awayPreShootout,
+        rigHome: tallied.homeRig,
+        rigAway: tallied.awayRig,
+        hasRig: tallied.hasRigEvents,
+      });
+      const outcomeGf = isHome ? outcome.home : outcome.away;
+      const outcomeGa = isHome ? outcome.away : outcome.home;
+
+      const oppNameRaw = String((isHome ? m.away_team_name : m.home_team_name) || '').trim();
+      const oppNorm = normalizeTeamNameForFavorite(oppNameRaw);
+      if (!oppNorm) continue;
+      const oppTeamId = isHome ? awayId : homeId;
+      const kickoffMs = (() => {
+        const t = new Date(m.kickoff_at).getTime();
+        return Number.isFinite(t) ? t : 0;
+      })();
+
+      let row = byOpponent.get(oppNorm);
+      if (!row) {
+        row = {
+          name_norm: oppNorm,
+          name: oppNameRaw,
+          team_id: Number.isFinite(oppTeamId) && oppTeamId > 0 ? oppTeamId : null,
+          kickoffMs,
+          played: 0,
+          wins: 0,
+          draws: 0,
+          losses: 0,
+        };
+        byOpponent.set(oppNorm, row);
+      }
+      row.played += 1;
+      if (outcomeGf > outcomeGa) row.wins += 1;
+      else if (outcomeGf === outcomeGa) row.draws += 1;
+      else row.losses += 1;
+      if (kickoffMs >= row.kickoffMs) {
+        row.kickoffMs = kickoffMs;
+        if (oppNameRaw) row.name = oppNameRaw;
+        if (Number.isFinite(oppTeamId) && oppTeamId > 0) row.team_id = oppTeamId;
+      }
+    }
+
+    const pct = (wins, played) => (played > 0 ? Math.round((wins / played) * 1000) / 10 : 0);
+    const opponents = Array.from(byOpponent.values())
+      .map((r) => {
+        const logoPath = pickBestOfficialTeamLogo(logoMap, competitionId, r.name, null);
+        return {
+          team_id: Number(r.team_id) > 0 ? Number(r.team_id) : null,
+          name: String(r.name || '').trim() || '—',
+          played: Number(r.played || 0),
+          wins: Number(r.wins || 0),
+          draws: Number(r.draws || 0),
+          losses: Number(r.losses || 0),
+          wins_pct: pct(r.wins, r.played),
+          team_logo_path: logoPath,
+          team_logo_url: logoUrlForPath(logoPath),
+        };
+      })
+      .sort(
+        (a, b) =>
+          b.played - a.played
+          || b.wins_pct - a.wins_pct
+          || a.name.localeCompare(b.name, 'it')
+      );
+
+    return res.json({
+      team: { id: teamId, name: teamName },
+      opponents,
+    });
+  } catch (err) {
+    if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
+    return res.status(500).json({ message: 'Errore caricamento bilanci vs avversari', error: err.message });
+  }
+});
+
 let officialGroupLogoSchemaReady = false;
 async function ensureOfficialGroupLogoSchema() {
   if (officialGroupLogoSchemaReady) return;

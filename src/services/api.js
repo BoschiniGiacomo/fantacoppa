@@ -566,6 +566,11 @@ export const matchesService = {
           : (referenceYear != null ? { reference_year: referenceYear } : {})),
       },
     }),
+  getOfficialTeamOpponentRecords: (teamId, competitionId) =>
+    api.get(`matches/teams/${teamId}/opponent-records`, {
+      params: { competition_id: competitionId },
+      timeout: 60000,
+    }),
   getOfficialTeamTrophies: (teamId, competitionId) =>
     api.get(`matches/teams/${teamId}/trophies`, {
       params: { competition_id: competitionId },

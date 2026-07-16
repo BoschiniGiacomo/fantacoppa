@@ -399,6 +399,12 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
     presences: false,
   });
   const [statsPickerOpen, setStatsPickerOpen] = useState(false);
+  const [outcomesOpponentsExpanded, setOutcomesOpponentsExpanded] = useState(false);
+  const [outcomesOpponentsLoading, setOutcomesOpponentsLoading] = useState(false);
+  const [outcomesOpponents, setOutcomesOpponents] = useState([]);
+  const [outcomesOpponentsLoaded, setOutcomesOpponentsLoaded] = useState(false);
+  const [outcomesOpponentsSort, setOutcomesOpponentsSort] = useState({ key: 'played', asc: false });
+  const outcomesOpponentsLoadSeqRef = useRef(0);
   const [trophiesLoading, setTrophiesLoading] = useState(false);
   const [teamChampionships, setTeamChampionships] = useState([]);
   const [teamWineTrophies, setTeamWineTrophies] = useState([]);
@@ -669,6 +675,58 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
     setStatsLeaderboardExpanded({ scorers: false, assistmen: false, presences: false });
   }, [selectedStatsYear]);
 
+  useEffect(() => {
+    outcomesOpponentsLoadSeqRef.current += 1;
+    setOutcomesOpponentsExpanded(false);
+    setOutcomesOpponentsLoading(false);
+    setOutcomesOpponents([]);
+    setOutcomesOpponentsLoaded(false);
+    setOutcomesOpponentsSort({ key: 'played', asc: false });
+  }, [teamId, competitionId]);
+
+  const loadOutcomesOpponents = useCallback(async () => {
+    if (!teamId || !competitionId) return;
+    outcomesOpponentsLoadSeqRef.current += 1;
+    const seq = outcomesOpponentsLoadSeqRef.current;
+    try {
+      setOutcomesOpponentsLoading(true);
+      const res = await matchesService.getOfficialTeamOpponentRecords(teamId, competitionId);
+      if (seq !== outcomesOpponentsLoadSeqRef.current) return;
+      setOutcomesOpponents(Array.isArray(res?.data?.opponents) ? res.data.opponents : []);
+      setOutcomesOpponentsLoaded(true);
+    } catch (err) {
+      if (seq !== outcomesOpponentsLoadSeqRef.current) return;
+      console.error('Error loading team opponent records:', err);
+      setOutcomesOpponents([]);
+      setOutcomesOpponentsLoaded(true);
+    } finally {
+      if (seq === outcomesOpponentsLoadSeqRef.current) setOutcomesOpponentsLoading(false);
+    }
+  }, [teamId, competitionId]);
+
+  const toggleOutcomesOpponents = useCallback(() => {
+    setOutcomesOpponentsExpanded((prev) => !prev);
+  }, []);
+
+  useEffect(() => {
+    if (!outcomesOpponentsExpanded) return;
+    if (outcomesOpponentsLoaded || outcomesOpponentsLoading) return;
+    void loadOutcomesOpponents();
+  }, [
+    outcomesOpponentsExpanded,
+    outcomesOpponentsLoaded,
+    outcomesOpponentsLoading,
+    loadOutcomesOpponents,
+  ]);
+
+  const toggleOutcomesOpponentsSort = useCallback((key) => {
+    setOutcomesOpponentsSort((prev) => {
+      if (prev.key === key) return { key, asc: !prev.asc };
+      const defaultAsc = key === 'name';
+      return { key, asc: defaultAsc };
+    });
+  }, []);
+
   const STATS_LEADERBOARD_PREVIEW = 10;
 
   const toggleStatsLeaderboard = (tableKey) => {
@@ -764,6 +822,21 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
     });
     return list;
   }, [teamSeasonSquad]);
+  const sortedOutcomesOpponents = useMemo(() => {
+    const list = Array.isArray(outcomesOpponents) ? [...outcomesOpponents] : [];
+    const { key, asc } = outcomesOpponentsSort || { key: 'played', asc: false };
+    const dir = asc ? 1 : -1;
+    list.sort((a, b) => {
+      if (key === 'name') {
+        return dir * String(a?.name || '').localeCompare(String(b?.name || ''), 'it');
+      }
+      const av = Number(a?.[key] || 0);
+      const bv = Number(b?.[key] || 0);
+      if (av !== bv) return dir * (av - bv);
+      return String(a?.name || '').localeCompare(String(b?.name || ''), 'it');
+    });
+    return list;
+  }, [outcomesOpponents, outcomesOpponentsSort]);
   const seasonYearOptions = useMemo(
     () =>
       (Array.isArray(seasonYears) ? seasonYears : []).map((y) => ({
@@ -1347,7 +1420,18 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
                 </View>
 
                 <View style={styles.statsBlock}>
-                  <Text style={styles.statsBlockTitle}>Risultati</Text>
+                  <TouchableOpacity
+                    style={styles.statsBlockTitleRow}
+                    onPress={toggleOutcomesOpponents}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[styles.statsBlockTitle, styles.statsBlockTitleInline]}>Risultati</Text>
+                    <Ionicons
+                      name={outcomesOpponentsExpanded ? 'chevron-up' : 'chevron-down'}
+                      size={16}
+                      color="#111827"
+                    />
+                  </TouchableOpacity>
                   <View style={styles.statsValueRow}>
                     <Text style={styles.statsLabel}>Vittorie</Text>
                     <Text style={styles.statsValue}>
@@ -1366,6 +1450,112 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
                       {Number(statsOutcomes.losses || 0)} ({Number(statsOutcomes.losses_pct || 0)}%)
                     </Text>
                   </View>
+
+                  {outcomesOpponentsExpanded ? (
+                    <View style={styles.outcomesOpponentsWrap}>
+                      {outcomesOpponentsLoading ? (
+                        <View style={styles.outcomesOpponentsLoading}>
+                          <ActivityIndicator color="#667eea" size="small" />
+                        </View>
+                      ) : sortedOutcomesOpponents.length === 0 ? (
+                        <Text style={styles.placeholderText}>Nessun avversario con partite conteggiate.</Text>
+                      ) : (
+                        <View style={styles.statsTableWrap}>
+                          <View style={[styles.statsTableRow, styles.statsTableHeaderRow, styles.outcomesOppHeaderRow]}>
+                            {[
+                              { key: 'name', label: 'Avversario', style: styles.outcomesOppThTeam },
+                              { key: 'played', label: 'Inc.', style: styles.outcomesOppThNum },
+                              { key: 'wins', label: 'V', style: styles.outcomesOppThNum },
+                              { key: 'draws', label: 'P', style: styles.outcomesOppThNum },
+                              { key: 'losses', label: 'S', style: styles.outcomesOppThNum },
+                              { key: 'wins_pct', label: '%V', style: styles.outcomesOppThPct },
+                            ].map((col) => {
+                              const active = outcomesOpponentsSort.key === col.key;
+                              return (
+                                <TouchableOpacity
+                                  key={col.key}
+                                  style={[styles.outcomesOppSortableTh, col.style]}
+                                  onPress={() => toggleOutcomesOpponentsSort(col.key)}
+                                  activeOpacity={0.7}
+                                >
+                                  <Text
+                                    style={[
+                                      styles.statsTableHeaderCell,
+                                      styles.outcomesOppHeaderText,
+                                      active && styles.outcomesOppHeaderTextActive,
+                                    ]}
+                                    numberOfLines={1}
+                                  >
+                                    {col.label}
+                                  </Text>
+                                  {active ? (
+                                    <Ionicons
+                                      name={outcomesOpponentsSort.asc ? 'caret-up' : 'caret-down'}
+                                      size={10}
+                                      color="#4f46e5"
+                                    />
+                                  ) : null}
+                                </TouchableOpacity>
+                              );
+                            })}
+                          </View>
+                          {sortedOutcomesOpponents.map((row, i) => {
+                            const oppId = Number(row?.team_id);
+                            const canOpen = oppId > 0 && oppId !== Number(teamId);
+                            return (
+                              <TouchableOpacity
+                                key={`opp-${row?.name || i}-${oppId || i}`}
+                                style={[
+                                  styles.statsTableRow,
+                                  styles.outcomesOppRow,
+                                  i === sortedOutcomesOpponents.length - 1 && styles.outcomesOppRowLast,
+                                ]}
+                                activeOpacity={canOpen ? 0.7 : 1}
+                                disabled={!canOpen}
+                                onPress={() => {
+                                  if (!canOpen) return;
+                                  navigation.navigate('OfficialTeamDetail', {
+                                    teamId: oppId,
+                                    competitionId,
+                                    teamName: row?.name,
+                                    groupName: competitionName || route?.params?.groupName,
+                                  });
+                                }}
+                              >
+                                <View style={styles.outcomesOppTeamCell}>
+                                  <TeamLogoImage
+                                    logoUrl={row?.team_logo_url}
+                                    logoPath={row?.team_logo_path}
+                                    style={styles.outcomesOppLogo}
+                                    fallbackStyle={styles.outcomesOppLogoFallback}
+                                    fallbackIconSize={12}
+                                  />
+                                  <Text style={styles.outcomesOppName} numberOfLines={1} ellipsizeMode="tail">
+                                    {String(row?.name || '—')}
+                                  </Text>
+                                </View>
+                                <Text style={[styles.statsTableCell, styles.outcomesOppNum]}>
+                                  {Number(row?.played || 0)}
+                                </Text>
+                                <Text style={[styles.statsTableCell, styles.outcomesOppNum]}>
+                                  {Number(row?.wins || 0)}
+                                </Text>
+                                <Text style={[styles.statsTableCell, styles.outcomesOppNum]}>
+                                  {Number(row?.draws || 0)}
+                                </Text>
+                                <Text style={[styles.statsTableCell, styles.outcomesOppNum]}>
+                                  {Number(row?.losses || 0)}
+                                </Text>
+                                <Text style={[styles.statsTableCell, styles.outcomesOppPct]}>
+                                  {Number(row?.wins_pct || 0)}%
+                                </Text>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </View>
+                      )}
+                    </View>
+                  ) : null}
                 </View>
 
                 <View style={styles.statsLeaderboardBlock}>
@@ -1992,6 +2182,105 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#334155',
     marginBottom: 4,
+  },
+  statsBlockTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+    paddingVertical: 2,
+  },
+  statsBlockTitleInline: {
+    marginBottom: 0,
+  },
+  outcomesOpponentsWrap: {
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#f1f5f9',
+  },
+  outcomesOpponentsLoading: {
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  outcomesOppHeaderRow: {
+    paddingVertical: 7,
+  },
+  outcomesOppSortableTh: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
+  },
+  outcomesOppThTeam: {
+    flex: 1,
+    minWidth: 0,
+    justifyContent: 'flex-start',
+    paddingRight: 4,
+  },
+  outcomesOppThNum: {
+    width: 30,
+    flexShrink: 0,
+  },
+  outcomesOppThPct: {
+    width: 42,
+    flexShrink: 0,
+    justifyContent: 'flex-end',
+  },
+  outcomesOppHeaderText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#64748b',
+  },
+  outcomesOppHeaderTextActive: {
+    color: '#4f46e5',
+  },
+  outcomesOppRow: {
+    paddingVertical: 7,
+  },
+  outcomesOppRowLast: {
+    borderBottomWidth: 0,
+  },
+  outcomesOppTeamCell: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingRight: 4,
+  },
+  outcomesOppLogo: {
+    width: 20,
+    height: 20,
+  },
+  outcomesOppLogoFallback: {
+    width: 20,
+    height: 20,
+    borderRadius: 4,
+    backgroundColor: '#eef2ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  outcomesOppName: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#1f2937',
+  },
+  outcomesOppNum: {
+    width: 30,
+    textAlign: 'center',
+    flexShrink: 0,
+    fontSize: 12,
+  },
+  outcomesOppPct: {
+    width: 42,
+    textAlign: 'right',
+    flexShrink: 0,
+    fontSize: 12,
+    fontWeight: '700',
   },
   statsLeaderboardBlock: { marginBottom: 18 },
   statsLeaderboardTitle: { fontSize: 15, fontWeight: '800', color: '#1e293b', marginBottom: 8 },
