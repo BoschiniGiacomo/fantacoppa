@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, memo } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
 import {
   View,
   Text,
@@ -722,71 +722,6 @@ export default function InsertVotesScreen({ route, navigation }) {
     return voted;
   };
 
-  // Lista piatta ordinata di tutti i player ID (per navigazione next)
-  const allPlayerIds = teams.reduce((acc, team) => {
-    team.players.forEach(p => acc.push(p.id));
-    return acc;
-  }, []);
-
-  const allPlayerIdsRef = useRef(allPlayerIds);
-  allPlayerIdsRef.current = allPlayerIds;
-
-  const expandedTeamsRef = useRef(expandedTeams);
-  expandedTeamsRef.current = expandedTeams;
-
-  // Trova la squadra di un giocatore
-  const findTeamForPlayer = useCallback((playerId) => {
-    return teamsRef.current.find(t => t.players.some(p => p.id === playerId));
-  }, []);
-
-  const scrollToPlayer = useCallback((playerId) => {
-    const row = playerRowRefsMap.current[playerId];
-    const input = inputRefsMap.current[playerId];
-    const node = row || input;
-    if (!node) return;
-    scrollInputIntoView(node, {
-      fixedAboveKeyboard: VOTE_INPUT_FIXED_ABOVE_KEYBOARD,
-      fallbackHeight: 52,
-    });
-  }, [scrollInputIntoView]);
-
-  const focusNextPlayer = useCallback((currentPlayerId) => {
-    const ids = allPlayerIdsRef.current;
-    const idx = ids.indexOf(currentPlayerId);
-    if (idx < 0 || idx >= ids.length - 1) {
-      Keyboard.dismiss();
-      return;
-    }
-
-    const targetId = ids[idx + 1];
-    const team = findTeamForPlayer(targetId);
-    if (!team) return;
-
-    const needsExpand = !expandedTeamsRef.current[team.id];
-    if (needsExpand) {
-      setExpandedTeams((prev) => ({ ...prev, [team.id]: true }));
-    }
-
-    setTimeout(() => {
-      const nextInput = inputRefsMap.current[targetId];
-      if (nextInput) nextInput.focus();
-      scrollToPlayer(targetId);
-    }, needsExpand ? 150 : 50);
-  }, [findTeamForPlayer, scrollToPlayer]);
-
-  // Funzioni per creare/ottenere ref per un player
-  const getInputRef = useCallback((playerId) => {
-    return (ref) => { inputRefsMap.current[playerId] = ref; };
-  }, []);
-
-  const getRowRef = useCallback((playerId) => {
-    return (ref) => { playerRowRefsMap.current[playerId] = ref; };
-  }, []);
-
-  const toggleTeam = useCallback((teamId) => {
-    setExpandedTeams(prev => ({ ...prev, [teamId]: !prev[teamId] }));
-  }, []);
-
   const roleOrder = { P: 0, D: 1, C: 2, A: 3 };
 
   const toggleSort = useCallback((teamId, key) => {
@@ -805,23 +740,122 @@ export default function InsertVotesScreen({ route, navigation }) {
     const mode = playerSort[teamId] || 'role';
     const asc = playerSortAsc[teamId] !== false;
     const dir = asc ? 1 : -1;
-    const sorted = [...players];
+    const sorted = [...(players || [])];
     if (mode === 'name') {
-      sorted.sort((a, b) => dir * (a.first_name || '').localeCompare(b.first_name || ''));
+      sorted.sort((a, b) => {
+        const byFirst = (a.first_name || '').localeCompare(b.first_name || '', 'it');
+        if (byFirst !== 0) return dir * byFirst;
+        return dir * (a.last_name || '').localeCompare(b.last_name || '', 'it');
+      });
     } else if (mode === 'surname') {
-      sorted.sort((a, b) => dir * (a.last_name || '').localeCompare(b.last_name || ''));
+      sorted.sort((a, b) => {
+        const byLast = (a.last_name || '').localeCompare(b.last_name || '', 'it');
+        if (byLast !== 0) return dir * byLast;
+        return dir * (a.first_name || '').localeCompare(b.first_name || '', 'it');
+      });
     } else if (mode === 'shirt') {
       sorted.sort((a, b) => {
         const na = Number(String(a?.shirt_number ?? '').trim()) || 9999;
         const nb = Number(String(b?.shirt_number ?? '').trim()) || 9999;
         if (na !== nb) return dir * (na - nb);
-        return (a.last_name || '').localeCompare(b.last_name || '');
+        const byLast = (a.last_name || '').localeCompare(b.last_name || '', 'it');
+        if (byLast !== 0) return dir * byLast;
+        return dir * (a.first_name || '').localeCompare(b.first_name || '', 'it');
       });
     } else {
-      sorted.sort((a, b) => dir * ((roleOrder[a.role] ?? 9) - (roleOrder[b.role] ?? 9)));
+      sorted.sort((a, b) => {
+        const ra = roleOrder[a.role] ?? 9;
+        const rb = roleOrder[b.role] ?? 9;
+        if (ra !== rb) return dir * (ra - rb);
+        const byLast = (a.last_name || '').localeCompare(b.last_name || '', 'it');
+        if (byLast !== 0) return dir * byLast;
+        return dir * (a.first_name || '').localeCompare(b.first_name || '', 'it');
+      });
     }
     return sorted;
   }, [playerSort, playerSortAsc]);
+
+  // Lista piatta nell'ordine visuale corrente (sort per squadra), per Succ./next
+  const allPlayerIds = useMemo(() => {
+    const ids = [];
+    (teams || []).forEach((team) => {
+      sortPlayers(team.players, team.id).forEach((p) => {
+        const pid = Number(p.id);
+        if (Number.isFinite(pid) && pid > 0) ids.push(pid);
+      });
+    });
+    return ids;
+  }, [teams, sortPlayers]);
+
+  const allPlayerIdsRef = useRef(allPlayerIds);
+  allPlayerIdsRef.current = allPlayerIds;
+
+  const expandedTeamsRef = useRef(expandedTeams);
+  expandedTeamsRef.current = expandedTeams;
+
+  // Trova la squadra di un giocatore
+  const findTeamForPlayer = useCallback((playerId) => {
+    const pid = Number(playerId);
+    return teamsRef.current.find((t) => t.players.some((p) => Number(p.id) === pid));
+  }, []);
+
+  const scrollToPlayer = useCallback((playerId) => {
+    const pid = Number(playerId);
+    const row = playerRowRefsMap.current[pid] || playerRowRefsMap.current[playerId];
+    const input = inputRefsMap.current[pid] || inputRefsMap.current[playerId];
+    const node = row || input;
+    if (!node) return;
+    scrollInputIntoView(node, {
+      fixedAboveKeyboard: VOTE_INPUT_FIXED_ABOVE_KEYBOARD,
+      fallbackHeight: 52,
+    });
+  }, [scrollInputIntoView]);
+
+  const focusNextPlayer = useCallback((currentPlayerId) => {
+    const ids = allPlayerIdsRef.current;
+    const currentId = Number(currentPlayerId);
+    const idx = ids.findIndex((id) => Number(id) === currentId);
+    if (idx < 0 || idx >= ids.length - 1) {
+      Keyboard.dismiss();
+      return;
+    }
+
+    const targetId = ids[idx + 1];
+    const team = findTeamForPlayer(targetId);
+    if (!team) return;
+
+    const needsExpand = !expandedTeamsRef.current[team.id];
+    if (needsExpand) {
+      setExpandedTeams((prev) => ({ ...prev, [team.id]: true }));
+    }
+
+    setTimeout(() => {
+      const nextInput =
+        inputRefsMap.current[targetId]
+        || inputRefsMap.current[String(targetId)];
+      if (nextInput) nextInput.focus();
+      scrollToPlayer(targetId);
+    }, needsExpand ? 150 : 50);
+  }, [findTeamForPlayer, scrollToPlayer]);
+
+  // Funzioni per creare/ottenere ref per un player
+  const getInputRef = useCallback((playerId) => {
+    return (ref) => {
+      inputRefsMap.current[playerId] = ref;
+      inputRefsMap.current[Number(playerId)] = ref;
+    };
+  }, []);
+
+  const getRowRef = useCallback((playerId) => {
+    return (ref) => {
+      playerRowRefsMap.current[playerId] = ref;
+      playerRowRefsMap.current[Number(playerId)] = ref;
+    };
+  }, []);
+
+  const toggleTeam = useCallback((teamId) => {
+    setExpandedTeams(prev => ({ ...prev, [teamId]: !prev[teamId] }));
+  }, []);
 
   // Controlla se una squadra ha voti già salvati (nel snapshot iniziale)
   const teamHasSavedVotes = useCallback((team) => {
