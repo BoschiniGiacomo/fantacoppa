@@ -270,6 +270,82 @@ function pickPrimaryBirthYearBucket(withYearMap, approvedPlayerMap) {
   return primaryYear;
 }
 
+function splitPlayersForClusterSuggestions(players, approvedPlayerMap) {
+  const approvedByCluster = new Map();
+  const unapproved = [];
+  for (const p of players || []) {
+    const pid = Number(p.id);
+    const cid = approvedPlayerMap.get(pid);
+    if (cid) {
+      if (!approvedByCluster.has(cid)) approvedByCluster.set(cid, []);
+      approvedByCluster.get(cid).push(p);
+    } else {
+      unapproved.push(p);
+    }
+  }
+  return { approvedByCluster, unapproved };
+}
+
+function pushClusterSuggestionIfAny(fullName, groupPlayers, approvedPlayerMap, rejectedPlayerIds, suggestions) {
+  const suggestion = buildClusterSuggestion(fullName, groupPlayers, approvedPlayerMap, rejectedPlayerIds);
+  if (!suggestion) return false;
+  suggestions.push(suggestion);
+  return true;
+}
+
+/** Non unire cluster approvati distinti anche se nome/cognome/anno coincidono. */
+function pushClusterSuggestionsSplitByApprovedCluster(
+  fullName,
+  groupPlayers,
+  approvedPlayerMap,
+  rejectedPlayerIds,
+  suggestions,
+) {
+  if (!groupPlayers || groupPlayers.length < 2) return false;
+
+  const { approvedByCluster, unapproved } = splitPlayersForClusterSuggestions(
+    groupPlayers,
+    approvedPlayerMap,
+  );
+
+  if (approvedByCluster.size === 0) {
+    return pushClusterSuggestionIfAny(
+      fullName,
+      groupPlayers,
+      approvedPlayerMap,
+      rejectedPlayerIds,
+      suggestions,
+    );
+  }
+
+  let pushed = false;
+  for (const clusterPlayers of approvedByCluster.values()) {
+    const combined = unapproved.length ? [...clusterPlayers, ...unapproved] : clusterPlayers;
+    if (combined.length < 2) continue;
+    if (pushClusterSuggestionIfAny(
+      fullName,
+      combined,
+      approvedPlayerMap,
+      rejectedPlayerIds,
+      suggestions,
+    )) {
+      pushed = true;
+    }
+  }
+
+  if (!pushed && unapproved.length >= 2) {
+    return pushClusterSuggestionIfAny(
+      fullName,
+      unapproved,
+      approvedPlayerMap,
+      rejectedPlayerIds,
+      suggestions,
+    );
+  }
+
+  return pushed;
+}
+
 function pushSuggestionsForNameGroup(players, approvedPlayerMap, rejectedPlayerIds, suggestions) {
   const nonRejected = (players || []).filter((p) => !rejectedPlayerIds.has(Number(p.id)));
   if (nonRejected.length < 2) return;
@@ -290,8 +366,13 @@ function pushSuggestionsForNameGroup(players, approvedPlayerMap, rejectedPlayerI
   }
 
   if (withYear.size === 0) {
-    const suggestion = buildClusterSuggestion(fullName, nonRejected, approvedPlayerMap, rejectedPlayerIds);
-    if (suggestion) suggestions.push(suggestion);
+    pushClusterSuggestionsSplitByApprovedCluster(
+      fullName,
+      nonRejected,
+      approvedPlayerMap,
+      rejectedPlayerIds,
+      suggestions,
+    );
     return;
   }
 
@@ -310,9 +391,13 @@ function pushSuggestionsForNameGroup(players, approvedPlayerMap, rejectedPlayerI
     );
     const group = canAttachUnknown ? [...list, ...withoutYear] : [...list];
     if (group.length < 2) continue;
-    const suggestion = buildClusterSuggestion(fullName, group, approvedPlayerMap, rejectedPlayerIds);
-    if (suggestion) {
-      suggestions.push(suggestion);
+    if (pushClusterSuggestionsSplitByApprovedCluster(
+      fullName,
+      group,
+      approvedPlayerMap,
+      rejectedPlayerIds,
+      suggestions,
+    )) {
       pushed = true;
     }
   }
@@ -327,8 +412,13 @@ function pushSuggestionsForNameGroup(players, approvedPlayerMap, rejectedPlayerI
     );
 
   if (!unknownAlreadyUsed && withoutYear.length >= 2) {
-    const suggestion = buildClusterSuggestion(fullName, withoutYear, approvedPlayerMap, rejectedPlayerIds);
-    if (suggestion) suggestions.push(suggestion);
+    pushClusterSuggestionsSplitByApprovedCluster(
+      fullName,
+      withoutYear,
+      approvedPlayerMap,
+      rejectedPlayerIds,
+      suggestions,
+    );
   }
 }
 
