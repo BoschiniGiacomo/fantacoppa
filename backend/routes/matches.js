@@ -1757,91 +1757,31 @@ function formatSearchBirthYearSuffix(birthYear) {
   return `('${String(Math.trunc(y)).slice(-2)})`;
 }
 
-function pickPrimaryTeamDisambiguator(row) {
-  const raw = String(row?.team_name || row?.teamName || '').trim();
-  if (!raw) return null;
-  const firstPart = raw.split(' - ')[0]?.trim() || raw;
-  const name = firstPart.replace(/\s*\(\d+\)\s*$/, '').trim();
-  return name || null;
-}
-
-function countRowsByKey(rows, selector) {
-  const counts = new Map();
-  for (const row of rows || []) {
-    const key = selector(row);
-    if (!key) continue;
-    counts.set(key, (counts.get(key) || 0) + 1);
-  }
-  return counts;
-}
-
 /**
- * Omonimi nella stessa lista: prima ('98) sull'anno di nascita, poi squadra/cluster
- * se nome+anno coincidono ancora (cluster/player distinti restano righe separate).
+ * Omonimi nella stessa lista: aggiunge solo ('98).
+ * Cluster/player diversi restano righe separate (merge per cluster_id / player_id),
+ * anche se nome e anno coincidono: niente suffissi squadra/cluster sul nome.
  */
-function disambiguateDuplicatePlayerNames(rows, { getBirthYear = () => null } = {}) {
+function annotateDuplicateNamesWithBirthYear(rows, { getBirthYear = () => null } = {}) {
   const list = (rows || []).map((row) => ({
     ...row,
     name: String(row?.name || '').trim(),
   }));
   if (list.length < 2) return list;
 
-  const baseCounts = countRowsByKey(list, (row) => row.name.toLowerCase());
-  const duplicateBases = new Set(
-    [...baseCounts.entries()].filter(([, n]) => n >= 2).map(([k]) => k),
-  );
-  if (!duplicateBases.size) return list;
+  const counts = new Map();
+  for (const row of list) {
+    const key = row.name.toLowerCase();
+    if (!key) continue;
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
 
-  let annotated = list.map((row) => {
-    if (!duplicateBases.has(row.name.toLowerCase())) return row;
+  return list.map((row) => {
+    const key = row.name.toLowerCase();
+    if (!key || (counts.get(key) || 0) < 2) return row;
     const birthSuffix = formatSearchBirthYearSuffix(getBirthYear(row));
     if (!birthSuffix) return row;
     return { ...row, name: `${row.name} ${birthSuffix}` };
-  });
-
-  const displayCounts = countRowsByKey(annotated, (row) => row.name.toLowerCase());
-  const duplicateDisplays = new Set(
-    [...displayCounts.entries()].filter(([, n]) => n >= 2).map(([k]) => k),
-  );
-  if (!duplicateDisplays.size) return annotated;
-
-  const teamLabelsByDisplay = new Map();
-  annotated = annotated.map((row) => {
-    const displayKey = row.name.toLowerCase();
-    if (!duplicateDisplays.has(displayKey)) return row;
-
-    const team = pickPrimaryTeamDisambiguator(row);
-    if (!team) return row;
-
-    const usedTeams = teamLabelsByDisplay.get(displayKey) || new Map();
-    const teamKey = team.toLowerCase();
-    let label = team;
-    if (usedTeams.has(teamKey)) {
-      const cid = Number(row.cluster_id);
-      if (cid > 0) label = `${team} (C${cid})`;
-      else {
-        const pid = Number(row.player_id);
-        if (pid > 0) label = `${team} (#${pid})`;
-      }
-    }
-    usedTeams.set(teamKey, (usedTeams.get(teamKey) || 0) + 1);
-    teamLabelsByDisplay.set(displayKey, usedTeams);
-    return { ...row, name: `${row.name} · ${label}` };
-  });
-
-  const finalCounts = countRowsByKey(annotated, (row) => row.name.toLowerCase());
-  const stillDuplicate = new Set(
-    [...finalCounts.entries()].filter(([, n]) => n >= 2).map(([k]) => k),
-  );
-  if (!stillDuplicate.size) return annotated;
-
-  return annotated.map((row) => {
-    if (!stillDuplicate.has(row.name.toLowerCase())) return row;
-    const cid = Number(row.cluster_id);
-    if (cid > 0) return { ...row, name: `${row.name} · C${cid}` };
-    const pid = Number(row.player_id);
-    if (pid > 0) return { ...row, name: `${row.name} · #${pid}` };
-    return row;
   });
 }
 
@@ -1852,24 +1792,30 @@ function annotateDuplicateSearchPlayerNames(players) {
     return list.map(({ birth_year: _birthYear, reference_year: _referenceYear, ...player }) => player);
   }
 
-  const disambiguated = disambiguateDuplicatePlayerNames(list, {
+  const annotated = annotateDuplicateNamesWithBirthYear(list, {
     getBirthYear: (row) => row.birth_year,
   });
 
-  return disambiguated.map(({ birth_year: _birthYear, reference_year: _referenceYear, ...player }) => player);
+  return annotated.map(({ birth_year: _birthYear, reference_year: _referenceYear, ...player }) => player);
 }
 
 /**
  * Come la ricerca: in una classifica stats, se 2+ righe hanno stesso nome,
- * aggiunge ('98) e, se serve, squadra/cluster per distinguere omonimi con stesso anno.
+ * aggiunge ('98). Righe di cluster/player diversi restano separate anche con stesso anno.
  */
 async function annotateDuplicateLeaderboardPlayerNames(rows) {
   const list = Array.isArray(rows) ? rows : [];
   if (list.length < 2) return list;
 
-  const baseCounts = countRowsByKey(list, (row) => String(row?.name || '').trim().toLowerCase());
+  const counts = new Map();
+  for (const row of list) {
+    const key = String(row?.name || '').trim().toLowerCase();
+    if (!key) continue;
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+
   const duplicateKeys = new Set(
-    [...baseCounts.entries()].filter(([, n]) => n >= 2).map(([k]) => k),
+    [...counts.entries()].filter(([, n]) => n >= 2).map(([k]) => k),
   );
   if (!duplicateKeys.size) return list;
 
@@ -1898,11 +1844,9 @@ async function annotateDuplicateLeaderboardPlayerNames(rows) {
     }
   }
 
-  const disambiguated = disambiguateDuplicatePlayerNames(list, {
+  return annotateDuplicateNamesWithBirthYear(list, {
     getBirthYear: (row) => birthByPlayer.get(Number(row.player_id)),
-  });
-
-  return disambiguated.map(({ cluster_id: _clusterId, ...row }) => row);
+  }).map(({ cluster_id: _clusterId, ...row }) => row);
 }
 
 async function mapPlayerIdsToApprovedClusters(groupId, playerIds) {
