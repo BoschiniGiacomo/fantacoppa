@@ -566,9 +566,14 @@ export const matchesService = {
           : (referenceYear != null ? { reference_year: referenceYear } : {})),
       },
     }),
-  getOfficialTeamOpponentRecords: (teamId, competitionId) =>
+  getOfficialTeamOpponentRecords: (teamId, competitionId, referenceYear = null) =>
     api.get(`matches/teams/${teamId}/opponent-records`, {
-      params: { competition_id: competitionId },
+      params: {
+        competition_id: competitionId,
+        ...(referenceYear === 'absolute'
+          ? { mode: 'absolute' }
+          : (referenceYear != null ? { reference_year: referenceYear } : {})),
+      },
       timeout: 60000,
     }),
   getOfficialTeamTrophies: (teamId, competitionId) =>

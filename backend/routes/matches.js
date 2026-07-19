@@ -3389,14 +3389,25 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
   }
 });
 
-// GET /matches/teams/:teamId/opponent-records?competition_id=xx
-// Bilancio assoluto vs ogni avversario (sempre tutte le stagioni ufficiali del gruppo).
+// GET /matches/teams/:teamId/opponent-records?competition_id=xx&reference_year=yyyy|mode=absolute
+// Bilancio vs ogni avversario: filtrato per anno selezionato; totali solo in modalità Assolute.
 router.get('/matches/teams/:teamId/opponent-records', authenticateToken, async (req, res) => {
   try {
     const teamId = Number(req.params.teamId);
     const competitionId = Number(req.query?.competition_id);
+    const referenceYearRaw = req.query?.reference_year;
+    const statsModeRaw = String(req.query?.mode || '').trim().toLowerCase();
+    const isAbsoluteMode = statsModeRaw === 'absolute' || String(referenceYearRaw || '').trim().toLowerCase() === 'absolute';
+    const requestedYear =
+      isAbsoluteMode || referenceYearRaw == null || String(referenceYearRaw).trim() === ''
+        ? null
+        : Number(referenceYearRaw);
+
     if (!teamId || teamId <= 0) return res.status(400).json({ message: 'teamId non valido' });
     if (!competitionId || competitionId <= 0) return res.status(400).json({ message: 'competition_id non valido' });
+    if (requestedYear != null && !Number.isFinite(requestedYear)) {
+      return res.status(400).json({ message: 'reference_year non valido' });
+    }
 
     const seasonLeagues = await query(
       `SELECT root.id AS team_id, root.name AS team_name,
@@ -3414,18 +3425,59 @@ router.get('/matches/teams/:teamId/opponent-records', authenticateToken, async (
     if (!teamName) {
       const fb = await query(`SELECT name FROM teams WHERE id = ? LIMIT 1`, [teamId]);
       if (!fb[0]) return res.status(404).json({ message: 'Squadra non trovata' });
-      return res.json({ team: { id: teamId, name: String(fb[0].name || '').trim() }, opponents: [] });
+      return res.json({
+        team: { id: teamId, name: String(fb[0].name || '').trim() },
+        available_years: [],
+        selected_year: null,
+        opponents: [],
+      });
     }
 
-    const targetLeagueIds = Array.from(
+    const availableYears = Array.from(
       new Set(
         (Array.isArray(seasonLeagues) ? seasonLeagues : [])
-          .map((r) => Number(r.league_id))
-          .filter((id) => Number.isFinite(id) && id > 0)
+          .map((r) => Number(r.reference_year))
+          .filter((y) => Number.isFinite(y))
       )
-    );
+    ).sort((a, b) => b - a);
+
+    const selectedYear = isAbsoluteMode
+      ? 'absolute'
+      : (
+        requestedYear != null && Number.isFinite(requestedYear)
+          ? Math.trunc(requestedYear)
+          : availableYears.length > 0
+            ? availableYears[0]
+            : null
+      );
+
+    const targetLeagueIds = isAbsoluteMode
+      ? Array.from(
+        new Set(
+          (Array.isArray(seasonLeagues) ? seasonLeagues : [])
+            .map((r) => Number(r.league_id))
+            .filter((id) => Number.isFinite(id) && id > 0)
+        )
+      )
+      : (() => {
+        let selectedLeagueId = null;
+        if (selectedYear != null && Number.isFinite(Number(selectedYear))) {
+          const hit = (seasonLeagues || []).find((r) => Number(r.reference_year) === Number(selectedYear));
+          selectedLeagueId = hit ? Number(hit.league_id) : null;
+        }
+        if (!selectedLeagueId) {
+          selectedLeagueId = Number((seasonLeagues || [])[0]?.league_id || 0) || null;
+        }
+        return selectedLeagueId ? [selectedLeagueId] : [];
+      })();
+
     if (targetLeagueIds.length === 0) {
-      return res.json({ team: { id: teamId, name: teamName }, opponents: [] });
+      return res.json({
+        team: { id: teamId, name: teamName },
+        available_years: availableYears,
+        selected_year: selectedYear,
+        opponents: [],
+      });
     }
 
     const phLeagueIds = targetLeagueIds.map(() => '?').join(', ');
@@ -3455,7 +3507,12 @@ router.get('/matches/teams/:teamId/opponent-records', authenticateToken, async (
       (seasonTeamRows || []).map((r) => Number(r.id)).filter((id) => Number.isFinite(id) && id > 0)
     );
     if (seasonTeamIds.size === 0) {
-      return res.json({ team: { id: teamId, name: teamName }, opponents: [] });
+      return res.json({
+        team: { id: teamId, name: teamName },
+        available_years: availableYears,
+        selected_year: selectedYear,
+        opponents: [],
+      });
     }
 
     const relevantMatches = (seasonMatches || []).filter((m) => {
@@ -3576,6 +3633,8 @@ router.get('/matches/teams/:teamId/opponent-records', authenticateToken, async (
 
     return res.json({
       team: { id: teamId, name: teamName },
+      available_years: availableYears,
+      selected_year: selectedYear,
       opponents,
     });
   } catch (err) {

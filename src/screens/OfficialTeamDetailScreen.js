@@ -684,13 +684,25 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
     setOutcomesOpponentsSort({ key: 'played', asc: false });
   }, [teamId, competitionId]);
 
+  useEffect(() => {
+    outcomesOpponentsLoadSeqRef.current += 1;
+    setOutcomesOpponents([]);
+    setOutcomesOpponentsLoaded(false);
+    setOutcomesOpponentsLoading(false);
+  }, [selectedStatsYear]);
+
   const loadOutcomesOpponents = useCallback(async () => {
     if (!teamId || !competitionId) return;
+    const rawYear = selectedStatsYearRef.current;
+    const targetYear =
+      rawYear === ABSOLUTE_STATS_KEY || String(rawYear || '').toLowerCase() === ABSOLUTE_STATS_KEY
+        ? ABSOLUTE_STATS_KEY
+        : rawYear;
     outcomesOpponentsLoadSeqRef.current += 1;
     const seq = outcomesOpponentsLoadSeqRef.current;
     try {
       setOutcomesOpponentsLoading(true);
-      const res = await matchesService.getOfficialTeamOpponentRecords(teamId, competitionId);
+      const res = await matchesService.getOfficialTeamOpponentRecords(teamId, competitionId, targetYear);
       if (seq !== outcomesOpponentsLoadSeqRef.current) return;
       setOutcomesOpponents(Array.isArray(res?.data?.opponents) ? res.data.opponents : []);
       setOutcomesOpponentsLoaded(true);
@@ -717,6 +729,7 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
     outcomesOpponentsLoaded,
     outcomesOpponentsLoading,
     loadOutcomesOpponents,
+    selectedStatsYear,
   ]);
 
   const toggleOutcomesOpponentsSort = useCallback((key) => {
