@@ -1758,9 +1758,9 @@ function formatSearchBirthYearSuffix(birthYear) {
 }
 
 /**
- * Omonimi nella stessa lista: aggiunge solo ('98).
- * Cluster/player diversi restano righe separate (merge per cluster_id / player_id),
- * anche se nome e anno coincidono: niente suffissi squadra/cluster sul nome.
+ * Omonimi nella stessa lista: aggiunge solo ('98) al nome visualizzato.
+ * Non unisce mai le righe: cluster/player diversi restano record separati
+ * anche con nome e anno identici.
  */
 function annotateDuplicateNamesWithBirthYear(rows, { getBirthYear = () => null } = {}) {
   const list = (rows || []).map((row) => ({
@@ -1801,7 +1801,7 @@ function annotateDuplicateSearchPlayerNames(players) {
 
 /**
  * Come la ricerca: in una classifica stats, se 2+ righe hanno stesso nome,
- * aggiunge ('98). Righe di cluster/player diversi restano separate anche con stesso anno.
+ * aggiunge ('98) solo al label. Le righe restano separate (identità = cluster_id/player_id).
  */
 async function annotateDuplicateLeaderboardPlayerNames(rows) {
   const list = Array.isArray(rows) ? rows : [];
@@ -1846,7 +1846,7 @@ async function annotateDuplicateLeaderboardPlayerNames(rows) {
 
   return annotateDuplicateNamesWithBirthYear(list, {
     getBirthYear: (row) => birthByPlayer.get(Number(row.player_id)),
-  }).map(({ cluster_id: _clusterId, ...row }) => row);
+  });
 }
 
 async function mapPlayerIdsToApprovedClusters(groupId, playerIds) {
@@ -2861,15 +2861,17 @@ async function mergeAbsoluteStatsByCluster(perPlayer, officialGroupId) {
   }
 
   const buckets = new Map();
+  let orphanSeq = 0;
   for (const e of entries) {
     const pid = Number(e.player_id);
     const clusterId = playerToCluster.get(pid);
     const entryLeagueId = Number(e.league_id) > 0 ? Number(e.league_id) : null;
+    // Mai raggruppare per nome: omonimi diversi (anche stesso anno) restano righe separate.
     const key = clusterId
       ? `c:${clusterId}`
       : (Number.isFinite(pid) && pid > 0
         ? `p:${pid}`
-        : `n:${String(e.name || '').trim().toLowerCase()}|l:${entryLeagueId || 0}`);
+        : `orphan:${++orphanSeq}`);
     const prev = buckets.get(key);
     if (!prev) {
       const teamTotals = new Map();
@@ -3218,7 +3220,8 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
       const pid = Number(playerId);
       const name = String(playerName || '').trim();
       if (!name) return;
-      const key = Number.isFinite(pid) && pid > 0 ? `p:${pid}` : `n:${name}`;
+      // Mai unire per solo nome: senza player_id resta una riga a sé.
+      const key = Number.isFinite(pid) && pid > 0 ? `p:${pid}` : `orphan:${map.size}:${name}`;
       const teamId = Number.isFinite(pid) && pid > 0 ? Number(playerTeamMap.get(pid)) : null;
       const leagueId = Number.isFinite(teamId) && teamId > 0 ? Number(teamLeagueMap.get(teamId)) : null;
       const prev = map.get(key);
@@ -4134,6 +4137,7 @@ async function computeOfficialGroupSeasonStatsCore(
   const assistsMap = new Map();
   const yellowCardsMap = new Map();
   const redCardsMap = new Map();
+  let orphanLeaderboardSeq = 0;
 
   const bumpLeaderboard = (map, key, name, teamName, playerId = null) => {
     const label = String(name || '').trim();
@@ -4161,9 +4165,10 @@ async function computeOfficialGroupSeasonStatsCore(
   const leaderboardKey = (playerId, name, teamId) => {
     const pid = Number(playerId);
     if (Number.isFinite(pid) && pid > 0) return `p:${pid}`;
+    // Senza player_id non unire per nome (omonimi diversi restano separati).
     const tid = Number(teamId);
     const teamPart = Number.isFinite(tid) && tid > 0 ? String(tid) : '-';
-    return `n:${String(name || '').trim()}|t:${teamPart}`;
+    return `orphan:${++orphanLeaderboardSeq}:${teamPart}`;
   };
 
   for (const m of seasonMatches || []) {

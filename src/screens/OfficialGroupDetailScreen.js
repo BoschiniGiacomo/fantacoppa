@@ -608,11 +608,15 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
           const playerName = String(s?.name || '-');
           const teamName = String(s?.team_name || '').trim();
           const playerId = Number(s?.player_id);
+          const clusterId = Number(s?.cluster_id);
           const leagueId = Number(s?.league_id);
           const canOpenPlayer = playerId > 0 && leagueId > 0;
+          const rowKey = clusterId > 0
+            ? `${tableKey}-c-${clusterId}`
+            : (playerId > 0 ? `${tableKey}-p-${playerId}` : `${tableKey}-${playerName}-${i}`);
           return (
             <TouchableOpacity
-              key={`${tableKey}-${playerId || playerName}-${i}`}
+              key={rowKey}
               style={styles.statsTableRow}
               activeOpacity={canOpenPlayer ? 0.7 : 1}
               disabled={!canOpenPlayer}

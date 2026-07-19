@@ -286,6 +286,53 @@ function splitPlayersForClusterSuggestions(players, approvedPlayerMap) {
   return { approvedByCluster, unapproved };
 }
 
+function playerSeasonKey(player) {
+  const year = Number(player?.reference_year);
+  if (Number.isFinite(year)) return `y:${year}`;
+  const leagueId = Number(player?.league_id);
+  if (Number.isFinite(leagueId) && leagueId > 0) return `l:${leagueId}`;
+  return `p:${Number(player?.id) || 0}`;
+}
+
+function bucketConflictsWithPlayer(bucket, player) {
+  const seasonKey = playerSeasonKey(player);
+  const leagueId = Number(player?.league_id);
+  return (bucket || []).some((existing) => {
+    if (playerSeasonKey(existing) === seasonKey) return true;
+    const existingLeague = Number(existing?.league_id);
+    return (
+      Number.isFinite(leagueId)
+      && leagueId > 0
+      && Number.isFinite(existingLeague)
+      && existingLeague === leagueId
+    );
+  });
+}
+
+/**
+ * Omonimi (anche stesso anno di nascita) nella stessa stagione/lega = persone diverse.
+ * Partiziona in bucket "persona" senza conflitti di stagione/lega.
+ */
+function partitionHomonymsIntoPersonBuckets(players) {
+  const buckets = [];
+  const sorted = [...(players || [])].sort((a, b) => (
+    (Number(a.reference_year) || 0) - (Number(b.reference_year) || 0)
+    || (Number(a.league_id) || 0) - (Number(b.league_id) || 0)
+    || (Number(a.id) || 0) - (Number(b.id) || 0)
+  ));
+  for (const player of sorted) {
+    let placed = false;
+    for (const bucket of buckets) {
+      if (bucketConflictsWithPlayer(bucket, player)) continue;
+      bucket.push(player);
+      placed = true;
+      break;
+    }
+    if (!placed) buckets.push([player]);
+  }
+  return buckets;
+}
+
 function pushClusterSuggestionIfAny(fullName, groupPlayers, approvedPlayerMap, rejectedPlayerIds, suggestions) {
   const suggestion = buildClusterSuggestion(fullName, groupPlayers, approvedPlayerMap, rejectedPlayerIds);
   if (!suggestion) return false;
@@ -293,7 +340,7 @@ function pushClusterSuggestionIfAny(fullName, groupPlayers, approvedPlayerMap, r
   return true;
 }
 
-/** Non unire cluster approvati distinti anche se nome/cognome/anno coincidono. */
+/** Non unire cluster approvati distinti né omonimi della stessa stagione. */
 function pushClusterSuggestionsSplitByApprovedCluster(
   fullName,
   groupPlayers,
@@ -308,19 +355,38 @@ function pushClusterSuggestionsSplitByApprovedCluster(
     approvedPlayerMap,
   );
 
+  const personBuckets = partitionHomonymsIntoPersonBuckets(unapproved);
+  let pushed = false;
+
   if (approvedByCluster.size === 0) {
-    return pushClusterSuggestionIfAny(
-      fullName,
-      groupPlayers,
-      approvedPlayerMap,
-      rejectedPlayerIds,
-      suggestions,
-    );
+    for (const bucket of personBuckets) {
+      if (bucket.length < 2) continue;
+      if (pushClusterSuggestionIfAny(
+        fullName,
+        bucket,
+        approvedPlayerMap,
+        rejectedPlayerIds,
+        suggestions,
+      )) {
+        pushed = true;
+      }
+    }
+    return pushed;
   }
 
-  let pushed = false;
+  const unusedUnapproved = new Set(unapproved.map((p) => Number(p.id)));
+
   for (const clusterPlayers of approvedByCluster.values()) {
-    const combined = unapproved.length ? [...clusterPlayers, ...unapproved] : clusterPlayers;
+    const compatible = [];
+    for (const player of unapproved) {
+      const pid = Number(player.id);
+      if (!unusedUnapproved.has(pid)) continue;
+      if (bucketConflictsWithPlayer(clusterPlayers, player)) continue;
+      if (bucketConflictsWithPlayer(compatible, player)) continue;
+      compatible.push(player);
+    }
+    for (const player of compatible) unusedUnapproved.delete(Number(player.id));
+    const combined = [...clusterPlayers, ...compatible];
     if (combined.length < 2) continue;
     if (pushClusterSuggestionIfAny(
       fullName,
@@ -333,14 +399,18 @@ function pushClusterSuggestionsSplitByApprovedCluster(
     }
   }
 
-  if (!pushed && unapproved.length >= 2) {
-    return pushClusterSuggestionIfAny(
+  const leftover = unapproved.filter((p) => unusedUnapproved.has(Number(p.id)));
+  for (const bucket of partitionHomonymsIntoPersonBuckets(leftover)) {
+    if (bucket.length < 2) continue;
+    if (pushClusterSuggestionIfAny(
       fullName,
-      unapproved,
+      bucket,
       approvedPlayerMap,
       rejectedPlayerIds,
       suggestions,
-    );
+    )) {
+      pushed = true;
+    }
   }
 
   return pushed;
