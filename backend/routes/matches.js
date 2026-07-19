@@ -1766,48 +1766,12 @@ function leaderboardBaseNameKey(name) {
   return stripBirthYearNameSuffix(name).toLowerCase();
 }
 
-function shouldLogLeaderboardHomonym(name) {
-  const n = leaderboardBaseNameKey(name);
-  return n.includes('albertini') || n.includes('davide albertini');
-}
-
-function logLeaderboardHomonyms(tag, rows, extra = null) {
-  const list = Array.isArray(rows) ? rows : [];
-  const byBase = new Map();
-  for (const row of list) {
-    const base = leaderboardBaseNameKey(row?.name);
-    if (!base) continue;
-    if (!byBase.has(base)) byBase.set(base, []);
-    byBase.get(base).push(row);
-  }
-  const interesting = [...byBase.entries()].filter(([base, group]) => (
-    group.length >= 2 || shouldLogLeaderboardHomonym(base)
-  ));
-  if (!interesting.length && !extra) return;
-
-  console.log(`[LeaderboardHomonyms] ${tag}`, {
-    total_rows: list.length,
-    duplicate_base_names: interesting.length,
-    ...(extra || {}),
-  });
-  for (const [base, group] of interesting) {
-    console.log(`[LeaderboardHomonyms] ${tag} · "${base}" x${group.length}`, group.map((row) => ({
-      name: row?.name,
-      value: row?.value,
-      player_id: row?.player_id ?? null,
-      cluster_id: row?.cluster_id ?? null,
-      league_id: row?.league_id ?? null,
-      team_name: row?.team_name ?? null,
-    })));
-  }
-}
-
 /**
  * Omonimi nella stessa lista: aggiunge solo ('98) al nome visualizzato.
  * Non unisce mai le righe: cluster/player diversi restano record separati
  * anche con nome e anno identici. Idempotente se il suffisso c'è già.
  */
-function annotateDuplicateNamesWithBirthYear(rows, { getBirthYear = () => null, logTag = null } = {}) {
+function annotateDuplicateNamesWithBirthYear(rows, { getBirthYear = () => null } = {}) {
   const list = (rows || []).map((row) => ({
     ...row,
     name: String(row?.name || '').trim(),
@@ -1821,51 +1785,17 @@ function annotateDuplicateNamesWithBirthYear(rows, { getBirthYear = () => null, 
     counts.set(key, (counts.get(key) || 0) + 1);
   }
 
-  if (logTag) {
-    logLeaderboardHomonyms(`${logTag}:before-annotate`, list);
-  }
-
-  const out = list.map((row) => {
+  return list.map((row) => {
     const baseName = stripBirthYearNameSuffix(row.name);
     const key = baseName.toLowerCase();
     if (!key || (counts.get(key) || 0) < 2) {
-      // Normalizza eventuali doppi suffissi residui anche su non-duplicati.
-      if (baseName !== row.name && !shouldLogLeaderboardHomonym(row.name)) {
-        return { ...row, name: baseName };
-      }
-      if (/\('\d{2}\)\s*\('\d{2}\)\s*$/u.test(row.name)) {
-        console.log('[LeaderboardHomonyms] stripped-double-suffix', {
-          from: row.name,
-          to: baseName,
-          player_id: row.player_id,
-          cluster_id: row.cluster_id,
-        });
-        return { ...row, name: baseName };
-      }
-      return row;
+      // Togli eventuali doppi suffissi residui.
+      return baseName !== row.name ? { ...row, name: baseName } : row;
     }
     const birthSuffix = formatSearchBirthYearSuffix(getBirthYear(row));
     if (!birthSuffix) return { ...row, name: baseName };
-    const nextName = `${baseName} ${birthSuffix}`;
-    if (shouldLogLeaderboardHomonym(baseName) || String(row.name) !== nextName) {
-      if (shouldLogLeaderboardHomonym(baseName) || /\('\d{2}\)/u.test(String(row.name))) {
-        console.log('[LeaderboardHomonyms] annotate-row', {
-          from: row.name,
-          to: nextName,
-          birth_year: getBirthYear(row) ?? null,
-          player_id: row.player_id ?? null,
-          cluster_id: row.cluster_id ?? null,
-          value: row.value ?? null,
-        });
-      }
-    }
-    return { ...row, name: nextName };
+    return { ...row, name: `${baseName} ${birthSuffix}` };
   });
-
-  if (logTag) {
-    logLeaderboardHomonyms(`${logTag}:after-annotate`, out);
-  }
-  return out;
 }
 
 /** Per omonimi nei risultati (2+ stesso nome+cognome) aggiunge ('98) per distinguerli. */
@@ -1877,7 +1807,6 @@ function annotateDuplicateSearchPlayerNames(players) {
 
   const annotated = annotateDuplicateNamesWithBirthYear(list, {
     getBirthYear: (row) => row.birth_year,
-    logTag: 'search',
   });
 
   return annotated.map(({ birth_year: _birthYear, reference_year: _referenceYear, ...player }) => player);
@@ -1887,7 +1816,7 @@ function annotateDuplicateSearchPlayerNames(players) {
  * Come la ricerca: in una classifica stats, se 2+ righe hanno stesso nome,
  * aggiunge ('98) solo al label. Le righe restano separate (identità = cluster_id/player_id).
  */
-async function annotateDuplicateLeaderboardPlayerNames(rows, logTag = 'leaderboard') {
+async function annotateDuplicateLeaderboardPlayerNames(rows) {
   const list = Array.isArray(rows) ? rows : [];
   if (list.length < 2) return list;
 
@@ -1901,16 +1830,12 @@ async function annotateDuplicateLeaderboardPlayerNames(rows, logTag = 'leaderboa
   const duplicateKeys = new Set(
     [...counts.entries()].filter(([, n]) => n >= 2).map(([k]) => k),
   );
-  const hasAlbertini = [...counts.keys()].some((k) => shouldLogLeaderboardHomonym(k));
-  if (!duplicateKeys.size && !hasAlbertini) return list;
+  if (!duplicateKeys.size) return list;
 
   const playerIds = [
     ...new Set(
       list
-        .filter((row) => {
-          const key = leaderboardBaseNameKey(row?.name);
-          return duplicateKeys.has(key) || shouldLogLeaderboardHomonym(key);
-        })
+        .filter((row) => duplicateKeys.has(leaderboardBaseNameKey(row?.name)))
         .map((row) => Number(row.player_id))
         .filter((id) => id > 0),
     ),
@@ -1932,17 +1857,8 @@ async function annotateDuplicateLeaderboardPlayerNames(rows, logTag = 'leaderboa
     }
   }
 
-  if (hasAlbertini || duplicateKeys.size) {
-    console.log(`[LeaderboardHomonyms] ${logTag}:birth-lookup`, {
-      player_ids: playerIds,
-      birth_by_player: Object.fromEntries([...birthByPlayer.entries()]),
-      duplicate_bases: [...duplicateKeys],
-    });
-  }
-
   return annotateDuplicateNamesWithBirthYear(list, {
     getBirthYear: (row) => birthByPlayer.get(Number(row.player_id)),
-    logTag,
   });
 }
 
@@ -2969,19 +2885,6 @@ async function mergeAbsoluteStatsByCluster(perPlayer, officialGroupId) {
       : (Number.isFinite(pid) && pid > 0
         ? `p:${pid}`
         : `orphan:${++orphanSeq}`);
-    if (shouldLogLeaderboardHomonym(e.name)) {
-      console.log('[LeaderboardHomonyms] merge-input', {
-        group_id: groupId,
-        key,
-        name: e.name,
-        value: e.value,
-        player_id: pid > 0 ? pid : null,
-        cluster_id: clusterId || null,
-        league_id: entryLeagueId,
-        team_name: e.team_name || null,
-        already_in_bucket: buckets.has(key),
-      });
-    }
     const prev = buckets.get(key);
     if (!prev) {
       const teamTotals = new Map();
@@ -2997,20 +2900,6 @@ async function mergeAbsoluteStatsByCluster(perPlayer, officialGroupId) {
       });
       continue;
     }
-    if (shouldLogLeaderboardHomonym(e.name) || shouldLogLeaderboardHomonym(prev.name)) {
-      console.log('[LeaderboardHomonyms] merge-accumulate', {
-        group_id: groupId,
-        key,
-        prev_name: prev.name,
-        prev_value: prev.value,
-        prev_player_id: prev.player_id,
-        prev_cluster_id: prev.cluster_id,
-        add_name: e.name,
-        add_value: e.value,
-        add_player_id: pid > 0 ? pid : null,
-        add_cluster_id: clusterId || null,
-      });
-    }
     prev.value += Number(e.value) || 0;
     bumpAbsoluteTeamTotal(prev.teamTotals, e.team_name, e.value);
     const v = Number(e.value) || 0;
@@ -3022,25 +2911,19 @@ async function mergeAbsoluteStatsByCluster(perPlayer, officialGroupId) {
     }
   }
 
-  const mergedRows = [...buckets.values()]
-    .filter((b) => b.value > 0)
-    .map((b) => ({
-      name: b.name,
-      team_name: formatAbsoluteTeamBreakdown(b.teamTotals),
-      value: b.value,
-      player_id: b.player_id || null,
-      league_id: b.league_id || null,
-      cluster_id: b.cluster_id || null,
-    }))
-    .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name, 'it'));
-
-  logLeaderboardHomonyms('mergeAbsoluteStatsByCluster:after-merge', mergedRows, {
-    group_id: groupId,
-    input_entries: entries.length,
-    output_buckets: mergedRows.length,
-  });
-
-  return annotateDuplicateLeaderboardPlayerNames(mergedRows, `mergeAbsolute:g${groupId}`);
+  return annotateDuplicateLeaderboardPlayerNames(
+    [...buckets.values()]
+      .filter((b) => b.value > 0)
+      .map((b) => ({
+        name: b.name,
+        team_name: formatAbsoluteTeamBreakdown(b.teamTotals),
+        value: b.value,
+        player_id: b.player_id || null,
+        league_id: b.league_id || null,
+        cluster_id: b.cluster_id || null,
+      }))
+      .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name, 'it')),
+  );
 }
 
 async function mergeAbsolutePresencesByCluster(perPlayer, officialGroupId) {
@@ -3482,15 +3365,9 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
       scorers = await mergeAbsoluteStatsByCluster(scorers, competitionId);
       assistmen = await mergeAbsoluteStatsByCluster(assistmen, competitionId);
     } else {
-      scorers = await annotateDuplicateLeaderboardPlayerNames(scorers, `team-season-scorers:${selectedYear}`);
-      assistmen = await annotateDuplicateLeaderboardPlayerNames(assistmen, `team-season-assist:${selectedYear}`);
+      scorers = await annotateDuplicateLeaderboardPlayerNames(scorers);
+      assistmen = await annotateDuplicateLeaderboardPlayerNames(assistmen);
     }
-    logLeaderboardHomonyms('team-season-stats:response-scorers', scorers, {
-      team_id: teamId,
-      competition_id: competitionId,
-      selected_year: selectedYear,
-      absolute: !!isAbsoluteMode,
-    });
 
     return res.json({
       team: { id: teamId, name: teamName },
@@ -4407,18 +4284,12 @@ async function computeOfficialGroupSeasonStatsCore(
 
   const presences = await presencesPromise;
   const [scorers, assistmen, yellow_cards, red_cards, presenceRows] = await Promise.all([
-    annotateDuplicateLeaderboardPlayerNames(listFromMap(scorersMap), `core-scorers:g${compId}`),
-    annotateDuplicateLeaderboardPlayerNames(listFromMap(assistsMap), `core-assist:g${compId}`),
-    annotateDuplicateLeaderboardPlayerNames(listFromMap(yellowCardsMap), `core-yellow:g${compId}`),
-    annotateDuplicateLeaderboardPlayerNames(listFromMap(redCardsMap), `core-red:g${compId}`),
-    annotateDuplicateLeaderboardPlayerNames(Array.isArray(presences) ? presences : [], `core-pres:g${compId}`),
+    annotateDuplicateLeaderboardPlayerNames(listFromMap(scorersMap)),
+    annotateDuplicateLeaderboardPlayerNames(listFromMap(assistsMap)),
+    annotateDuplicateLeaderboardPlayerNames(listFromMap(yellowCardsMap)),
+    annotateDuplicateLeaderboardPlayerNames(listFromMap(redCardsMap)),
+    annotateDuplicateLeaderboardPlayerNames(Array.isArray(presences) ? presences : []),
   ]);
-
-  logLeaderboardHomonyms(`core:g${compId}:out-scorers`, scorers, {
-    league_ids: leagueIds,
-    absolute: !!isAbsoluteMode,
-    keep_player_ids: !!keepPlayerIds,
-  });
   return {
     scorers,
     assistmen,
@@ -4880,18 +4751,6 @@ router.get('/matches/groups/:groupId/season-stats', authenticateToken, async (re
       })();
 
     const stats = await computeOfficialGroupSeasonStats(groupId, targetLeagueIds, isAbsoluteMode);
-
-    logLeaderboardHomonyms('group-season-stats:response-scorers', stats.scorers, {
-      group_id: groupId,
-      selected_year: selectedYear,
-      absolute: !!isAbsoluteMode,
-      league_ids: targetLeagueIds,
-    });
-    logLeaderboardHomonyms('group-season-stats:response-presences', stats.presences, {
-      group_id: groupId,
-      selected_year: selectedYear,
-      absolute: !!isAbsoluteMode,
-    });
 
     return res.json({
       group: { id: groupId, name: String(group.name || '').trim() },
