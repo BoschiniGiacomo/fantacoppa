@@ -183,7 +183,7 @@ function VotesBonusMalusBlock({
       return (
         <View key={item.key} style={[styles.bonusInlineItem, styles.bonusInlineItemLocked]}>
           <BonusIcon type={item.icon} size={14} />
-          <Text style={styles.bonusInlineValueLocked}>{pv[item.field] || 0}</Text>
+          <Text style={styles.bonusInlineValueLocked}>{Number(pv[item.field] || 0)}</Text>
         </View>
       );
     }
@@ -226,12 +226,24 @@ function VotesBonusMalusBlock({
         if (w > 0 && w !== containerWidth) setContainerWidth(w);
       }}
     >
-      <View style={styles.bonusMeasureRow} pointerEvents="none">
+      {/*
+        Riga di sola misura: deve restare fuori schermo.
+        Prima era opacity:0 sovrapposta alla riga reale → su alcuni device i numeri
+        live (gol/assist) comparivano “raddoppiati” (es. 2 al posto di 1) pur essendo 1 nello stato.
+      */}
+      <View
+        style={styles.bonusMeasureRow}
+        pointerEvents="none"
+        accessible={false}
+        importantForAccessibility="no-hide-descendants"
+        collapsable={false}
+      >
         {visibleItems.map((item) => (
           <View
             key={`measure-${item.key}-${pv[item.field] || 0}`}
             style={styles.bonusMeasureItem}
             onLayout={(e) => handleItemMeasure(item.key, e.nativeEvent.layout.width)}
+            collapsable={false}
           >
             {renderItem(item)}
           </View>
@@ -524,7 +536,7 @@ export function applyVoteInputCommitToVote(current, commit) {
   }
   const rating = commit.type === 'sv' ? SV_VOTE_RATING : commit.rating;
   const zeroBonus = rating === 0 || isSvVoteRating(rating);
-  return {
+  const next = {
     ...base,
     rating,
     goals: zeroBonus ? 0 : base.goals,
@@ -532,6 +544,13 @@ export function applyVoteInputCommitToVote(current, commit) {
     yellow_cards: zeroBonus ? 0 : base.yellow_cards,
     red_cards: zeroBonus ? 0 : base.red_cards,
   };
+  // I bonus live (gol/assist da eventi) non devono sparire con S.V. / N.D.
+  if (zeroBonus) {
+    LIVE_DIRECT_VOTE_FIELDS.forEach((field) => {
+      next[field] = base[field];
+    });
+  }
+  return next;
 }
 
 function stepRatingFromValue(currentRating, change, enableOfficialSvVote) {
@@ -750,12 +769,13 @@ const styles = StyleSheet.create({
   },
   bonusMeasureRow: {
     position: 'absolute',
-    opacity: 0,
     left: 0,
-    right: 0,
     top: 0,
     flexDirection: 'row',
     flexWrap: 'nowrap',
+    opacity: 0,
+    // Fuori viewport: evita ghost dei contatori live sopra la riga visibile
+    transform: [{ translateX: -10000 }],
     zIndex: -1,
   },
   bonusMeasureItem: {

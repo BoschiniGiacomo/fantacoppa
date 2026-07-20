@@ -46,6 +46,39 @@ function clearsBonusFields(rating) {
   return rating === 0 || isSvVoteRating(rating);
 }
 
+/** Copia i bonus automatici da eventi partita (non azzerarli con S.V./N.D.). */
+function pinLiveDirectBonusFields(target, source) {
+  if (!source) return target;
+  const next = { ...target };
+  LIVE_DIRECT_VOTE_FIELDS.forEach((field) => {
+    if (!Object.prototype.hasOwnProperty.call(source, field)) return;
+    next[field] = Number(source[field] || 0);
+  });
+  return next;
+}
+
+function buildLiveBonusSnapshot(votesMap, liveLockedFields) {
+  const snap = {};
+  const lockedMap = liveLockedFields && typeof liveLockedFields === 'object' ? liveLockedFields : {};
+  Object.entries(votesMap || {}).forEach(([pidRaw, vote]) => {
+    const pid = Number(pidRaw);
+    if (!Number.isFinite(pid) || pid <= 0) return;
+    const fields = lockedMap[String(pid)] || lockedMap[pid] || LIVE_DIRECT_VOTE_FIELDS;
+    if (!fields?.length) return;
+    const row = {};
+    let any = false;
+    fields.forEach((field) => {
+      const n = Number(vote?.[field] || 0);
+      row[field] = n;
+      if (n) any = true;
+    });
+    if (any || (lockedMap[String(pid)] || lockedMap[pid])?.length) {
+      snap[pid] = row;
+    }
+  });
+  return snap;
+}
+
 /** Pagellatore: giocatori senza voto salvato partono da S.V. (solo UI/stato locale). */
 function applyDefaultSvForUnsetPlayers(teams, votes, { savedPlayerIds, unavailablePlayerIds, svEnabled }) {
   if (!svEnabled) return votes;
@@ -349,6 +382,7 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
   const [linkEditorOpen, setLinkEditorOpen] = useState(false);
   const [confirmModal, setConfirmModal] = useState(null);
   const savedSnapshot = useRef('');
+  const liveBonusRef = useRef({});
   const toastTimerRef = useRef(null);
   const inputRefsMap = useRef({});
   const playerRowRefsMap = useRef({});
@@ -469,6 +503,7 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
         unavailablePlayerIds: data.unavailable_player_ids,
         svEnabled,
       });
+      liveBonusRef.current = buildLiveBonusSnapshot(votesWithDefaults, data.live_locked_fields);
       setVotes(votesWithDefaults);
       setBonusSettings(bonus);
       setSavedVotePlayerIds(savedIds);
@@ -480,6 +515,7 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
     } else {
       setVotesData(null);
       setVotes({});
+      liveBonusRef.current = {};
       setSavedVotePlayerIds(new Set());
       setExplicitNdPlayerIds(new Set());
       savedSnapshot.current = '{}';
@@ -574,25 +610,32 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
     setVotes((prev) => {
       const current = prev[pid] || { ...EMPTY_VOTE };
       const r = Number(current.rating || 0);
+      const liveSnap = liveBonusRef.current[pid];
 
       if (isSvVoteRating(r)) {
         if (change < 0) {
           setExplicitNdPlayerIds((existing) => new Set([...existing, pid]));
           return {
             ...prev,
-            [pid]: {
-              ...current,
-              rating: 0,
-              goals: 0,
-              assists: 0,
-              yellow_cards: 0,
-              red_cards: 0,
-            },
+            [pid]: pinLiveDirectBonusFields(
+              {
+                ...current,
+                rating: 0,
+                goals: 0,
+                assists: 0,
+                yellow_cards: 0,
+                red_cards: 0,
+              },
+              liveSnap || current
+            ),
           };
         }
         if (change > 0) {
           clearExplicitNd(pid);
-          return { ...prev, [pid]: { ...current, rating: 1 } };
+          return {
+            ...prev,
+            [pid]: pinLiveDirectBonusFields({ ...current, rating: 1 }, liveSnap || current),
+          };
         }
         return prev;
       }
@@ -605,7 +648,13 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
           next.delete(pid);
           return next;
         });
-        return { ...prev, [pid]: { ...current, rating: enableOfficialSvVote ? SV_VOTE_RATING : 6 } };
+        return {
+          ...prev,
+          [pid]: pinLiveDirectBonusFields(
+            { ...current, rating: enableOfficialSvVote ? SV_VOTE_RATING : 6 },
+            liveSnap || current
+          ),
+        };
       }
 
       let nr = normalizeVoteRating(r + change);
@@ -626,16 +675,17 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
         });
       }
       const zeroBonus = clearsBonusFields(nr);
+      const nextVote = {
+        ...current,
+        rating: nr,
+        goals: zeroBonus ? 0 : current.goals,
+        assists: zeroBonus ? 0 : current.assists,
+        yellow_cards: zeroBonus ? 0 : current.yellow_cards,
+        red_cards: zeroBonus ? 0 : current.red_cards,
+      };
       return {
         ...prev,
-        [pid]: {
-          ...current,
-          rating: nr,
-          goals: zeroBonus ? 0 : current.goals,
-          assists: zeroBonus ? 0 : current.assists,
-          yellow_cards: zeroBonus ? 0 : current.yellow_cards,
-          red_cards: zeroBonus ? 0 : current.red_cards,
-        },
+        [pid]: pinLiveDirectBonusFields(nextVote, liveSnap || current),
       };
     });
   }, [enableOfficialSvVote, clearExplicitNd]);
@@ -656,17 +706,19 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
     if (rating > 0 || isSvVoteRating(rating)) clearExplicitNd(pid);
     setVotes((prev) => {
       const current = prev[pid] || { ...EMPTY_VOTE };
+      const liveSnap = liveBonusRef.current[pid];
       const zeroBonus = clearsBonusFields(rating);
+      const nextVote = {
+        ...current,
+        rating,
+        goals: zeroBonus ? 0 : current.goals,
+        assists: zeroBonus ? 0 : current.assists,
+        yellow_cards: zeroBonus ? 0 : current.yellow_cards,
+        red_cards: zeroBonus ? 0 : current.red_cards,
+      };
       return {
         ...prev,
-        [pid]: {
-          ...current,
-          rating,
-          goals: zeroBonus ? 0 : current.goals,
-          assists: zeroBonus ? 0 : current.assists,
-          yellow_cards: zeroBonus ? 0 : current.yellow_cards,
-          red_cards: zeroBonus ? 0 : current.red_cards,
-        },
+        [pid]: pinLiveDirectBonusFields(nextVote, liveSnap || current),
       };
     });
   }, [clearExplicitNd]);
@@ -676,11 +728,12 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
     setExplicitNdPlayerIds((prev) => new Set([...prev, pid]));
     setVotes((prev) => {
       const current = prev[pid] || prev[String(pid)] || { ...EMPTY_VOTE };
+      const liveSnap = liveBonusRef.current[pid];
       const cleared = { ...EMPTY_VOTE };
-      LIVE_DIRECT_VOTE_FIELDS.forEach((field) => {
-        cleared[field] = current[field];
-      });
-      return { ...prev, [pid]: cleared };
+      return {
+        ...prev,
+        [pid]: pinLiveDirectBonusFields(cleared, liveSnap || current),
+      };
     });
   }, []);
 
@@ -690,7 +743,11 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
     const nextRating = enableOfficialSvVote ? SV_VOTE_RATING : 6;
     setVotes((prev) => {
       const current = prev[pid] || prev[String(pid)] || { ...EMPTY_VOTE };
-      return { ...prev, [pid]: { ...current, rating: nextRating } };
+      const liveSnap = liveBonusRef.current[pid];
+      return {
+        ...prev,
+        [pid]: pinLiveDirectBonusFields({ ...current, rating: nextRating }, liveSnap || current),
+      };
     });
   }, [clearExplicitNd, enableOfficialSvVote]);
 
@@ -736,7 +793,12 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
       if (!commit) return;
 
       const current = merged[pid] || merged[String(pid)] || EMPTY_VOTE;
-      merged = { ...merged, [pid]: applyVoteInputCommitToVote(current, commit) };
+      const liveSnap = liveBonusRef.current[pid];
+      const committed = applyVoteInputCommitToVote(current, commit);
+      merged = {
+        ...merged,
+        [pid]: pinLiveDirectBonusFields(committed, liveSnap || current),
+      };
       changed = true;
 
       if (commit.type === 'nd') ndPlayerIds.push(pid);
@@ -790,6 +852,10 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
       });
       setVotes((prev) => {
         const merged = { ...prev, ...fresh };
+        liveBonusRef.current = {
+          ...liveBonusRef.current,
+          ...buildLiveBonusSnapshot(fresh, res.data?.live_locked_fields),
+        };
         savedSnapshot.current = JSON.stringify(merged);
         return merged;
       });
