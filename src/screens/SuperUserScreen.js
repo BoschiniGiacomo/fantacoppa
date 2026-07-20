@@ -336,6 +336,7 @@ export default function SuperUserScreen() {
   const [neverPlayedPlayers, setNeverPlayedPlayers] = useState([]);
   const [loadingNeverPlayed, setLoadingNeverPlayed] = useState(false);
   const [neverPlayedSearchText, setNeverPlayedSearchText] = useState('');
+  const [neverPlayedYearFilter, setNeverPlayedYearFilter] = useState(null); // null = tutti, 'none' = senza anno, number = anno
   const [deletingNeverPlayedId, setDeletingNeverPlayedId] = useState(null);
   const [clusterFilterStatus, setClusterFilterStatus] = useState(null); // null, 'pending', 'approved', 'rejected'
   const [clusterTabSearchText, setClusterTabSearchText] = useState('');
@@ -1724,6 +1725,7 @@ export default function SuperUserScreen() {
     const gid = Number(selectedGroupForEdit?.id);
     if (!gid) return;
     setNeverPlayedSearchText('');
+    setNeverPlayedYearFilter(null);
     setShowNeverPlayedModal(true);
     await loadNeverPlayedPlayers(gid);
   };
@@ -1731,21 +1733,44 @@ export default function SuperUserScreen() {
   const closeNeverPlayedModal = () => {
     setShowNeverPlayedModal(false);
     setNeverPlayedSearchText('');
+    setNeverPlayedYearFilter(null);
     setNeverPlayedPlayers([]);
     setDeletingNeverPlayedId(null);
   };
 
+  const neverPlayedYearOptions = useMemo(() => {
+    const years = new Set();
+    let hasNone = false;
+    neverPlayedPlayers.forEach((p) => {
+      if (p.reference_year != null && Number.isFinite(Number(p.reference_year))) {
+        years.add(Number(p.reference_year));
+      } else {
+        hasNone = true;
+      }
+    });
+    return {
+      years: [...years].sort((a, b) => b - a),
+      hasNone,
+    };
+  }, [neverPlayedPlayers]);
+
   const filteredNeverPlayedPlayers = useMemo(() => {
+    let list = neverPlayedPlayers;
+    if (neverPlayedYearFilter === 'none') {
+      list = list.filter((p) => p.reference_year == null || !Number.isFinite(Number(p.reference_year)));
+    } else if (neverPlayedYearFilter != null) {
+      list = list.filter((p) => Number(p.reference_year) === Number(neverPlayedYearFilter));
+    }
     const q = neverPlayedSearchText.trim().toLowerCase();
-    if (!q) return neverPlayedPlayers;
-    return neverPlayedPlayers.filter((p) => {
+    if (!q) return list;
+    return list.filter((p) => {
       const name = `${p.first_name || ''} ${p.last_name || ''}`.toLowerCase();
       const team = String(p.team_name || '').toLowerCase();
       const league = String(p.league_name || '').toLowerCase();
       const year = p.reference_year != null ? String(p.reference_year) : '';
       return name.includes(q) || team.includes(q) || league.includes(q) || year.includes(q);
     });
-  }, [neverPlayedPlayers, neverPlayedSearchText]);
+  }, [neverPlayedPlayers, neverPlayedSearchText, neverPlayedYearFilter]);
 
   const neverPlayedGrouped = useMemo(() => {
     const map = new Map();
@@ -1770,9 +1795,15 @@ export default function SuperUserScreen() {
     if (!gid || !pid) return;
     try {
       setDeletingNeverPlayedId(pid);
-      await superuserService.deleteNeverPlayedPlayer(gid, pid);
+      const res = await superuserService.deleteNeverPlayedPlayer(gid, pid);
       setNeverPlayedPlayers((prev) => prev.filter((p) => Number(p.player_id) !== pid));
-      showToast('Giocatore eliminato', 'success');
+      const deletedClusters = Number(res?.data?.clusters_deleted || 0);
+      showToast(
+        deletedClusters > 0
+          ? `Giocatore eliminato (anche ${deletedClusters} cluster vuot${deletedClusters === 1 ? 'o' : 'i'})`
+          : 'Giocatore eliminato',
+        'success'
+      );
     } catch (error) {
       const msg = error.response?.data?.message || 'Errore eliminazione giocatore';
       showToast(msg);
@@ -3891,6 +3922,72 @@ export default function SuperUserScreen() {
                   </Text>
                 </View>
 
+                {(neverPlayedYearOptions.years.length > 0 || neverPlayedYearOptions.hasNone) ? (
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    style={styles.neverPlayedYearFilters}
+                    contentContainerStyle={styles.neverPlayedYearFiltersContent}
+                  >
+                    <TouchableOpacity
+                      style={[
+                        styles.neverPlayedYearChipBtn,
+                        neverPlayedYearFilter == null && styles.neverPlayedYearChipBtnActive,
+                      ]}
+                      onPress={() => setNeverPlayedYearFilter(null)}
+                    >
+                      <Text
+                        style={[
+                          styles.neverPlayedYearChipBtnText,
+                          neverPlayedYearFilter == null && styles.neverPlayedYearChipBtnTextActive,
+                        ]}
+                      >
+                        Tutti
+                      </Text>
+                    </TouchableOpacity>
+                    {neverPlayedYearOptions.years.map((year) => {
+                      const active = Number(neverPlayedYearFilter) === Number(year);
+                      return (
+                        <TouchableOpacity
+                          key={`np-year-${year}`}
+                          style={[
+                            styles.neverPlayedYearChipBtn,
+                            active && styles.neverPlayedYearChipBtnActive,
+                          ]}
+                          onPress={() => setNeverPlayedYearFilter(year)}
+                        >
+                          <Text
+                            style={[
+                              styles.neverPlayedYearChipBtnText,
+                              active && styles.neverPlayedYearChipBtnTextActive,
+                            ]}
+                          >
+                            {year}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                    {neverPlayedYearOptions.hasNone ? (
+                      <TouchableOpacity
+                        style={[
+                          styles.neverPlayedYearChipBtn,
+                          neverPlayedYearFilter === 'none' && styles.neverPlayedYearChipBtnActive,
+                        ]}
+                        onPress={() => setNeverPlayedYearFilter('none')}
+                      >
+                        <Text
+                          style={[
+                            styles.neverPlayedYearChipBtnText,
+                            neverPlayedYearFilter === 'none' && styles.neverPlayedYearChipBtnTextActive,
+                          ]}
+                        >
+                          Senza anno
+                        </Text>
+                      </TouchableOpacity>
+                    ) : null}
+                  </ScrollView>
+                ) : null}
+
                 <View style={styles.clusterModalSearchContainer}>
                   <Ionicons name="search" size={18} color="#999" style={styles.searchIcon} />
                   <TextInput
@@ -3914,7 +4011,9 @@ export default function SuperUserScreen() {
                     {loadingNeverPlayed
                       ? 'Caricamento…'
                       : `${filteredNeverPlayedPlayers.length} giocator${filteredNeverPlayedPlayers.length === 1 ? 'e' : 'i'}`}
-                    {!loadingNeverPlayed && neverPlayedSearchText.trim() && neverPlayedPlayers.length !== filteredNeverPlayedPlayers.length
+                    {!loadingNeverPlayed
+                      && (neverPlayedSearchText.trim() || neverPlayedYearFilter != null)
+                      && neverPlayedPlayers.length !== filteredNeverPlayedPlayers.length
                       ? ` su ${neverPlayedPlayers.length}`
                       : ''}
                   </Text>
@@ -3934,11 +4033,13 @@ export default function SuperUserScreen() {
                     <View style={styles.neverPlayedEmpty}>
                       <Ionicons name="checkmark-circle-outline" size={36} color="#94a3b8" />
                       <Text style={styles.neverPlayedEmptyTitle}>
-                        {neverPlayedSearchText.trim() ? 'Nessun risultato' : 'Nessun giocatore da pulire'}
+                        {neverPlayedSearchText.trim() || neverPlayedYearFilter != null
+                          ? 'Nessun risultato'
+                          : 'Nessun giocatore da pulire'}
                       </Text>
                       <Text style={styles.neverPlayedEmptySub}>
-                        {neverPlayedSearchText.trim()
-                          ? 'Prova un altro filtro di ricerca.'
+                        {neverPlayedSearchText.trim() || neverPlayedYearFilter != null
+                          ? 'Prova un altro filtro di ricerca o anno.'
                           : 'Tutti i giocatori del gruppo hanno almeno un S.V. o un voto reale.'}
                       </Text>
                     </View>
@@ -5486,6 +5587,35 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     color: '#475569',
     fontWeight: '500',
+  },
+  neverPlayedYearFilters: {
+    flexGrow: 0,
+    marginBottom: 8,
+  },
+  neverPlayedYearFiltersContent: {
+    paddingHorizontal: 16,
+    gap: 8,
+    alignItems: 'center',
+  },
+  neverPlayedYearChipBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 999,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  neverPlayedYearChipBtnActive: {
+    backgroundColor: '#eef2ff',
+    borderColor: '#a5b4fc',
+  },
+  neverPlayedYearChipBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#64748b',
+  },
+  neverPlayedYearChipBtnTextActive: {
+    color: '#4338ca',
   },
   neverPlayedCountBar: {
     flexDirection: 'row',

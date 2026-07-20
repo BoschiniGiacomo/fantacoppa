@@ -1222,6 +1222,7 @@ router.delete(
       );
       const clusterIds = [...new Set((clusterMemberRows || []).map((r) => Number(r.cluster_id)).filter((n) => n > 0))];
       await query(`DELETE FROM player_cluster_members WHERE player_id = ?`, [playerId]);
+      let clustersDeleted = 0;
       for (const clusterId of clusterIds) {
         const countRows = await query(
           `SELECT COUNT(*)::int AS c FROM player_cluster_members WHERE cluster_id = ?`,
@@ -1229,6 +1230,7 @@ router.delete(
         );
         if (Number(countRows[0]?.c || 0) === 0) {
           await query(`DELETE FROM player_clusters WHERE id = ?`, [clusterId]);
+          clustersDeleted += 1;
         }
       }
 
@@ -1292,6 +1294,7 @@ router.delete(
         player_name: `${String(player.first_name || '').trim()} ${String(player.last_name || '').trim()}`.trim(),
         league_id: leagueId,
         team_id: Number(player.team_id),
+        clusters_deleted: clustersDeleted,
       });
     } catch (error) {
       console.error('[superuser] DELETE never-played-player error:', error?.message || error);
