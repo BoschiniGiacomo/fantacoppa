@@ -769,6 +769,12 @@ export const superuserService = {
   },
   getPlayerClusterSuggestions: (groupId) =>
     api.get(`/superuser/player-clusters/suggestions/${encodeURIComponent(Number(groupId))}`, { timeout: 45000 }),
+  getNeverPlayedPlayers: (groupId) =>
+    api.get(`/superuser/official-groups/${encodeURIComponent(Number(groupId))}/never-played-players`, { timeout: 60000 }),
+  deleteNeverPlayedPlayer: (groupId, playerId) =>
+    api.delete(
+      `/superuser/official-groups/${encodeURIComponent(Number(groupId))}/never-played-players/${encodeURIComponent(Number(playerId))}`
+    ),
   searchPlayers: (groupId, query, leagueId) => {
     let url = `/superuser/players/search/${groupId}`;
     const params = [];

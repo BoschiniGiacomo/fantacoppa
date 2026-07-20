@@ -332,6 +332,11 @@ export default function SuperUserScreen() {
   const [loadingClusters, setLoadingClusters] = useState(false);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [showClusterModal, setShowClusterModal] = useState(false);
+  const [showNeverPlayedModal, setShowNeverPlayedModal] = useState(false);
+  const [neverPlayedPlayers, setNeverPlayedPlayers] = useState([]);
+  const [loadingNeverPlayed, setLoadingNeverPlayed] = useState(false);
+  const [neverPlayedSearchText, setNeverPlayedSearchText] = useState('');
+  const [deletingNeverPlayedId, setDeletingNeverPlayedId] = useState(null);
   const [clusterFilterStatus, setClusterFilterStatus] = useState(null); // null, 'pending', 'approved', 'rejected'
   const [clusterTabSearchText, setClusterTabSearchText] = useState('');
   const [showClusterFilters, setShowClusterFilters] = useState(false);
@@ -1697,6 +1702,127 @@ export default function SuperUserScreen() {
     setShowClusterModal(true);
     setClusterFilterStatus(null);
     await loadClusterSuggestions(gid);
+  };
+
+  const loadNeverPlayedPlayers = async (groupId) => {
+    const gid = Number(groupId);
+    if (!gid) return;
+    try {
+      setLoadingNeverPlayed(true);
+      const res = await superuserService.getNeverPlayedPlayers(gid);
+      setNeverPlayedPlayers(Array.isArray(res.data?.players) ? res.data.players : []);
+    } catch (error) {
+      console.error('Error loading never-played players:', error);
+      showToast(error.response?.data?.message || 'Errore caricamento giocatori senza partite');
+      setNeverPlayedPlayers([]);
+    } finally {
+      setLoadingNeverPlayed(false);
+    }
+  };
+
+  const handleOpenNeverPlayedPlayers = async () => {
+    const gid = Number(selectedGroupForEdit?.id);
+    if (!gid) return;
+    setNeverPlayedSearchText('');
+    setShowNeverPlayedModal(true);
+    await loadNeverPlayedPlayers(gid);
+  };
+
+  const closeNeverPlayedModal = () => {
+    setShowNeverPlayedModal(false);
+    setNeverPlayedSearchText('');
+    setNeverPlayedPlayers([]);
+    setDeletingNeverPlayedId(null);
+  };
+
+  const filteredNeverPlayedPlayers = useMemo(() => {
+    const q = neverPlayedSearchText.trim().toLowerCase();
+    if (!q) return neverPlayedPlayers;
+    return neverPlayedPlayers.filter((p) => {
+      const name = `${p.first_name || ''} ${p.last_name || ''}`.toLowerCase();
+      const team = String(p.team_name || '').toLowerCase();
+      const league = String(p.league_name || '').toLowerCase();
+      const year = p.reference_year != null ? String(p.reference_year) : '';
+      return name.includes(q) || team.includes(q) || league.includes(q) || year.includes(q);
+    });
+  }, [neverPlayedPlayers, neverPlayedSearchText]);
+
+  const neverPlayedGrouped = useMemo(() => {
+    const map = new Map();
+    filteredNeverPlayedPlayers.forEach((p) => {
+      const key = `${p.league_id}`;
+      if (!map.has(key)) {
+        map.set(key, {
+          league_id: p.league_id,
+          league_name: p.league_name,
+          reference_year: p.reference_year,
+          players: [],
+        });
+      }
+      map.get(key).players.push(p);
+    });
+    return [...map.values()];
+  }, [filteredNeverPlayedPlayers]);
+
+  const performDeleteNeverPlayedPlayer = async (player) => {
+    const gid = Number(selectedGroupForEdit?.id);
+    const pid = Number(player?.player_id);
+    if (!gid || !pid) return;
+    try {
+      setDeletingNeverPlayedId(pid);
+      await superuserService.deleteNeverPlayedPlayer(gid, pid);
+      setNeverPlayedPlayers((prev) => prev.filter((p) => Number(p.player_id) !== pid));
+      showToast('Giocatore eliminato', 'success');
+    } catch (error) {
+      const msg = error.response?.data?.message || 'Errore eliminazione giocatore';
+      showToast(msg);
+    } finally {
+      setDeletingNeverPlayedId(null);
+    }
+  };
+
+  const requestDeleteNeverPlayedPlayer = (player) => {
+    if (!player) return;
+    if (player.in_user_squad || player.can_delete === false) {
+      setConfirmModal({
+        title: 'Eliminazione non consentita',
+        message:
+          'Questo giocatore fa parte della rosa di un utente in questa lega. '
+          + 'Rimuovilo prima dalla rosa fantacalcio, poi riprova.',
+        confirmText: 'Ho capito',
+        onConfirm: () => setConfirmModal(null),
+      });
+      return;
+    }
+
+    const displayName = `${player.first_name || ''} ${player.last_name || ''}`.trim() || 'Giocatore';
+    const meta = [
+      player.team_name,
+      player.league_name,
+      player.reference_year != null ? String(player.reference_year) : null,
+    ].filter(Boolean).join(' · ');
+
+    setConfirmModal({
+      title: 'Eliminare giocatore?',
+      message: `Vuoi eliminare ${displayName}${meta ? ` (${meta})` : ''}?\n\nComparirà solo se non ha mai giocato (nessun voto reale né S.V.).`,
+      confirmText: 'Continua',
+      destructive: true,
+      onConfirm: () => {
+        setConfirmModal(null);
+        setConfirmModal({
+          title: 'Conferma definitiva',
+          message:
+            `Stai per eliminare definitivamente ${displayName} e tutti i dati collegati `
+            + `(voti N.D., membership cluster, riferimenti).\n\nL'operazione non è reversibile.`,
+          confirmText: 'Elimina definitivamente',
+          destructive: true,
+          onConfirm: () => {
+            setConfirmModal(null);
+            void performDeleteNeverPlayedPlayer(player);
+          },
+        });
+      },
+    });
   };
 
   const toggleGroupLeagueExpanded = (leagueId) => {
@@ -3116,6 +3242,13 @@ export default function SuperUserScreen() {
                 >
                   <Ionicons name="people-outline" size={22} color="#667eea" />
                 </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.groupDetailHeaderIconBtn}
+                  onPress={() => void handleOpenNeverPlayedPlayers()}
+                  accessibilityLabel="Giocatori senza partite"
+                >
+                  <Ionicons name="person-remove-outline" size={22} color="#667eea" />
+                </TouchableOpacity>
                 {selectedGroupForEdit ? (
                   <TouchableOpacity
                     style={[
@@ -3725,6 +3858,169 @@ export default function SuperUserScreen() {
                 </ScrollView>
               </View>
             )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modal giocatori iscritti ma mai giocati */}
+      <Modal
+        visible={showNeverPlayedModal && selectedGroupForEdit !== null}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={closeNeverPlayedModal}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { maxHeight: '90%' }]}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Mai giocato</Text>
+              <TouchableOpacity onPress={closeNeverPlayedModal}>
+                <Ionicons name="close" size={24} color="#666" />
+              </TouchableOpacity>
+            </View>
+
+            {selectedGroupForEdit ? (
+              <View style={{ flex: 1 }}>
+                <View style={styles.neverPlayedIntro}>
+                  <View style={styles.neverPlayedIntroIcon}>
+                    <Ionicons name="person-remove-outline" size={20} color="#667eea" />
+                  </View>
+                  <Text style={styles.neverPlayedIntroText}>
+                    Giocatori in rosa ufficiale senza alcun voto di presenza in quella lega.
+                    {'\n'}
+                    Contano come “mai giocato”: nessun voto oppure solo N.D. — esclusi chi ha almeno 1 S.V. o 1 voto reale.
+                  </Text>
+                </View>
+
+                <View style={styles.clusterModalSearchContainer}>
+                  <Ionicons name="search" size={18} color="#999" style={styles.searchIcon} />
+                  <TextInput
+                    style={styles.searchInput}
+                    placeholder="Cerca nome, squadra o lega..."
+                    placeholderTextColor="#999"
+                    value={neverPlayedSearchText}
+                    onChangeText={setNeverPlayedSearchText}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+                  {neverPlayedSearchText.length > 0 ? (
+                    <TouchableOpacity onPress={() => setNeverPlayedSearchText('')} style={styles.clearButton}>
+                      <Ionicons name="close-circle" size={18} color="#999" />
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+
+                <View style={styles.neverPlayedCountBar}>
+                  <Text style={styles.neverPlayedCountText}>
+                    {loadingNeverPlayed
+                      ? 'Caricamento…'
+                      : `${filteredNeverPlayedPlayers.length} giocator${filteredNeverPlayedPlayers.length === 1 ? 'e' : 'i'}`}
+                    {!loadingNeverPlayed && neverPlayedSearchText.trim() && neverPlayedPlayers.length !== filteredNeverPlayedPlayers.length
+                      ? ` su ${neverPlayedPlayers.length}`
+                      : ''}
+                  </Text>
+                  <TouchableOpacity
+                    style={styles.neverPlayedRefreshBtn}
+                    onPress={() => void loadNeverPlayedPlayers(selectedGroupForEdit.id)}
+                    disabled={loadingNeverPlayed}
+                  >
+                    <Ionicons name="refresh" size={16} color="#667eea" />
+                  </TouchableOpacity>
+                </View>
+
+                <ScrollView style={styles.modalScrollView} contentContainerStyle={{ paddingBottom: 24 }}>
+                  {loadingNeverPlayed ? (
+                    <ActivityIndicator size="small" color="#667eea" style={{ padding: 28 }} />
+                  ) : neverPlayedGrouped.length === 0 ? (
+                    <View style={styles.neverPlayedEmpty}>
+                      <Ionicons name="checkmark-circle-outline" size={36} color="#94a3b8" />
+                      <Text style={styles.neverPlayedEmptyTitle}>
+                        {neverPlayedSearchText.trim() ? 'Nessun risultato' : 'Nessun giocatore da pulire'}
+                      </Text>
+                      <Text style={styles.neverPlayedEmptySub}>
+                        {neverPlayedSearchText.trim()
+                          ? 'Prova un altro filtro di ricerca.'
+                          : 'Tutti i giocatori del gruppo hanno almeno un S.V. o un voto reale.'}
+                      </Text>
+                    </View>
+                  ) : (
+                    neverPlayedGrouped.map((group) => (
+                      <View key={`np-league-${group.league_id}`} style={styles.neverPlayedLeagueBlock}>
+                        <View style={styles.neverPlayedLeagueHeader}>
+                          <Text style={styles.neverPlayedLeagueTitle} numberOfLines={1}>
+                            {group.league_name || 'Lega'}
+                          </Text>
+                          {group.reference_year != null ? (
+                            <View style={styles.neverPlayedYearChip}>
+                              <Text style={styles.neverPlayedYearChipText}>{group.reference_year}</Text>
+                            </View>
+                          ) : null}
+                          <Text style={styles.neverPlayedLeagueCount}>{group.players.length}</Text>
+                        </View>
+
+                        {group.players.map((player) => {
+                          const pid = Number(player.player_id);
+                          const locked = !!player.in_user_squad || player.can_delete === false;
+                          const deleting = deletingNeverPlayedId === pid;
+                          const name = `${player.first_name || ''} ${player.last_name || ''}`.trim() || '—';
+                          return (
+                            <View
+                              key={`np-${pid}`}
+                              style={[styles.neverPlayedRow, locked && styles.neverPlayedRowLocked]}
+                            >
+                              <View style={[
+                                styles.neverPlayedRoleBadge,
+                                player.role === 'P' && { backgroundColor: '#dbeafe' },
+                                player.role === 'D' && { backgroundColor: '#dcfce7' },
+                                player.role === 'C' && { backgroundColor: '#fef3c7' },
+                                player.role === 'A' && { backgroundColor: '#fee2e2' },
+                              ]}>
+                                <Text style={[
+                                  styles.neverPlayedRoleBadgeText,
+                                  player.role === 'P' && { color: '#1d4ed8' },
+                                  player.role === 'D' && { color: '#15803d' },
+                                  player.role === 'C' && { color: '#a16207' },
+                                  player.role === 'A' && { color: '#b91c1c' },
+                                ]}>{player.role || '?'}</Text>
+                              </View>
+                              <View style={styles.neverPlayedInfo}>
+                                <Text style={styles.neverPlayedName} numberOfLines={1}>{name}</Text>
+                                <Text style={styles.neverPlayedMeta} numberOfLines={1}>
+                                  {player.team_name || 'Squadra'}
+                                  {player.birth_year ? ` · '${String(player.birth_year).slice(-2)}` : ''}
+                                  {player.nd_vote_count > 0 ? ` · ${player.nd_vote_count} N.D.` : ' · nessun voto'}
+                                </Text>
+                                {locked ? (
+                                  <Text style={styles.neverPlayedLockHint}>In rosa utente — non eliminabile</Text>
+                                ) : null}
+                              </View>
+                              {deleting ? (
+                                <ActivityIndicator size="small" color="#e53935" />
+                              ) : (
+                                <TouchableOpacity
+                                  style={[
+                                    styles.neverPlayedDeleteBtn,
+                                    locked && styles.neverPlayedDeleteBtnLocked,
+                                  ]}
+                                  onPress={() => requestDeleteNeverPlayedPlayer(player)}
+                                  hitSlop={8}
+                                  accessibilityLabel={locked ? 'Non eliminabile' : 'Elimina giocatore'}
+                                >
+                                  <Ionicons
+                                    name={locked ? 'lock-closed' : 'close'}
+                                    size={18}
+                                    color={locked ? '#94a3b8' : '#e53935'}
+                                  />
+                                </TouchableOpacity>
+                              )}
+                            </View>
+                          );
+                        })}
+                      </View>
+                    ))
+                  )}
+                </ScrollView>
+              </View>
+            ) : null}
           </View>
         </View>
       </Modal>
@@ -5161,6 +5457,177 @@ const styles = StyleSheet.create({
   groupDetailHeaderIconBtnActive: {
     backgroundColor: '#eef1ff',
     borderColor: '#c7d2fe',
+  },
+  neverPlayedIntro: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    marginHorizontal: 16,
+    marginBottom: 10,
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: '#f5f7ff',
+    borderWidth: 1,
+    borderColor: '#e0e7ff',
+  },
+  neverPlayedIntroIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#c7d2fe',
+  },
+  neverPlayedIntroText: {
+    flex: 1,
+    fontSize: 12,
+    lineHeight: 17,
+    color: '#475569',
+    fontWeight: '500',
+  },
+  neverPlayedCountBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    marginBottom: 6,
+  },
+  neverPlayedCountText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#64748b',
+  },
+  neverPlayedRefreshBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e8ecf1',
+  },
+  neverPlayedEmpty: {
+    alignItems: 'center',
+    paddingHorizontal: 28,
+    paddingVertical: 40,
+    gap: 8,
+  },
+  neverPlayedEmptyTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#334155',
+    marginTop: 4,
+  },
+  neverPlayedEmptySub: {
+    fontSize: 13,
+    color: '#94a3b8',
+    textAlign: 'center',
+    lineHeight: 18,
+  },
+  neverPlayedLeagueBlock: {
+    marginBottom: 14,
+  },
+  neverPlayedLeagueHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 16,
+    marginBottom: 8,
+    marginTop: 4,
+  },
+  neverPlayedLeagueTitle: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#1e293b',
+    letterSpacing: 0.2,
+  },
+  neverPlayedYearChip: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 999,
+    backgroundColor: '#eef2ff',
+    borderWidth: 1,
+    borderColor: '#c7d2fe',
+  },
+  neverPlayedYearChipText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#4f46e5',
+  },
+  neverPlayedLeagueCount: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#94a3b8',
+    minWidth: 18,
+    textAlign: 'right',
+  },
+  neverPlayedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginHorizontal: 16,
+    marginBottom: 8,
+    paddingVertical: 11,
+    paddingHorizontal: 12,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e8ecf1',
+  },
+  neverPlayedRowLocked: {
+    backgroundColor: '#f8fafc',
+    borderColor: '#e2e8f0',
+  },
+  neverPlayedRoleBadge: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#f1f5f9',
+  },
+  neverPlayedRoleBadgeText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#475569',
+  },
+  neverPlayedInfo: {
+    flex: 1,
+    minWidth: 0,
+  },
+  neverPlayedName: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  neverPlayedMeta: {
+    fontSize: 12,
+    color: '#64748b',
+    marginTop: 2,
+  },
+  neverPlayedLockHint: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#b45309',
+    marginTop: 3,
+  },
+  neverPlayedDeleteBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fef2f2',
+    borderWidth: 1,
+    borderColor: '#fecaca',
+  },
+  neverPlayedDeleteBtnLocked: {
+    backgroundColor: '#f1f5f9',
+    borderColor: '#e2e8f0',
   },
   groupDetailModalHeaderTitle: {
     fontSize: 14,

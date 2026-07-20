@@ -7,6 +7,8 @@ const { query } = require('../config/database');
 const { authenticateToken } = require('../middleware/auth');
 const { ensureAppSettingsTable } = require('../utils/appSettingsStore');
 const { ensureLeagueOfficialGironiSchema } = require('../utils/leagueOfficialGironi');
+const { SQL_WHERE_PRESENCE_VOTE } = require('../utils/voteRating');
+const { removePlayerPhotoVariants } = require('../utils/mediaStorageCleanup');
 
 function isMissingDbObjectError(err) {
   return err && (err.code === '42P01' || err.code === '42703');
@@ -1053,6 +1055,256 @@ router.put('/official-groups/:groupId/leagues/:leagueId/reference-year', authent
     return res.status(500).json({ message: 'Errore aggiornamento anno di riferimento', error: error.message });
   }
 });
+
+/**
+ * Giocatori delle leghe del gruppo ufficiale senza alcuna presenza:
+ * nessun voto reale e nessun S.V. (N.D. o assenza di voti = "mai giocato").
+ */
+router.get('/official-groups/:groupId/never-played-players', authenticateToken, requireSuperuser, async (req, res) => {
+  try {
+    const groupId = Number(req.params.groupId);
+    if (!groupId || groupId <= 0) return res.status(400).json({ message: 'ID gruppo non valido' });
+
+    const groupRows = await query(
+      `SELECT id, name FROM official_groups WHERE id = ? LIMIT 1`,
+      [groupId]
+    );
+    if (!groupRows.length) return res.status(404).json({ message: 'Gruppo ufficiale non trovato' });
+
+    const rows = await query(
+      `SELECT
+         p.id AS player_id,
+         p.first_name,
+         p.last_name,
+         p.role,
+         p.birth_year,
+         t.id AS team_id,
+         t.name AS team_name,
+         l.id AS league_id,
+         l.name AS league_name,
+         l.reference_year,
+         CASE WHEN EXISTS (
+           SELECT 1 FROM user_players up
+           WHERE up.player_id = p.id AND up.league_id = l.id
+         ) THEN 1 ELSE 0 END AS in_user_squad,
+         (
+           SELECT COUNT(*)::int FROM player_ratings pr
+           WHERE pr.player_id = p.id AND pr.league_id = l.id AND pr.rating = 0
+         ) AS nd_vote_count
+       FROM players p
+       INNER JOIN teams t ON t.id = p.team_id
+       INNER JOIN leagues l ON l.id = t.league_id
+       WHERE l.official_group_id = ?
+         AND NOT EXISTS (
+           SELECT 1 FROM player_ratings pr
+           WHERE pr.player_id = p.id
+             AND pr.league_id = l.id
+             AND ${SQL_WHERE_PRESENCE_VOTE}
+         )
+       ORDER BY
+         l.reference_year DESC NULLS LAST,
+         l.name ASC,
+         t.name ASC,
+         p.last_name ASC,
+         p.first_name ASC`,
+      [groupId]
+    );
+
+    const players = (rows || []).map((r) => ({
+      player_id: Number(r.player_id),
+      first_name: String(r.first_name || '').trim(),
+      last_name: String(r.last_name || '').trim(),
+      role: String(r.role || '').trim().toUpperCase() || null,
+      birth_year: r.birth_year != null ? Number(r.birth_year) : null,
+      team_id: Number(r.team_id),
+      team_name: String(r.team_name || '').trim(),
+      league_id: Number(r.league_id),
+      league_name: String(r.league_name || '').trim(),
+      reference_year: r.reference_year != null ? Number(r.reference_year) : null,
+      in_user_squad: Number(r.in_user_squad) === 1,
+      nd_vote_count: Number(r.nd_vote_count || 0),
+      can_delete: Number(r.in_user_squad) !== 1,
+    }));
+
+    return res.json({
+      group_id: groupId,
+      group_name: groupRows[0].name,
+      count: players.length,
+      players,
+    });
+  } catch (error) {
+    console.error('[superuser] GET never-played-players error:', error?.message || error);
+    return res.status(500).json({ message: 'Errore caricamento giocatori senza partite', error: error.message });
+  }
+});
+
+/**
+ * Elimina un giocatore "mai giocato" e i dati collegati (voti N.D., cluster, ecc.).
+ * Bloccato se è in rosa di un utente (user_players) o se ha voti di presenza.
+ */
+router.delete(
+  '/official-groups/:groupId/never-played-players/:playerId',
+  authenticateToken,
+  requireSuperuser,
+  async (req, res) => {
+    try {
+      const groupId = Number(req.params.groupId);
+      const playerId = Number(req.params.playerId);
+      if (!groupId || groupId <= 0) return res.status(400).json({ message: 'ID gruppo non valido' });
+      if (!playerId || playerId <= 0) return res.status(400).json({ message: 'ID giocatore non valido' });
+
+      const playerRows = await query(
+        `SELECT
+           p.id,
+           p.first_name,
+           p.last_name,
+           p.team_id,
+           t.name AS team_name,
+           l.id AS league_id,
+           l.name AS league_name,
+           l.official_group_id
+         FROM players p
+         INNER JOIN teams t ON t.id = p.team_id
+         INNER JOIN leagues l ON l.id = t.league_id
+         WHERE p.id = ?
+         LIMIT 1`,
+        [playerId]
+      );
+      const player = playerRows[0];
+      if (!player) return res.status(404).json({ message: 'Giocatore non trovato' });
+      if (Number(player.official_group_id) !== groupId) {
+        return res.status(400).json({ message: 'Il giocatore non appartiene a questo gruppo ufficiale' });
+      }
+
+      const leagueId = Number(player.league_id);
+
+      const squadRows = await query(
+        `SELECT up.user_id, u.username
+         FROM user_players up
+         LEFT JOIN users u ON u.id = up.user_id
+         WHERE up.player_id = ? AND up.league_id = ?
+         LIMIT 5`,
+        [playerId, leagueId]
+      );
+      if (squadRows.length) {
+        const names = squadRows
+          .map((r) => String(r.username || '').trim() || `user #${r.user_id}`)
+          .filter(Boolean);
+        return res.status(409).json({
+          code: 'IN_USER_SQUAD',
+          message:
+            'Non puoi eliminare questo giocatore: fa parte della rosa di un utente in questa lega'
+            + (names.length ? ` (${names.join(', ')})` : ''),
+          usernames: names,
+        });
+      }
+
+      const presenceRows = await query(
+        `SELECT 1
+         FROM player_ratings pr
+         WHERE pr.player_id = ?
+           AND pr.league_id = ?
+           AND ${SQL_WHERE_PRESENCE_VOTE}
+         LIMIT 1`,
+        [playerId, leagueId]
+      );
+      if (presenceRows.length) {
+        return res.status(409).json({
+          code: 'HAS_PRESENCE_VOTES',
+          message: 'Non puoi eliminare questo giocatore: ha almeno un voto reale o S.V. in questa lega',
+        });
+      }
+
+      // Cluster membership: rimuovi e pulisci cluster vuoti
+      const clusterMemberRows = await query(
+        `SELECT cluster_id FROM player_cluster_members WHERE player_id = ?`,
+        [playerId]
+      );
+      const clusterIds = [...new Set((clusterMemberRows || []).map((r) => Number(r.cluster_id)).filter((n) => n > 0))];
+      await query(`DELETE FROM player_cluster_members WHERE player_id = ?`, [playerId]);
+      for (const clusterId of clusterIds) {
+        const countRows = await query(
+          `SELECT COUNT(*)::int AS c FROM player_cluster_members WHERE cluster_id = ?`,
+          [clusterId]
+        );
+        if (Number(countRows[0]?.c || 0) === 0) {
+          await query(`DELETE FROM player_clusters WHERE id = ?`, [clusterId]);
+        }
+      }
+
+      // Voti N.D. (e eventuali residui non-presenza)
+      await query(`DELETE FROM player_ratings WHERE player_id = ? AND league_id = ?`, [playerId, leagueId]);
+
+      // Riferimenti infortunio
+      try {
+        await query(
+          `UPDATE players SET injury_replacement_player_id = NULL WHERE injury_replacement_player_id = ?`,
+          [playerId]
+        );
+      } catch (err) {
+        if (!isMissingDbObjectError(err)) throw err;
+      }
+
+      // Indisponibili partite ufficiali (CASCADE se FK presente; altrimenti delete esplicito)
+      try {
+        await query(`DELETE FROM official_match_unavailable_players WHERE player_id = ?`, [playerId]);
+      } catch (err) {
+        if (!isMissingDbObjectError(err)) throw err;
+      }
+
+      // Eventi live: stacca il riferimento (niente FK obbligatoria)
+      try {
+        await query(
+          `UPDATE official_match_events
+           SET player_id = NULL
+           WHERE player_id = ?`,
+          [playerId]
+        );
+        await query(
+          `UPDATE official_match_events
+           SET assist_player_id = NULL
+           WHERE assist_player_id = ?`,
+          [playerId]
+        );
+      } catch (err) {
+        if (!isMissingDbObjectError(err)) throw err;
+      }
+
+      // Foto storage
+      try {
+        const supabase = getSupabaseStorageClient();
+        if (supabase) {
+          await removePlayerPhotoVariants(supabase, {
+            clusterId: clusterIds[0] || null,
+            playerId,
+          });
+        }
+      } catch (_photoErr) {
+        // non bloccare l'eliminazione per errori storage
+      }
+
+      await query(`DELETE FROM players WHERE id = ?`, [playerId]);
+
+      return res.json({
+        ok: true,
+        message: 'Giocatore eliminato',
+        player_id: playerId,
+        player_name: `${String(player.first_name || '').trim()} ${String(player.last_name || '').trim()}`.trim(),
+        league_id: leagueId,
+        team_id: Number(player.team_id),
+      });
+    } catch (error) {
+      console.error('[superuser] DELETE never-played-player error:', error?.message || error);
+      if (error?.code === '23503') {
+        return res.status(409).json({
+          message: 'Impossibile eliminare: il giocatore è ancora referenziato da altri dati',
+          error: error.message,
+        });
+      }
+      return res.status(500).json({ message: 'Errore eliminazione giocatore', error: error.message });
+    }
+  }
+);
 
 // Pubblica rosa/classifica/stats squadra ufficiale per questo reference_year (toggle 0/1)
 router.put(
