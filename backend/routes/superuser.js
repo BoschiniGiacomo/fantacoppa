@@ -1066,7 +1066,7 @@ router.get('/official-groups/:groupId/never-played-players', authenticateToken, 
     if (!groupId || groupId <= 0) return res.status(400).json({ message: 'ID gruppo non valido' });
 
     const groupRows = await query(
-      `SELECT id, name FROM official_groups WHERE id = ? LIMIT 1`,
+      `SELECT id, name FROM official_league_groups WHERE id = ? LIMIT 1`,
       [groupId]
     );
     if (!groupRows.length) return res.status(404).json({ message: 'Gruppo ufficiale non trovato' });
