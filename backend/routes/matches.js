@@ -3702,6 +3702,98 @@ async function listOfficialGroupSeasonLeagues(competitionId) {
 const HALL_CAMPIONATO_FINAL_STAGE_ID = 3;
 const HALL_WINE_TROPHY_STAGE_ID = 6;
 
+function compareByGoalDiffThenScored(a, b) {
+  if ((b.gd || 0) !== (a.gd || 0)) return (b.gd || 0) - (a.gd || 0);
+  return (b.gf || 0) - (a.gf || 0);
+}
+
+function computeTriangularWinner(matches) {
+  const list = Array.isArray(matches) ? matches : [];
+  if (list.length !== 3) return null;
+
+  const table = new Map();
+  const ensureTeam = (teamId, teamName, logoPath) => {
+    const tid = Number(teamId);
+    if (!(tid > 0)) return null;
+    if (!table.has(tid)) {
+      table.set(tid, {
+        team_id: tid,
+        team_name: teamName != null ? String(teamName) : null,
+        logo_path: logoPath || null,
+        pts: 0,
+        gf: 0,
+        ga: 0,
+        gd: 0,
+      });
+    }
+    const row = table.get(tid);
+    if (!row.team_name && teamName) row.team_name = String(teamName);
+    if (!row.logo_path && logoPath) row.logo_path = logoPath;
+    return row;
+  };
+
+  for (const m of list) {
+    const hs = Number(m?.home_score);
+    const as = Number(m?.away_score);
+    const home = ensureTeam(m?.home_team_id, m?.home_team_name, m?.home_team_logo_path);
+    const away = ensureTeam(m?.away_team_id, m?.away_team_name, m?.away_team_logo_path);
+    if (!home || !away) continue;
+    if (!Number.isFinite(hs) || !Number.isFinite(as)) return null;
+
+    home.gf += hs;
+    home.ga += as;
+    away.gf += as;
+    away.ga += hs;
+    if (hs > as) home.pts += 3;
+    else if (as > hs) away.pts += 3;
+    else {
+      home.pts += 1;
+      away.pts += 1;
+    }
+  }
+
+  const rows = [...table.values()].map((r) => ({ ...r, gd: Number(r.gf || 0) - Number(r.ga || 0) }));
+  if (rows.length < 2) return null;
+  rows.sort((a, b) => (b.pts - a.pts) || compareByGoalDiffThenScored(a, b));
+  const topPts = Number(rows[0]?.pts || 0);
+  const tied = rows.filter((r) => Number(r.pts) === topPts);
+  if (tied.length === 1) return tied[0];
+
+  if (tied.length === 2) {
+    const [a, b] = tied;
+    const direct = list.find((m) => {
+      const h = Number(m?.home_team_id);
+      const aw = Number(m?.away_team_id);
+      return (h === a.team_id && aw === b.team_id) || (h === b.team_id && aw === a.team_id);
+    });
+    if (direct) {
+      const hs = Number(direct.home_score);
+      const as = Number(direct.away_score);
+      if (Number.isFinite(hs) && Number.isFinite(as) && hs !== as) {
+        const winnerId = hs > as ? Number(direct.home_team_id) : Number(direct.away_team_id);
+        const winner = tied.find((r) => Number(r.team_id) === winnerId);
+        if (winner) return winner;
+      }
+    }
+  }
+
+  tied.sort(compareByGoalDiffThenScored);
+  return tied[0] || null;
+}
+
+function resolveWineWinnerFromMatches(matches) {
+  const list = Array.isArray(matches) ? matches : [];
+  if (!list.length) return null;
+  if (list.length === 1) return determineKnockoutMatchWinner(list[0]);
+  const triWinner = computeTriangularWinner(list);
+  if (!triWinner?.team_id) return null;
+  return {
+    team_id: Number(triWinner.team_id),
+    team_name: triWinner.team_name || null,
+    logo_path: triWinner.logo_path || null,
+  };
+}
+
 function buildHallMatchFromRow(row, evRows) {
   const built = buildHallMatchScoresFromRow(row, evRows);
   if (!built) return null;
@@ -3755,16 +3847,20 @@ async function fetchHallFinalMatchesByLeagueStage(competitionId, leagueIds) {
     [compId, HALL_CAMPIONATO_FINAL_STAGE_ID, HALL_WINE_TROPHY_STAGE_ID, ...lids, ...lids, ...lids]
   );
 
-  const picks = new Map();
+  const grouped = new Map();
   for (const row of rows || []) {
     const lid = Number(row.canon_league_id);
     const sid = Number(row.stage_id);
     if (!lids.includes(lid) || (sid !== HALL_CAMPIONATO_FINAL_STAGE_ID && sid !== HALL_WINE_TROPHY_STAGE_ID)) continue;
     const key = `${lid}:${sid}`;
-    if (!picks.has(key)) picks.set(key, row);
+    if (!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key).push(row);
   }
 
-  const matchIds = [...picks.values()].map((r) => Number(r.id)).filter((id) => Number.isFinite(id) && id > 0);
+  const matchIds = [...grouped.values()]
+    .flat()
+    .map((r) => Number(r.id))
+    .filter((id) => Number.isFinite(id) && id > 0);
   if (!matchIds.length) return out;
 
   const endedIds = await fetchMatchEndedIds(matchIds);
@@ -3783,11 +3879,15 @@ async function fetchHallFinalMatchesByLeagueStage(competitionId, leagueIds) {
     evByMatch.get(mid).push(e);
   }
 
-  for (const [key, row] of picks) {
-    const mid = Number(row.id);
-    if (!endedIds.has(mid)) continue;
-    const built = buildHallMatchFromRow(row, evByMatch.get(mid) || []);
-    if (built) out.set(key, built);
+  for (const [key, stageRows] of grouped) {
+    const builtList = [];
+    for (const row of stageRows || []) {
+      const mid = Number(row.id);
+      if (!endedIds.has(mid)) continue;
+      const built = buildHallMatchFromRow(row, evByMatch.get(mid) || []);
+      if (built) builtList.push(built);
+    }
+    if (builtList.length) out.set(key, builtList);
   }
   return out;
 }
@@ -3836,9 +3936,9 @@ async function buildOfficialGroupHallOfFame(competitionId) {
     const year = Number(row.reference_year);
     if (!Number.isFinite(leagueId) || leagueId <= 0 || !Number.isFinite(year)) continue;
 
-    const finalMatch = finalMatchesByLeagueStage.get(`${leagueId}:${HALL_CAMPIONATO_FINAL_STAGE_ID}`) || null;
-    if (finalMatch?.id) {
-      const winner = determineKnockoutMatchWinner(finalMatch);
+    const finalMatches = finalMatchesByLeagueStage.get(`${leagueId}:${HALL_CAMPIONATO_FINAL_STAGE_ID}`) || [];
+    if (finalMatches.length > 0) {
+      const winner = determineKnockoutMatchWinner(finalMatches[0] || null);
       if (winner?.team_name) {
         const logoPath = normalizeTeamLogoPathForApi(winner.logo_path);
         winnersByYear.push({
@@ -3856,9 +3956,9 @@ async function buildOfficialGroupHallOfFame(competitionId) {
       }
     }
 
-    const wineMatch = finalMatchesByLeagueStage.get(`${leagueId}:${HALL_WINE_TROPHY_STAGE_ID}`) || null;
-    if (wineMatch?.id) {
-      const wineWinner = determineKnockoutMatchWinner(wineMatch);
+    const wineMatches = finalMatchesByLeagueStage.get(`${leagueId}:${HALL_WINE_TROPHY_STAGE_ID}`) || [];
+    if (wineMatches.length > 0) {
+      const wineWinner = resolveWineWinnerFromMatches(wineMatches);
       if (wineWinner?.team_name) {
         const wineLogoPath = normalizeTeamLogoPathForApi(wineWinner.logo_path);
         wineWinnersByYear.push({
@@ -3922,8 +4022,8 @@ async function buildOfficialTeamTrophies(competitionId, teamNameNorm) {
     const year = Number(row.reference_year);
     if (!Number.isFinite(leagueId) || leagueId <= 0 || !Number.isFinite(year)) continue;
 
-    const finalMatch = finalMatchesByLeagueStage.get(`${leagueId}:${HALL_CAMPIONATO_FINAL_STAGE_ID}`) || null;
-    const winner = determineKnockoutMatchWinner(finalMatch);
+    const finalMatches = finalMatchesByLeagueStage.get(`${leagueId}:${HALL_CAMPIONATO_FINAL_STAGE_ID}`) || [];
+    const winner = determineKnockoutMatchWinner(finalMatches[0] || null);
     if (winner?.team_name && normalizeTeamNameForFavorite(winner.team_name) === norm) {
       championships.push({
         year,
@@ -3931,8 +4031,8 @@ async function buildOfficialTeamTrophies(competitionId, teamNameNorm) {
       });
     }
 
-    const wineMatch = finalMatchesByLeagueStage.get(`${leagueId}:${HALL_WINE_TROPHY_STAGE_ID}`) || null;
-    const wineWinner = determineKnockoutMatchWinner(wineMatch);
+    const wineMatches = finalMatchesByLeagueStage.get(`${leagueId}:${HALL_WINE_TROPHY_STAGE_ID}`) || [];
+    const wineWinner = resolveWineWinnerFromMatches(wineMatches);
     if (wineWinner?.team_name && normalizeTeamNameForFavorite(wineWinner.team_name) === norm) {
       wineTrophies.push({
         year,
