@@ -741,12 +741,15 @@ router.get('/leagues', authenticateToken, requireSuperuser, async (_req, res) =>
   try {
     await ensureSuperuserTables();
     const rows = await query(
-      `SELECT l.id, l.name, COALESCE(l.is_official, 0) AS is_official, l.official_group_id, COALESCE(l.is_visible_for_linking, 1) AS is_visible_for_linking,
+      `SELECT l.id, l.name, l.access_code, l.created_at,
+              COALESCE(l.is_official, 0) AS is_official, l.official_group_id,
+              COALESCE(l.is_visible_for_linking, 1) AS is_visible_for_linking,
               COALESCE(l.is_hidden_from_discovery, 0) AS is_hidden_from_discovery,
-              og.name AS official_group_name
+              og.name AS official_group_name,
+              (SELECT COUNT(*)::int FROM league_members lm WHERE lm.league_id = l.id) AS member_count
        FROM leagues l
        LEFT JOIN official_league_groups og ON og.id = l.official_group_id
-       ORDER BY l.id DESC`
+       ORDER BY l.created_at DESC NULLS LAST, l.id DESC`
     );
     return res.json(rows);
   } catch (error) {
