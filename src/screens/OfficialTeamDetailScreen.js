@@ -379,7 +379,7 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
   const [teamPickerOpen, setTeamPickerOpen] = useState(false);
   const [statsLoading, setStatsLoading] = useState(false);
   const [statsYears, setStatsYears] = useState([]);
-  const [selectedStatsYear, setSelectedStatsYear] = useState(null);
+  const [selectedStatsYear, setSelectedStatsYear] = useState(ABSOLUTE_STATS_KEY);
   const [statsGeneral, setStatsGeneral] = useState({
     played: 0,
     goals: 0,
@@ -426,7 +426,7 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
   const statsLoadSeqRef = useRef(0);
   const selectedSeasonYearRef = useRef(null);
   const selectedTeamSeasonYearRef = useRef(null);
-  const selectedStatsYearRef = useRef(null);
+  const selectedStatsYearRef = useRef(ABSOLUTE_STATS_KEY);
   const appliedInitialRouteKeyRef = useRef('');
   const seasonPickerAnchorRef = useRef(null);
   const statsPickerAnchorRef = useRef(null);
@@ -622,6 +622,8 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
             if (yearOverride === ABSOLUTE_STATS_KEY) return ABSOLUTE_STATS_KEY;
             if (Number.isFinite(Number(yearOverride))) return Number(yearOverride);
           }
+          // Default tab Statistiche: resta su Assolute
+          if (prev === ABSOLUTE_STATS_KEY || prev == null) return ABSOLUTE_STATS_KEY;
           if (backendSelected === ABSOLUTE_STATS_KEY) return ABSOLUTE_STATS_KEY;
           if (backendSelected == null || !Number.isFinite(backendSelected)) return prev;
           return prev === backendSelected ? prev : backendSelected;
