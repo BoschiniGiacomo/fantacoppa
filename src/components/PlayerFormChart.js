@@ -135,9 +135,9 @@ export default function PlayerFormChart({ series = [], width = 320 }) {
           strokeLinecap="round"
         />
 
-        {layout.voteCoords.map((point) => (
+        {layout.voteCoords.map((point, index) => (
           <Circle
-            key={`vote-${point.giornata}`}
+            key={`vote-${point.giornata}-${index}`}
             cx={point.x}
             cy={point.y}
             r={3.5}

@@ -43,7 +43,7 @@ export default function VoteDistributionChart({ distribution = [], width = 320 }
           const y = CHART_HEIGHT - 24 - height;
           return (
             <Rect
-              key={item.label}
+              key={`${item.label}-${index}`}
               x={x}
               y={y}
               width={barWidth}
@@ -56,8 +56,8 @@ export default function VoteDistributionChart({ distribution = [], width = 320 }
         })}
       </Svg>
       <View style={[styles.labelsRow, { width: chartWidth }]}>
-        {buckets.map((item) => (
-          <View key={item.label} style={[styles.labelCol, { width: barWidth + gap }]}>
+        {buckets.map((item, index) => (
+          <View key={`${item.label}-${index}`} style={[styles.labelCol, { width: barWidth + gap }]}>
             <Text style={styles.countText}>{item.count}</Text>
             <Text style={styles.labelText} numberOfLines={1}>{item.label}</Text>
           </View>

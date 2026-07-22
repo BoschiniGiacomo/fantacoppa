@@ -296,17 +296,23 @@ export default function PlayerStatsScreen({ route, navigation }) {
   const canPickEditionYear = editionYearOptions.length > 1;
 
   const playerInfo = fantaEditionData?.player;
-  const displayPlayerRole = String(
-    playerInfo?.role || overview?.role || playerRole || '',
-  ).trim().toUpperCase();
+  const selectedEditionRole = useMemo(
+    () => String(selectedEdition?.role || '').trim().toUpperCase(),
+    [selectedEdition?.role],
+  );
   const recentClusterRole = useMemo(
     () => String(overview?.role || '').trim().toUpperCase(),
     [overview?.role],
   );
+  const displayPlayerRole = selectedEditionRole
+    || recentClusterRole
+    || String(playerRole || '').trim().toUpperCase();
   const scopeGoalkeeperRole = useMemo(() => {
     if (activeScopeSubTab === 'total') return recentClusterRole;
-    return String(playerInfo?.role || playerRole || recentClusterRole || '').trim().toUpperCase();
-  }, [activeScopeSubTab, recentClusterRole, playerInfo?.role, playerRole]);
+    return selectedEditionRole
+      || String(playerRole || '').trim().toUpperCase()
+      || recentClusterRole;
+  }, [activeScopeSubTab, recentClusterRole, selectedEditionRole, playerRole]);
   const isRecentClusterGoalkeeper = recentClusterRole === 'P';
   const showGoalkeeperFantaSection = scopeGoalkeeperRole === 'P';
   const { firstName, lastName } = useMemo(
