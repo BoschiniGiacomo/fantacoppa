@@ -40,6 +40,8 @@ function emptyFantaStats() {
     presence_pct: 0,
     goals_per_game: 0,
     assists_per_game: 0,
+    yellow_cards_per_game: 0,
+    red_cards_per_game: 0,
     total_clean_sheets: 0,
     total_penalty_saved: 0,
     total_goals_conceded: 0,
@@ -111,6 +113,8 @@ async function fetchPlayerFantaStats(playerIds, leagueIds) {
          (${BONUS_SCORE_SQL})::float AS rating_with_bonus,
          COALESCE(pr.goals, 0) AS goals,
          COALESCE(pr.assists, 0) AS assists,
+         COALESCE(pr.yellow_cards, 0) AS yellow_cards,
+         COALESCE(pr.red_cards, 0) AS red_cards,
          COALESCE(pr.goals_conceded, 0) AS goals_conceded,
          COALESCE(pr.penalty_saved, 0) AS penalty_saved,
          COALESCE(pr.clean_sheet, 0) AS clean_sheet,
@@ -125,7 +129,7 @@ async function fetchPlayerFantaStats(playerIds, leagueIds) {
         AND COALESCE(md.is_ghost, 0) = 0
        WHERE pr.player_id IN (${playerPh})
          AND pr.league_id IN (${leaguesPh})
-         AND ${SQL_WHERE_PRESENCE_VOTE}
+         AND pr.rating > 0
      ),
      presence AS (
        SELECT DISTINCT ON (league_id, giornata)
@@ -133,6 +137,8 @@ async function fetchPlayerFantaStats(playerIds, leagueIds) {
          giornata,
          goals,
          assists,
+         yellow_cards,
+         red_cards,
          goals_conceded,
          penalty_saved,
          clean_sheet,
@@ -159,6 +165,8 @@ async function fetchPlayerFantaStats(playerIds, leagueIds) {
        (SELECT AVG(rating_with_bonus) FROM scored) AS avg_rating_with_bonus,
        (SELECT COALESCE(SUM(goals), 0) FROM presence) AS total_goals,
        (SELECT COALESCE(SUM(assists), 0) FROM presence) AS total_assists,
+       (SELECT COALESCE(SUM(yellow_cards), 0) FROM presence) AS total_yellow_cards,
+       (SELECT COALESCE(SUM(red_cards), 0) FROM presence) AS total_red_cards,
        (SELECT COALESCE(SUM(goals_conceded), 0) FROM presence) AS total_goals_conceded,
        (SELECT COALESCE(SUM(penalty_saved), 0) FROM presence) AS total_penalty_saved,
        (SELECT COALESCE(SUM(clean_sheet), 0) FROM presence) AS total_clean_sheets,
@@ -175,13 +183,15 @@ async function fetchPlayerFantaStats(playerIds, leagueIds) {
 
   return {
     games_played: gamesPlayed,
-    games_with_rating: Number(r.games_with_rating || 0),
+    games_with_rating: gamesPlayed,
     avg_rating: safeNumber(r.avg_rating, 2),
     avg_rating_with_bonus: safeNumber(r.avg_rating_with_bonus, 2),
     team_matchdays: teamMatchdays,
     presence_pct: teamMatchdays > 0 ? safeNumber((gamesPlayed / teamMatchdays) * 100, 1) : 0,
     goals_per_game: safeRate(r.total_goals, gamesPlayed, 2),
     assists_per_game: safeRate(r.total_assists, gamesPlayed, 2),
+    yellow_cards_per_game: safeRate(r.total_yellow_cards, gamesPlayed, 2),
+    red_cards_per_game: safeRate(r.total_red_cards, gamesPlayed, 2),
     total_clean_sheets: Number(r.total_clean_sheets || 0),
     total_penalty_saved: Number(r.total_penalty_saved || 0),
     total_goals_conceded: Number(r.total_goals_conceded || 0),

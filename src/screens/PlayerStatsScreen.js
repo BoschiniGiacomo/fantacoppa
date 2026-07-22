@@ -215,6 +215,18 @@ function TileSplitRow({ left, right }) {
   );
 }
 
+function ProductionStatCell({ type, value, label }) {
+  return (
+    <View style={styles.productionCell}>
+      <View style={styles.productionIconWrap}>
+        <BonusIcon type={type} size={18} />
+      </View>
+      <Text style={styles.productionCellValue}>{value}</Text>
+      <Text style={styles.productionCellLabel}>{label}</Text>
+    </View>
+  );
+}
+
 export default function PlayerStatsScreen({ route, navigation }) {
   const {
     playerId,
@@ -857,7 +869,7 @@ export default function PlayerStatsScreen({ route, navigation }) {
     const s = stats || {};
     const v = (val) => (typeof val === 'number' ? val : (parseFloat(val) || 0));
     const customExtras = [
-      { key: 'briso', value: v(s.total_briso), label: 'Briso' },
+      { key: 'briso', value: v(s.total_briso), label: 'MVB' },
       { key: 'pallone_fuori', value: v(s.total_pallone_fuori), label: 'Pallone fuori' },
       { key: 'no_divisa', value: v(s.total_no_divisa), label: 'No divisa' },
     ].filter((item) => item.value > 0);
@@ -885,7 +897,7 @@ export default function PlayerStatsScreen({ route, navigation }) {
             left={(
               <>
                 <Text style={styles.tileValue}>{v(s.games_with_rating)}</Text>
-                <Text style={styles.tileLabel}>Con Voto</Text>
+                <Text style={styles.tileLabel}>Con voto</Text>
               </>
             )}
             right={(
@@ -898,28 +910,49 @@ export default function PlayerStatsScreen({ route, navigation }) {
         </View>
 
         <View style={styles.card}>
-          <Text style={styles.cardSectionTitle}>Produzione</Text>
+          <View style={styles.productionHeader}>
+            <Text style={[styles.cardSectionTitle, styles.productionHeaderTitle]}>Produzione</Text>
+            <Text style={styles.productionScope}>per partita</Text>
+          </View>
           <TileSplitRow
             left={(
-              <>
-                <Text style={styles.tileValue}>{formatRate(s.goals_per_game)}</Text>
-                <Text style={styles.tileLabel}>Gol / partita</Text>
-              </>
+              <ProductionStatCell
+                type="goal"
+                value={formatRate(s.goals_per_game)}
+                label="Gol"
+              />
             )}
             right={(
-              <>
-                <Text style={styles.tileValue}>{formatRate(s.assists_per_game)}</Text>
-                <Text style={styles.tileLabel}>Assist / partita</Text>
-              </>
+              <ProductionStatCell
+                type="assist"
+                value={formatRate(s.assists_per_game)}
+                label="Assist"
+              />
+            )}
+          />
+          <View style={styles.divider} />
+          <TileSplitRow
+            left={(
+              <ProductionStatCell
+                type="yellow_card"
+                value={formatRate(s.yellow_cards_per_game)}
+                label="Gialli"
+              />
+            )}
+            right={(
+              <ProductionStatCell
+                type="red_card"
+                value={formatRate(s.red_cards_per_game)}
+                label="Rossi"
+              />
             )}
           />
           <View style={styles.divider} />
           <View style={styles.tileRow}>
             <View style={[styles.tile, styles.tileFull]}>
               <Text style={styles.tileValueSmallMeta}>
-                {v(s.games_played)} presenze su {v(s.team_matchdays)} giornate competitive
+                {v(s.games_played)} / {v(s.team_matchdays)} giornate girone
               </Text>
-              <Text style={styles.tileLabel}>Giornate non fantasma</Text>
             </View>
           </View>
         </View>
@@ -1707,6 +1740,44 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     justifyContent: 'center',
     rowGap: 14,
+  },
+  productionHeader: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  productionHeaderTitle: {
+    marginBottom: 0,
+  },
+  productionScope: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#94a3b8',
+    letterSpacing: 0.2,
+  },
+  productionCell: {
+    alignItems: 'center',
+    gap: 5,
+    paddingVertical: 2,
+  },
+  productionIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#f5f5f5',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  productionCellValue: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#2c3e50',
+  },
+  productionCellLabel: {
+    fontSize: 11,
+    color: '#999',
+    textAlign: 'center',
   },
   bmItem: {
     alignItems: 'center',
