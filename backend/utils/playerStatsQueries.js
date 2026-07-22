@@ -42,6 +42,9 @@ function emptyFantaStats() {
     assists_per_game: 0,
     yellow_cards_per_game: 0,
     red_cards_per_game: 0,
+    clean_sheets_per_game: 0,
+    penalty_saved_per_game: 0,
+    goals_conceded_per_game: 0,
     total_clean_sheets: 0,
     total_penalty_saved: 0,
     total_goals_conceded: 0,
@@ -61,6 +64,9 @@ function emptyAnalytics() {
       total_red_cards: 0,
       total_own_goals: 0,
       total_penalty_missed: 0,
+      total_clean_sheets: 0,
+      total_penalty_saved: 0,
+      total_goals_conceded: 0,
     },
     efficiency: {
       goals_per_presence: 0,
@@ -202,6 +208,9 @@ async function fetchPlayerFantaStats(playerIds, leagueIds) {
     assists_per_game: safeRate(r.total_assists, gamesPlayed, 2),
     yellow_cards_per_game: safeRate(r.total_yellow_cards, gamesPlayed, 2),
     red_cards_per_game: safeRate(r.total_red_cards, gamesPlayed, 2),
+    clean_sheets_per_game: safeRate(r.total_clean_sheets, gamesPlayed, 2),
+    penalty_saved_per_game: safeRate(r.total_penalty_saved, gamesPlayed, 2),
+    goals_conceded_per_game: safeRate(r.total_goals_conceded, gamesPlayed, 2),
     total_clean_sheets: Number(r.total_clean_sheets || 0),
     total_penalty_saved: Number(r.total_penalty_saved || 0),
     total_goals_conceded: Number(r.total_goals_conceded || 0),
@@ -259,6 +268,7 @@ async function fetchPlayerAnalytics(playerIds, leagueIds, playerRole = '') {
            COALESCE(pr.goals_conceded, 0) AS goals_conceded,
            COALESCE(pr.own_goals, 0) AS own_goals,
            COALESCE(pr.penalty_missed, 0) AS penalty_missed,
+           COALESCE(pr.penalty_saved, 0) AS penalty_saved,
            COALESCE(pr.clean_sheet, 0) AS clean_sheet
          FROM player_ratings pr
          LEFT JOIN league_bonus_settings bs ON bs.league_id = pr.league_id
@@ -277,6 +287,7 @@ async function fetchPlayerAnalytics(playerIds, leagueIds, playerRole = '') {
            goals_conceded,
            own_goals,
            penalty_missed,
+           penalty_saved,
            clean_sheet
          FROM vote_rows
          ORDER BY league_id, giornata, player_id DESC
@@ -299,6 +310,7 @@ async function fetchPlayerAnalytics(playerIds, leagueIds, playerRole = '') {
          (SELECT COALESCE(SUM(red_cards), 0) FROM presence) AS total_red_cards,
          (SELECT COALESCE(SUM(own_goals), 0) FROM presence) AS total_own_goals,
          (SELECT COALESCE(SUM(penalty_missed), 0) FROM presence) AS total_penalty_missed,
+         (SELECT COALESCE(SUM(penalty_saved), 0) FROM presence) AS total_penalty_saved,
          (SELECT COALESCE(SUM(clean_sheet), 0) FROM presence) AS total_clean_sheets,
          (SELECT COALESCE(SUM(goals_conceded), 0) FROM presence) AS total_goals_conceded
        FROM (SELECT 1) AS _one`,
@@ -342,6 +354,7 @@ async function fetchPlayerAnalytics(playerIds, leagueIds, playerRole = '') {
   const totalYellow = Number(agg.total_yellow_cards || 0);
   const totalRed = Number(agg.total_red_cards || 0);
   const totalCleanSheets = Number(agg.total_clean_sheets || 0);
+  const totalPenaltySaved = Number(agg.total_penalty_saved || 0);
   const totalGoalsConceded = Number(agg.total_goals_conceded || 0);
   const role = String(playerRole || '').trim().toUpperCase();
 
@@ -360,6 +373,9 @@ async function fetchPlayerAnalytics(playerIds, leagueIds, playerRole = '') {
       total_red_cards: totalRed,
       total_own_goals: Number(agg.total_own_goals || 0),
       total_penalty_missed: Number(agg.total_penalty_missed || 0),
+      total_clean_sheets: totalCleanSheets,
+      total_penalty_saved: totalPenaltySaved,
+      total_goals_conceded: totalGoalsConceded,
     },
     efficiency: {
       goals_per_presence: safeRate(totalGoals, gamesPlayed, 2),

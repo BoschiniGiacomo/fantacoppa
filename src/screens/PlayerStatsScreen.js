@@ -877,18 +877,18 @@ export default function PlayerStatsScreen({ route, navigation }) {
     return (
       <View>
         <View style={styles.card}>
-          <Text style={styles.cardSectionTitle}>Rendimento</Text>
+          <Text style={styles.cardSectionTitle}>Rendimento ai gironi</Text>
           <TileSplitRow
             left={(
               <>
                 <Text style={styles.tileValue}>{v(s.avg_rating).toFixed(2)}</Text>
-                <Text style={styles.tileLabel}>Media Voto</Text>
+                <Text style={styles.tileLabel}>Media voto</Text>
               </>
             )}
             right={(
               <>
                 <Text style={[styles.tileValue, { color: '#667eea' }]}>{v(s.avg_rating_with_bonus).toFixed(2)}</Text>
-                <Text style={styles.tileLabel}>Media con Bonus</Text>
+                <Text style={styles.tileLabel}>Media con bonus</Text>
               </>
             )}
           />
@@ -896,14 +896,17 @@ export default function PlayerStatsScreen({ route, navigation }) {
           <TileSplitRow
             left={(
               <>
-                <Text style={styles.tileValue}>{v(s.games_with_rating)}</Text>
-                <Text style={styles.tileLabel}>Con voto</Text>
+                <Text style={styles.tileValue}>
+                  {v(s.games_with_rating)}
+                  <Text style={styles.tileValueMuted}> / {v(s.team_matchdays)}</Text>
+                </Text>
+                <Text style={styles.tileLabel}>Giornate con voto</Text>
               </>
             )}
             right={(
               <>
                 <Text style={styles.tileValue}>{formatPct(s.presence_pct)}</Text>
-                <Text style={styles.tileLabel}>% Presenza squadra</Text>
+                <Text style={styles.tileLabel}>% Presenza</Text>
               </>
             )}
           />
@@ -947,33 +950,39 @@ export default function PlayerStatsScreen({ route, navigation }) {
               />
             )}
           />
-          <View style={styles.divider} />
-          <View style={styles.tileRow}>
-            <View style={[styles.tile, styles.tileFull]}>
-              <Text style={styles.tileValueSmallMeta}>
-                {v(s.games_played)} / {v(s.team_matchdays)} giornate girone
-              </Text>
-            </View>
-          </View>
         </View>
 
         {displayPlayerRole === 'P' && (
           <View style={styles.card}>
-            <Text style={styles.cardSectionTitle}>Statistiche Portiere</Text>
-            <View style={styles.bmGrid}>
-              {[
-                { key: 'clean_sheet', value: v(s.total_clean_sheets), label: 'Clean sheet' },
-                { key: 'penalty_saved', value: v(s.total_penalty_saved), label: 'Rig. parati' },
-                { key: 'goals_conceded', value: v(s.total_goals_conceded), label: 'Goal subiti' },
-              ].map((item) => (
-                <View key={item.key} style={styles.bmItem}>
-                  <View style={styles.bmIconCircle}>
-                    <BonusIcon type={item.key} size={20} />
-                  </View>
-                  <Text style={styles.bmValue}>{item.value}</Text>
-                  <Text style={styles.bmLabel}>{item.label}</Text>
-                </View>
-              ))}
+            <View style={styles.productionHeader}>
+              <Text style={[styles.cardSectionTitle, styles.productionHeaderTitle]}>Portiere</Text>
+              <Text style={styles.productionScope}>per partita</Text>
+            </View>
+            <TileSplitRow
+              left={(
+                <ProductionStatCell
+                  type="clean_sheet"
+                  value={formatRate(s.clean_sheets_per_game)}
+                  label="Clean sheet"
+                />
+              )}
+              right={(
+                <ProductionStatCell
+                  type="penalty_saved"
+                  value={formatRate(s.penalty_saved_per_game)}
+                  label="Rig. parati"
+                />
+              )}
+            />
+            <View style={styles.divider} />
+            <View style={styles.tileRow}>
+              <View style={[styles.tile, styles.tileFull]}>
+                <ProductionStatCell
+                  type="goals_conceded"
+                  value={formatRate(s.goals_conceded_per_game)}
+                  label="Goal subiti"
+                />
+              </View>
             </View>
           </View>
         )}
@@ -1115,6 +1124,21 @@ export default function PlayerStatsScreen({ route, navigation }) {
     const totals = data.totals || {};
     const v = (val) => (typeof val === 'number' ? val : (parseFloat(val) || 0));
 
+    const baseTotals = [
+      { key: 'goal', value: v(totals.total_goals), label: 'Goal' },
+      { key: 'assist', value: v(totals.total_assists), label: 'Assist' },
+      { key: 'yellow_card', value: v(totals.total_yellow_cards), label: 'Gialli' },
+      { key: 'red_card', value: v(totals.total_red_cards), label: 'Rossi' },
+      { key: 'own_goal', value: v(totals.total_own_goals), label: 'Autogoal' },
+      { key: 'penalty_missed', value: v(totals.total_penalty_missed), label: 'Rig. sbagliati' },
+    ];
+    const goalkeeperTotals = displayPlayerRole === 'P' ? [
+      { key: 'clean_sheet', value: v(totals.total_clean_sheets), label: 'Clean sheet' },
+      { key: 'penalty_saved', value: v(totals.total_penalty_saved), label: 'Rig. parati' },
+      { key: 'goals_conceded', value: v(totals.total_goals_conceded), label: 'Goal subiti' },
+    ] : [];
+    const totalsItems = [...baseTotals, ...goalkeeperTotals];
+
     return (
       <View>
         <View style={styles.card}>
@@ -1142,14 +1166,7 @@ export default function PlayerStatsScreen({ route, navigation }) {
               <Text style={styles.bmValue}>{v(totals.games_played)}</Text>
               <Text style={styles.bmLabel}>Presenze</Text>
             </View>
-            {[
-              { key: 'goal', value: v(totals.total_goals), label: 'Goal' },
-              { key: 'assist', value: v(totals.total_assists), label: 'Assist' },
-              { key: 'yellow_card', value: v(totals.total_yellow_cards), label: 'Gialli' },
-              { key: 'red_card', value: v(totals.total_red_cards), label: 'Rossi' },
-              { key: 'own_goal', value: v(totals.total_own_goals), label: 'Autogoal' },
-              { key: 'penalty_missed', value: v(totals.total_penalty_missed), label: 'Rig. sbagliati' },
-            ].map((item) => (
+            {totalsItems.map((item) => (
               <View key={item.key} style={styles.bmItemWide}>
                 <View style={styles.bmIconCircle}>
                   <BonusIcon type={item.key} size={20} />
@@ -1672,6 +1689,11 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#2c3e50',
     marginBottom: 2,
+  },
+  tileValueMuted: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#94a3b8',
   },
   tileValueRole: {
     width: '100%',
