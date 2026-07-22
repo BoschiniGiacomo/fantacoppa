@@ -83,16 +83,26 @@ function emptyAnalytics() {
   };
 }
 
-async function countTeamNonGhostMatchdays(leagueIds) {
-  if (!leagueIds.length) return 0;
-  const ph = leagueIds.map(() => '?').join(',');
+async function countClusterPlayerNonGhostMatchdays(playerIds, leagueIds) {
+  if (!playerIds.length || !leagueIds.length) return 0;
+
+  const playerPh = playerIds.map(() => '?').join(',');
+  const leaguesPh = leagueIds.map(() => '?').join(',');
+
   const rows = await query(
-    `SELECT COUNT(DISTINCT (league_id, giornata))::int AS team_matchdays
-     FROM matchdays
-     WHERE league_id IN (${ph})
-       AND COALESCE(is_ghost, 0) = 0`,
-    leagueIds
+    `SELECT COUNT(*)::int AS team_matchdays
+     FROM (
+       SELECT DISTINCT md.league_id, md.giornata
+       FROM matchdays md
+       INNER JOIN teams t ON t.league_id = md.league_id
+       INNER JOIN players p ON p.team_id = t.id
+       WHERE p.id IN (${playerPh})
+         AND md.league_id IN (${leaguesPh})
+         AND COALESCE(md.is_ghost, 0) = 0
+     ) scoped`,
+    [...playerIds, ...leagueIds]
   );
+
   return Number(rows[0]?.team_matchdays || 0);
 }
 
@@ -179,7 +189,7 @@ async function fetchPlayerFantaStats(playerIds, leagueIds) {
 
   const r = rows[0] || {};
   const gamesPlayed = Number(r.games_played || 0);
-  const teamMatchdays = await countTeamNonGhostMatchdays(leagueIds);
+  const teamMatchdays = await countClusterPlayerNonGhostMatchdays(playerIds, leagueIds);
 
   return {
     games_played: gamesPlayed,
