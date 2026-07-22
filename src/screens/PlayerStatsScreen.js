@@ -299,6 +299,16 @@ export default function PlayerStatsScreen({ route, navigation }) {
   const displayPlayerRole = String(
     playerInfo?.role || overview?.role || playerRole || '',
   ).trim().toUpperCase();
+  const recentClusterRole = useMemo(
+    () => String(overview?.role || '').trim().toUpperCase(),
+    [overview?.role],
+  );
+  const scopeGoalkeeperRole = useMemo(() => {
+    if (activeScopeSubTab === 'total') return recentClusterRole;
+    return String(playerInfo?.role || playerRole || recentClusterRole || '').trim().toUpperCase();
+  }, [activeScopeSubTab, recentClusterRole, playerInfo?.role, playerRole]);
+  const isRecentClusterGoalkeeper = recentClusterRole === 'P';
+  const showGoalkeeperFantaSection = scopeGoalkeeperRole === 'P';
   const { firstName, lastName } = useMemo(
     () => resolvePlayerDisplayName(playerInfo, playerName),
     [playerInfo, playerName],
@@ -874,6 +884,87 @@ export default function PlayerStatsScreen({ route, navigation }) {
       { key: 'no_divisa', value: v(s.total_no_divisa), label: 'No divisa' },
     ].filter((item) => item.value > 0);
 
+    const productionCard = (
+      <View style={styles.card} key="production">
+        <View style={styles.productionHeader}>
+          <Text style={[styles.cardSectionTitle, styles.productionHeaderTitle]}>Produzione</Text>
+          <Text style={styles.productionScope}>per partita</Text>
+        </View>
+        <TileSplitRow
+          left={(
+            <ProductionStatCell
+              type="goal"
+              value={formatRate(s.goals_per_game)}
+              label="Gol"
+            />
+          )}
+          right={(
+            <ProductionStatCell
+              type="assist"
+              value={formatRate(s.assists_per_game)}
+              label="Assist"
+            />
+          )}
+        />
+        <View style={styles.divider} />
+        <TileSplitRow
+          left={(
+            <ProductionStatCell
+              type="yellow_card"
+              value={formatRate(s.yellow_cards_per_game)}
+              label="Gialli"
+            />
+          )}
+          right={(
+            <ProductionStatCell
+              type="red_card"
+              value={formatRate(s.red_cards_per_game)}
+              label="Rossi"
+            />
+          )}
+        />
+      </View>
+    );
+
+    const goalkeeperCard = showGoalkeeperFantaSection ? (
+      <View style={styles.card} key="goalkeeper">
+        <View style={styles.productionHeader}>
+          <Text style={[styles.cardSectionTitle, styles.productionHeaderTitle]}>Portiere</Text>
+          <Text style={styles.productionScope}>per partita</Text>
+        </View>
+        <TileSplitRow
+          left={(
+            <ProductionStatCell
+              type="clean_sheet"
+              value={formatRate(s.clean_sheets_per_game)}
+              label="Clean sheet"
+            />
+          )}
+          right={(
+            <ProductionStatCell
+              type="penalty_saved"
+              value={formatRate(s.penalty_saved_per_game)}
+              label="Rig. parati"
+            />
+          )}
+        />
+        <View style={styles.divider} />
+        <View style={styles.tileRow}>
+          <View style={[styles.tile, styles.tileFull]}>
+            <ProductionStatCell
+              type="goals_conceded"
+              value={formatRate(s.goals_conceded_per_game)}
+              label="Goal subiti"
+            />
+          </View>
+        </View>
+      </View>
+    ) : null;
+
+    const orderedStatCards = isRecentClusterGoalkeeper && goalkeeperCard
+      ? [goalkeeperCard, productionCard]
+      : [productionCard, goalkeeperCard].filter(Boolean);
+
     return (
       <View>
         <View style={styles.card}>
@@ -912,80 +1003,7 @@ export default function PlayerStatsScreen({ route, navigation }) {
           />
         </View>
 
-        <View style={styles.card}>
-          <View style={styles.productionHeader}>
-            <Text style={[styles.cardSectionTitle, styles.productionHeaderTitle]}>Produzione</Text>
-            <Text style={styles.productionScope}>per partita</Text>
-          </View>
-          <TileSplitRow
-            left={(
-              <ProductionStatCell
-                type="goal"
-                value={formatRate(s.goals_per_game)}
-                label="Gol"
-              />
-            )}
-            right={(
-              <ProductionStatCell
-                type="assist"
-                value={formatRate(s.assists_per_game)}
-                label="Assist"
-              />
-            )}
-          />
-          <View style={styles.divider} />
-          <TileSplitRow
-            left={(
-              <ProductionStatCell
-                type="yellow_card"
-                value={formatRate(s.yellow_cards_per_game)}
-                label="Gialli"
-              />
-            )}
-            right={(
-              <ProductionStatCell
-                type="red_card"
-                value={formatRate(s.red_cards_per_game)}
-                label="Rossi"
-              />
-            )}
-          />
-        </View>
-
-        {displayPlayerRole === 'P' && (
-          <View style={styles.card}>
-            <View style={styles.productionHeader}>
-              <Text style={[styles.cardSectionTitle, styles.productionHeaderTitle]}>Portiere</Text>
-              <Text style={styles.productionScope}>per partita</Text>
-            </View>
-            <TileSplitRow
-              left={(
-                <ProductionStatCell
-                  type="clean_sheet"
-                  value={formatRate(s.clean_sheets_per_game)}
-                  label="Clean sheet"
-                />
-              )}
-              right={(
-                <ProductionStatCell
-                  type="penalty_saved"
-                  value={formatRate(s.penalty_saved_per_game)}
-                  label="Rig. parati"
-                />
-              )}
-            />
-            <View style={styles.divider} />
-            <View style={styles.tileRow}>
-              <View style={[styles.tile, styles.tileFull]}>
-                <ProductionStatCell
-                  type="goals_conceded"
-                  value={formatRate(s.goals_conceded_per_game)}
-                  label="Goal subiti"
-                />
-              </View>
-            </View>
-          </View>
-        )}
+        {orderedStatCards}
 
         {customExtras.length > 0 && (
           <View style={styles.card}>
@@ -1132,7 +1150,7 @@ export default function PlayerStatsScreen({ route, navigation }) {
       { key: 'own_goal', value: v(totals.total_own_goals), label: 'Autogoal' },
       { key: 'penalty_missed', value: v(totals.total_penalty_missed), label: 'Rig. sbagliati' },
     ];
-    const goalkeeperTotals = displayPlayerRole === 'P' ? [
+    const goalkeeperTotals = showGoalkeeperFantaSection ? [
       { key: 'clean_sheet', value: v(totals.total_clean_sheets), label: 'Clean sheet' },
       { key: 'penalty_saved', value: v(totals.total_penalty_saved), label: 'Rig. parati' },
       { key: 'goals_conceded', value: v(totals.total_goals_conceded), label: 'Goal subiti' },
@@ -1148,7 +1166,7 @@ export default function PlayerStatsScreen({ route, navigation }) {
 
         <View style={styles.card}>
           <Text style={styles.cardSectionTitle}>Indici di efficienza</Text>
-          <EfficiencyBars items={buildEfficiencyItems(data.efficiency, displayPlayerRole)} />
+          <EfficiencyBars items={buildEfficiencyItems(data.efficiency, scopeGoalkeeperRole)} />
         </View>
 
         <View style={styles.card}>
