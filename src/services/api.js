@@ -821,6 +821,10 @@ export const superuserService = {
 // Player statistics service
 export const playerStatsService = {
   getPlayerStats: (playerId, leagueId) => api.get(`/players/${playerId}/stats/${leagueId}`),
+  getPlayerFantaStats: (playerId, leagueId) => api.get(`/players/${playerId}/fanta-stats/${leagueId}`),
+  getPlayerFantaStatsAggregated: (playerId, leagueId) => api.get(`/players/${playerId}/fanta-stats/aggregated/${leagueId}`),
+  getPlayerAnalytics: (playerId, leagueId) => api.get(`/players/${playerId}/analytics/${leagueId}`),
+  getPlayerAnalyticsAggregated: (playerId, leagueId) => api.get(`/players/${playerId}/analytics/aggregated/${leagueId}`),
   getPlayerAggregatedStats: (playerId, leagueId) => api.get(`/players/${playerId}/stats/aggregated/${leagueId}`),
   getPlayerOverview: (playerId, leagueId) => api.get(`/players/${playerId}/overview/${leagueId}`),
   getPlayerAbsoluteRanks: (playerId, leagueId) => api.get(`/players/${playerId}/absolute-ranks/${leagueId}`),

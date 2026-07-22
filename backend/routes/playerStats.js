@@ -3,6 +3,12 @@ const router = express.Router();
 const { query } = require('../config/database');
 const { authenticateToken } = require('../middleware/auth');
 const { computePlayerOfficialTrophies, computePlayerOfficialTrophyWinsByLeague } = require('../utils/officialHallTrophies');
+const {
+  BONUS_SCORE_SQL,
+  safeNumber,
+  fetchPlayerFantaStats,
+  fetchPlayerAnalytics,
+} = require('../utils/playerStatsQueries');
 
 async function getLeagueOfficialMeta(leagueId) {
   const rows = await query(
@@ -49,18 +55,100 @@ async function resolveLeagueIdsForRatings(leagueId) {
   return [...ids];
 }
 
-const BONUS_SCORE_SQL = `
-  pr.rating
-  + CASE WHEN COALESCE(bs.enable_goal, 0) = 1 THEN COALESCE(bs.bonus_goal, 0) * COALESCE(pr.goals, 0) ELSE 0 END
-  + CASE WHEN COALESCE(bs.enable_assist, 0) = 1 THEN COALESCE(bs.bonus_assist, 0) * COALESCE(pr.assists, 0) ELSE 0 END
-  + CASE WHEN COALESCE(bs.enable_yellow_card, 0) = 1 THEN COALESCE(bs.malus_yellow_card, 0) * COALESCE(pr.yellow_cards, 0) ELSE 0 END
-  + CASE WHEN COALESCE(bs.enable_red_card, 0) = 1 THEN COALESCE(bs.malus_red_card, 0) * COALESCE(pr.red_cards, 0) ELSE 0 END
-  + CASE WHEN COALESCE(bs.enable_goals_conceded, 0) = 1 THEN COALESCE(bs.malus_goals_conceded, 0) * COALESCE(pr.goals_conceded, 0) ELSE 0 END
-  + CASE WHEN COALESCE(bs.enable_own_goal, 0) = 1 THEN COALESCE(bs.malus_own_goal, 0) * COALESCE(pr.own_goals, 0) ELSE 0 END
-  + CASE WHEN COALESCE(bs.enable_penalty_missed, 0) = 1 THEN COALESCE(bs.malus_penalty_missed, 0) * COALESCE(pr.penalty_missed, 0) ELSE 0 END
-  + CASE WHEN COALESCE(bs.enable_penalty_saved, 0) = 1 THEN COALESCE(bs.bonus_penalty_saved, 0) * COALESCE(pr.penalty_saved, 0) ELSE 0 END
-  + CASE WHEN COALESCE(bs.enable_clean_sheet, 0) = 1 THEN COALESCE(bs.bonus_clean_sheet, 0) * COALESCE(pr.clean_sheet, 0) ELSE 0 END
-`;
+async function resolveAggregatedPlayerContext(playerId, leagueId) {
+  const leagueMetaRows = await query(
+    `SELECT id, linked_to_league_id, COALESCE(is_official, 0) AS is_official, official_group_id
+     FROM leagues
+     WHERE id = ?
+     LIMIT 1`,
+    [leagueId]
+  );
+  const leagueMeta = leagueMetaRows[0];
+  if (!leagueMeta) return { error: { status: 404, message: 'Lega non trovata' } };
+
+  let groupId = leagueMeta.official_group_id ? Number(leagueMeta.official_group_id) : null;
+  if (!groupId && Number(leagueMeta.linked_to_league_id || 0) > 0) {
+    const linkedMeta = await getLeagueOfficialMeta(Number(leagueMeta.linked_to_league_id));
+    groupId = linkedMeta?.official_group_id ? Number(linkedMeta.official_group_id) : null;
+  }
+  if (!groupId) {
+    return { error: { status: 404, message: 'Statistiche aggregate non disponibili per questa lega' } };
+  }
+
+  const playerRows = await query(
+    `SELECT id, first_name, last_name, role, rating, COALESCE(photo_path, '') AS photo_path
+     FROM players
+     WHERE id = ?
+     LIMIT 1`,
+    [playerId]
+  );
+  if (!playerRows.length) return { error: { status: 404, message: 'Giocatore non trovato' } };
+  const basePlayer = playerRows[0];
+
+  const groupLeagueRows = await query(
+    `SELECT id
+     FROM leagues
+     WHERE official_group_id = ?
+       AND COALESCE(is_official, 0) = 1
+       AND COALESCE(is_official_squad_public, 0) = 1`,
+    [groupId]
+  );
+  const groupLeagueIds = groupLeagueRows.map((r) => Number(r.id)).filter((n) => Number.isFinite(n) && n > 0);
+  if (!groupLeagueIds.length) {
+    return { error: { status: 404, message: 'Statistiche aggregate non disponibili per questo gruppo ufficiale' } };
+  }
+
+  const clusterRows = await query(
+    `SELECT DISTINCT pcm2.player_id
+     FROM player_clusters pc
+     JOIN player_cluster_members pcm1 ON pcm1.cluster_id = pc.id
+     JOIN player_cluster_members pcm2 ON pcm2.cluster_id = pc.id
+     WHERE pc.official_group_id = ?
+       AND pc.status = 'approved'
+       AND pcm1.player_id = ?`,
+    [groupId, playerId]
+  );
+  const aggregatedPlayerIds = clusterRows.map((r) => Number(r.player_id)).filter((n) => Number.isFinite(n) && n > 0);
+  if (aggregatedPlayerIds.length < 2) {
+    return { error: { status: 404, message: 'Giocatore non associato a un cluster' } };
+  }
+
+  let bestPhoto = basePlayer.photo_path || '';
+  if (!bestPhoto) {
+    try {
+      const photoRows = await query(
+        `SELECT p.photo_path
+         FROM players p
+         JOIN teams t ON t.id = p.team_id
+         JOIN leagues l ON l.id = t.league_id
+         WHERE p.id IN (${aggregatedPlayerIds.map(() => '?').join(',')})
+           AND COALESCE(p.photo_path, '') != ''
+         ORDER BY l.name DESC
+         LIMIT 1`,
+        aggregatedPlayerIds
+      );
+      if (photoRows.length > 0) bestPhoto = photoRows[0].photo_path || '';
+    } catch (_) {}
+  }
+
+  return {
+    player: {
+      id: Number(basePlayer.id),
+      first_name: basePlayer.first_name,
+      last_name: basePlayer.last_name,
+      role: basePlayer.role,
+      rating: safeNumber(basePlayer.rating),
+      photo_path: bestPhoto,
+    },
+    aggregatedPlayerIds,
+    groupLeagueIds,
+    meta: {
+      official_group_id: groupId,
+      leagues_count: groupLeagueIds.length,
+      players_count: aggregatedPlayerIds.length,
+    },
+  };
+}
 
 /**
  * Presenze = voto reale o S.V. (-0.25), una per (lega, giornata).
@@ -172,12 +260,6 @@ async function fetchPlayerStatsAggregates(playerIds, leagueIds) {
     total_penalty_saved: Number(r.total_penalty_saved || 0),
     total_clean_sheets: Number(r.total_clean_sheets || 0),
   };
-}
-
-function safeNumber(value, decimals = null) {
-  const n = Number(value || 0);
-  if (!Number.isFinite(n)) return 0;
-  return decimals == null ? n : Number(n.toFixed(decimals));
 }
 
 async function resolveOfficialGroupId(leagueId) {
@@ -708,6 +790,112 @@ router.get('/:playerId/career/:leagueId', authenticateToken, async (req, res) =>
   }
 });
 
+router.get('/:playerId/fanta-stats/aggregated/:leagueId', authenticateToken, async (req, res) => {
+  try {
+    const playerId = Number(req.params.playerId);
+    const leagueId = Number(req.params.leagueId);
+    if (!playerId || !leagueId) return res.status(400).json({ message: 'Parametri non validi' });
+
+    const context = await resolveAggregatedPlayerContext(playerId, leagueId);
+    if (context.error) return res.status(context.error.status).json({ message: context.error.message });
+
+    const stats = await fetchPlayerFantaStats(context.aggregatedPlayerIds, context.groupLeagueIds);
+    return res.json({ player: context.player, stats, meta: context.meta });
+  } catch (error) {
+    return res.status(500).json({ message: 'Errore caricamento statistiche fanta aggregate', error: error.message });
+  }
+});
+
+router.get('/:playerId/fanta-stats/:leagueId', authenticateToken, async (req, res) => {
+  try {
+    const playerId = Number(req.params.playerId);
+    const leagueId = Number(req.params.leagueId);
+    if (!playerId || !leagueId) return res.status(400).json({ message: 'Parametri non validi' });
+
+    const playerRows = await query(
+      `SELECT id, first_name, last_name, role, rating, COALESCE(photo_path, '') AS photo_path
+       FROM players
+       WHERE id = ?
+       LIMIT 1`,
+      [playerId]
+    );
+    if (!playerRows.length) return res.status(404).json({ message: 'Giocatore non trovato' });
+
+    const leagueIds = await resolveLeagueIdsForRatings(leagueId);
+    const stats = await fetchPlayerFantaStats([playerId], leagueIds);
+
+    return res.json({
+      player: {
+        id: Number(playerRows[0].id),
+        first_name: playerRows[0].first_name,
+        last_name: playerRows[0].last_name,
+        role: playerRows[0].role,
+        rating: safeNumber(playerRows[0].rating),
+        photo_path: playerRows[0].photo_path || '',
+      },
+      stats,
+    });
+  } catch (error) {
+    return res.status(500).json({ message: 'Errore caricamento statistiche fanta giocatore', error: error.message });
+  }
+});
+
+router.get('/:playerId/analytics/aggregated/:leagueId', authenticateToken, async (req, res) => {
+  try {
+    const playerId = Number(req.params.playerId);
+    const leagueId = Number(req.params.leagueId);
+    if (!playerId || !leagueId) return res.status(400).json({ message: 'Parametri non validi' });
+
+    const context = await resolveAggregatedPlayerContext(playerId, leagueId);
+    if (context.error) return res.status(context.error.status).json({ message: context.error.message });
+
+    const analytics = await fetchPlayerAnalytics(
+      context.aggregatedPlayerIds,
+      context.groupLeagueIds,
+      context.player.role
+    );
+    return res.json({ analytics, meta: context.meta });
+  } catch (error) {
+    return res.status(500).json({ message: 'Errore caricamento analisi aggregate', error: error.message });
+  }
+});
+
+router.get('/:playerId/analytics/:leagueId', authenticateToken, async (req, res) => {
+  try {
+    const playerId = Number(req.params.playerId);
+    const leagueId = Number(req.params.leagueId);
+    if (!playerId || !leagueId) return res.status(400).json({ message: 'Parametri non validi' });
+
+    const playerRows = await query(
+      `SELECT id, role FROM players WHERE id = ? LIMIT 1`,
+      [playerId]
+    );
+    if (!playerRows.length) return res.status(404).json({ message: 'Giocatore non trovato' });
+
+    const leagueIds = await resolveLeagueIdsForRatings(leagueId);
+    const analytics = await fetchPlayerAnalytics([playerId], leagueIds, playerRows[0].role);
+    return res.json({ analytics });
+  } catch (error) {
+    return res.status(500).json({ message: 'Errore caricamento analisi giocatore', error: error.message });
+  }
+});
+
+router.get('/:playerId/stats/aggregated/:leagueId', authenticateToken, async (req, res) => {
+  try {
+    const playerId = Number(req.params.playerId);
+    const leagueId = Number(req.params.leagueId);
+    if (!playerId || !leagueId) return res.status(400).json({ message: 'Parametri non validi' });
+
+    const context = await resolveAggregatedPlayerContext(playerId, leagueId);
+    if (context.error) return res.status(context.error.status).json({ message: context.error.message });
+
+    const stats = await fetchPlayerStatsAggregates(context.aggregatedPlayerIds, context.groupLeagueIds);
+    return res.json({ player: context.player, stats, meta: context.meta });
+  } catch (error) {
+    return res.status(500).json({ message: 'Errore caricamento statistiche aggregate', error: error.message });
+  }
+});
+
 router.get('/:playerId/stats/:leagueId', authenticateToken, async (req, res) => {
   try {
     const playerId = Number(req.params.playerId);
@@ -739,111 +927,6 @@ router.get('/:playerId/stats/:leagueId', authenticateToken, async (req, res) => 
     });
   } catch (error) {
     return res.status(500).json({ message: 'Errore caricamento statistiche giocatore', error: error.message });
-  }
-});
-
-router.get('/:playerId/stats/aggregated/:leagueId', authenticateToken, async (req, res) => {
-  try {
-    const playerId = Number(req.params.playerId);
-    const leagueId = Number(req.params.leagueId);
-    if (!playerId || !leagueId) return res.status(400).json({ message: 'Parametri non validi' });
-
-    const leagueMetaRows = await query(
-      `SELECT id, linked_to_league_id, COALESCE(is_official, 0) AS is_official, official_group_id
-       FROM leagues
-       WHERE id = ?
-       LIMIT 1`,
-      [leagueId]
-    );
-    const leagueMeta = leagueMetaRows[0];
-    if (!leagueMeta) return res.status(404).json({ message: 'Lega non trovata' });
-
-    let groupId = leagueMeta.official_group_id ? Number(leagueMeta.official_group_id) : null;
-    if (!groupId && Number(leagueMeta.linked_to_league_id || 0) > 0) {
-      const linkedMeta = await getLeagueOfficialMeta(Number(leagueMeta.linked_to_league_id));
-      groupId = linkedMeta?.official_group_id ? Number(linkedMeta.official_group_id) : null;
-    }
-    if (!groupId) {
-      return res.status(404).json({ message: 'Statistiche aggregate non disponibili per questa lega' });
-    }
-
-    const playerRows = await query(
-      `SELECT id, first_name, last_name, role, rating, COALESCE(photo_path, '') AS photo_path
-       FROM players
-       WHERE id = ?
-       LIMIT 1`,
-      [playerId]
-    );
-    if (!playerRows.length) return res.status(404).json({ message: 'Giocatore non trovato' });
-    const basePlayer = playerRows[0];
-
-    const groupLeagueRows = await query(
-      `SELECT id
-       FROM leagues
-       WHERE official_group_id = ?
-         AND COALESCE(is_official, 0) = 1
-         AND COALESCE(is_official_squad_public, 0) = 1`,
-      [groupId]
-    );
-    const groupLeagueIds = groupLeagueRows.map((r) => Number(r.id)).filter((n) => Number.isFinite(n) && n > 0);
-    if (!groupLeagueIds.length) {
-      return res.status(404).json({ message: 'Statistiche aggregate non disponibili per questo gruppo ufficiale' });
-    }
-
-    const clusterRows = await query(
-      `SELECT DISTINCT pcm2.player_id
-       FROM player_clusters pc
-       JOIN player_cluster_members pcm1 ON pcm1.cluster_id = pc.id
-       JOIN player_cluster_members pcm2 ON pcm2.cluster_id = pc.id
-       WHERE pc.official_group_id = ?
-         AND pc.status = 'approved'
-         AND pcm1.player_id = ?`,
-      [groupId, playerId]
-    );
-    const aggregatedPlayerIds = clusterRows.map((r) => Number(r.player_id)).filter((n) => Number.isFinite(n) && n > 0);
-
-    if (aggregatedPlayerIds.length < 2) {
-      return res.status(404).json({ message: 'Giocatore non associato a un cluster' });
-    }
-
-    const stats = await fetchPlayerStatsAggregates(aggregatedPlayerIds, groupLeagueIds);
-
-    let bestPhoto = basePlayer.photo_path || '';
-    if (!bestPhoto && aggregatedPlayerIds.length > 1) {
-      try {
-        const photoRows = await query(
-          `SELECT p.photo_path
-           FROM players p
-           JOIN teams t ON t.id = p.team_id
-           JOIN leagues l ON l.id = t.league_id
-           WHERE p.id IN (${aggregatedPlayerIds.map(() => '?').join(',')})
-             AND COALESCE(p.photo_path, '') != ''
-           ORDER BY l.name DESC
-           LIMIT 1`,
-          aggregatedPlayerIds
-        );
-        if (photoRows.length > 0) bestPhoto = photoRows[0].photo_path || '';
-      } catch (_) {}
-    }
-
-    return res.json({
-      player: {
-        id: Number(basePlayer.id),
-        first_name: basePlayer.first_name,
-        last_name: basePlayer.last_name,
-        role: basePlayer.role,
-        rating: safeNumber(basePlayer.rating),
-        photo_path: bestPhoto,
-      },
-      stats,
-      meta: {
-        official_group_id: groupId,
-        leagues_count: groupLeagueIds.length,
-        players_count: aggregatedPlayerIds.length,
-      },
-    });
-  } catch (error) {
-    return res.status(500).json({ message: 'Errore caricamento statistiche aggregate', error: error.message });
   }
 });
 

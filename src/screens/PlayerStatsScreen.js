@@ -9,6 +9,7 @@ import {
   Modal,
   Pressable,
   InteractionManager,
+  Dimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -17,6 +18,9 @@ import { PlayerPhotoImage, TeamLogoImage } from '../components/StableCachedImage
 import { formatCompetitionRank } from '../utils/standingsRanking';
 import BonusIcon from '../components/BonusIcon';
 import PlayerHeroTrophyBadges, { CareerEditionTrophyIcons } from '../components/PlayerHeroTrophyBadges';
+import PlayerFormChart from '../components/PlayerFormChart';
+import VoteDistributionChart from '../components/VoteDistributionChart';
+import EfficiencyBars from '../components/EfficiencyBars';
 
 const ROLE_COLORS = {
   P: '#0d6efd',
@@ -43,6 +47,19 @@ const SEASON_YEAR_PICKER_MAX_HEIGHT = 180;
 
 const HERO_PHOTO_SIZE = 184;
 const HERO_PHOTO_RADIUS = 16;
+const CHART_WIDTH = Dimensions.get('window').width - 64;
+
+function formatPct(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return '0%';
+  return `${n.toFixed(1)}%`;
+}
+
+function formatRate(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return '0.00';
+  return n.toFixed(2);
+}
 
 function resolveInitialTabs(entrySource) {
   if (entrySource === 'official') {
@@ -211,11 +228,15 @@ export default function PlayerStatsScreen({ route, navigation }) {
   const initialTabs = resolveInitialTabs(entrySource);
   const insets = useSafeAreaInsets();
   const [activeMainTab, setActiveMainTab] = useState(initialTabs.mainTab);
-  const [activeFantaSubTab, setActiveFantaSubTab] = useState(initialTabs.fantaSubTab);
-  const [leagueStats, setLeagueStats] = useState(null);
-  const [aggregatedStats, setAggregatedStats] = useState(null);
-  const [loadingLeague, setLoadingLeague] = useState(true);
-  const [loadingAggregated, setLoadingAggregated] = useState(false);
+  const [activeScopeSubTab, setActiveScopeSubTab] = useState(initialTabs.fantaSubTab);
+  const [fantaEditionData, setFantaEditionData] = useState(null);
+  const [aggregatedFantaStats, setAggregatedFantaStats] = useState(null);
+  const [editionAnalytics, setEditionAnalytics] = useState(null);
+  const [aggregatedAnalytics, setAggregatedAnalytics] = useState(null);
+  const [loadingFantaEdition, setLoadingFantaEdition] = useState(false);
+  const [loadingAggregatedFanta, setLoadingAggregatedFanta] = useState(false);
+  const [loadingEditionAnalytics, setLoadingEditionAnalytics] = useState(false);
+  const [loadingAggregatedAnalytics, setLoadingAggregatedAnalytics] = useState(false);
   const [hasOfficialGroup, setHasOfficialGroup] = useState(false);
   const [overview, setOverview] = useState(null);
   const [loadingOverview, setLoadingOverview] = useState(true);
@@ -231,7 +252,10 @@ export default function PlayerStatsScreen({ route, navigation }) {
   const mainScrollRef = useRef(null);
   const officialGroupCheckDoneRef = useRef(false);
   const statsLoadGenRef = useRef(0);
+  const analyticsLoadGenRef = useRef(0);
   const careerPrefetchStartedRef = useRef(false);
+  const fantaCacheRef = useRef(new Map());
+  const analyticsCacheRef = useRef(new Map());
 
   const clusterEditions = useMemo(() => {
     const editions = overview?.editions;
@@ -259,8 +283,10 @@ export default function PlayerStatsScreen({ route, navigation }) {
   const selectedEditionYearLabel = formatEditionYearLabel(selectedEdition);
   const canPickEditionYear = editionYearOptions.length > 1;
 
-  const playerInfo = leagueStats?.player;
-  const displayPlayerRole = String(playerInfo?.role || playerRole || '').trim().toUpperCase();
+  const playerInfo = fantaEditionData?.player;
+  const displayPlayerRole = String(
+    playerInfo?.role || overview?.role || playerRole || '',
+  ).trim().toUpperCase();
   const { firstName, lastName } = useMemo(
     () => resolvePlayerDisplayName(playerInfo, playerName),
     [playerInfo, playerName],
@@ -278,6 +304,13 @@ export default function PlayerStatsScreen({ route, navigation }) {
     officialGroupCheckDoneRef.current = false;
     careerPrefetchStartedRef.current = false;
     statsLoadGenRef.current = 0;
+    analyticsLoadGenRef.current = 0;
+    fantaCacheRef.current = new Map();
+    analyticsCacheRef.current = new Map();
+    setFantaEditionData(null);
+    setAggregatedFantaStats(null);
+    setEditionAnalytics(null);
+    setAggregatedAnalytics(null);
 
     void bootstrapPlayerScreen();
     if (initialTabs.mainTab === 'fantacoppa' || entrySource === 'official') {
@@ -290,40 +323,83 @@ export default function PlayerStatsScreen({ route, navigation }) {
     void loadAbsoluteRanks();
   }, [hasOfficialGroup, entrySource, absoluteRanks, loadingAbsoluteRanks, playerId, leagueId]);
 
-  const applyEditionStats = (response, loadGen) => {
+  const applyEditionFantaData = (response, loadGen, cacheKey) => {
     if (loadGen !== statsLoadGenRef.current) return false;
 
-    setLeagueStats(response.data);
+    setFantaEditionData(response.data);
+    if (cacheKey) {
+      fantaCacheRef.current.set(cacheKey, response.data);
+    }
     if (response.data?.player?.photo_path) {
       setPhotoPath((prev) => prev || String(response.data.player.photo_path || '').trim());
     }
     return true;
   };
 
-  const loadEditionStats = async (editionPlayerId, editionLeagueId, options = {}) => {
+  const loadEditionFantaStats = async (editionPlayerId, editionLeagueId, options = {}) => {
     const targetPlayerId = Number(editionPlayerId);
     const targetLeagueId = Number(editionLeagueId);
     if (!targetPlayerId || !targetLeagueId) return;
+
+    const cacheKey = `${targetPlayerId}-${targetLeagueId}`;
+    const cached = fantaCacheRef.current.get(cacheKey);
+    if (cached && !options.force) {
+      setFantaEditionData(cached);
+      return;
+    }
 
     const loadGen = ++statsLoadGenRef.current;
     const { reusePromise = null } = options;
 
     try {
-      setLoadingLeague(true);
+      setLoadingFantaEdition(true);
 
       const response = reusePromise
         ? await reusePromise
-        : await playerStatsService.getPlayerStats(targetPlayerId, targetLeagueId);
+        : await playerStatsService.getPlayerFantaStats(targetPlayerId, targetLeagueId);
 
-      applyEditionStats(response, loadGen);
+      applyEditionFantaData(response, loadGen, cacheKey);
     } catch (error) {
       if (loadGen === statsLoadGenRef.current) {
-        showToast('Impossibile caricare le statistiche del giocatore');
+        showToast('Impossibile caricare le statistiche fanta del giocatore');
       }
       console.error(error);
     } finally {
       if (loadGen === statsLoadGenRef.current) {
-        setLoadingLeague(false);
+        setLoadingFantaEdition(false);
+      }
+    }
+  };
+
+  const loadEditionAnalytics = async (editionPlayerId, editionLeagueId, options = {}) => {
+    const targetPlayerId = Number(editionPlayerId);
+    const targetLeagueId = Number(editionLeagueId);
+    if (!targetPlayerId || !targetLeagueId) return;
+
+    const cacheKey = `${targetPlayerId}-${targetLeagueId}`;
+    const cached = analyticsCacheRef.current.get(cacheKey);
+    if (cached && !options.force) {
+      setEditionAnalytics(cached);
+      return;
+    }
+
+    const loadGen = ++analyticsLoadGenRef.current;
+
+    try {
+      setLoadingEditionAnalytics(true);
+      const response = await playerStatsService.getPlayerAnalytics(targetPlayerId, targetLeagueId);
+      if (loadGen !== analyticsLoadGenRef.current) return;
+      const analytics = response.data?.analytics || null;
+      analyticsCacheRef.current.set(cacheKey, analytics);
+      setEditionAnalytics(analytics);
+    } catch (error) {
+      if (loadGen === analyticsLoadGenRef.current) {
+        showToast('Impossibile caricare le statistiche del giocatore');
+      }
+      console.error(error);
+    } finally {
+      if (loadGen === analyticsLoadGenRef.current) {
+        setLoadingEditionAnalytics(false);
       }
     }
   };
@@ -342,14 +418,16 @@ export default function PlayerStatsScreen({ route, navigation }) {
   };
 
   const bootstrapPlayerScreen = async () => {
-    let routeEditionPromise = null;
+    let routeFantaPromise = null;
 
     try {
       setLoadingOverview(true);
-      setLoadingLeague(true);
 
       const overviewPromise = playerStatsService.getPlayerOverview(playerId, leagueId);
-      routeEditionPromise = playerStatsService.getPlayerStats(playerId, leagueId);
+      if (initialTabs.mainTab === 'fantacoppa') {
+        routeFantaPromise = playerStatsService.getPlayerFantaStats(playerId, leagueId);
+        setLoadingFantaEdition(true);
+      }
 
       if (entrySource === 'official') {
         void loadAbsoluteRanks();
@@ -364,13 +442,15 @@ export default function PlayerStatsScreen({ route, navigation }) {
       const defaultKey = editionKey(defaultEdition);
       setSelectedEditionKey(defaultKey);
 
-      const routeMatchesDefault = Number(defaultEdition.player_id) === Number(playerId)
-        && Number(defaultEdition.league_id) === Number(leagueId);
+      if (initialTabs.mainTab === 'fantacoppa') {
+        const routeMatchesDefault = Number(defaultEdition.player_id) === Number(playerId)
+          && Number(defaultEdition.league_id) === Number(leagueId);
 
-      if (routeMatchesDefault) {
-        await loadEditionStats(playerId, leagueId, { reusePromise: routeEditionPromise });
-      } else {
-        void loadEditionStats(defaultEdition.player_id, defaultEdition.league_id);
+        if (routeMatchesDefault) {
+          await loadEditionFantaStats(playerId, leagueId, { reusePromise: routeFantaPromise });
+        } else {
+          void loadEditionFantaStats(defaultEdition.player_id, defaultEdition.league_id);
+        }
       }
 
       InteractionManager.runAfterInteractions(() => {
@@ -382,12 +462,14 @@ export default function PlayerStatsScreen({ route, navigation }) {
       setOverview(null);
       setSelectedEditionKey(editionKey({ player_id: playerId, league_id: leagueId }));
 
-      try {
-        await loadEditionStats(playerId, leagueId, {
-          reusePromise: routeEditionPromise,
-        });
-      } catch (_) {
-        void loadEditionStats(playerId, leagueId);
+      if (initialTabs.mainTab === 'fantacoppa') {
+        try {
+          await loadEditionFantaStats(playerId, leagueId, {
+            reusePromise: routeFantaPromise,
+          });
+        } catch (_) {
+          void loadEditionFantaStats(playerId, leagueId);
+        }
       }
 
       console.error(error);
@@ -400,9 +482,9 @@ export default function PlayerStatsScreen({ route, navigation }) {
     if (officialGroupCheckDoneRef.current) return;
     officialGroupCheckDoneRef.current = true;
     try {
-      setLoadingAggregated(true);
-      const response = await playerStatsService.getPlayerAggregatedStats(playerId, leagueId);
-      setAggregatedStats(response.data.stats);
+      setLoadingAggregatedFanta(true);
+      const response = await playerStatsService.getPlayerFantaStatsAggregated(playerId, leagueId);
+      setAggregatedFantaStats(response.data.stats);
       setHasOfficialGroup(true);
       if (response.data?.player?.photo_path) {
         setPhotoPath((prev) => prev || String(response.data.player.photo_path || '').trim());
@@ -410,13 +492,13 @@ export default function PlayerStatsScreen({ route, navigation }) {
     } catch (error) {
       setHasOfficialGroup(false);
     } finally {
-      setLoadingAggregated(false);
+      setLoadingAggregatedFanta(false);
     }
   };
 
   const handleEditionYearSelect = (item) => {
     setEditionPickerOpen(false);
-    setActiveFantaSubTab('league');
+    setActiveScopeSubTab('league');
     const edition = item?.edition;
     if (!edition) return;
 
@@ -424,27 +506,54 @@ export default function PlayerStatsScreen({ route, navigation }) {
     if (nextKey === selectedEditionKey) return;
 
     setSelectedEditionKey(nextKey);
-    loadEditionStats(edition.player_id, edition.league_id);
+    if (activeMainTab === 'fantacoppa') {
+      loadEditionFantaStats(edition.player_id, edition.league_id);
+    } else if (activeMainTab === 'stats') {
+      loadEditionAnalytics(edition.player_id, edition.league_id);
+    }
   };
 
   const handleEditionSubTabPress = () => {
-    setActiveFantaSubTab('league');
+    setActiveScopeSubTab('league');
     if (canPickEditionYear) {
       setEditionPickerOpen((open) => !open);
     }
   };
-  const loadAggregatedStats = async () => {
-    if (aggregatedStats) return;
+
+  const loadAggregatedFantaStats = async () => {
+    if (aggregatedFantaStats) return;
     try {
-      setLoadingAggregated(true);
-      const response = await playerStatsService.getPlayerAggregatedStats(playerId, leagueId);
-      setAggregatedStats(response.data.stats);
+      setLoadingAggregatedFanta(true);
+      const response = await playerStatsService.getPlayerFantaStatsAggregated(playerId, leagueId);
+      setAggregatedFantaStats(response.data.stats);
+      setHasOfficialGroup(true);
+    } catch (error) {
+      showToast('Impossibile caricare le statistiche fanta aggregate');
+      console.error(error);
+    } finally {
+      setLoadingAggregatedFanta(false);
+    }
+  };
+
+  const loadAggregatedAnalytics = async () => {
+    if (aggregatedAnalytics) return;
+    const cached = analyticsCacheRef.current.get('total');
+    if (cached) {
+      setAggregatedAnalytics(cached);
+      return;
+    }
+    try {
+      setLoadingAggregatedAnalytics(true);
+      const response = await playerStatsService.getPlayerAnalyticsAggregated(playerId, leagueId);
+      const analytics = response.data?.analytics || null;
+      analyticsCacheRef.current.set('total', analytics);
+      setAggregatedAnalytics(analytics);
       setHasOfficialGroup(true);
     } catch (error) {
       showToast('Impossibile caricare le statistiche aggregate');
       console.error(error);
     } finally {
-      setLoadingAggregated(false);
+      setLoadingAggregatedAnalytics(false);
     }
   };
 
@@ -468,27 +577,53 @@ export default function PlayerStatsScreen({ route, navigation }) {
   };
 
   const handleMainTabPress = (tabKey) => {
-    if (tabKey !== 'fantacoppa') {
+    if (tabKey !== 'fantacoppa' && tabKey !== 'stats') {
       setEditionPickerOpen(false);
     }
     setActiveMainTab(tabKey);
     mainScrollRef.current?.scrollTo({ y: 0, animated: false });
-    if (tabKey === 'fantacoppa') {
+
+    if (tabKey === 'fantacoppa' || tabKey === 'stats') {
       void checkOfficialGroup();
-      if (activeFantaSubTab === 'total') {
-        loadAggregatedStats();
+    }
+
+    if (tabKey === 'fantacoppa') {
+      if (activeScopeSubTab === 'total') {
+        void loadAggregatedFantaStats();
+      } else {
+        void loadEditionFantaStats(selectedEdition.player_id, selectedEdition.league_id);
       }
     }
+
+    if (tabKey === 'stats') {
+      if (activeScopeSubTab === 'total') {
+        void loadAggregatedAnalytics();
+      } else {
+        void loadEditionAnalytics(selectedEdition.player_id, selectedEdition.league_id);
+      }
+    }
+
     if (tabKey === 'career') {
       loadCareer();
     }
   };
 
-  const handleFantaSubTabPress = (subTabKey) => {
+  const handleScopeSubTabPress = (subTabKey) => {
     setEditionPickerOpen(false);
-    setActiveFantaSubTab(subTabKey);
+    setActiveScopeSubTab(subTabKey);
     if (subTabKey === 'total') {
-      loadAggregatedStats();
+      if (activeMainTab === 'fantacoppa') {
+        void loadAggregatedFantaStats();
+      } else if (activeMainTab === 'stats') {
+        void loadAggregatedAnalytics();
+      }
+      return;
+    }
+
+    if (activeMainTab === 'fantacoppa') {
+      void loadEditionFantaStats(selectedEdition.player_id, selectedEdition.league_id);
+    } else if (activeMainTab === 'stats') {
+      void loadEditionAnalytics(selectedEdition.player_id, selectedEdition.league_id);
     }
   };
 
@@ -632,7 +767,85 @@ export default function PlayerStatsScreen({ route, navigation }) {
     );
   };
 
-  const renderStats = (stats, isLoading) => {
+  const renderScopeSubTabs = () => (
+    <View style={styles.subTabBar}>
+      <View
+        ref={editionPickerAnchorRef}
+        style={styles.subTabPickerWrap}
+        collapsable={false}
+      >
+        <TouchableOpacity
+          style={[
+            styles.subTabBtn,
+            styles.subTabPickerBtn,
+            activeScopeSubTab === 'league' && styles.subTabBtnActive,
+          ]}
+          onPress={handleEditionSubTabPress}
+          activeOpacity={0.8}
+        >
+          <Text
+            style={[
+              styles.subTabText,
+              activeScopeSubTab === 'league' && styles.subTabTextActive,
+            ]}
+          >
+            {selectedEditionYearLabel}
+          </Text>
+          {canPickEditionYear && (
+            <Ionicons
+              name={editionPickerOpen ? 'chevron-up' : 'chevron-down'}
+              size={14}
+              color={activeScopeSubTab === 'league' ? '#667eea' : '#475569'}
+              style={styles.subTabPickerIcon}
+            />
+          )}
+        </TouchableOpacity>
+        <SeasonYearPickerMenu
+          open={editionPickerOpen}
+          onClose={() => setEditionPickerOpen(false)}
+          anchorRef={editionPickerAnchorRef}
+          options={editionYearOptions}
+          onSelectOption={handleEditionYearSelect}
+        />
+      </View>
+
+      <TouchableOpacity
+        style={[
+          styles.subTabBtn,
+          activeScopeSubTab === 'total' && styles.subTabBtnActive,
+          !hasOfficialGroup && styles.subTabBtnDisabled,
+        ]}
+        onPress={() => {
+          if (hasOfficialGroup) handleScopeSubTabPress('total');
+        }}
+        disabled={!hasOfficialGroup}
+        activeOpacity={0.8}
+      >
+        <Text
+          style={[
+            styles.subTabText,
+            activeScopeSubTab === 'total' && hasOfficialGroup && styles.subTabTextActive,
+            !hasOfficialGroup && styles.subTabTextDisabled,
+          ]}
+        >
+          Totali
+        </Text>
+      </TouchableOpacity>
+    </View>
+  );
+
+  const renderAggregatedBanner = () => (
+    !hasOfficialGroup ? (
+      <View style={styles.infoBanner}>
+        <Ionicons name="information-circle" size={18} color="#667eea" />
+        <Text style={styles.infoBannerText}>
+          Statistiche totali disponibili solo per leghe ufficiali con gruppo.
+        </Text>
+      </View>
+    ) : null
+  );
+
+  const renderFantaStats = (stats, isLoading) => {
     if (isLoading) {
       return (
         <View style={styles.loadingBox}>
@@ -643,6 +856,11 @@ export default function PlayerStatsScreen({ route, navigation }) {
 
     const s = stats || {};
     const v = (val) => (typeof val === 'number' ? val : (parseFloat(val) || 0));
+    const customExtras = [
+      { key: 'briso', value: v(s.total_briso), label: 'Briso' },
+      { key: 'pallone_fuori', value: v(s.total_pallone_fuori), label: 'Pallone fuori' },
+      { key: 'no_divisa', value: v(s.total_no_divisa), label: 'No divisa' },
+    ].filter((item) => item.value > 0);
 
     return (
       <View>
@@ -666,17 +884,44 @@ export default function PlayerStatsScreen({ route, navigation }) {
           <TileSplitRow
             left={(
               <>
-                <Text style={styles.tileValue}>{v(s.games_played)}</Text>
-                <Text style={styles.tileLabel}>Presenze</Text>
-              </>
-            )}
-            right={(
-              <>
                 <Text style={styles.tileValue}>{v(s.games_with_rating)}</Text>
                 <Text style={styles.tileLabel}>Con Voto</Text>
               </>
             )}
+            right={(
+              <>
+                <Text style={styles.tileValue}>{formatPct(s.presence_pct)}</Text>
+                <Text style={styles.tileLabel}>% Presenza squadra</Text>
+              </>
+            )}
           />
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.cardSectionTitle}>Produzione</Text>
+          <TileSplitRow
+            left={(
+              <>
+                <Text style={styles.tileValue}>{formatRate(s.goals_per_game)}</Text>
+                <Text style={styles.tileLabel}>Gol / partita</Text>
+              </>
+            )}
+            right={(
+              <>
+                <Text style={styles.tileValue}>{formatRate(s.assists_per_game)}</Text>
+                <Text style={styles.tileLabel}>Assist / partita</Text>
+              </>
+            )}
+          />
+          <View style={styles.divider} />
+          <View style={styles.tileRow}>
+            <View style={[styles.tile, styles.tileFull]}>
+              <Text style={styles.tileValueSmallMeta}>
+                {v(s.games_played)} presenze su {v(s.team_matchdays)} giornate competitive
+              </Text>
+              <Text style={styles.tileLabel}>Giornate non fantasma</Text>
+            </View>
+          </View>
         </View>
 
         {displayPlayerRole === 'P' && (
@@ -700,18 +945,179 @@ export default function PlayerStatsScreen({ route, navigation }) {
           </View>
         )}
 
+        {customExtras.length > 0 && (
+          <View style={styles.card}>
+            <Text style={styles.cardSectionTitle}>Extra lega</Text>
+            <View style={styles.bmGrid}>
+              {customExtras.map((item) => (
+                <View key={item.key} style={styles.bmItem}>
+                  <View style={styles.bmIconCircle}>
+                    <BonusIcon type={item.key} size={20} />
+                  </View>
+                  <Text style={styles.bmValue}>{item.value}</Text>
+                  <Text style={styles.bmLabel}>{item.label}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
+        )}
+      </View>
+    );
+  };
+
+  const buildEfficiencyItems = (efficiency, role) => {
+    const e = efficiency || {};
+    const isGoalkeeper = String(role || '').trim().toUpperCase() === 'P';
+    const items = [
+      {
+        key: 'goals',
+        label: 'Gol / presenza',
+        value: e.goals_per_presence,
+        displayValue: formatRate(e.goals_per_presence),
+        max: 1,
+      },
+      {
+        key: 'assists',
+        label: 'Assist / presenza',
+        value: e.assists_per_presence,
+        displayValue: formatRate(e.assists_per_presence),
+        max: 1,
+      },
+      {
+        key: 'involvement',
+        label: 'G+A / presenza',
+        value: e.goal_involvement_per_presence,
+        displayValue: formatRate(e.goal_involvement_per_presence),
+        max: 1.5,
+      },
+      {
+        key: 'scored',
+        label: '% con voto',
+        value: e.scored_vote_pct,
+        displayValue: formatPct(e.scored_vote_pct),
+        max: 100,
+      },
+      {
+        key: 'cards',
+        label: 'Cartellini / pres.',
+        value: e.cards_per_presence,
+        displayValue: formatRate(e.cards_per_presence),
+        max: 1,
+      },
+    ];
+
+    if (isGoalkeeper) {
+      items.push(
+        {
+          key: 'clean_sheet_pct',
+          label: '% clean sheet',
+          value: e.clean_sheet_pct,
+          displayValue: formatPct(e.clean_sheet_pct),
+          max: 100,
+        },
+        {
+          key: 'goals_conceded',
+          label: 'Gol subiti / pres.',
+          value: e.goals_conceded_per_presence,
+          displayValue: formatRate(e.goals_conceded_per_presence),
+          max: 3,
+        },
+      );
+    }
+
+    return items;
+  };
+
+  const renderFavouriteOpponent = (favouriteOpponent) => {
+    if (!favouriteOpponent || Number(favouriteOpponent.value || 0) <= 0) {
+      return (
         <View style={styles.card}>
-          <Text style={styles.cardSectionTitle}>Bonus</Text>
+          <Text style={styles.cardSectionTitle}>Avversario preferito</Text>
+          <Text style={styles.emptyOverviewText}>
+            Dati disponibili solo con partite ufficiali collegate.
+          </Text>
+        </View>
+      );
+    }
+
+    const isCleanSheets = favouriteOpponent.kind === 'clean_sheets';
+    const valueLabel = isCleanSheets ? 'Clean sheet' : 'Gol';
+    const teamName = String(favouriteOpponent.team_name || '').trim() || '–';
+
+    return (
+      <View style={styles.card}>
+        <Text style={styles.cardSectionTitle}>Avversario preferito</Text>
+        <View style={styles.favouriteRow}>
+          <TeamLogoImage
+            logoPath={favouriteOpponent.team_logo_path || undefined}
+            style={styles.favouriteLogo}
+            fallbackStyle={styles.favouriteLogoFallback}
+            fallbackIconSize={22}
+          />
+          <View style={styles.favouriteTextBlock}>
+            <Text style={styles.favouriteValue}>
+              {favouriteOpponent.value}
+              {' '}
+              <Text style={styles.favouriteValueLabel}>{valueLabel}</Text>
+            </Text>
+            <Text style={styles.favouriteTeamName} numberOfLines={2}>
+              vs {teamName}
+            </Text>
+          </View>
+        </View>
+      </View>
+    );
+  };
+
+  const renderAnalytics = (analytics, isLoading) => {
+    if (isLoading) {
+      return (
+        <View style={styles.loadingBox}>
+          <ActivityIndicator size="large" color="#667eea" />
+        </View>
+      );
+    }
+
+    const data = analytics || {};
+    const totals = data.totals || {};
+    const v = (val) => (typeof val === 'number' ? val : (parseFloat(val) || 0));
+
+    return (
+      <View>
+        <View style={styles.card}>
+          <Text style={styles.cardSectionTitle}>Forma nel tempo</Text>
+          <PlayerFormChart series={data.form_series} width={CHART_WIDTH} />
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.cardSectionTitle}>Indici di efficienza</Text>
+          <EfficiencyBars items={buildEfficiencyItems(data.efficiency, displayPlayerRole)} />
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.cardSectionTitle}>Distribuzione voti</Text>
+          <VoteDistributionChart distribution={data.distribution} width={CHART_WIDTH} />
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.cardSectionTitle}>Totali</Text>
           <View style={styles.bmGrid}>
+            <View style={styles.bmItemWide}>
+              <View style={styles.bmIconCircle}>
+                <MaterialCommunityIcons name="soccer-field" size={20} color="#667eea" />
+              </View>
+              <Text style={styles.bmValue}>{v(totals.games_played)}</Text>
+              <Text style={styles.bmLabel}>Presenze</Text>
+            </View>
             {[
-              { key: 'goal', value: v(s.total_goals), label: 'Goal' },
-              { key: 'assist', value: v(s.total_assists), label: 'Assist' },
-              ...(displayPlayerRole !== 'P' && v(s.total_penalty_saved) > 0
-                ? [{ key: 'penalty_saved', value: v(s.total_penalty_saved), label: 'Rig. parati' }] : []),
-              ...(displayPlayerRole !== 'P' && v(s.total_clean_sheets) > 0
-                ? [{ key: 'clean_sheet', value: v(s.total_clean_sheets), label: 'Clean sheet' }] : []),
+              { key: 'goal', value: v(totals.total_goals), label: 'Goal' },
+              { key: 'assist', value: v(totals.total_assists), label: 'Assist' },
+              { key: 'yellow_card', value: v(totals.total_yellow_cards), label: 'Gialli' },
+              { key: 'red_card', value: v(totals.total_red_cards), label: 'Rossi' },
+              { key: 'own_goal', value: v(totals.total_own_goals), label: 'Autogoal' },
+              { key: 'penalty_missed', value: v(totals.total_penalty_missed), label: 'Rig. sbagliati' },
             ].map((item) => (
-              <View key={item.key} style={styles.bmItem}>
+              <View key={item.key} style={styles.bmItemWide}>
                 <View style={styles.bmIconCircle}>
                   <BonusIcon type={item.key} size={20} />
                 </View>
@@ -722,27 +1128,7 @@ export default function PlayerStatsScreen({ route, navigation }) {
           </View>
         </View>
 
-        <View style={styles.card}>
-          <Text style={styles.cardSectionTitle}>Malus</Text>
-          <View style={styles.bmGrid}>
-            {[
-              { key: 'yellow_card', value: v(s.total_yellow_cards), label: 'Gialli' },
-              { key: 'red_card', value: v(s.total_red_cards), label: 'Rossi' },
-              { key: 'own_goal', value: v(s.total_own_goals), label: 'Autogoal' },
-              { key: 'penalty_missed', value: v(s.total_penalty_missed), label: 'Rig. sbagliati' },
-              ...(displayPlayerRole !== 'P' && v(s.total_goals_conceded) > 0
-                ? [{ key: 'goals_conceded', value: v(s.total_goals_conceded), label: 'Goal subiti' }] : []),
-            ].map((item) => (
-              <View key={item.key} style={styles.bmItem}>
-                <View style={styles.bmIconCircle}>
-                  <BonusIcon type={item.key} size={20} />
-                </View>
-                <Text style={styles.bmValue}>{item.value}</Text>
-                <Text style={styles.bmLabel}>{item.label}</Text>
-              </View>
-            ))}
-          </View>
-        </View>
+        {renderFavouriteOpponent(data.favourite_opponent)}
       </View>
     );
   };
@@ -872,95 +1258,28 @@ export default function PlayerStatsScreen({ route, navigation }) {
         return renderOverview();
       case 'stats':
         return (
-          <EmptyTabPlaceholder
-            icon="bar-chart-outline"
-            title="Statistiche"
-            subtitle="Dati di rendimento e metriche dettagliate della stagione."
-          />
+          <>
+            {renderScopeSubTabs()}
+            {activeScopeSubTab === 'league' && renderAnalytics(editionAnalytics, loadingEditionAnalytics)}
+            {activeScopeSubTab === 'total' && (
+              <>
+                {renderAggregatedBanner()}
+                {hasOfficialGroup && renderAnalytics(aggregatedAnalytics, loadingAggregatedAnalytics)}
+              </>
+            )}
+          </>
         );
       case 'career':
         return renderCareer();
       case 'fantacoppa':
         return (
           <>
-            <View style={styles.subTabBar}>
-              <View
-                ref={editionPickerAnchorRef}
-                style={styles.subTabPickerWrap}
-                collapsable={false}
-              >
-                <TouchableOpacity
-                  style={[
-                    styles.subTabBtn,
-                    styles.subTabPickerBtn,
-                    activeFantaSubTab === 'league' && styles.subTabBtnActive,
-                  ]}
-                  onPress={handleEditionSubTabPress}
-                  activeOpacity={0.8}
-                >
-                  <Text
-                    style={[
-                      styles.subTabText,
-                      activeFantaSubTab === 'league' && styles.subTabTextActive,
-                    ]}
-                  >
-                    {selectedEditionYearLabel}
-                  </Text>
-                  {canPickEditionYear && (
-                    <Ionicons
-                      name={editionPickerOpen ? 'chevron-up' : 'chevron-down'}
-                      size={14}
-                      color={activeFantaSubTab === 'league' ? '#667eea' : '#475569'}
-                      style={styles.subTabPickerIcon}
-                    />
-                  )}
-                </TouchableOpacity>
-                <SeasonYearPickerMenu
-                  open={editionPickerOpen}
-                  onClose={() => setEditionPickerOpen(false)}
-                  anchorRef={editionPickerAnchorRef}
-                  options={editionYearOptions}
-                  onSelectOption={handleEditionYearSelect}
-                />
-              </View>
-
-              <TouchableOpacity
-                style={[
-                  styles.subTabBtn,
-                  activeFantaSubTab === 'total' && styles.subTabBtnActive,
-                  !hasOfficialGroup && styles.subTabBtnDisabled,
-                ]}
-                onPress={() => {
-                  if (hasOfficialGroup) handleFantaSubTabPress('total');
-                }}
-                disabled={!hasOfficialGroup}
-                activeOpacity={0.8}
-              >
-                <Text
-                  style={[
-                    styles.subTabText,
-                    activeFantaSubTab === 'total' && hasOfficialGroup && styles.subTabTextActive,
-                    !hasOfficialGroup && styles.subTabTextDisabled,
-                  ]}
-                >
-                  Totali
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            {activeFantaSubTab === 'league' && renderStats(leagueStats?.stats, loadingLeague)}
-
-            {activeFantaSubTab === 'total' && (
+            {renderScopeSubTabs()}
+            {activeScopeSubTab === 'league' && renderFantaStats(fantaEditionData?.stats, loadingFantaEdition)}
+            {activeScopeSubTab === 'total' && (
               <>
-                {!hasOfficialGroup && (
-                  <View style={styles.infoBanner}>
-                    <Ionicons name="information-circle" size={18} color="#667eea" />
-                    <Text style={styles.infoBannerText}>
-                      Statistiche totali disponibili solo per leghe ufficiali con gruppo.
-                    </Text>
-                  </View>
-                )}
-                {hasOfficialGroup && renderStats(aggregatedStats, loadingAggregated)}
+                {renderAggregatedBanner()}
+                {hasOfficialGroup && renderFantaStats(aggregatedFantaStats, loadingAggregatedFanta)}
               </>
             )}
           </>
@@ -1333,6 +1652,13 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#999',
   },
+  tileValueSmallMeta: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#475569',
+    textAlign: 'center',
+    lineHeight: 20,
+  },
   tileFull: {
     flex: 1,
     width: '100%',
@@ -1387,6 +1713,12 @@ const styles = StyleSheet.create({
     gap: 4,
     width: '25%',
   },
+  bmItemWide: {
+    alignItems: 'center',
+    gap: 4,
+    width: '25%',
+    marginBottom: 4,
+  },
   bmIconCircle: {
     width: 40,
     height: 40,
@@ -1405,6 +1737,44 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: '#999',
     textAlign: 'center',
+  },
+
+  favouriteRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+  },
+  favouriteLogo: {
+    width: 48,
+    height: 48,
+  },
+  favouriteLogoFallback: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    backgroundColor: '#eef2ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  favouriteTextBlock: {
+    flex: 1,
+    minWidth: 0,
+    gap: 4,
+  },
+  favouriteValue: {
+    fontSize: 28,
+    fontWeight: '800',
+    color: '#1e293b',
+  },
+  favouriteValueLabel: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#667eea',
+  },
+  favouriteTeamName: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#64748b',
   },
 
   infoBanner: {
