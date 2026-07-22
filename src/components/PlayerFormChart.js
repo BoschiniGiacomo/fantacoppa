@@ -1,11 +1,19 @@
-import React, { useMemo } from 'react';
-import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import React, {
+  useMemo, useState, useEffect, useCallback,
+} from 'react';
+import {
+  View, Text, StyleSheet, ScrollView, TouchableOpacity,
+} from 'react-native';
 import Svg, { Line, Circle, Polyline, Text as SvgText, TSpan } from 'react-native-svg';
+import { Ionicons } from '@expo/vector-icons';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import { runOnJS, useSharedValue } from 'react-native-reanimated';
 
 const CHART_HEIGHT = 196;
-const PADDING = { top: 12, right: 16, bottom: 40, left: 28 };
+const PADDING = { top: 16, right: 16, bottom: 40, left: 28 };
 const ACCENT = '#667eea';
 const POINT_SPACING = 34;
+const ZOOM_STEP = 0.45;
 
 function formatRating(value) {
   const n = Number(value);
@@ -17,6 +25,66 @@ function formatGiornataLabel(giornata) {
   const n = Number(giornata);
   if (!Number.isFinite(n) || n <= 0) return null;
   return Math.trunc(n);
+}
+
+function clampZoom(value, maxZoom) {
+  return Math.min(maxZoom, Math.max(1, value));
+}
+
+function pickYStep(span) {
+  if (span <= 1) return 0.25;
+  if (span <= 2.5) return 0.5;
+  if (span <= 5) return 1;
+  return 2;
+}
+
+function computeYAxisScale(values, domainMinOverride = null) {
+  const finite = values.filter((v) => Number.isFinite(v));
+  if (!finite.length) {
+    return { minY: 5, maxY: 7, ticks: [5, 6, 7] };
+  }
+
+  const dataMax = Math.max(...finite);
+  const rawMin = Math.min(...finite);
+  const dataMin = Number.isFinite(domainMinOverride) ? domainMinOverride : rawMin;
+  const range = Math.max(0.01, dataMax - dataMin);
+  const padBottom = Math.max(0.08, range * 0.03);
+  const padTop = Math.max(0.15, range * 0.07);
+
+  let minY = dataMin - padBottom;
+  let maxY = dataMax + padTop;
+
+  if (maxY - minY < 0.8) {
+    const mid = (dataMin + dataMax) / 2;
+    minY = mid - 0.4;
+    maxY = mid + 0.4;
+  }
+
+  let step = pickYStep(maxY - minY);
+  let axisMin = Math.floor(minY / step) * step;
+  let axisMax = Math.ceil(maxY / step) * step;
+
+  while (axisMin > dataMin - padBottom) axisMin -= step;
+  while (axisMax < dataMax + padTop) axisMax += step;
+
+  let ticks = [];
+  for (let tick = axisMin; tick <= axisMax + step * 0.0001; tick += step) {
+    ticks.push(Math.round(tick * 1000) / 1000);
+  }
+
+  while (ticks.length > 7) {
+    step *= 2;
+    axisMin = Math.floor(minY / step) * step;
+    axisMax = Math.ceil(maxY / step) * step;
+    while (axisMin > dataMin - padBottom) axisMin -= step;
+    while (axisMax < dataMax + padTop) axisMax += step;
+    ticks = [];
+    for (let tick = axisMin; tick <= axisMax + step * 0.0001; tick += step) {
+      ticks.push(Math.round(tick * 1000) / 1000);
+    }
+  }
+
+  return { minY: axisMin, maxY: axisMax, ticks };
 }
 
 function GiornataAxisLabel({ x, y, giornata }) {
@@ -37,10 +105,14 @@ function GiornataAxisLabel({ x, y, giornata }) {
   );
 }
 
-function formatYearLabel(referenceYear) {
+function formatYearLabel(referenceYear, compact = false) {
   const year = Number(referenceYear);
-  if (Number.isFinite(year) && year > 0) return String(Math.trunc(year));
-  return '–';
+  if (!Number.isFinite(year) || year <= 0) return '–';
+  if (compact) {
+    const short = String(Math.trunc(year) % 100).padStart(2, '0');
+    return `${short}'`;
+  }
+  return String(Math.trunc(year));
 }
 
 function buildYearSegments(points) {
@@ -66,6 +138,10 @@ function buildYearSegments(points) {
 export default function PlayerFormChart({ series = [], width = 320, mode = 'league' }) {
   const isTotalMode = mode === 'total';
   const viewportWidth = Math.max(240, Number(width) || 320);
+  const [zoomLevel, setZoomLevel] = useState(1);
+  const zoomShared = useSharedValue(1);
+  const maxZoomShared = useSharedValue(1);
+  const basePinchZoom = useSharedValue(1);
 
   const scoredPoints = useMemo(
     () => (Array.isArray(series) ? series : [])
@@ -81,29 +157,80 @@ export default function PlayerFormChart({ series = [], width = 320, mode = 'leag
     [series],
   );
 
-  const chartContentWidth = useMemo(() => {
-    if (!scoredPoints.length) return viewportWidth;
-    if (!isTotalMode) return viewportWidth;
-    const minWidth = scoredPoints.length * POINT_SPACING + PADDING.left + PADDING.right;
-    return Math.max(viewportWidth, minWidth);
+  const expandedWidth = useMemo(() => {
+    if (!isTotalMode || scoredPoints.length <= 1) return viewportWidth;
+    return Math.max(
+      viewportWidth,
+      (scoredPoints.length - 1) * POINT_SPACING + PADDING.left + PADDING.right,
+    );
   }, [isTotalMode, scoredPoints.length, viewportWidth]);
 
-  const innerWidth = chartContentWidth - PADDING.left - PADDING.right;
+  const maxZoom = expandedWidth / viewportWidth;
+  const canZoom = isTotalMode && maxZoom > 1.01;
+
+  const displayWidth = useMemo(() => {
+    if (!isTotalMode) return viewportWidth;
+    return Math.min(expandedWidth, viewportWidth * zoomLevel);
+  }, [isTotalMode, expandedWidth, viewportWidth, zoomLevel]);
+
+  const isZoomedIn = canZoom && zoomLevel > 1.01;
+  const canScroll = isZoomedIn && displayWidth > viewportWidth + 1;
+
+  const innerWidth = displayWidth - PADDING.left - PADDING.right;
   const innerHeight = CHART_HEIGHT - PADDING.top - PADDING.bottom;
+  const isFittedTotal = isTotalMode && !isZoomedIn;
+
+  const applyZoom = useCallback((next) => {
+    const clamped = clampZoom(next, maxZoom);
+    zoomShared.value = clamped;
+    basePinchZoom.value = clamped;
+    setZoomLevel(clamped);
+  }, [maxZoom, zoomShared, basePinchZoom]);
+
+  useEffect(() => {
+    maxZoomShared.value = maxZoom;
+  }, [maxZoom, maxZoomShared]);
+
+  useEffect(() => {
+    zoomShared.value = 1;
+    basePinchZoom.value = 1;
+    setZoomLevel(1);
+  }, [series, mode, zoomShared, basePinchZoom]);
+
+  const pinchGesture = useMemo(() => Gesture.Pinch()
+    .enabled(canZoom)
+    .onBegin(() => {
+      basePinchZoom.value = zoomShared.value;
+    })
+    .onUpdate((event) => {
+      const next = Math.min(
+        maxZoomShared.value,
+        Math.max(1, basePinchZoom.value * event.scale),
+      );
+      zoomShared.value = next;
+      runOnJS(setZoomLevel)(next);
+    })
+    .onEnd(() => {
+      runOnJS(setZoomLevel)(zoomShared.value);
+    }), [canZoom, zoomShared, maxZoomShared, basePinchZoom]);
 
   const layout = useMemo(() => {
     if (!scoredPoints.length) return null;
 
     const ratings = scoredPoints.map((p) => p.rating);
     const bonusRatings = scoredPoints.map((p) => p.ratingWithBonus);
-    const allValues = [...ratings, ...bonusRatings].filter((v) => Number.isFinite(v) && v > 0);
-    const minY = Math.max(4, Math.min(...allValues) - 0.5);
-    const maxY = Math.min(10, Math.max(...allValues) + 0.5);
-    const spanY = Math.max(0.5, maxY - minY);
+    const allValues = [...ratings, ...bonusRatings].filter((v) => Number.isFinite(v));
+    const baseMin = ratings.filter((v) => Number.isFinite(v));
+    const domainMin = baseMin.length ? Math.min(...baseMin) : null;
+    const { minY, maxY, ticks } = computeYAxisScale(allValues, domainMin);
+    const spanY = Math.max(0.1, maxY - minY);
 
     const xForIndex = (index) => {
       if (isTotalMode) {
         if (scoredPoints.length === 1) return PADDING.left + innerWidth / 2;
+        if (isFittedTotal) {
+          return PADDING.left + (index / (scoredPoints.length - 1)) * innerWidth;
+        }
         return PADDING.left + index * POINT_SPACING;
       }
       if (scoredPoints.length === 1) return PADDING.left + innerWidth / 2;
@@ -140,7 +267,7 @@ export default function PlayerFormChart({ series = [], width = 320, mode = 'leag
         return {
           ...segment,
           centerX: (startX + endX) / 2,
-          label: formatYearLabel(segment.year),
+          label: formatYearLabel(segment.year, isFittedTotal),
         };
       })
       : [];
@@ -148,6 +275,10 @@ export default function PlayerFormChart({ series = [], width = 320, mode = 'leag
     return {
       minY,
       maxY,
+      yTicks: ticks.map((value) => ({
+        value,
+        y: yForValue(value),
+      })),
       voteCoords,
       bonusCoords,
       best: scoredPoints[bestIndex],
@@ -158,7 +289,15 @@ export default function PlayerFormChart({ series = [], width = 320, mode = 'leag
       votePolyline: voteCoords.map((p) => `${p.x},${p.y}`).join(' '),
       bonusPolyline: bonusCoords.map((p) => `${p.x},${p.y}`).join(' '),
     };
-  }, [scoredPoints, innerWidth, innerHeight, isTotalMode]);
+  }, [scoredPoints, innerWidth, innerHeight, isTotalMode, isFittedTotal]);
+
+  const handleZoomIn = () => {
+    applyZoom(zoomLevel + ZOOM_STEP);
+  };
+
+  const handleZoomOut = () => {
+    applyZoom(zoomLevel - ZOOM_STEP);
+  };
 
   if (!layout) {
     return (
@@ -172,32 +311,28 @@ export default function PlayerFormChart({ series = [], width = 320, mode = 'leag
   const worstPoint = layout.voteCoords[layout.worstIndex];
 
   const chartSvg = (
-    <Svg width={chartContentWidth} height={CHART_HEIGHT}>
-      {[0, 0.5, 1].map((ratio) => {
-        const y = PADDING.top + innerHeight * ratio;
-        const value = layout.maxY - ratio * (layout.maxY - layout.minY);
-        return (
-          <React.Fragment key={ratio}>
+    <Svg width={displayWidth} height={CHART_HEIGHT}>
+      {[...(layout.yTicks || [])].map((tick) => (
+          <React.Fragment key={tick.value}>
             <Line
               x1={PADDING.left}
-              y1={y}
-              x2={chartContentWidth - PADDING.right}
-              y2={y}
+              y1={tick.y}
+              x2={displayWidth - PADDING.right}
+              y2={tick.y}
               stroke="#f0f0f0"
               strokeWidth={1}
             />
             <SvgText
               x={PADDING.left - 6}
-              y={y + 4}
+              y={tick.y + 4}
               fontSize={10}
               fill="#94a3b8"
               textAnchor="end"
             >
-              {value.toFixed(1)}
+              {Number.isInteger(tick.value) ? String(tick.value) : tick.value.toFixed(1)}
             </SvgText>
           </React.Fragment>
-        );
-      })}
+        ))}
 
       <Polyline
         points={layout.bonusPolyline}
@@ -259,7 +394,7 @@ export default function PlayerFormChart({ series = [], width = 320, mode = 'leag
             />
           ))}
           <SvgText
-            x={chartContentWidth / 2}
+            x={displayWidth / 2}
             y={CHART_HEIGHT - 8}
             fontSize={10}
             fill="#64748b"
@@ -273,24 +408,67 @@ export default function PlayerFormChart({ series = [], width = 320, mode = 'leag
     </Svg>
   );
 
+  const chartBody = canScroll ? (
+    <ScrollView
+      horizontal
+      scrollEnabled
+      showsHorizontalScrollIndicator={isZoomedIn}
+      nestedScrollEnabled
+      contentContainerStyle={styles.scrollContent}
+    >
+      {chartSvg}
+    </ScrollView>
+  ) : (
+    <View style={[styles.chartViewport, { width: viewportWidth }]}>
+      {chartSvg}
+    </View>
+  );
+
   return (
     <View>
-      {isTotalMode && chartContentWidth > viewportWidth ? (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          nestedScrollEnabled
-          contentContainerStyle={styles.scrollContent}
-        >
-          {chartSvg}
-        </ScrollView>
-      ) : (
-        chartSvg
-      )}
+      {canZoom ? (
+        <View style={styles.zoomToolbar}>
+          <TouchableOpacity
+            style={[styles.zoomButton, zoomLevel <= 1.01 && styles.zoomButtonDisabled]}
+            onPress={handleZoomOut}
+            disabled={zoomLevel <= 1.01}
+            activeOpacity={0.75}
+            accessibilityRole="button"
+            accessibilityLabel="Riduci zoom grafico"
+          >
+            <Ionicons
+              name="remove"
+              size={18}
+              color={zoomLevel <= 1.01 ? '#cbd5e1' : '#667eea'}
+            />
+          </TouchableOpacity>
 
-      {isTotalMode && chartContentWidth > viewportWidth ? (
-        <Text style={styles.scrollHint}>Scorri orizzontalmente per esplorare la carriera</Text>
+          <View style={styles.zoomIconWrap}>
+            <Ionicons name="search" size={15} color="#94a3b8" />
+          </View>
+
+          <TouchableOpacity
+            style={[styles.zoomButton, zoomLevel >= maxZoom - 0.01 && styles.zoomButtonDisabled]}
+            onPress={handleZoomIn}
+            disabled={zoomLevel >= maxZoom - 0.01}
+            activeOpacity={0.75}
+            accessibilityRole="button"
+            accessibilityLabel="Aumenta zoom grafico"
+          >
+            <Ionicons
+              name="add"
+              size={18}
+              color={zoomLevel >= maxZoom - 0.01 ? '#cbd5e1' : '#667eea'}
+            />
+          </TouchableOpacity>
+        </View>
       ) : null}
+
+      <GestureDetector gesture={pinchGesture}>
+        <View style={[styles.chartGestureWrap, { width: viewportWidth }]}>
+          {chartBody}
+        </View>
+      </GestureDetector>
 
       <View style={styles.legendRow}>
         <View style={styles.legendItem}>
@@ -323,15 +501,46 @@ const styles = StyleSheet.create({
     color: '#94a3b8',
     textAlign: 'center',
   },
+  zoomToolbar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 6,
+    marginBottom: 8,
+  },
+  zoomButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  zoomButtonDisabled: {
+    backgroundColor: '#f8fafc',
+  },
+  zoomIconWrap: {
+    width: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  chartGestureWrap: {
+    overflow: 'hidden',
+  },
+  chartViewport: {
+    overflow: 'hidden',
+  },
   scrollContent: {
     minWidth: '100%',
   },
   scrollHint: {
-    marginTop: 4,
+    marginTop: 6,
     fontSize: 11,
-    color: '#94a3b8',
+    color: '#667eea',
     textAlign: 'center',
-    fontWeight: '500',
+    fontWeight: '600',
   },
   legendRow: {
     flexDirection: 'row',
