@@ -1,4 +1,4 @@
-const { normalizeVoteRating } = require('./voteRating');
+const { normalizeVoteRating, isPresenceVoteRating } = require('./voteRating');
 
 const EMPTY_BONUS_VOTE = {
   goals: 0,
@@ -20,7 +20,7 @@ function buildTeamHasVoteSet(votesByPlayer, playersById) {
   Object.keys(votesByPlayer || {}).forEach((rawPid) => {
     const pid = Number(rawPid);
     const rating = normalizeVoteRating(votesByPlayer[pid]?.rating || 0);
-    if (rating <= 0) return;
+    if (!isPresenceVoteRating(rating)) return;
     const teamId = Number(playersById[pid]?.team_id || 0);
     if (teamId > 0) teams.add(teamId);
   });
