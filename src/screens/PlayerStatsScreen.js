@@ -1135,7 +1135,7 @@ export default function PlayerStatsScreen({ route, navigation }) {
     );
   };
 
-  const renderAnalytics = (analytics, isLoading) => {
+  const renderAnalytics = (analytics, isLoading, chartMode = 'league') => {
     if (isLoading) {
       return (
         <View style={styles.loadingBox}>
@@ -1167,7 +1167,11 @@ export default function PlayerStatsScreen({ route, navigation }) {
       <View>
         <View style={styles.card}>
           <Text style={styles.cardSectionTitle}>Forma nel tempo</Text>
-          <PlayerFormChart series={data.form_series} width={CHART_WIDTH} />
+          <PlayerFormChart
+            series={data.form_series}
+            width={CHART_WIDTH}
+            mode={chartMode}
+          />
         </View>
 
         <View style={styles.card}>
@@ -1334,11 +1338,11 @@ export default function PlayerStatsScreen({ route, navigation }) {
         return (
           <>
             {renderScopeSubTabs()}
-            {activeScopeSubTab === 'league' && renderAnalytics(editionAnalytics, loadingEditionAnalytics)}
+            {activeScopeSubTab === 'league' && renderAnalytics(editionAnalytics, loadingEditionAnalytics, 'league')}
             {activeScopeSubTab === 'total' && (
               <>
                 {renderAggregatedBanner()}
-                {hasOfficialGroup && renderAnalytics(aggregatedAnalytics, loadingAggregatedAnalytics)}
+                {hasOfficialGroup && renderAnalytics(aggregatedAnalytics, loadingAggregatedAnalytics, 'total')}
               </>
             )}
           </>

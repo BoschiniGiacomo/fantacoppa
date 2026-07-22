@@ -339,9 +339,14 @@ async function fetchPlayerAnalytics(playerIds, leagueIds, playerRole = '') {
          FROM vote_rows
          ORDER BY league_id, giornata, player_id DESC
        )
-       SELECT giornata, rating, rating_with_bonus
-       FROM deduped
-       ORDER BY giornata ASC`,
+       SELECT
+         d.giornata,
+         d.rating,
+         d.rating_with_bonus,
+         NULLIF(to_jsonb(l)->>'reference_year', '')::int AS reference_year
+       FROM deduped d
+       INNER JOIN leagues l ON l.id = d.league_id
+       ORDER BY reference_year ASC NULLS LAST, d.giornata ASC`,
       params
     ),
   ]);
@@ -391,6 +396,7 @@ async function fetchPlayerAnalytics(playerIds, leagueIds, playerRole = '') {
     distribution: buildDistributionFromRatings(scoredRatings),
     form_series: (seriesRows || []).map((row) => ({
       giornata: Number(row.giornata),
+      reference_year: row.reference_year != null ? Number(row.reference_year) : null,
       rating: safeNumber(row.rating, 2),
       rating_with_bonus: safeNumber(row.rating_with_bonus, 2),
       is_scored: Number(row.rating) > 0,
