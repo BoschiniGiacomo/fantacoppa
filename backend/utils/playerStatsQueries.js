@@ -149,7 +149,7 @@ async function fetchPlayerFantaStats(playerIds, leagueIds) {
          rating,
          rating_with_bonus
        FROM vote_rows
-       WHERE ${SQL_WHERE_SCORED_VOTE}
+       WHERE rating > 0
        ORDER BY league_id, giornata, player_id DESC
      )
      SELECT
@@ -267,7 +267,7 @@ async function fetchPlayerAnalytics(playerIds, leagueIds, playerRole = '') {
            giornata,
            rating
          FROM vote_rows
-         WHERE ${SQL_WHERE_SCORED_VOTE}
+         WHERE rating > 0
          ORDER BY league_id, giornata, player_id DESC
        )
        SELECT
