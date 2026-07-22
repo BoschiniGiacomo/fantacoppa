@@ -21,6 +21,7 @@ import PlayerHeroTrophyBadges, { CareerEditionTrophyIcons } from '../components/
 import PlayerFormChart from '../components/PlayerFormChart';
 import VoteDistributionChart from '../components/VoteDistributionChart';
 import EfficiencyBars from '../components/EfficiencyBars';
+import PlayerSeasonTotals from '../components/PlayerSeasonTotals';
 
 const ROLE_COLORS = {
   P: '#0d6efd',
@@ -1168,12 +1169,13 @@ export default function PlayerStatsScreen({ route, navigation }) {
     const baseTotals = [
       { key: 'goal', value: v(totals.total_goals), label: 'Goal' },
       { key: 'assist', value: v(totals.total_assists), label: 'Assist' },
+      { key: 'briso', value: v(totals.total_briso), label: 'MVP' },
       { key: 'yellow_card', value: v(totals.total_yellow_cards), label: 'Gialli' },
       { key: 'red_card', value: v(totals.total_red_cards), label: 'Rossi' },
-      { key: 'own_goal', value: v(totals.total_own_goals), label: 'Autogoal' },
-      { key: 'penalty_missed', value: v(totals.total_penalty_missed), label: 'Rig. sbagliati' },
+      { key: 'own_goal', value: v(totals.total_own_goals), label: 'Autogol' },
+      { key: 'penalty_missed', value: v(totals.total_penalty_missed), label: 'Rig. sb.' },
     ];
-    const goalkeeperTotals = showGoalkeeperFantaSection ? [
+    const goalkeeperTotals = isRecentClusterGoalkeeper ? [
       { key: 'clean_sheet', value: v(totals.total_clean_sheets), label: 'Clean sheet' },
       { key: 'penalty_saved', value: v(totals.total_penalty_saved), label: 'Rig. parati' },
       { key: 'goals_conceded', value: v(totals.total_goals_conceded), label: 'Goal subiti' },
@@ -1182,6 +1184,15 @@ export default function PlayerStatsScreen({ route, navigation }) {
 
     return (
       <View>
+        <View style={styles.card}>
+          <Text style={styles.cardSectionTitle}>Totali</Text>
+          <PlayerSeasonTotals
+            appearances={v(totals.games_played)}
+            items={totalsItems}
+            isGoalkeeper={isRecentClusterGoalkeeper}
+          />
+        </View>
+
         <View style={styles.card}>
           <Text style={styles.cardSectionTitle}>Forma nel tempo</Text>
           <PlayerFormChart
@@ -1200,28 +1211,6 @@ export default function PlayerStatsScreen({ route, navigation }) {
         <View style={styles.card}>
           <Text style={styles.cardSectionTitle}>Distribuzione voti</Text>
           <VoteDistributionChart distribution={data.distribution} width={chartWidth} />
-        </View>
-
-        <View style={styles.card}>
-          <Text style={styles.cardSectionTitle}>Totali</Text>
-          <View style={styles.bmGrid}>
-            <View style={styles.bmItemWide}>
-              <View style={styles.bmIconCircle}>
-                <MaterialCommunityIcons name="soccer-field" size={20} color="#667eea" />
-              </View>
-              <Text style={styles.bmValue}>{v(totals.games_played)}</Text>
-              <Text style={styles.bmLabel}>Presenze</Text>
-            </View>
-            {totalsItems.map((item) => (
-              <View key={item.key} style={styles.bmItemWide}>
-                <View style={styles.bmIconCircle}>
-                  <BonusIcon type={item.key} size={20} />
-                </View>
-                <Text style={styles.bmValue}>{item.value}</Text>
-                <Text style={styles.bmLabel}>{item.label}</Text>
-              </View>
-            ))}
-          </View>
         </View>
 
         {renderFavouriteOpponent(data.favourite_opponent)}

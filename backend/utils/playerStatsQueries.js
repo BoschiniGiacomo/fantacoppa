@@ -67,6 +67,7 @@ function emptyAnalytics() {
       total_clean_sheets: 0,
       total_penalty_saved: 0,
       total_goals_conceded: 0,
+      total_briso: 0,
     },
     efficiency: {
       goals_per_presence: 0,
@@ -269,7 +270,8 @@ async function fetchPlayerAnalytics(playerIds, leagueIds, playerRole = '') {
            COALESCE(pr.own_goals, 0) AS own_goals,
            COALESCE(pr.penalty_missed, 0) AS penalty_missed,
            COALESCE(pr.penalty_saved, 0) AS penalty_saved,
-           COALESCE(pr.clean_sheet, 0) AS clean_sheet
+           COALESCE(pr.clean_sheet, 0) AS clean_sheet,
+           COALESCE(pr.briso, 0) AS briso
          FROM player_ratings pr
          LEFT JOIN league_bonus_settings bs ON bs.league_id = pr.league_id
          WHERE pr.player_id IN (${playerPh})
@@ -288,7 +290,8 @@ async function fetchPlayerAnalytics(playerIds, leagueIds, playerRole = '') {
            own_goals,
            penalty_missed,
            penalty_saved,
-           clean_sheet
+           clean_sheet,
+           briso
          FROM vote_rows
          ORDER BY league_id, giornata, player_id DESC
        ),
@@ -312,7 +315,8 @@ async function fetchPlayerAnalytics(playerIds, leagueIds, playerRole = '') {
          (SELECT COALESCE(SUM(penalty_missed), 0) FROM presence) AS total_penalty_missed,
          (SELECT COALESCE(SUM(penalty_saved), 0) FROM presence) AS total_penalty_saved,
          (SELECT COALESCE(SUM(clean_sheet), 0) FROM presence) AS total_clean_sheets,
-         (SELECT COALESCE(SUM(goals_conceded), 0) FROM presence) AS total_goals_conceded
+         (SELECT COALESCE(SUM(goals_conceded), 0) FROM presence) AS total_goals_conceded,
+         (SELECT COALESCE(SUM(briso), 0) FROM presence) AS total_briso
        FROM (SELECT 1) AS _one`,
       params
     ),
@@ -381,6 +385,7 @@ async function fetchPlayerAnalytics(playerIds, leagueIds, playerRole = '') {
       total_clean_sheets: totalCleanSheets,
       total_penalty_saved: totalPenaltySaved,
       total_goals_conceded: totalGoalsConceded,
+      total_briso: Number(agg.total_briso || 0),
     },
     efficiency: {
       goals_per_presence: safeRate(totalGoals, gamesPlayed, 2),
