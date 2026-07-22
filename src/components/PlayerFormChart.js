@@ -10,6 +10,7 @@ import { runOnJS, useSharedValue } from 'react-native-reanimated';
 
 const CHART_HEIGHT = 196;
 const PADDING = { top: 10, right: 16, bottom: 40, left: 28 };
+const PLOT_LEFT_ZOOMED = 10;
 const ACCENT = '#667eea';
 const LENS_COLOR = '#94a3b8';
 const POINT_SPACING = 34;
@@ -200,26 +201,38 @@ export default function PlayerFormChart({ series = [], width = 320, mode = 'leag
     [series],
   );
 
-  const expandedWidth = useMemo(() => {
-    if (!isTotalMode || scoredPoints.length <= 1) return viewportWidth;
-    return Math.max(
-      viewportWidth,
-      (scoredPoints.length - 1) * POINT_SPACING + PADDING.left + PADDING.right,
-    );
+  const maxZoom = useMemo(() => {
+    if (!isTotalMode || scoredPoints.length <= 1) return 1;
+    const fullPlotWidth = (scoredPoints.length - 1) * POINT_SPACING + PLOT_LEFT_ZOOMED + PADDING.right;
+    const zoomViewport = Math.max(160, viewportWidth - PADDING.left);
+    return Math.max(1, fullPlotWidth / zoomViewport);
   }, [isTotalMode, scoredPoints.length, viewportWidth]);
 
-  const maxZoom = expandedWidth / viewportWidth;
   const canZoom = isTotalMode && maxZoom > 1.01;
+  const isZoomedIn = canZoom && zoomLevel > 1.01;
+  const yAxisWidth = isZoomedIn ? PADDING.left : 0;
+  const plotLeft = isZoomedIn ? PLOT_LEFT_ZOOMED : PADDING.left;
+  const scrollViewportWidth = Math.max(160, viewportWidth - yAxisWidth);
+
+  const expandedWidth = useMemo(() => {
+    if (!isTotalMode || scoredPoints.length <= 1) {
+      return isZoomedIn ? scrollViewportWidth : viewportWidth;
+    }
+    return Math.max(
+      scrollViewportWidth,
+      (scoredPoints.length - 1) * POINT_SPACING + plotLeft + PADDING.right,
+    );
+  }, [isTotalMode, scoredPoints.length, viewportWidth, scrollViewportWidth, isZoomedIn, plotLeft]);
 
   const displayWidth = useMemo(() => {
     if (!isTotalMode) return viewportWidth;
-    return Math.min(expandedWidth, viewportWidth * zoomLevel);
-  }, [isTotalMode, expandedWidth, viewportWidth, zoomLevel]);
+    if (!isZoomedIn) return viewportWidth;
+    return Math.min(expandedWidth, Math.max(scrollViewportWidth, scrollViewportWidth * zoomLevel));
+  }, [isTotalMode, isZoomedIn, viewportWidth, expandedWidth, scrollViewportWidth, zoomLevel]);
 
-  const isZoomedIn = canZoom && zoomLevel > 1.01;
-  const canScroll = isZoomedIn && displayWidth > viewportWidth + 1;
+  const canScroll = isZoomedIn && displayWidth > scrollViewportWidth + 1;
 
-  const innerWidth = displayWidth - PADDING.left - PADDING.right;
+  const innerWidth = displayWidth - plotLeft - PADDING.right;
   const innerHeight = CHART_HEIGHT - PADDING.top - PADDING.bottom;
   const isFittedTotal = isTotalMode && !isZoomedIn;
 
@@ -232,13 +245,13 @@ export default function PlayerFormChart({ series = [], width = 320, mode = 'leag
 
   useEffect(() => {
     maxZoomShared.value = maxZoom;
-  }, [maxZoom, maxZoomShared]);
+  }, [maxZoom]);
 
   useEffect(() => {
     zoomShared.value = 1;
     basePinchZoom.value = 1;
     setZoomLevel(1);
-  }, [series, mode, zoomShared, basePinchZoom]);
+  }, [series, mode]);
 
   const pinchGesture = useMemo(() => Gesture.Pinch()
     .enabled(canZoom)
@@ -270,14 +283,14 @@ export default function PlayerFormChart({ series = [], width = 320, mode = 'leag
 
     const xForIndex = (index) => {
       if (isTotalMode) {
-        if (scoredPoints.length === 1) return PADDING.left + innerWidth / 2;
+        if (scoredPoints.length === 1) return plotLeft + innerWidth / 2;
         if (isFittedTotal) {
-          return PADDING.left + (index / (scoredPoints.length - 1)) * innerWidth;
+          return plotLeft + (index / (scoredPoints.length - 1)) * innerWidth;
         }
-        return PADDING.left + index * POINT_SPACING;
+        return plotLeft + index * POINT_SPACING;
       }
-      if (scoredPoints.length === 1) return PADDING.left + innerWidth / 2;
-      return PADDING.left + (index / (scoredPoints.length - 1)) * innerWidth;
+      if (scoredPoints.length === 1) return plotLeft + innerWidth / 2;
+      return plotLeft + (index / (scoredPoints.length - 1)) * innerWidth;
     };
 
     const yForValue = (value) => PADDING.top + innerHeight - ((value - minY) / spanY) * innerHeight;
@@ -332,7 +345,7 @@ export default function PlayerFormChart({ series = [], width = 320, mode = 'leag
       votePolyline: voteCoords.map((p) => `${p.x},${p.y}`).join(' '),
       bonusPolyline: bonusCoords.map((p) => `${p.x},${p.y}`).join(' '),
     };
-  }, [scoredPoints, innerWidth, innerHeight, isTotalMode, isFittedTotal]);
+  }, [scoredPoints, innerWidth, innerHeight, isTotalMode, isFittedTotal, plotLeft]);
 
   const handleZoomToggle = () => {
     applyZoom(isZoomedIn ? 1 : maxZoom);
@@ -349,29 +362,23 @@ export default function PlayerFormChart({ series = [], width = 320, mode = 'leag
   const bestPoint = layout.voteCoords[layout.bestIndex];
   const worstPoint = layout.voteCoords[layout.worstIndex];
 
-  const chartSvg = (
-    <Svg width={displayWidth} height={CHART_HEIGHT}>
-      {[...(layout.yTicks || [])].map((tick) => (
-          <React.Fragment key={tick.value}>
-            <Line
-              x1={PADDING.left}
-              y1={tick.y}
-              x2={displayWidth - PADDING.right}
-              y2={tick.y}
-              stroke="#f0f0f0"
-              strokeWidth={1}
-            />
-            <SvgText
-              x={PADDING.left - 6}
-              y={tick.y + 4}
-              fontSize={10}
-              fill="#94a3b8"
-              textAnchor="end"
-            >
-              {Number.isInteger(tick.value) ? String(tick.value) : tick.value.toFixed(1)}
-            </SvgText>
-          </React.Fragment>
-        ))}
+  const formatTickLabel = (value) => (
+    Number.isInteger(value) ? String(value) : value.toFixed(1)
+  );
+
+  const gridAndPlot = (
+    <>
+      {(layout.yTicks || []).map((tick) => (
+        <Line
+          key={`grid-${tick.value}`}
+          x1={plotLeft}
+          y1={tick.y}
+          x2={displayWidth - PADDING.right}
+          y2={tick.y}
+          stroke="#f0f0f0"
+          strokeWidth={1}
+        />
+      ))}
 
       <Polyline
         points={layout.bonusPolyline}
@@ -444,19 +451,51 @@ export default function PlayerFormChart({ series = [], width = 320, mode = 'leag
           </SvgText>
         </>
       )}
+    </>
+  );
+
+  const yAxisLabels = (layout.yTicks || []).map((tick) => (
+    <SvgText
+      key={`ylabel-${tick.value}`}
+      x={PADDING.left - 6}
+      y={tick.y + 4}
+      fontSize={10}
+      fill="#94a3b8"
+      textAnchor="end"
+    >
+      {formatTickLabel(tick.value)}
+    </SvgText>
+  ));
+
+  const stickyYAxis = (
+    <View pointerEvents="none" style={[styles.stickyYAxis, { width: yAxisWidth || PADDING.left }]}>
+      <Svg width={yAxisWidth || PADDING.left} height={CHART_HEIGHT}>
+        {yAxisLabels}
+      </Svg>
+    </View>
+  );
+
+  const chartSvg = (
+    <Svg width={displayWidth} height={CHART_HEIGHT}>
+      {gridAndPlot}
+      {!canScroll ? yAxisLabels : null}
     </Svg>
   );
 
   const chartBody = canScroll ? (
-    <ScrollView
-      horizontal
-      scrollEnabled
-      showsHorizontalScrollIndicator={isZoomedIn}
-      nestedScrollEnabled
-      contentContainerStyle={styles.scrollContent}
-    >
-      {chartSvg}
-    </ScrollView>
+    <View style={[styles.chartRow, { width: viewportWidth, height: CHART_HEIGHT }]}>
+      {stickyYAxis}
+      <ScrollView
+        horizontal
+        scrollEnabled
+        showsHorizontalScrollIndicator
+        nestedScrollEnabled
+        style={{ width: scrollViewportWidth }}
+        contentContainerStyle={styles.scrollContent}
+      >
+        {chartSvg}
+      </ScrollView>
+    </View>
   ) : (
     <View style={[styles.chartViewport, { width: viewportWidth }]}>
       {chartSvg}
@@ -521,8 +560,18 @@ const styles = StyleSheet.create({
   chartGestureWrap: {
     overflow: 'hidden',
   },
+  chartRow: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    overflow: 'hidden',
+  },
   chartViewport: {
     overflow: 'hidden',
+    position: 'relative',
+  },
+  stickyYAxis: {
+    backgroundColor: '#fff',
+    zIndex: 2,
   },
   scrollContent: {
     minWidth: '100%',

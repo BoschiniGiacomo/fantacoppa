@@ -9,7 +9,7 @@ import {
   Modal,
   Pressable,
   InteractionManager,
-  Dimensions,
+  useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -47,7 +47,6 @@ const SEASON_YEAR_PICKER_MAX_HEIGHT = 180;
 
 const HERO_PHOTO_SIZE = 184;
 const HERO_PHOTO_RADIUS = 16;
-const CHART_WIDTH = Dimensions.get('window').width - 64;
 
 function formatPct(value) {
   const n = Number(value);
@@ -63,9 +62,9 @@ function formatRate(value) {
 
 function resolveInitialTabs(entrySource) {
   if (entrySource === 'official') {
-    return { mainTab: 'overview', fantaSubTab: 'league' };
+    return { mainTab: 'overview', scopeSubTab: 'total' };
   }
-  return { mainTab: 'fantacoppa', fantaSubTab: 'league' };
+  return { mainTab: 'fantacoppa', scopeSubTab: 'total' };
 }
 
 function resolvePlayerDisplayName(playerInfo, playerName) {
@@ -239,8 +238,10 @@ export default function PlayerStatsScreen({ route, navigation }) {
 
   const initialTabs = resolveInitialTabs(entrySource);
   const insets = useSafeAreaInsets();
+  const { width: windowWidth } = useWindowDimensions();
+  const chartWidth = Math.max(240, windowWidth - 64);
   const [activeMainTab, setActiveMainTab] = useState(initialTabs.mainTab);
-  const [activeScopeSubTab, setActiveScopeSubTab] = useState(initialTabs.fantaSubTab);
+  const [activeScopeSubTab, setActiveScopeSubTab] = useState(initialTabs.scopeSubTab);
   const [fantaEditionData, setFantaEditionData] = useState(null);
   const [aggregatedFantaStats, setAggregatedFantaStats] = useState(null);
   const [editionAnalytics, setEditionAnalytics] = useState(null);
@@ -250,6 +251,7 @@ export default function PlayerStatsScreen({ route, navigation }) {
   const [loadingEditionAnalytics, setLoadingEditionAnalytics] = useState(false);
   const [loadingAggregatedAnalytics, setLoadingAggregatedAnalytics] = useState(false);
   const [hasOfficialGroup, setHasOfficialGroup] = useState(false);
+  const [officialGroupReady, setOfficialGroupReady] = useState(false);
   const [overview, setOverview] = useState(null);
   const [loadingOverview, setLoadingOverview] = useState(true);
   const [absoluteRanks, setAbsoluteRanks] = useState(null);
@@ -339,12 +341,48 @@ export default function PlayerStatsScreen({ route, navigation }) {
     setAggregatedFantaStats(null);
     setEditionAnalytics(null);
     setAggregatedAnalytics(null);
+    setHasOfficialGroup(false);
+    setOfficialGroupReady(false);
+    setActiveScopeSubTab(initialTabs.scopeSubTab);
 
     void bootstrapPlayerScreen();
-    if (initialTabs.mainTab === 'fantacoppa' || entrySource === 'official') {
+    if (initialTabs.mainTab === 'fantacoppa' || initialTabs.mainTab === 'stats' || entrySource === 'official') {
       void checkOfficialGroup();
     }
   }, [playerId, leagueId]);
+
+  useEffect(() => {
+    if (!officialGroupReady) return;
+    if (!hasOfficialGroup && activeScopeSubTab === 'total') {
+      setActiveScopeSubTab('league');
+      if (activeMainTab === 'fantacoppa') {
+        void loadEditionFantaStats(selectedEdition.player_id, selectedEdition.league_id);
+      } else if (activeMainTab === 'stats') {
+        void loadEditionAnalytics(selectedEdition.player_id, selectedEdition.league_id);
+      }
+    }
+  }, [officialGroupReady, hasOfficialGroup, activeScopeSubTab, activeMainTab, selectedEdition.player_id, selectedEdition.league_id]);
+
+  // Garantisce il caricamento dei dati Totali quando il tab è attivo (evita race sul primo mount)
+  useEffect(() => {
+    if (!hasOfficialGroup) return;
+    if (activeScopeSubTab !== 'total') return;
+
+    if (activeMainTab === 'fantacoppa' && !aggregatedFantaStats && !loadingAggregatedFanta) {
+      void loadAggregatedFantaStats();
+    }
+    if (activeMainTab === 'stats' && !aggregatedAnalytics && !loadingAggregatedAnalytics) {
+      void loadAggregatedAnalytics();
+    }
+  }, [
+    hasOfficialGroup,
+    activeScopeSubTab,
+    activeMainTab,
+    aggregatedFantaStats,
+    aggregatedAnalytics,
+    loadingAggregatedFanta,
+    loadingAggregatedAnalytics,
+  ]);
 
   useEffect(() => {
     if (entrySource === 'official' || !hasOfficialGroup || absoluteRanks || loadingAbsoluteRanks) return;
@@ -446,19 +484,18 @@ export default function PlayerStatsScreen({ route, navigation }) {
   };
 
   const bootstrapPlayerScreen = async () => {
-    let routeFantaPromise = null;
-
     try {
       setLoadingOverview(true);
 
       const overviewPromise = playerStatsService.getPlayerOverview(playerId, leagueId);
-      if (initialTabs.mainTab === 'fantacoppa') {
-        routeFantaPromise = playerStatsService.getPlayerFantaStats(playerId, leagueId);
-        setLoadingFantaEdition(true);
-      }
 
       if (entrySource === 'official') {
         void loadAbsoluteRanks();
+      }
+
+      // Se partiamo su FantaCoppa/Totali, precarica subito i totali aggregati
+      if (initialTabs.mainTab === 'fantacoppa' && initialTabs.scopeSubTab === 'total') {
+        setLoadingAggregatedFanta(true);
       }
 
       const response = await overviewPromise;
@@ -470,17 +507,6 @@ export default function PlayerStatsScreen({ route, navigation }) {
       const defaultKey = editionKey(defaultEdition);
       setSelectedEditionKey(defaultKey);
 
-      if (initialTabs.mainTab === 'fantacoppa') {
-        const routeMatchesDefault = Number(defaultEdition.player_id) === Number(playerId)
-          && Number(defaultEdition.league_id) === Number(leagueId);
-
-        if (routeMatchesDefault) {
-          await loadEditionFantaStats(playerId, leagueId, { reusePromise: routeFantaPromise });
-        } else {
-          void loadEditionFantaStats(defaultEdition.player_id, defaultEdition.league_id);
-        }
-      }
-
       InteractionManager.runAfterInteractions(() => {
         if (careerPrefetchStartedRef.current || careerHistory) return;
         careerPrefetchStartedRef.current = true;
@@ -489,17 +515,6 @@ export default function PlayerStatsScreen({ route, navigation }) {
     } catch (error) {
       setOverview(null);
       setSelectedEditionKey(editionKey({ player_id: playerId, league_id: leagueId }));
-
-      if (initialTabs.mainTab === 'fantacoppa') {
-        try {
-          await loadEditionFantaStats(playerId, leagueId, {
-            reusePromise: routeFantaPromise,
-          });
-        } catch (_) {
-          void loadEditionFantaStats(playerId, leagueId);
-        }
-      }
-
       console.error(error);
     } finally {
       setLoadingOverview(false);
@@ -512,15 +527,17 @@ export default function PlayerStatsScreen({ route, navigation }) {
     try {
       setLoadingAggregatedFanta(true);
       const response = await playerStatsService.getPlayerFantaStatsAggregated(playerId, leagueId);
-      setAggregatedFantaStats(response.data.stats);
+      setAggregatedFantaStats(response.data?.stats || null);
       setHasOfficialGroup(true);
       if (response.data?.player?.photo_path) {
         setPhotoPath((prev) => prev || String(response.data.player.photo_path || '').trim());
       }
     } catch (error) {
-      setHasOfficialGroup(false);
+      // Non forzare false se un altro endpoint aggregato ha già confermato il gruppo
+      setHasOfficialGroup((prev) => prev);
     } finally {
       setLoadingAggregatedFanta(false);
+      setOfficialGroupReady(true);
     }
   };
 
@@ -841,19 +858,19 @@ export default function PlayerStatsScreen({ route, navigation }) {
         style={[
           styles.subTabBtn,
           activeScopeSubTab === 'total' && styles.subTabBtnActive,
-          !hasOfficialGroup && styles.subTabBtnDisabled,
+          officialGroupReady && !hasOfficialGroup && styles.subTabBtnDisabled,
         ]}
         onPress={() => {
-          if (hasOfficialGroup) handleScopeSubTabPress('total');
+          if (!officialGroupReady || hasOfficialGroup) handleScopeSubTabPress('total');
         }}
-        disabled={!hasOfficialGroup}
+        disabled={officialGroupReady && !hasOfficialGroup}
         activeOpacity={0.8}
       >
         <Text
           style={[
             styles.subTabText,
-            activeScopeSubTab === 'total' && hasOfficialGroup && styles.subTabTextActive,
-            !hasOfficialGroup && styles.subTabTextDisabled,
+            activeScopeSubTab === 'total' && (!officialGroupReady || hasOfficialGroup) && styles.subTabTextActive,
+            officialGroupReady && !hasOfficialGroup && styles.subTabTextDisabled,
           ]}
         >
           Totali
@@ -1168,8 +1185,9 @@ export default function PlayerStatsScreen({ route, navigation }) {
         <View style={styles.card}>
           <Text style={styles.cardSectionTitle}>Forma nel tempo</Text>
           <PlayerFormChart
+            key={`form-${chartMode}-${Array.isArray(data.form_series) ? data.form_series.length : 0}`}
             series={data.form_series}
-            width={CHART_WIDTH}
+            width={chartWidth}
             mode={chartMode}
           />
         </View>
@@ -1181,7 +1199,7 @@ export default function PlayerStatsScreen({ route, navigation }) {
 
         <View style={styles.card}>
           <Text style={styles.cardSectionTitle}>Distribuzione voti</Text>
-          <VoteDistributionChart distribution={data.distribution} width={CHART_WIDTH} />
+          <VoteDistributionChart distribution={data.distribution} width={chartWidth} />
         </View>
 
         <View style={styles.card}>
@@ -1340,10 +1358,17 @@ export default function PlayerStatsScreen({ route, navigation }) {
             {renderScopeSubTabs()}
             {activeScopeSubTab === 'league' && renderAnalytics(editionAnalytics, loadingEditionAnalytics, 'league')}
             {activeScopeSubTab === 'total' && (
-              <>
-                {renderAggregatedBanner()}
-                {hasOfficialGroup && renderAnalytics(aggregatedAnalytics, loadingAggregatedAnalytics, 'total')}
-              </>
+              officialGroupReady && !hasOfficialGroup ? (
+                renderAggregatedBanner()
+              ) : (
+                renderAnalytics(
+                  aggregatedAnalytics,
+                  !officialGroupReady
+                    || loadingAggregatedAnalytics
+                    || (hasOfficialGroup && !aggregatedAnalytics),
+                  'total',
+                )
+              )
             )}
           </>
         );
@@ -1355,10 +1380,16 @@ export default function PlayerStatsScreen({ route, navigation }) {
             {renderScopeSubTabs()}
             {activeScopeSubTab === 'league' && renderFantaStats(fantaEditionData?.stats, loadingFantaEdition)}
             {activeScopeSubTab === 'total' && (
-              <>
-                {renderAggregatedBanner()}
-                {hasOfficialGroup && renderFantaStats(aggregatedFantaStats, loadingAggregatedFanta)}
-              </>
+              officialGroupReady && !hasOfficialGroup ? (
+                renderAggregatedBanner()
+              ) : (
+                renderFantaStats(
+                  aggregatedFantaStats,
+                  !officialGroupReady
+                    || loadingAggregatedFanta
+                    || (hasOfficialGroup && !aggregatedFantaStats),
+                )
+              )
             )}
           </>
         );
