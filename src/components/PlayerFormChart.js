@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
-import Svg, { Line, Circle, Polyline, Text as SvgText } from 'react-native-svg';
+import Svg, { Line, Circle, Polyline, Text as SvgText, TSpan } from 'react-native-svg';
 
 const CHART_HEIGHT = 196;
 const PADDING = { top: 12, right: 16, bottom: 40, left: 28 };
@@ -11,6 +11,30 @@ function formatRating(value) {
   const n = Number(value);
   if (!Number.isFinite(n) || n <= 0) return null;
   return n.toFixed(2);
+}
+
+function formatGiornataLabel(giornata) {
+  const n = Number(giornata);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.trunc(n);
+}
+
+function GiornataAxisLabel({ x, y, giornata }) {
+  const value = formatGiornataLabel(giornata);
+  if (value == null) {
+    return (
+      <SvgText x={x} y={y} fontSize={9} fill="#94a3b8" fontWeight="600" textAnchor="middle">
+        –
+      </SvgText>
+    );
+  }
+
+  return (
+    <SvgText x={x} y={y} fontSize={9} fill="#94a3b8" fontWeight="600" textAnchor="middle">
+      <TSpan>{value}</TSpan>
+      <TSpan fontSize={6} baselineShift="super">a</TSpan>
+    </SvgText>
+  );
 }
 
 function formatYearLabel(referenceYear) {
@@ -225,19 +249,26 @@ export default function PlayerFormChart({ series = [], width = 320, mode = 'leag
           </SvgText>
         ))
       ) : (
-        layout.voteCoords.map((point) => (
+        <>
+          {layout.voteCoords.map((point) => (
+            <GiornataAxisLabel
+              key={`giornata-${point.index}`}
+              x={point.x}
+              y={CHART_HEIGHT - 22}
+              giornata={point.giornata}
+            />
+          ))}
           <SvgText
-            key={`giornata-${point.index}`}
-            x={point.x}
-            y={CHART_HEIGHT - 10}
-            fontSize={9}
-            fill="#94a3b8"
+            x={chartContentWidth / 2}
+            y={CHART_HEIGHT - 8}
+            fontSize={10}
+            fill="#64748b"
             fontWeight="600"
             textAnchor="middle"
           >
-            {Number.isFinite(point.giornata) ? String(point.giornata) : '–'}
+            Giornata
           </SvgText>
-        ))
+        </>
       )}
     </Svg>
   );
