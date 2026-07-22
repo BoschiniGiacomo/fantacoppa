@@ -5,15 +5,39 @@ import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
 } from 'react-native';
 import Svg, { Line, Circle, Polyline, Text as SvgText, TSpan } from 'react-native-svg';
-import { Ionicons } from '@expo/vector-icons';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { runOnJS, useSharedValue } from 'react-native-reanimated';
 
 const CHART_HEIGHT = 196;
-const PADDING = { top: 16, right: 16, bottom: 40, left: 28 };
+const PADDING = { top: 10, right: 16, bottom: 40, left: 28 };
 const ACCENT = '#667eea';
+const LENS_COLOR = '#94a3b8';
 const POINT_SPACING = 34;
-const ZOOM_STEP = 0.45;
+
+function ZoomLensToggle({ zoomed, onPress }) {
+  return (
+    <TouchableOpacity
+      style={styles.zoomToggleButton}
+      onPress={onPress}
+      activeOpacity={0.75}
+      accessibilityRole="button"
+      accessibilityLabel={zoomed ? 'Riduci zoom grafico' : 'Ingrandisci grafico'}
+    >
+      <Svg width={22} height={22} viewBox="0 0 22 22">
+        <Circle cx={9.2} cy={9.2} r={6.4} stroke={LENS_COLOR} strokeWidth={1.7} fill="none" />
+        <Line x1={13.8} y1={13.8} x2={19.2} y2={19.2} stroke={LENS_COLOR} strokeWidth={1.9} strokeLinecap="round" />
+        {zoomed ? (
+          <Line x1={6.4} y1={9.2} x2={12} y2={9.2} stroke={LENS_COLOR} strokeWidth={1.7} strokeLinecap="round" />
+        ) : (
+          <>
+            <Line x1={9.2} y1={6.4} x2={9.2} y2={12} stroke={LENS_COLOR} strokeWidth={1.7} strokeLinecap="round" />
+            <Line x1={6.4} y1={9.2} x2={12} y2={9.2} stroke={LENS_COLOR} strokeWidth={1.7} strokeLinecap="round" />
+          </>
+        )}
+      </Svg>
+    </TouchableOpacity>
+  );
+}
 
 function formatRating(value) {
   const n = Number(value);
@@ -35,7 +59,8 @@ function pickYStep(span) {
   if (span <= 1) return 0.25;
   if (span <= 2.5) return 0.5;
   if (span <= 5) return 1;
-  return 2;
+  if (span <= 10) return 2;
+  return 4;
 }
 
 function computeYAxisScale(values, domainMinOverride = null) {
@@ -48,43 +73,61 @@ function computeYAxisScale(values, domainMinOverride = null) {
   const rawMin = Math.min(...finite);
   const dataMin = Number.isFinite(domainMinOverride) ? domainMinOverride : rawMin;
   const range = Math.max(0.01, dataMax - dataMin);
+
+  // Fondo: padding stretto (già apprezzato). Cima: solo spazio per i marker, senza un'intera tacca vuota.
   const padBottom = Math.max(0.08, range * 0.03);
-  const padTop = Math.max(0.15, range * 0.07);
+  const padTop = Math.max(0.2, range * 0.025);
 
-  let minY = dataMin - padBottom;
-  let maxY = dataMax + padTop;
+  let domainMin = dataMin - padBottom;
+  let domainMax = dataMax + padTop;
 
-  if (maxY - minY < 0.8) {
+  if (domainMax - domainMin < 0.8) {
     const mid = (dataMin + dataMax) / 2;
-    minY = mid - 0.4;
-    maxY = mid + 0.4;
+    domainMin = mid - 0.4;
+    domainMax = mid + 0.4;
   }
 
-  let step = pickYStep(maxY - minY);
-  let axisMin = Math.floor(minY / step) * step;
-  let axisMax = Math.ceil(maxY / step) * step;
+  let step = pickYStep(domainMax - domainMin);
+  let axisMin = Math.floor(domainMin / step) * step;
+  // Massimo: arrotonda in alto solo se non crea troppo vuoto sopra il picco
+  let axisMax = Math.ceil(domainMax / step) * step;
+  if (axisMax - dataMax > step * 0.45) {
+    axisMax = domainMax;
+  }
 
   while (axisMin > dataMin - padBottom) axisMin -= step;
-  while (axisMax < dataMax + padTop) axisMax += step;
 
   let ticks = [];
   for (let tick = axisMin; tick <= axisMax + step * 0.0001; tick += step) {
-    ticks.push(Math.round(tick * 1000) / 1000);
+    if (tick <= axisMax + 0.001) ticks.push(Math.round(tick * 1000) / 1000);
+    if (ticks.length >= 8) break;
   }
 
-  while (ticks.length > 7) {
+  // Se troppe tacche, allarga lo step ma tieni il max agganciato ai dati (no salto a 20 su un picco 15.5)
+  while (ticks.length > 6) {
     step *= 2;
-    axisMin = Math.floor(minY / step) * step;
-    axisMax = Math.ceil(maxY / step) * step;
+    axisMin = Math.floor(domainMin / step) * step;
     while (axisMin > dataMin - padBottom) axisMin -= step;
-    while (axisMax < dataMax + padTop) axisMax += step;
+    axisMax = Math.ceil(domainMax / step) * step;
+    if (axisMax - dataMax > step * 0.45) {
+      axisMax = domainMax;
+    }
     ticks = [];
     for (let tick = axisMin; tick <= axisMax + step * 0.0001; tick += step) {
-      ticks.push(Math.round(tick * 1000) / 1000);
+      if (tick <= axisMax + 0.001) ticks.push(Math.round(tick * 1000) / 1000);
+      if (ticks.length >= 8) break;
     }
   }
 
-  return { minY: axisMin, maxY: axisMax, ticks };
+  if (ticks.length < 2) {
+    ticks = [axisMin, axisMax];
+  }
+
+  // Assicura che il massimo reale dei dati stia dentro la scala
+  const scaleMax = Math.max(axisMax, dataMax + padTop * 0.5);
+  const scaleMin = Math.min(axisMin, dataMin - padBottom * 0.5);
+
+  return { minY: scaleMin, maxY: scaleMax, ticks };
 }
 
 function GiornataAxisLabel({ x, y, giornata }) {
@@ -291,12 +334,8 @@ export default function PlayerFormChart({ series = [], width = 320, mode = 'leag
     };
   }, [scoredPoints, innerWidth, innerHeight, isTotalMode, isFittedTotal]);
 
-  const handleZoomIn = () => {
-    applyZoom(zoomLevel + ZOOM_STEP);
-  };
-
-  const handleZoomOut = () => {
-    applyZoom(zoomLevel - ZOOM_STEP);
+  const handleZoomToggle = () => {
+    applyZoom(isZoomedIn ? 1 : maxZoom);
   };
 
   if (!layout) {
@@ -428,39 +467,7 @@ export default function PlayerFormChart({ series = [], width = 320, mode = 'leag
     <View>
       {canZoom ? (
         <View style={styles.zoomToolbar}>
-          <TouchableOpacity
-            style={[styles.zoomButton, zoomLevel <= 1.01 && styles.zoomButtonDisabled]}
-            onPress={handleZoomOut}
-            disabled={zoomLevel <= 1.01}
-            activeOpacity={0.75}
-            accessibilityRole="button"
-            accessibilityLabel="Riduci zoom grafico"
-          >
-            <Ionicons
-              name="remove"
-              size={18}
-              color={zoomLevel <= 1.01 ? '#cbd5e1' : '#667eea'}
-            />
-          </TouchableOpacity>
-
-          <View style={styles.zoomIconWrap}>
-            <Ionicons name="search" size={15} color="#94a3b8" />
-          </View>
-
-          <TouchableOpacity
-            style={[styles.zoomButton, zoomLevel >= maxZoom - 0.01 && styles.zoomButtonDisabled]}
-            onPress={handleZoomIn}
-            disabled={zoomLevel >= maxZoom - 0.01}
-            activeOpacity={0.75}
-            accessibilityRole="button"
-            accessibilityLabel="Aumenta zoom grafico"
-          >
-            <Ionicons
-              name="add"
-              size={18}
-              color={zoomLevel >= maxZoom - 0.01 ? '#cbd5e1' : '#667eea'}
-            />
-          </TouchableOpacity>
+          <ZoomLensToggle zoomed={isZoomedIn} onPress={handleZoomToggle} />
         </View>
       ) : null}
 
@@ -502,27 +509,12 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   zoomToolbar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-    gap: 6,
-    marginBottom: 8,
+    alignItems: 'flex-end',
+    marginBottom: 4,
   },
-  zoomButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  zoomButtonDisabled: {
-    backgroundColor: '#f8fafc',
-  },
-  zoomIconWrap: {
+  zoomToggleButton: {
     width: 28,
+    height: 28,
     alignItems: 'center',
     justifyContent: 'center',
   },
