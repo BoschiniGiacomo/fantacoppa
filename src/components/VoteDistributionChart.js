@@ -99,9 +99,6 @@ export default function VoteDistributionChart({ distribution = [] }) {
             <Text style={styles.summaryChipText}>Pagelle</Text>
           </View>
           <Text style={styles.summaryTitle}>{total} voti in tutto</Text>
-          <Text style={styles.summarySub}>
-            Quante volte la pagella è finita in ciascuna fascia
-          </Text>
         </View>
       </View>
 

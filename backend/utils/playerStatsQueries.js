@@ -87,6 +87,7 @@ function emptyAnalytics() {
     ],
     form_series: [],
     favourite_opponent: null,
+    favourite_opponent_reason: 'no_data',
   };
 }
 
@@ -371,7 +372,7 @@ async function fetchPlayerAnalytics(playerIds, leagueIds, playerRole = '') {
     .map((row) => Number(row.rating))
     .filter((rating) => Number.isFinite(rating) && rating > 0);
 
-  const favouriteOpponent = await fetchFavouriteOpponent(playerIds, leagueIds, role);
+  const favouriteOpponentResult = await fetchFavouriteOpponent(playerIds, leagueIds, role);
 
   return {
     totals: {
@@ -406,88 +407,159 @@ async function fetchPlayerAnalytics(playerIds, leagueIds, playerRole = '') {
       rating_with_bonus: safeNumber(row.rating_with_bonus, 2),
       is_scored: Number(row.rating) > 0,
     })),
-    favourite_opponent: favouriteOpponent,
+    favourite_opponent: favouriteOpponentResult.favourite,
+    favourite_opponent_reason: favouriteOpponentResult.reason,
   };
 }
 
 async function fetchFavouriteOpponent(playerIds, leagueIds, playerRole) {
-  if (!playerIds.length || !leagueIds.length) return null;
+  if (!playerIds.length || !leagueIds.length) {
+    return { favourite: null, reason: 'no_data' };
+  }
 
   const isGoalkeeper = String(playerRole || '').trim().toUpperCase() === 'P';
-  const statColumn = isGoalkeeper ? 'clean_sheet' : 'goals';
   const kind = isGoalkeeper ? 'clean_sheets' : 'goals';
+  const statSql = isGoalkeeper ? 'wo.clean_sheet' : 'wo.goals';
 
   const playerPh = playerIds.map(() => '?').join(',');
   const leaguesPh = leagueIds.map(() => '?').join(',');
-  const params = [...playerIds, ...leagueIds];
 
   try {
     const rows = await query(
       `WITH player_votes AS (
-         SELECT
+         SELECT DISTINCT ON (pr.player_id, pr.league_id, pr.giornata)
            pr.league_id,
            pr.giornata,
            COALESCE(pr.goals, 0) AS goals,
            COALESCE(pr.clean_sheet, 0) AS clean_sheet,
-           p.team_id
+           p.team_id AS player_team_id,
+           LOWER(TRIM(COALESCE(pt.name, ''))) AS player_team_name_norm
          FROM player_ratings pr
          INNER JOIN players p ON p.id = pr.player_id
+         INNER JOIN teams pt ON pt.id = p.team_id
          WHERE pr.player_id IN (${playerPh})
            AND pr.league_id IN (${leaguesPh})
            AND ${SQL_WHERE_PRESENCE_VOTE}
+         ORDER BY pr.player_id, pr.league_id, pr.giornata, pr.player_id DESC
        ),
        linked AS (
-         SELECT pv.*, l.official_match_id
+         SELECT
+           pv.goals,
+           pv.clean_sheet,
+           l.official_match_id,
+           l.team_id AS linked_team_id,
+           LOWER(TRIM(COALESCE(lt.name, ''))) AS linked_team_name_norm
          FROM player_votes pv
          INNER JOIN official_match_matchday_links l
-           ON l.league_id = pv.league_id
-          AND l.team_id = pv.team_id
-          AND l.giornata = pv.giornata
+           ON l.giornata = pv.giornata
+          AND l.league_id IN (${leaguesPh})
+         INNER JOIN teams lt ON lt.id = l.team_id
+         WHERE l.team_id = pv.player_team_id
+            OR (
+              pv.player_team_name_norm <> ''
+              AND LOWER(TRIM(COALESCE(lt.name, ''))) = pv.player_team_name_norm
+            )
        ),
        with_opponent AS (
          SELECT
            linked.goals,
            linked.clean_sheet,
            CASE
-             WHEN m.home_team_id = linked.team_id THEN m.away_team_id
-             WHEN m.away_team_id = linked.team_id THEN m.home_team_id
+             WHEN m.home_team_id = linked.linked_team_id THEN m.away_team_id
+             WHEN m.away_team_id = linked.linked_team_id THEN m.home_team_id
+             WHEN LOWER(TRIM(COALESCE(ht.name, ''))) = linked.linked_team_name_norm THEN m.away_team_id
+             WHEN LOWER(TRIM(COALESCE(at.name, ''))) = linked.linked_team_name_norm THEN m.home_team_id
              ELSE NULL
            END AS opponent_team_id
          FROM linked
          INNER JOIN official_matches m ON m.id = linked.official_match_id
+         LEFT JOIN teams ht ON ht.id = m.home_team_id
+         LEFT JOIN teams at ON at.id = m.away_team_id
        ),
        filtered AS (
-         SELECT opponent_team_id,
-                CASE WHEN ? = 'goals' THEN goals ELSE clean_sheet END AS stat_value
-         FROM with_opponent
-         WHERE opponent_team_id IS NOT NULL
+         SELECT
+           wo.opponent_team_id,
+           ${statSql} AS stat_value
+         FROM with_opponent wo
+         WHERE wo.opponent_team_id IS NOT NULL
+       ),
+       by_opponent AS (
+         SELECT
+           f.opponent_team_id,
+           SUM(f.stat_value)::int AS value,
+           COALESCE(NULLIF(TRIM(t.name), ''), '') AS team_name,
+           COALESCE(
+             NULLIF(TRIM(COALESCE(NULLIF(to_jsonb(t)->>'logo_path', ''), NULLIF(t.logo_path, ''))), ''),
+             ''
+           ) AS team_logo_path,
+           LOWER(TRIM(COALESCE(t.name, ''))) AS team_name_norm
+         FROM filtered f
+         INNER JOIN teams t ON t.id = f.opponent_team_id
+         WHERE f.stat_value > 0
+         GROUP BY f.opponent_team_id, t.name, t.logo_path, to_jsonb(t)
+       ),
+       by_club AS (
+         SELECT
+           MAX(opponent_team_id) AS opponent_team_id,
+           SUM(value)::int AS value,
+           MAX(team_name) AS team_name,
+           MAX(NULLIF(team_logo_path, '')) AS team_logo_path,
+           team_name_norm
+         FROM by_opponent
+         WHERE team_name_norm <> ''
+         GROUP BY team_name_norm
        )
-       SELECT
-         f.opponent_team_id,
-         SUM(f.stat_value)::int AS value,
-         COALESCE(NULLIF(to_jsonb(t)->>'name',''), NULLIF(t.name,''), '') AS team_name,
-         COALESCE(NULLIF(to_jsonb(t)->>'logo_path',''), NULLIF(t.logo_path, ''), '') AS team_logo_path
-       FROM filtered f
-       INNER JOIN teams t ON t.id = f.opponent_team_id
-       WHERE f.stat_value > 0
-       GROUP BY f.opponent_team_id, t.name, to_jsonb(t), t.logo_path
+       SELECT opponent_team_id, value, team_name, team_logo_path
+       FROM by_club
        ORDER BY value DESC, team_name ASC
        LIMIT 1`,
-      [...params, statColumn]
+      [...playerIds, ...leagueIds, ...leagueIds]
     );
 
+    const linkCountRows = await query(
+      `SELECT COUNT(*)::int AS linked_count
+       FROM player_ratings pr
+       INNER JOIN players p ON p.id = pr.player_id
+       INNER JOIN teams pt ON pt.id = p.team_id
+       INNER JOIN official_match_matchday_links l
+         ON l.giornata = pr.giornata
+        AND l.league_id IN (${leaguesPh})
+       INNER JOIN teams lt ON lt.id = l.team_id
+       WHERE pr.player_id IN (${playerPh})
+         AND pr.league_id IN (${leaguesPh})
+         AND ${SQL_WHERE_PRESENCE_VOTE}
+         AND (
+           l.team_id = p.team_id
+           OR (
+             LOWER(TRIM(COALESCE(pt.name, ''))) <> ''
+             AND LOWER(TRIM(COALESCE(lt.name, ''))) = LOWER(TRIM(COALESCE(pt.name, '')))
+           )
+         )`,
+      [...leagueIds, ...playerIds, ...leagueIds]
+    );
+
+    const linkedCount = Number(linkCountRows[0]?.linked_count || 0);
     const row = rows[0];
-    if (!row || Number(row.value || 0) <= 0) return null;
+    if (row && Number(row.value || 0) > 0) {
+      return {
+        favourite: {
+          kind,
+          team_id: Number(row.opponent_team_id) || null,
+          team_name: String(row.team_name || '').trim() || null,
+          team_logo_path: String(row.team_logo_path || '').trim() || null,
+          value: Number(row.value || 0),
+        },
+        reason: null,
+      };
+    }
 
     return {
-      kind,
-      team_id: Number(row.opponent_team_id) || null,
-      team_name: String(row.team_name || '').trim() || null,
-      team_logo_path: String(row.team_logo_path || '').trim() || null,
-      value: Number(row.value || 0),
+      favourite: null,
+      reason: linkedCount > 0 ? 'no_events' : 'no_official_links',
     };
-  } catch (_) {
-    return null;
+  } catch (error) {
+    console.error('fetchFavouriteOpponent error:', error?.message || error);
+    return { favourite: null, reason: 'no_official_links' };
   }
 }
 

@@ -271,6 +271,8 @@ export default function PlayerStatsScreen({ route, navigation }) {
   const careerPrefetchStartedRef = useRef(false);
   const fantaCacheRef = useRef(new Map());
   const analyticsCacheRef = useRef(new Map());
+  const aggregatedFantaInFlightRef = useRef(false);
+  const aggregatedAnalyticsInFlightRef = useRef(false);
 
   const clusterEditions = useMemo(() => {
     const editions = overview?.editions;
@@ -336,6 +338,8 @@ export default function PlayerStatsScreen({ route, navigation }) {
     careerPrefetchStartedRef.current = false;
     statsLoadGenRef.current = 0;
     analyticsLoadGenRef.current = 0;
+    aggregatedFantaInFlightRef.current = false;
+    aggregatedAnalyticsInFlightRef.current = false;
     fantaCacheRef.current = new Map();
     analyticsCacheRef.current = new Map();
     setFantaEditionData(null);
@@ -385,6 +389,31 @@ export default function PlayerStatsScreen({ route, navigation }) {
     loadingAggregatedAnalytics,
   ]);
 
+  // Quando overview/edizioni sono pronte, ricarica i dati edizione se il tab Anno è attivo
+  // (evita zeri se l’utente apre Statistiche/FantaCoppa prima del bootstrap)
+  useEffect(() => {
+    if (loadingOverview) return;
+    if (!selectedEdition?.player_id || !selectedEdition?.league_id) return;
+    if (activeScopeSubTab !== 'league') return;
+
+    if (activeMainTab === 'fantacoppa' && !fantaEditionData && !loadingFantaEdition) {
+      void loadEditionFantaStats(selectedEdition.player_id, selectedEdition.league_id);
+    }
+    if (activeMainTab === 'stats' && !editionAnalytics && !loadingEditionAnalytics) {
+      void loadEditionAnalytics(selectedEdition.player_id, selectedEdition.league_id);
+    }
+  }, [
+    loadingOverview,
+    selectedEdition?.player_id,
+    selectedEdition?.league_id,
+    activeScopeSubTab,
+    activeMainTab,
+    fantaEditionData,
+    editionAnalytics,
+    loadingFantaEdition,
+    loadingEditionAnalytics,
+  ]);
+
   useEffect(() => {
     if (entrySource === 'official' || !hasOfficialGroup || absoluteRanks || loadingAbsoluteRanks) return;
     void loadAbsoluteRanks();
@@ -429,6 +458,7 @@ export default function PlayerStatsScreen({ route, navigation }) {
     } catch (error) {
       if (loadGen === statsLoadGenRef.current) {
         showToast('Impossibile caricare le statistiche fanta del giocatore');
+        setFantaEditionData({ stats: {} });
       }
       console.error(error);
     } finally {
@@ -457,11 +487,30 @@ export default function PlayerStatsScreen({ route, navigation }) {
       const response = await playerStatsService.getPlayerAnalytics(targetPlayerId, targetLeagueId);
       if (loadGen !== analyticsLoadGenRef.current) return;
       const analytics = response.data?.analytics || null;
-      analyticsCacheRef.current.set(cacheKey, analytics);
-      setEditionAnalytics(analytics);
+      if (analytics) {
+        analyticsCacheRef.current.set(cacheKey, analytics);
+        setEditionAnalytics(analytics);
+      } else {
+        setEditionAnalytics({
+          totals: {},
+          efficiency: {},
+          distribution: [],
+          form_series: [],
+          favourite_opponent: null,
+          favourite_opponent_reason: 'no_data',
+        });
+      }
     } catch (error) {
       if (loadGen === analyticsLoadGenRef.current) {
         showToast('Impossibile caricare le statistiche del giocatore');
+        setEditionAnalytics({
+          totals: {},
+          efficiency: {},
+          distribution: [],
+          form_series: [],
+          favourite_opponent: null,
+          favourite_opponent_reason: 'no_data',
+        });
       }
       console.error(error);
     } finally {
@@ -525,10 +574,11 @@ export default function PlayerStatsScreen({ route, navigation }) {
   const checkOfficialGroup = async () => {
     if (officialGroupCheckDoneRef.current) return;
     officialGroupCheckDoneRef.current = true;
+    aggregatedFantaInFlightRef.current = true;
     try {
       setLoadingAggregatedFanta(true);
       const response = await playerStatsService.getPlayerFantaStatsAggregated(playerId, leagueId);
-      setAggregatedFantaStats(response.data?.stats || null);
+      setAggregatedFantaStats(response.data?.stats || {});
       setHasOfficialGroup(true);
       if (response.data?.player?.photo_path) {
         setPhotoPath((prev) => prev || String(response.data.player.photo_path || '').trim());
@@ -537,6 +587,7 @@ export default function PlayerStatsScreen({ route, navigation }) {
       // Non forzare false se un altro endpoint aggregato ha già confermato il gruppo
       setHasOfficialGroup((prev) => prev);
     } finally {
+      aggregatedFantaInFlightRef.current = false;
       setLoadingAggregatedFanta(false);
       setOfficialGroupReady(true);
     }
@@ -549,7 +600,15 @@ export default function PlayerStatsScreen({ route, navigation }) {
     if (!edition) return;
 
     const nextKey = editionKey(edition);
-    if (nextKey === selectedEditionKey) return;
+    if (nextKey === selectedEditionKey) {
+      // Stesso anno già selezionato (es. da Totali → Anno): assicurati comunque di caricare
+      if (activeMainTab === 'fantacoppa') {
+        void loadEditionFantaStats(edition.player_id, edition.league_id);
+      } else if (activeMainTab === 'stats') {
+        void loadEditionAnalytics(edition.player_id, edition.league_id);
+      }
+      return;
+    }
 
     setSelectedEditionKey(nextKey);
     if (activeMainTab === 'fantacoppa') {
@@ -561,44 +620,64 @@ export default function PlayerStatsScreen({ route, navigation }) {
 
   const handleEditionSubTabPress = () => {
     setActiveScopeSubTab('league');
+    if (activeMainTab === 'fantacoppa') {
+      void loadEditionFantaStats(selectedEdition.player_id, selectedEdition.league_id);
+    } else if (activeMainTab === 'stats') {
+      void loadEditionAnalytics(selectedEdition.player_id, selectedEdition.league_id);
+    }
     if (canPickEditionYear) {
       setEditionPickerOpen((open) => !open);
     }
   };
 
   const loadAggregatedFantaStats = async () => {
-    if (aggregatedFantaStats) return;
+    if (aggregatedFantaStats || aggregatedFantaInFlightRef.current) return;
+    aggregatedFantaInFlightRef.current = true;
     try {
       setLoadingAggregatedFanta(true);
       const response = await playerStatsService.getPlayerFantaStatsAggregated(playerId, leagueId);
-      setAggregatedFantaStats(response.data.stats);
+      setAggregatedFantaStats(response.data.stats || {});
       setHasOfficialGroup(true);
     } catch (error) {
       showToast('Impossibile caricare le statistiche fanta aggregate');
       console.error(error);
     } finally {
+      aggregatedFantaInFlightRef.current = false;
       setLoadingAggregatedFanta(false);
     }
   };
 
   const loadAggregatedAnalytics = async () => {
-    if (aggregatedAnalytics) return;
+    if (aggregatedAnalytics || aggregatedAnalyticsInFlightRef.current) return;
     const cached = analyticsCacheRef.current.get('total');
     if (cached) {
       setAggregatedAnalytics(cached);
       return;
     }
+    aggregatedAnalyticsInFlightRef.current = true;
     try {
       setLoadingAggregatedAnalytics(true);
       const response = await playerStatsService.getPlayerAnalyticsAggregated(playerId, leagueId);
       const analytics = response.data?.analytics || null;
-      analyticsCacheRef.current.set('total', analytics);
-      setAggregatedAnalytics(analytics);
+      if (analytics) {
+        analyticsCacheRef.current.set('total', analytics);
+        setAggregatedAnalytics(analytics);
+      } else {
+        setAggregatedAnalytics({
+          totals: {},
+          efficiency: {},
+          distribution: [],
+          form_series: [],
+          favourite_opponent: null,
+          favourite_opponent_reason: 'no_data',
+        });
+      }
       setHasOfficialGroup(true);
     } catch (error) {
       showToast('Impossibile caricare le statistiche aggregate');
       console.error(error);
     } finally {
+      aggregatedAnalyticsInFlightRef.current = false;
       setLoadingAggregatedAnalytics(false);
     }
   };
@@ -892,7 +971,8 @@ export default function PlayerStatsScreen({ route, navigation }) {
   );
 
   const renderFantaStats = (stats, isLoading) => {
-    if (isLoading) {
+    // Evita di mostrare zeri “finti” se i dati non sono ancora arrivati
+    if (isLoading || !stats) {
       return (
         <View style={styles.loadingBox}>
           <ActivityIndicator size="large" color="#667eea" />
@@ -900,7 +980,7 @@ export default function PlayerStatsScreen({ route, navigation }) {
       );
     }
 
-    const s = stats || {};
+    const s = stats;
     const v = (val) => (typeof val === 'number' ? val : (parseFloat(val) || 0));
     const customExtras = [
       { key: 'briso', value: v(s.total_briso), label: 'MVB' },
@@ -1112,14 +1192,21 @@ export default function PlayerStatsScreen({ route, navigation }) {
     return items;
   };
 
-  const renderFavouriteOpponent = (favouriteOpponent) => {
+  const renderFavouriteOpponent = (favouriteOpponent, reason, isGoalkeeper) => {
     if (!favouriteOpponent || Number(favouriteOpponent.value || 0) <= 0) {
+      let emptyText = 'Dati disponibili solo con partite ufficiali collegate.';
+      if (reason === 'no_events') {
+        emptyText = isGoalkeeper
+          ? 'Nessuna clean sheet contro avversari con partite ufficiali collegate.'
+          : 'Nessun gol contro avversari con partite ufficiali collegate.';
+      } else if (reason === 'no_data') {
+        emptyText = 'Nessun dato disponibile per l’avversario preferito.';
+      }
+
       return (
         <View style={styles.card}>
           <Text style={styles.cardSectionTitle}>Avversario preferito</Text>
-          <Text style={styles.emptyOverviewText}>
-            Dati disponibili solo con partite ufficiali collegate.
-          </Text>
+          <Text style={styles.emptyOverviewText}>{emptyText}</Text>
         </View>
       );
     }
@@ -1154,7 +1241,8 @@ export default function PlayerStatsScreen({ route, navigation }) {
   };
 
   const renderAnalytics = (analytics, isLoading, chartMode = 'league') => {
-    if (isLoading) {
+    // Evita di mostrare zeri “finti” se i dati non sono ancora arrivati
+    if (isLoading || !analytics) {
       return (
         <View style={styles.loadingBox}>
           <ActivityIndicator size="large" color="#667eea" />
@@ -1162,7 +1250,7 @@ export default function PlayerStatsScreen({ route, navigation }) {
       );
     }
 
-    const data = analytics || {};
+    const data = analytics;
     const totals = data.totals || {};
     const v = (val) => (typeof val === 'number' ? val : (parseFloat(val) || 0));
 
@@ -1213,13 +1301,17 @@ export default function PlayerStatsScreen({ route, navigation }) {
           <VoteDistributionChart distribution={data.distribution} width={chartWidth} />
         </View>
 
-        {renderFavouriteOpponent(data.favourite_opponent)}
+        {renderFavouriteOpponent(
+          data.favourite_opponent,
+          data.favourite_opponent_reason,
+          scopeGoalkeeperRole === 'P',
+        )}
       </View>
     );
   };
 
   const renderCareer = () => {
-    if (loadingCareer) {
+    if (loadingCareer || careerHistory === null) {
       return (
         <View style={styles.loadingBox}>
           <ActivityIndicator size="large" color="#667eea" />
@@ -1345,7 +1437,11 @@ export default function PlayerStatsScreen({ route, navigation }) {
         return (
           <>
             {renderScopeSubTabs()}
-            {activeScopeSubTab === 'league' && renderAnalytics(editionAnalytics, loadingEditionAnalytics, 'league')}
+            {activeScopeSubTab === 'league' && renderAnalytics(
+              editionAnalytics,
+              loadingEditionAnalytics || loadingOverview,
+              'league',
+            )}
             {activeScopeSubTab === 'total' && (
               officialGroupReady && !hasOfficialGroup ? (
                 renderAggregatedBanner()
@@ -1354,7 +1450,7 @@ export default function PlayerStatsScreen({ route, navigation }) {
                   aggregatedAnalytics,
                   !officialGroupReady
                     || loadingAggregatedAnalytics
-                    || (hasOfficialGroup && !aggregatedAnalytics),
+                    || !aggregatedAnalytics,
                   'total',
                 )
               )
@@ -1367,7 +1463,10 @@ export default function PlayerStatsScreen({ route, navigation }) {
         return (
           <>
             {renderScopeSubTabs()}
-            {activeScopeSubTab === 'league' && renderFantaStats(fantaEditionData?.stats, loadingFantaEdition)}
+            {activeScopeSubTab === 'league' && renderFantaStats(
+              fantaEditionData?.stats,
+              loadingFantaEdition || loadingOverview || !fantaEditionData,
+            )}
             {activeScopeSubTab === 'total' && (
               officialGroupReady && !hasOfficialGroup ? (
                 renderAggregatedBanner()
@@ -1376,7 +1475,7 @@ export default function PlayerStatsScreen({ route, navigation }) {
                   aggregatedFantaStats,
                   !officialGroupReady
                     || loadingAggregatedFanta
-                    || (hasOfficialGroup && !aggregatedFantaStats),
+                    || !aggregatedFantaStats,
                 )
               )
             )}
