@@ -79,11 +79,11 @@ function emptyAnalytics() {
       goals_conceded_per_presence: 0,
     },
     distribution: [
-      { label: '<5', count: 0 },
-      { label: '5-6', count: 0 },
+      { label: '<6', count: 0 },
       { label: '6-6.5', count: 0 },
       { label: '6.5-7', count: 0 },
-      { label: '≥7', count: 0 },
+      { label: '7-7.5', count: 0 },
+      { label: '≥7.5', count: 0 },
     ],
     form_series: [],
     favourite_opponent: null,
@@ -224,20 +224,20 @@ async function fetchPlayerFantaStats(playerIds, leagueIds) {
 function bucketVoteRating(rating) {
   const n = Number(rating);
   if (!Number.isFinite(n) || n <= 0) return null;
-  if (n < 5) return '<5';
-  if (n < 6) return '5-6';
+  if (n < 6) return '<6';
   if (n < 6.5) return '6-6.5';
   if (n < 7) return '6.5-7';
-  return '≥7';
+  if (n < 7.5) return '7-7.5';
+  return '≥7.5';
 }
 
 function buildDistributionFromRatings(ratings) {
   const buckets = new Map([
-    ['<5', 0],
-    ['5-6', 0],
+    ['<6', 0],
     ['6-6.5', 0],
     ['6.5-7', 0],
-    ['≥7', 0],
+    ['7-7.5', 0],
+    ['≥7.5', 0],
   ]);
   for (const rating of ratings) {
     const key = bucketVoteRating(rating);

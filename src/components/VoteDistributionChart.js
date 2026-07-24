@@ -5,15 +5,15 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 /**
  * Distribuzione voti come breakdown pagelle (pattern chiaro da rating apps):
  * una riga = una fascia di voto, barra = quante volte, % a destra.
- * Titoli italiani (Ottimo → Insufficiente) + range numerico: si capisce subito.
+ * Titoli italiani (Eccellente → Insufficiente) + range numerico: si capisce subito.
  */
 
 const BANDS = [
-  { key: '≥7', title: 'Ottimo', range: '≥ 7', color: '#0f766e', track: '#ccfbf1' },
-  { key: '6.5-7', title: 'Buono', range: '6.5 – 7', color: '#15803d', track: '#dcfce7' },
-  { key: '6-6.5', title: 'Discreto', range: '6 – 6.5', color: '#65a30d', track: '#ecfccb' },
-  { key: '5-6', title: 'Sufficiente', range: '5 – 6', color: '#ca8a04', track: '#fef9c3' },
-  { key: '<5', title: 'Insufficiente', range: '< 5', color: '#b91c1c', track: '#fee2e2' },
+  { key: '≥7.5', title: 'Eccellente', range: '≥ 7.5', color: '#0f766e', track: '#ccfbf1' },
+  { key: '7-7.5', title: 'Buono', range: '7 – 7.5', color: '#15803d', track: '#dcfce7' },
+  { key: '6.5-7', title: 'Discreto', range: '6.5 – 7', color: '#65a30d', track: '#ecfccb' },
+  { key: '6-6.5', title: 'Sufficiente', range: '6 – 6.5', color: '#ca8a04', track: '#fef9c3' },
+  { key: '<6', title: 'Insufficiente', range: '< 6', color: '#b91c1c', track: '#fee2e2' },
 ];
 
 function DistributionRow({ band, count, total, maxCount }) {
