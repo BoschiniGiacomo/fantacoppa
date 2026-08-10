@@ -2394,6 +2394,152 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
   }
 });
 
+// GET /matches/:matchId/live-delta
+// Poll leggero in diretta: solo hero/score + eventi + classifica/knockout (niente formazioni/voti).
+router.get('/matches/:matchId/live-delta', authenticateToken, async (req, res) => {
+  try {
+    await ensureOfficialMatchShootoutSchema();
+    const userId = Number(req.user?.userId);
+    const matchId = Number(req.params.matchId);
+    if (!matchId || matchId <= 0) return res.status(400).json({ message: 'matchId non valido' });
+
+    const rows = await query(
+      `
+      SELECT
+        m.id,
+        m.competition_id,
+        m.league_id,
+        m.home_team_id,
+        m.away_team_id,
+        m.kickoff_at,
+        COALESCE(m.status, 'scheduled') AS status,
+        m.venue,
+        m.referee,
+        ms.name AS match_stage,
+        NULLIF(to_jsonb(m)->>'match_stage_id','')::int AS match_stage_id,
+        m.home_score,
+        m.away_score,
+        NULLIF(to_jsonb(m)->>'regulation_half_minutes','')::int AS regulation_half_minutes,
+        NULLIF(to_jsonb(m)->>'extra_time_enabled','')::int AS extra_time_enabled,
+        NULLIF(to_jsonb(m)->>'extra_first_half_minutes','')::int AS extra_first_half_minutes,
+        NULLIF(to_jsonb(m)->>'extra_second_half_minutes','')::int AS extra_second_half_minutes,
+        NULLIF(to_jsonb(m)->>'penalties_enabled','')::int AS penalties_enabled,
+        COALESCE(NULLIF(to_jsonb(m)->>'shootout_enabled','')::int, COALESCE(m.shootout_enabled, 0), 0) AS shootout_enabled,
+        COALESCE(NULLIF(to_jsonb(m)->>'shootout_rounds_per_team','')::int, COALESCE(m.shootout_rounds_per_team, 5), 5) AS shootout_rounds_per_team,
+        og.name AS competition_name,
+        ht.name AS home_team_name,
+        at.name AS away_team_name,
+        ht.league_id AS home_league_id,
+        at.league_id AS away_league_id,
+        COALESCE(fm.match_id IS NOT NULL, false) AS is_favorite_match,
+        COALESCE(mn.enabled, 0) AS notifications_enabled
+      FROM official_matches m
+      INNER JOIN official_league_groups og ON og.id = m.competition_id
+      LEFT JOIN teams ht ON ht.id = m.home_team_id
+      LEFT JOIN teams at ON at.id = m.away_team_id
+      LEFT JOIN official_match_stages ms ON ms.id = NULLIF(to_jsonb(m)->>'match_stage_id','')::int
+      LEFT JOIN user_official_match_favorites fm ON fm.user_id = ? AND fm.match_id = m.id
+      LEFT JOIN user_official_match_notifications mn ON mn.user_id = ? AND mn.match_id = m.id
+      WHERE m.id = ?
+      LIMIT 1
+      `,
+      [userId, userId, matchId]
+    );
+    const matchRow = rows[0];
+    if (!matchRow) return res.status(404).json({ message: 'Partita non trovata' });
+
+    const homeTeamId = Number(matchRow.home_team_id);
+    const awayTeamId = Number(matchRow.away_team_id);
+    const homeLeagueId = Number(matchRow.home_league_id || 0);
+    const awayLeagueId = Number(matchRow.away_league_id || 0);
+    const matchLeagueId = Number(matchRow.league_id || 0);
+    const currentLeagueId =
+      matchLeagueId > 0 ? matchLeagueId : (homeLeagueId > 0 && homeLeagueId === awayLeagueId ? homeLeagueId : 0);
+
+    const emptyKnockout = { quarterfinals: [], semifinals: [], final: null };
+    const [homeTeam, awayTeam, rawEvents, standingsBundle, knockout] = await Promise.all([
+      getTeamMeta(homeTeamId),
+      getTeamMeta(awayTeamId),
+      query(
+        `SELECT id, match_id, event_type, minute, team_side, team_id, player_id, assist_player_id, title, payload_json, created_at
+         FROM official_match_events WHERE match_id = ? ORDER BY minute ASC, id ASC`,
+        [matchId]
+      ),
+      currentLeagueId > 0
+        ? computeOfficialLeagueGironiStandings({
+            leagueId: currentLeagueId,
+            competitionId: Number(matchRow.competition_id),
+          }).catch(() => ({ standings: [], standings_groups: null }))
+        : Promise.resolve({ standings: [], standings_groups: null }),
+      currentLeagueId > 0
+        ? buildKnockoutBracketForLeague({
+            leagueId: currentLeagueId,
+            competitionId: Number(matchRow.competition_id),
+          }).catch(() => emptyKnockout)
+        : Promise.resolve(emptyKnockout),
+    ]);
+
+    const homeLogoPath = normalizeTeamLogoPathForApi(homeTeam?.logo_path);
+    const awayLogoPath = normalizeTeamLogoPathForApi(awayTeam?.logo_path);
+    const match = {
+      ...matchRow,
+      home_team_logo_path: homeLogoPath,
+      home_team_logo_url: homeTeam?.logo_url || logoUrlForPath(homeLogoPath),
+      away_team_logo_path: awayLogoPath,
+      away_team_logo_url: awayTeam?.logo_url || logoUrlForPath(awayLogoPath),
+      home_jersey_color: normalizeJerseyColorForApi(homeTeam?.jersey_color),
+      away_jersey_color: normalizeJerseyColorForApi(awayTeam?.jersey_color),
+      regulation_half_minutes: matchRow.regulation_half_minutes != null ? Number(matchRow.regulation_half_minutes) : 30,
+      extra_time_enabled: matchRow.extra_time_enabled != null ? Number(matchRow.extra_time_enabled) : 0,
+      extra_first_half_minutes: matchRow.extra_first_half_minutes != null ? Number(matchRow.extra_first_half_minutes) : 0,
+      extra_second_half_minutes: matchRow.extra_second_half_minutes != null ? Number(matchRow.extra_second_half_minutes) : 0,
+      penalties_enabled: matchRow.penalties_enabled != null ? Number(matchRow.penalties_enabled) : 0,
+      shootout_enabled: matchRow.shootout_enabled != null ? Number(matchRow.shootout_enabled) : 0,
+      shootout_rounds_per_team: parseShootoutRoundsPerTeam(
+        matchRow.shootout_rounds_per_team,
+        Number(matchRow.shootout_enabled) === 1
+      ),
+    };
+
+    const events = (Array.isArray(rawEvents) ? rawEvents : []).map(enrichEventForApi);
+    match.is_walkover = computeIsWalkoverFromEvents(events) ? 1 : 0;
+    const nowMs = Date.now();
+    const correctedEvents = events.map((ev) => {
+      if (!ev || ev.event_type !== 'match_start' || !ev.created_at) return ev;
+      const evMs = new Date(String(ev.created_at).replace(' ', 'T')).getTime();
+      if (!Number.isFinite(evMs)) return ev;
+      const deltaSec = Math.floor((nowMs - evMs) / 1000);
+      if (deltaSec > 900) {
+        return { ...ev, created_at: new Date(nowMs).toISOString() };
+      }
+      return ev;
+    });
+
+    const standings = Array.isArray(standingsBundle?.standings) ? standingsBundle.standings : [];
+    const standings_groups = standingsBundle?.standings_groups ?? null;
+    const knockoutSafe = knockout && typeof knockout === 'object' ? knockout : emptyKnockout;
+    const hasStarted = correctedEvents.some((e) => e?.event_type === 'match_start');
+    const hasEnded = correctedEvents.some((e) => e?.event_type === 'match_end');
+
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+    return res.json({
+      match,
+      events: correctedEvents,
+      standings,
+      standings_groups,
+      knockout: knockoutSafe,
+      live: {
+        started: hasStarted ? 1 : 0,
+        ended: hasEnded ? 1 : 0,
+        should_poll: hasStarted && !hasEnded ? 1 : 0,
+      },
+    });
+  } catch (err) {
+    if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
+    return res.status(500).json({ message: 'Errore caricamento live delta partita', error: err.message });
+  }
+});
+
 // GET /matches/teams/:teamId/detail?competition_id=xx — dettaglio squadra ufficiale + preferenze utente
 router.get('/matches/teams/:teamId/detail', authenticateToken, async (req, res) => {
   try {

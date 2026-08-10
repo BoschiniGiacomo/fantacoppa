@@ -550,6 +550,11 @@ export const matchesService = {
     }),
   getCompetitions: () => api.get('competitions'),
   getDetail: (matchId) => api.get(`matches/${matchId}/detail`),
+  /** Poll leggero in diretta: hero + eventi + classifica (senza formazioni/voti). */
+  getLiveDelta: (matchId) =>
+    api.get(`matches/${matchId}/live-delta`, {
+      headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' },
+    }),
   getOfficialTeamDetail: (teamId, competitionId) =>
     api.get(`matches/teams/${teamId}/detail`, {
       params: { competition_id: competitionId },

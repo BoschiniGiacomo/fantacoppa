@@ -1346,7 +1346,7 @@ export default function MatchDetailScreen({ navigation, route }) {
 
   const showVotesTab = !!(votesTabMeta?.visible);
 
-  /** showLoading: solo al primo caricamento; refresh in background per focus/polling. */
+  /** showLoading: solo al primo caricamento; refresh in background per focus. */
   const loadDetail = useCallback(
     async ({ showLoading = false } = {}) => {
       if (!matchId) return;
@@ -1362,6 +1362,65 @@ export default function MatchDetailScreen({ navigation, route }) {
     },
     [matchId]
   );
+
+  /** Merge solo hero/diretta/classifica: non tocca formazioni, unavailable, team_players, favorites. */
+  const mergeLiveDelta = useCallback((delta) => {
+    if (!delta || typeof delta !== 'object') return;
+    setData((prev) => {
+      if (!prev) {
+        return {
+          match: delta.match || null,
+          events: Array.isArray(delta.events) ? delta.events : [],
+          standings: Array.isArray(delta.standings) ? delta.standings : [],
+          standings_groups: delta.standings_groups ?? null,
+          knockout: delta.knockout || { quarterfinals: [], semifinals: [], final: null },
+          lineups: { home: [], away: [] },
+          unavailable_lineups: { home: [], away: [] },
+          team_players: { home: [], away: [] },
+          favorites: { match: 0, home_team: 0, away_team: 0 },
+          notifications: { enabled: 0 },
+        };
+      }
+      return {
+        ...prev,
+        match: delta.match != null ? { ...(prev.match || {}), ...delta.match } : prev.match,
+        events: Array.isArray(delta.events) ? delta.events : prev.events,
+        standings: Array.isArray(delta.standings) ? delta.standings : prev.standings,
+        standings_groups:
+          delta.standings_groups !== undefined ? delta.standings_groups : prev.standings_groups,
+        knockout: delta.knockout != null ? delta.knockout : prev.knockout,
+      };
+    });
+  }, []);
+
+  const loadLiveDelta = useCallback(async () => {
+    if (!matchId) return;
+    try {
+      const res = await matchesService.getLiveDelta(matchId);
+      mergeLiveDelta(res?.data);
+    } catch {
+      // Fallback: backend non ancora aggiornato / errore → aggiorna comunque la diretta (full detail).
+      try {
+        const res = await matchesService.getDetail(matchId);
+        const full = res?.data;
+        if (!full) return;
+        setData((prev) => {
+          if (!prev) return full;
+          return {
+            ...prev,
+            match: full.match != null ? full.match : prev.match,
+            events: Array.isArray(full.events) ? full.events : prev.events,
+            standings: Array.isArray(full.standings) ? full.standings : prev.standings,
+            standings_groups:
+              full.standings_groups !== undefined ? full.standings_groups : prev.standings_groups,
+            knockout: full.knockout != null ? full.knockout : prev.knockout,
+          };
+        });
+      } catch {
+        /* prossimo poll ritenta */
+      }
+    }
+  }, [matchId, mergeLiveDelta]);
 
   const handleBackNavigation = useCallback(() => {
     if (from === 'official-team' && fromTeamId > 0 && fromCompetitionId > 0) {
@@ -1398,17 +1457,25 @@ export default function MatchDetailScreen({ navigation, route }) {
   }, [loadVotesTabMeta]);
 
   const DETAIL_POLL_MS = 8000;
+  /** Abilitato da [kickoff−2min] fino a match_end (o grace 3h se non parte). */
+  const livePollEnabledRef = useRef(false);
+
   useFocusEffect(
     useCallback(() => {
       if (!matchId) return undefined;
+      // Un full load al focus; il poll parte solo se la partita è in diretta.
       void loadDetail({ showLoading: false });
-      const poll = setInterval(() => void loadDetail({ showLoading: false }), DETAIL_POLL_MS);
+      const poll = setInterval(() => {
+        if (livePollEnabledRef.current) {
+          void loadLiveDelta();
+        }
+      }, DETAIL_POLL_MS);
       const backSub = BackHandler.addEventListener('hardwareBackPress', () => handleBackNavigation());
       return () => {
         clearInterval(poll);
         backSub.remove();
       };
-    }, [matchId, loadDetail, handleBackNavigation, from, fromTeamId, fromCompetitionId, fromTeamName, route?.params])
+    }, [matchId, loadDetail, loadLiveDelta, handleBackNavigation, from, fromTeamId, fromCompetitionId, fromTeamName, route?.params])
   );
 
   useEffect(() => {
@@ -1654,6 +1721,36 @@ export default function MatchDetailScreen({ navigation, route }) {
     () => liveEvents.some((e) => e.event_type === 'match_end'),
     [liveEvents]
   );
+  /**
+   * Poll live-delta (8s) se:
+   * - partita già iniziata e non ancora finita, oppure
+   * - siamo nella finestra [kickoff − 2min, kickoff + 3h] e non c’è ancora match_end
+   *   (così chi ha la pagina aperta vede match_start anche se era in attesa).
+   * Stop definitivo quando la pagina vede match_end.
+   * `tick` (1s) fa entrare/uscire dalla finestra pre-kickoff senza uscire dalla schermata.
+   */
+  useEffect(() => {
+    if (hasMatchEndEvent) {
+      livePollEnabledRef.current = false;
+      return;
+    }
+    if (matchHasStarted) {
+      livePollEnabledRef.current = true;
+      return;
+    }
+    const kickoffDate = parseAppDate(match?.kickoff_at);
+    const kickoffMs = kickoffDate && !Number.isNaN(kickoffDate.getTime()) ? kickoffDate.getTime() : NaN;
+    if (!Number.isFinite(kickoffMs)) {
+      livePollEnabledRef.current = false;
+      return;
+    }
+    const PRE_KICKOFF_POLL_MS = 2 * 60 * 1000;
+    // Se il calcio d’inizio slitta, continua a pollare un po’ dopo l’orario previsto.
+    const POST_KICKOFF_GRACE_MS = 3 * 60 * 60 * 1000;
+    const now = Date.now();
+    livePollEnabledRef.current =
+      now >= kickoffMs - PRE_KICKOFF_POLL_MS && now <= kickoffMs + POST_KICKOFF_GRACE_MS;
+  }, [matchHasStarted, hasMatchEndEvent, match?.kickoff_at, tick]);
   const showPhaseEditorTab = !hasMatchEndEvent;
   const showPhaseShortcutMatchEnd = useMemo(
     () => phaseStepOffersMatchEndShortcut(nextPhaseStep, match),
