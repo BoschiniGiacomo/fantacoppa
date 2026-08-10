@@ -32,18 +32,8 @@ export default function LeaguesScreen({ navigation }) {
     setTimeout(() => setToastMsg(null), 2500);
   };
 
-  // Ricarica i dati quando la schermata torna in focus + polling ogni 15s
-  useFocusEffect(
-    useCallback(() => {
-      loadLeagues();
-      const interval = setInterval(() => {
-        loadLeagues();
-      }, 15000);
-      return () => clearInterval(interval);
-    }, [])
-  );
-
-  const loadLeagues = async () => {
+  // Nessun poll continuo. Lista discovery sempre aggiornata a ogni focus (e pull / dopo join).
+  const loadLeagues = useCallback(async () => {
     try {
       const response = await leagueService.getAllLeagues();
       const raw = response?.data;
@@ -54,7 +44,13 @@ export default function LeaguesScreen({ navigation }) {
       setLoading(false);
       setRefreshing(false);
     }
-  };
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadLeagues();
+    }, [loadLeagues])
+  );
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -111,6 +107,9 @@ export default function LeaguesScreen({ navigation }) {
       setJoinModalVisible(false);
       setSelectedLeague(null);
       setAccessCode('');
+
+      // Aggiorna subito la lista discovery (lega unita non deve restare visibile).
+      await loadLeagues();
       
       // Naviga direttamente alla lega appena unita
       navigation.navigate('League', { leagueId: joinedLeagueId });

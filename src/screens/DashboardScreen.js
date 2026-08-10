@@ -39,18 +39,8 @@ export default function DashboardScreen({ navigation, route }) {
     setTimeout(() => setToastMsg(null), 2500);
   };
 
-  // Ricarica i dati quando la schermata torna in focus + polling ogni 15s
-  useFocusEffect(
-    useCallback(() => {
-      loadLeagues();
-      const interval = setInterval(() => {
-        loadLeagues();
-      }, 15000);
-      return () => clearInterval(interval);
-    }, [])
-  );
-
-  const loadLeagues = async () => {
+  // Nessun poll continuo. Lista sempre aggiornata a ogni focus (e pull / azioni locali).
+  const loadLeagues = useCallback(async () => {
     registerPushTokenIfPermitted().catch(() => {});
     const toast = consumePendingToast();
     if (toast) showToast(toast.text, toast.type);
@@ -81,7 +71,13 @@ export default function DashboardScreen({ navigation, route }) {
       setLoading(false);
       setRefreshing(false);
     }
-  };
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadLeagues();
+    }, [loadLeagues])
+  );
 
   const onRefresh = () => {
     setRefreshing(true);
