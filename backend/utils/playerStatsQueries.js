@@ -420,14 +420,12 @@ async function fetchFavouriteOpponent(playerIds, leagueIds, playerRole) {
   const isGoalkeeper = String(playerRole || '').trim().toUpperCase() === 'P';
   const kind = isGoalkeeper ? 'clean_sheets' : 'goals';
   const statSql = isGoalkeeper ? 'deduped.clean_sheet' : 'deduped.goals';
-  const logPrefix = '[favouriteOpponent]';
 
   const playerPh = playerIds.map(() => '?').join(',');
   const leaguesPh = leagueIds.map(() => '?').join(',');
 
   try {
-    // Link ufficiale SOLO della stessa lega del voto.
-    // Prima: giornata+nome cross-stagione moltiplicava i gol (numeri fuori di testa).
+    // Link ufficiale SOLO della stessa lega del voto (evita moltiplicazioni cross-stagione).
     const rows = await query(
       `WITH player_votes AS (
          SELECT DISTINCT ON (pr.player_id, pr.league_id, pr.giornata)
@@ -516,39 +514,9 @@ async function fetchFavouriteOpponent(playerIds, leagueIds, playerRole) {
        SELECT opponent_team_id, value, team_name, team_logo_path
        FROM by_club
        ORDER BY value DESC, team_name ASC
-       LIMIT 5`,
+       LIMIT 1`,
       [...playerIds, ...leagueIds]
     );
-
-    const linkCountRows = await query(
-      `SELECT COUNT(*)::int AS linked_count
-       FROM player_ratings pr
-       INNER JOIN players p ON p.id = pr.player_id
-       INNER JOIN official_match_matchday_links l
-         ON l.league_id = pr.league_id
-        AND l.giornata = pr.giornata
-        AND l.team_id = p.team_id
-       WHERE pr.player_id IN (${playerPh})
-         AND pr.league_id IN (${leaguesPh})
-         AND ${SQL_WHERE_PRESENCE_VOTE}`,
-      [...playerIds, ...leagueIds]
-    );
-
-    const linkedCount = Number(linkCountRows[0]?.linked_count || 0);
-    const top = (rows || []).map((r) => ({
-      team_name: String(r.team_name || '').trim(),
-      team_id: Number(r.opponent_team_id) || null,
-      value: Number(r.value || 0),
-    }));
-
-    console.log(`${logPrefix} result`, {
-      playerIds,
-      leagueCount: leagueIds.length,
-      role: String(playerRole || ''),
-      kind,
-      linked_count: linkedCount,
-      top_clubs: top,
-    });
 
     const row = rows[0];
     if (row && Number(row.value || 0) > 0) {
@@ -564,12 +532,25 @@ async function fetchFavouriteOpponent(playerIds, leagueIds, playerRole) {
       };
     }
 
+    const linkCountRows = await query(
+      `SELECT COUNT(*)::int AS linked_count
+       FROM player_ratings pr
+       INNER JOIN players p ON p.id = pr.player_id
+       INNER JOIN official_match_matchday_links l
+         ON l.league_id = pr.league_id
+        AND l.giornata = pr.giornata
+        AND l.team_id = p.team_id
+       WHERE pr.player_id IN (${playerPh})
+         AND pr.league_id IN (${leaguesPh})
+         AND ${SQL_WHERE_PRESENCE_VOTE}`,
+      [...playerIds, ...leagueIds]
+    );
+
     return {
       favourite: null,
-      reason: linkedCount > 0 ? 'no_events' : 'no_official_links',
+      reason: Number(linkCountRows[0]?.linked_count || 0) > 0 ? 'no_events' : 'no_official_links',
     };
-  } catch (error) {
-    console.error(`${logPrefix} error:`, error?.message || error);
+  } catch (_) {
     return { favourite: null, reason: 'no_official_links' };
   }
 }
