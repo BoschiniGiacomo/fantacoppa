@@ -32,10 +32,12 @@ import {
   getLastLivePhaseEvent,
   matchListNeedsLiveTick,
 } from '../utils/officialMatchLiveClock';
+import { parseAppDate } from '../utils/dateTime';
 
-/** Elenco partite: refresh mentre il tab è aperto (punteggi / fasi da altri client o da DB). */
+/** Elenco partite: poll veloce solo in finestra live / pre-kickoff. */
 const MATCHES_LIST_POLL_MS_LIVE = 4000;
-const MATCHES_LIST_POLL_MS_IDLE = 12000;
+const MATCHES_LIST_PRE_KICKOFF_MS = 2 * 60 * 1000;
+const MATCHES_LIST_POST_KICKOFF_GRACE_MS = 3 * 60 * 60 * 1000;
 const MATCHES_SEARCH_DEBOUNCE_MS = 300;
 
 const DAY_NAMES = ['Dom', 'Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab'];
@@ -129,6 +131,71 @@ const LIST_RING_PROGRESS = '#111827';
 
 function matchHasStartedForList(match) {
   return getLastLivePhaseEvent(Array.isArray(match.live_phase_events) ? match.live_phase_events : []) != null;
+}
+
+function matchHasEndedForList(match) {
+  const events = Array.isArray(match.live_phase_events) ? match.live_phase_events : [];
+  return events.some((e) => e?.event_type === 'match_end');
+}
+
+function parseMatchKickoffMs(kickoffAt) {
+  const d = parseAppDate(kickoffAt);
+  if (!d || Number.isNaN(d.getTime())) return NaN;
+  return d.getTime();
+}
+
+/**
+ * Poll rete solo se c’è almeno una partita in diretta, oppure nella finestra
+ * [kickoff − 2min, kickoff + 3h] senza match_end. Altrimenti stop (giornata morta / lontana).
+ */
+function shouldPollMatchesList(items, now = Date.now()) {
+  const list = Array.isArray(items) ? items : [];
+  if (!list.length) return false;
+
+  for (const m of list) {
+    const ended = matchHasEndedForList(m);
+    const started = matchHasStartedForList(m);
+    if (started && !ended) return true;
+    if (ended || started) continue;
+    const kickMs = parseMatchKickoffMs(m?.kickoff_at);
+    if (!Number.isFinite(kickMs)) continue;
+    if (now >= kickMs - MATCHES_LIST_PRE_KICKOFF_MS && now <= kickMs + MATCHES_LIST_POST_KICKOFF_GRACE_MS) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function mergeMatchesLiveListUpdate(prevItems, updates) {
+  const prev = Array.isArray(prevItems) ? prevItems : [];
+  const list = Array.isArray(updates) ? updates : [];
+  if (!prev.length || !list.length) return prev;
+  const byId = new Map();
+  list.forEach((u) => {
+    const id = Number(u?.id);
+    if (Number.isFinite(id) && id > 0) byId.set(id, u);
+  });
+  if (!byId.size) return prev;
+  return prev.map((m) => {
+    const u = byId.get(Number(m.id));
+    if (!u) return m;
+    return {
+      ...m,
+      status: u.status != null ? u.status : m.status,
+      home_score: u.home_score,
+      away_score: u.away_score,
+      live_home_score: u.live_home_score,
+      live_away_score: u.live_away_score,
+      home_shootout_score: u.home_shootout_score,
+      away_shootout_score: u.away_shootout_score,
+      home_pre_shootout_score: u.home_pre_shootout_score,
+      away_pre_shootout_score: u.away_pre_shootout_score,
+      last_phase_type: u.last_phase_type,
+      last_phase_minute: u.last_phase_minute,
+      live_phase_events: Array.isArray(u.live_phase_events) ? u.live_phase_events : m.live_phase_events,
+      is_walkover: u.is_walkover != null ? u.is_walkover : m.is_walkover,
+    };
+  });
 }
 
 function MatchListMinuteRing({ minuteStr, progress }) {
@@ -333,10 +400,8 @@ export default function MatchesScreen() {
     [items]
   );
 
-  const matchesListPollMs = useMemo(
-    () => (items.some((m) => matchHasStartedForList(m)) ? MATCHES_LIST_POLL_MS_LIVE : MATCHES_LIST_POLL_MS_IDLE),
-    [items]
-  );
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
 
   useEffect(() => {
     if (!matchListNeedsTick) return undefined;
@@ -384,6 +449,27 @@ export default function MatchesScreen() {
     }
   }, []);
 
+  const loadLiveList = useCallback(async (date) => {
+    const requestDate = String(date || '').trim();
+    if (!requestDate) return;
+    try {
+      const res = await matchesService.getLiveListByDate(requestDate);
+      if (selectedDateRef.current !== requestDate) return;
+      const updates = Array.isArray(res?.data?.matches) ? res.data.matches : [];
+      setItems((prev) => mergeMatchesLiveListUpdate(prev, updates));
+    } catch {
+      // Fallback: backend non aggiornato / errore → full list, così la live non si spegne.
+      try {
+        const res = await matchesService.getByDate(requestDate);
+        if (selectedDateRef.current !== requestDate) return;
+        const matches = Array.isArray(res?.data?.matches) ? res.data.matches : [];
+        setItems(matches);
+      } catch {
+        /* prossimo tick ritenta */
+      }
+    }
+  }, []);
+
   useEffect(() => {
     load(selectedDate);
   }, [selectedDate, load]);
@@ -391,10 +477,17 @@ export default function MatchesScreen() {
   useFocusEffect(
     useCallback(() => {
       if (showCalendarPicker) return undefined;
-      load(selectedDate, true);
-      const id = setInterval(() => load(selectedDate, true), matchesListPollMs);
+      const date = selectedDate;
+      void load(date, true);
+
+      const id = setInterval(() => {
+        if (selectedDateRef.current !== date) return;
+        if (!shouldPollMatchesList(itemsRef.current, Date.now())) return;
+        void loadLiveList(date);
+      }, MATCHES_LIST_POLL_MS_LIVE);
+
       return () => clearInterval(id);
-    }, [selectedDate, load, matchesListPollMs, showCalendarPicker])
+    }, [selectedDate, load, loadLiveList, showCalendarPicker])
   );
 
   useEffect(() => {

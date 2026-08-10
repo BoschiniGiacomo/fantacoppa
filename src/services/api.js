@@ -548,6 +548,11 @@ export const matchesService = {
     api.get(`matches?date=${encodeURIComponent(dateYmd)}`, {
       headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' },
     }),
+  /** Poll leggero lista partite: score + fasi (merge sul client). */
+  getLiveListByDate: (dateYmd) =>
+    api.get(`matches/live-list?date=${encodeURIComponent(dateYmd)}`, {
+      headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' },
+    }),
   getCompetitions: () => api.get('competitions'),
   getDetail: (matchId) => api.get(`matches/${matchId}/detail`),
   /** Poll leggero in diretta: hero + eventi + classifica (senza formazioni/voti). */

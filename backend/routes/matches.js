@@ -25,6 +25,10 @@ const {
 const {
   scheduleOfficialGroupAbsoluteStatsRefreshForMatch,
 } = require('../utils/officialGroupAbsoluteStatsRefresh');
+const { createShortTtlCache } = require('../utils/shortTtlCache');
+
+/** Cache condivisa lista partite per data (non include preferenze utente). */
+const MATCHES_LIST_SHARED_CACHE = createShortTtlCache({ ttlMs: 6000, maxEntries: 80 });
 
 function isMissingDbObjectError(err) {
   return err && (err.code === '42P01' || err.code === '42703'); // undefined_table / undefined_column
@@ -1565,18 +1569,12 @@ router.get('/competitions', authenticateToken, async (_req, res) => {
 });
 
 // GET /matches?date=YYYY-MM-DD — lista match (con preferiti/notifiche)
-router.get('/matches', authenticateToken, async (req, res) => {
-  try {
-    const userId = Number(req.user?.userId);
-    const date = String(req.query?.date || '').trim();
-    if (!date) return res.status(400).json({ message: 'date mancante' });
+async function fetchMatchesListSharedRows(date, includeAdminOnly) {
+  const cacheKey = `shared:${date}:adm:${includeAdminOnly ? 1 : 0}`;
+  return MATCHES_LIST_SHARED_CACHE.getOrSet(cacheKey, async () => {
     const rows = await query(
       `
-      WITH su AS (
-        SELECT CASE WHEN COALESCE(is_superuser, 0) IN (1, 2) THEN 1 ELSE 0 END AS can_see
-        FROM users WHERE id = ?
-      ),
-      ev_scores AS (
+      WITH ev_scores AS (
         SELECT
           e.match_id,
           SUM(CASE
@@ -1681,8 +1679,6 @@ ${SQL_WALKOVER_MATCHES_CTE}
         CASE WHEN COALESCE(evs.has_shootout, false) THEN COALESCE(evs.ev_away_shootout, 0) ELSE NULL END AS away_shootout_score,
         CASE WHEN COALESCE(evs.has_pre_shootout, false) THEN COALESCE(evs.ev_home_pre_shootout, 0) ELSE NULL END AS home_pre_shootout_score,
         CASE WHEN COALESCE(evs.has_pre_shootout, false) THEN COALESCE(evs.ev_away_pre_shootout, 0) ELSE NULL END AS away_pre_shootout_score,
-        COALESCE(fm.match_id IS NOT NULL, false) AS is_favorite_match,
-        COALESCE(mn.enabled, 0) AS notifications_enabled,
         COALESCE(lp.last_phase_type, NULL) AS last_phase_type,
         COALESCE(lp.last_phase_minute, NULL) AS last_phase_minute,
         COALESCE(pe.live_phase_events, '[]'::json) AS live_phase_events,
@@ -1697,15 +1693,14 @@ ${SQL_WALKOVER_MATCHES_CTE}
       LEFT JOIN last_phase lp ON lp.match_id = m.id
       LEFT JOIN phase_events pe ON pe.match_id = m.id
       LEFT JOIN walkover_matches wo ON wo.match_id = m.id
-      LEFT JOIN user_official_match_favorites fm ON fm.user_id = ? AND fm.match_id = m.id
-      LEFT JOIN user_official_match_notifications mn ON mn.user_id = ? AND mn.match_id = m.id
       WHERE (m.kickoff_at AT TIME ZONE 'Europe/Rome')::date = ?::date
-        AND ((SELECT can_see FROM su) = 1 OR COALESCE(m.is_admin_only, 0) = 0)
-      ORDER BY (fm.match_id IS NOT NULL) DESC, m.kickoff_at ASC, m.id ASC
+        AND (? = 1 OR COALESCE(m.is_admin_only, 0) = 0)
+      ORDER BY m.kickoff_at ASC, m.id ASC
       `,
-      [userId, userId, userId, date]
+      [date, includeAdminOnly ? 1 : 0]
     );
-    const withLogos = (Array.isArray(rows) ? rows : []).map((r) => {
+
+    return (Array.isArray(rows) ? rows : []).map((r) => {
       const homeLogoPath = normalizeTeamLogoPathForApi(r?.home_team_logo_path);
       const awayLogoPath = normalizeTeamLogoPathForApi(r?.away_team_logo_path);
       const competitionLogoPath = normalizeOfficialGroupLogoPathForApi(r?.competition_logo_path);
@@ -1717,14 +1712,133 @@ ${SQL_WALKOVER_MATCHES_CTE}
         home_team_logo_url: logoUrlForPath(homeLogoPath),
         away_team_logo_path: awayLogoPath,
         away_team_logo_url: logoUrlForPath(awayLogoPath),
+        is_favorite_match: false,
+        notifications_enabled: 0,
       };
     });
+  });
+}
+
+async function attachMatchesListUserPrefs(sharedMatches, userId) {
+  const base = Array.isArray(sharedMatches) ? sharedMatches.map((m) => ({ ...m })) : [];
+  if (!base.length || !Number.isFinite(userId) || userId <= 0) return base;
+
+  const ids = base.map((m) => Number(m.id)).filter((id) => Number.isFinite(id) && id > 0);
+  if (!ids.length) return base;
+
+  const placeholders = ids.map(() => '?').join(',');
+  const [favRows, notifRows] = await Promise.all([
+    query(
+      `SELECT match_id FROM user_official_match_favorites WHERE user_id = ? AND match_id IN (${placeholders})`,
+      [userId, ...ids]
+    ).catch(() => []),
+    query(
+      `SELECT match_id, enabled FROM user_official_match_notifications WHERE user_id = ? AND match_id IN (${placeholders})`,
+      [userId, ...ids]
+    ).catch(() => []),
+  ]);
+
+  const favSet = new Set(
+    (Array.isArray(favRows) ? favRows : [])
+      .map((r) => Number(r.match_id))
+      .filter((id) => Number.isFinite(id) && id > 0)
+  );
+  const notifMap = new Map();
+  (Array.isArray(notifRows) ? notifRows : []).forEach((r) => {
+    const id = Number(r.match_id);
+    if (Number.isFinite(id) && id > 0) notifMap.set(id, Number(r.enabled) ? 1 : 0);
+  });
+
+  const withPrefs = base.map((m) => {
+    const id = Number(m.id);
+    return {
+      ...m,
+      is_favorite_match: favSet.has(id),
+      notifications_enabled: notifMap.has(id) ? notifMap.get(id) : 0,
+    };
+  });
+
+  withPrefs.sort((a, b) => {
+    const fa = a.is_favorite_match ? 1 : 0;
+    const fb = b.is_favorite_match ? 1 : 0;
+    if (fa !== fb) return fb - fa;
+    const ka = new Date(a.kickoff_at).getTime();
+    const kb = new Date(b.kickoff_at).getTime();
+    const ta = Number.isFinite(ka) ? ka : 0;
+    const tb = Number.isFinite(kb) ? kb : 0;
+    if (ta !== tb) return ta - tb;
+    return Number(a.id) - Number(b.id);
+  });
+
+  return withPrefs;
+}
+
+async function resolveMatchesListIncludeAdminOnly(userId) {
+  const suRows = await query(
+    `SELECT CASE WHEN COALESCE(is_superuser, 0) IN (1, 2) THEN 1 ELSE 0 END AS can_see
+     FROM users WHERE id = ? LIMIT 1`,
+    [userId]
+  );
+  return Number(suRows?.[0]?.can_see) === 1;
+}
+
+function toMatchesLiveListPayload(matches) {
+  return (Array.isArray(matches) ? matches : []).map((m) => ({
+    id: Number(m.id),
+    status: m.status,
+    home_score: m.home_score,
+    away_score: m.away_score,
+    live_home_score: m.live_home_score,
+    live_away_score: m.live_away_score,
+    home_shootout_score: m.home_shootout_score,
+    away_shootout_score: m.away_shootout_score,
+    home_pre_shootout_score: m.home_pre_shootout_score,
+    away_pre_shootout_score: m.away_pre_shootout_score,
+    last_phase_type: m.last_phase_type,
+    last_phase_minute: m.last_phase_minute,
+    live_phase_events: Array.isArray(m.live_phase_events)
+      ? m.live_phase_events
+      : (typeof m.live_phase_events === 'string'
+        ? (() => { try { return JSON.parse(m.live_phase_events); } catch { return []; } })()
+        : []),
+    is_walkover: m.is_walkover,
+  }));
+}
+
+router.get('/matches', authenticateToken, async (req, res) => {
+  try {
+    const userId = Number(req.user?.userId);
+    const date = String(req.query?.date || '').trim();
+    if (!date) return res.status(400).json({ message: 'date mancante' });
+
+    const includeAdminOnly = await resolveMatchesListIncludeAdminOnly(userId);
+    const shared = await fetchMatchesListSharedRows(date, includeAdminOnly);
+    const withLogos = await attachMatchesListUserPrefs(shared, userId);
 
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
     return res.json({ date, matches: withLogos });
   } catch (err) {
     if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
     return res.status(500).json({ message: 'Errore caricamento partite', error: err.message });
+  }
+});
+
+// GET /matches/live-list?date= — poll leggero: score + fasi (stessa cache shared della lista completa)
+router.get('/matches/live-list', authenticateToken, async (req, res) => {
+  try {
+    const userId = Number(req.user?.userId);
+    const date = String(req.query?.date || '').trim();
+    if (!date) return res.status(400).json({ message: 'date mancante' });
+
+    const includeAdminOnly = await resolveMatchesListIncludeAdminOnly(userId);
+    const shared = await fetchMatchesListSharedRows(date, includeAdminOnly);
+    const slim = toMatchesLiveListPayload(shared);
+
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+    return res.json({ date, matches: slim });
+  } catch (err) {
+    if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
+    return res.status(500).json({ message: 'Errore caricamento live list partite', error: err.message });
   }
 });
 
