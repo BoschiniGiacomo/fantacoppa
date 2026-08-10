@@ -29,6 +29,8 @@ const { createShortTtlCache } = require('../utils/shortTtlCache');
 
 /** Cache condivisa lista partite per data (non include preferenze utente). */
 const MATCHES_LIST_SHARED_CACHE = createShortTtlCache({ ttlMs: 6000, maxEntries: 80 });
+/** Cache classifica + knockout per live-delta (match/eventi restano sempre freschi). */
+const LIVE_DELTA_TABLES_CACHE = createShortTtlCache({ ttlMs: 6000, maxEntries: 60 });
 
 function isMissingDbObjectError(err) {
   return err && (err.code === '42P01' || err.code === '42703'); // undefined_table / undefined_column
@@ -2509,7 +2511,7 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
 });
 
 // GET /matches/:matchId/live-delta
-// Poll leggero in diretta: solo hero/score + eventi + classifica/knockout (niente formazioni/voti).
+// Poll leggero in diretta: hero/score + eventi sempre freschi; classifica/knockout cache 6s.
 router.get('/matches/:matchId/live-delta', authenticateToken, async (req, res) => {
   try {
     await ensureOfficialMatchShootoutSchema();
@@ -2569,9 +2571,36 @@ router.get('/matches/:matchId/live-delta', authenticateToken, async (req, res) =
     const matchLeagueId = Number(matchRow.league_id || 0);
     const currentLeagueId =
       matchLeagueId > 0 ? matchLeagueId : (homeLeagueId > 0 && homeLeagueId === awayLeagueId ? homeLeagueId : 0);
+    const competitionId = Number(matchRow.competition_id) || 0;
 
     const emptyKnockout = { quarterfinals: [], semifinals: [], final: null };
-    const [homeTeam, awayTeam, rawEvents, standingsBundle, knockout] = await Promise.all([
+
+    const loadStandingsAndKnockout = async () => {
+      if (!(currentLeagueId > 0)) {
+        return { standings: [], standings_groups: null, knockout: emptyKnockout };
+      }
+      const cacheKey = `tables:${currentLeagueId}:${competitionId}`;
+      return LIVE_DELTA_TABLES_CACHE.getOrSet(cacheKey, async () => {
+        const [standingsBundle, knockout] = await Promise.all([
+          computeOfficialLeagueGironiStandings({
+            leagueId: currentLeagueId,
+            competitionId,
+          }).catch(() => ({ standings: [], standings_groups: null })),
+          buildKnockoutBracketForLeague({
+            leagueId: currentLeagueId,
+            competitionId,
+          }).catch(() => emptyKnockout),
+        ]);
+        return {
+          standings: Array.isArray(standingsBundle?.standings) ? standingsBundle.standings : [],
+          standings_groups: standingsBundle?.standings_groups ?? null,
+          knockout: knockout && typeof knockout === 'object' ? knockout : emptyKnockout,
+        };
+      });
+    };
+
+    // Match meta + eventi sempre freschi; solo classifica/knockout in cache 6s.
+    const [homeTeam, awayTeam, rawEvents, tables] = await Promise.all([
       getTeamMeta(homeTeamId),
       getTeamMeta(awayTeamId),
       query(
@@ -2579,18 +2608,7 @@ router.get('/matches/:matchId/live-delta', authenticateToken, async (req, res) =
          FROM official_match_events WHERE match_id = ? ORDER BY minute ASC, id ASC`,
         [matchId]
       ),
-      currentLeagueId > 0
-        ? computeOfficialLeagueGironiStandings({
-            leagueId: currentLeagueId,
-            competitionId: Number(matchRow.competition_id),
-          }).catch(() => ({ standings: [], standings_groups: null }))
-        : Promise.resolve({ standings: [], standings_groups: null }),
-      currentLeagueId > 0
-        ? buildKnockoutBracketForLeague({
-            leagueId: currentLeagueId,
-            competitionId: Number(matchRow.competition_id),
-          }).catch(() => emptyKnockout)
-        : Promise.resolve(emptyKnockout),
+      loadStandingsAndKnockout(),
     ]);
 
     const homeLogoPath = normalizeTeamLogoPathForApi(homeTeam?.logo_path);
@@ -2629,9 +2647,10 @@ router.get('/matches/:matchId/live-delta', authenticateToken, async (req, res) =
       return ev;
     });
 
-    const standings = Array.isArray(standingsBundle?.standings) ? standingsBundle.standings : [];
-    const standings_groups = standingsBundle?.standings_groups ?? null;
-    const knockoutSafe = knockout && typeof knockout === 'object' ? knockout : emptyKnockout;
+    const standings = Array.isArray(tables?.standings) ? tables.standings : [];
+    const standings_groups = tables?.standings_groups ?? null;
+    const knockoutSafe =
+      tables?.knockout && typeof tables.knockout === 'object' ? tables.knockout : emptyKnockout;
     const hasStarted = correctedEvents.some((e) => e?.event_type === 'match_start');
     const hasEnded = correctedEvents.some((e) => e?.event_type === 'match_end');
 
