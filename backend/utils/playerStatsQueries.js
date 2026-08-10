@@ -414,17 +414,234 @@ async function fetchPlayerAnalytics(playerIds, leagueIds, playerRole = '') {
 
 async function fetchFavouriteOpponent(playerIds, leagueIds, playerRole) {
   if (!playerIds.length || !leagueIds.length) {
+    console.log('[favouriteOpponent] skip: missing ids', {
+      playerIds,
+      leagueIds,
+      playerRole,
+    });
     return { favourite: null, reason: 'no_data' };
   }
 
   const isGoalkeeper = String(playerRole || '').trim().toUpperCase() === 'P';
   const kind = isGoalkeeper ? 'clean_sheets' : 'goals';
   const statSql = isGoalkeeper ? 'wo.clean_sheet' : 'wo.goals';
+  const logPrefix = '[favouriteOpponent]';
 
   const playerPh = playerIds.map(() => '?').join(',');
   const leaguesPh = leagueIds.map(() => '?').join(',');
 
+  console.log(`${logPrefix} start`, {
+    playerIds,
+    leagueIds,
+    playerRole: String(playerRole || ''),
+    isGoalkeeper,
+    kind,
+    statSql,
+  });
+
   try {
+    // Snapshot diagnostico: ogni match collegato con eventuali moltiplicazioni del join
+    const debugRows = await query(
+      `WITH player_votes AS (
+         SELECT DISTINCT ON (pr.player_id, pr.league_id, pr.giornata)
+           pr.player_id,
+           pr.league_id AS vote_league_id,
+           pr.giornata,
+           COALESCE(pr.goals, 0) AS goals,
+           COALESCE(pr.clean_sheet, 0) AS clean_sheet,
+           p.team_id AS player_team_id,
+           COALESCE(pt.name, '') AS player_team_name,
+           LOWER(TRIM(COALESCE(pt.name, ''))) AS player_team_name_norm
+         FROM player_ratings pr
+         INNER JOIN players p ON p.id = pr.player_id
+         INNER JOIN teams pt ON pt.id = p.team_id
+         WHERE pr.player_id IN (${playerPh})
+           AND pr.league_id IN (${leaguesPh})
+           AND ${SQL_WHERE_PRESENCE_VOTE}
+         ORDER BY pr.player_id, pr.league_id, pr.giornata, pr.player_id DESC
+       ),
+       linked AS (
+         SELECT
+           pv.*,
+           l.league_id AS link_league_id,
+           l.official_match_id,
+           l.team_id AS linked_team_id,
+           COALESCE(lt.name, '') AS linked_team_name,
+           LOWER(TRIM(COALESCE(lt.name, ''))) AS linked_team_name_norm,
+           CASE
+             WHEN l.team_id = pv.player_team_id THEN 'team_id'
+             ELSE 'team_name'
+           END AS link_match_mode
+         FROM player_votes pv
+         INNER JOIN official_match_matchday_links l
+           ON l.giornata = pv.giornata
+          AND l.league_id IN (${leaguesPh})
+         INNER JOIN teams lt ON lt.id = l.team_id
+         WHERE l.team_id = pv.player_team_id
+            OR (
+              pv.player_team_name_norm <> ''
+              AND LOWER(TRIM(COALESCE(lt.name, ''))) = pv.player_team_name_norm
+            )
+       ),
+       with_opponent AS (
+         SELECT
+           linked.*,
+           m.home_team_id,
+           m.away_team_id,
+           COALESCE(ht.name, '') AS home_team_name,
+           COALESCE(at.name, '') AS away_team_name,
+           CASE
+             WHEN m.home_team_id = linked.linked_team_id THEN m.away_team_id
+             WHEN m.away_team_id = linked.linked_team_id THEN m.home_team_id
+             WHEN LOWER(TRIM(COALESCE(ht.name, ''))) = linked.linked_team_name_norm THEN m.away_team_id
+             WHEN LOWER(TRIM(COALESCE(at.name, ''))) = linked.linked_team_name_norm THEN m.home_team_id
+             ELSE NULL
+           END AS opponent_team_id,
+           CASE
+             WHEN m.home_team_id = linked.linked_team_id THEN 'home_id'
+             WHEN m.away_team_id = linked.linked_team_id THEN 'away_id'
+             WHEN LOWER(TRIM(COALESCE(ht.name, ''))) = linked.linked_team_name_norm THEN 'home_name'
+             WHEN LOWER(TRIM(COALESCE(at.name, ''))) = linked.linked_team_name_norm THEN 'away_name'
+             ELSE 'unresolved'
+           END AS opponent_resolve_mode
+         FROM linked
+         INNER JOIN official_matches m ON m.id = linked.official_match_id
+         LEFT JOIN teams ht ON ht.id = m.home_team_id
+         LEFT JOIN teams at ON at.id = m.away_team_id
+       )
+       SELECT
+         player_id,
+         vote_league_id,
+         link_league_id,
+         giornata,
+         goals,
+         clean_sheet,
+         player_team_id,
+         player_team_name,
+         linked_team_id,
+         linked_team_name,
+         link_match_mode,
+         official_match_id,
+         home_team_id,
+         home_team_name,
+         away_team_id,
+         away_team_name,
+         opponent_team_id,
+         opponent_resolve_mode,
+         CASE
+           WHEN opponent_team_id = home_team_id THEN home_team_name
+           WHEN opponent_team_id = away_team_id THEN away_team_name
+           ELSE NULL
+         END AS opponent_team_name,
+         ${isGoalkeeper ? 'clean_sheet' : 'goals'} AS stat_value
+       FROM with_opponent
+       ORDER BY giornata ASC, official_match_id ASC, player_id ASC`,
+      [...playerIds, ...leagueIds, ...leagueIds]
+    );
+
+    const voteCountRows = await query(
+      `SELECT COUNT(*)::int AS vote_count,
+              COALESCE(SUM(COALESCE(pr.goals, 0)), 0)::int AS total_goals,
+              COALESCE(SUM(COALESCE(pr.clean_sheet, 0)), 0)::int AS total_clean_sheets
+       FROM player_ratings pr
+       WHERE pr.player_id IN (${playerPh})
+         AND pr.league_id IN (${leaguesPh})
+         AND ${SQL_WHERE_PRESENCE_VOTE}`,
+      [...playerIds, ...leagueIds]
+    );
+
+    const voteStats = voteCountRows[0] || {};
+    const linkedCount = Array.isArray(debugRows) ? debugRows.length : 0;
+    const unresolved = (debugRows || []).filter((r) => !r.opponent_team_id || r.opponent_resolve_mode === 'unresolved');
+    const nameLinked = (debugRows || []).filter((r) => r.link_match_mode === 'team_name');
+    const crossLeague = (debugRows || []).filter((r) => Number(r.vote_league_id) !== Number(r.link_league_id));
+    const positiveStatRows = (debugRows || []).filter((r) => Number(r.stat_value || 0) > 0);
+
+    // Conta duplicati sospetti: stessa presenza (player+vote_league+giornata) agganciata a più match
+    const presenceKeyCounts = new Map();
+    for (const row of debugRows || []) {
+      const key = `${row.player_id}|${row.vote_league_id}|${row.giornata}`;
+      presenceKeyCounts.set(key, (presenceKeyCounts.get(key) || 0) + 1);
+    }
+    const duplicatedPresences = [...presenceKeyCounts.entries()]
+      .filter(([, count]) => count > 1)
+      .map(([key, count]) => ({ key, count }))
+      .slice(0, 20);
+
+    // Aggregazione top club (stessa logica della query principale)
+    const clubTotals = new Map();
+    for (const row of positiveStatRows) {
+      const name = String(row.opponent_team_name || '').trim();
+      const norm = name.toLowerCase();
+      if (!norm) continue;
+      const prev = clubTotals.get(norm) || {
+        team_name: name,
+        team_id: Number(row.opponent_team_id) || null,
+        value: 0,
+        rows: 0,
+      };
+      prev.value += Number(row.stat_value || 0);
+      prev.rows += 1;
+      if (!prev.team_id && row.opponent_team_id) prev.team_id = Number(row.opponent_team_id);
+      clubTotals.set(norm, prev);
+    }
+    const topClubs = [...clubTotals.values()]
+      .sort((a, b) => b.value - a.value || String(a.team_name).localeCompare(String(b.team_name)))
+      .slice(0, 8);
+
+    console.log(`${logPrefix} summary`, {
+      vote_count: Number(voteStats.vote_count || 0),
+      total_goals_in_votes: Number(voteStats.total_goals || 0),
+      total_clean_sheets_in_votes: Number(voteStats.total_clean_sheets || 0),
+      linked_rows: linkedCount,
+      positive_stat_rows: positiveStatRows.length,
+      unresolved_opponent_rows: unresolved.length,
+      linked_by_team_name: nameLinked.length,
+      cross_league_links: crossLeague.length,
+      duplicated_presences: duplicatedPresences.length,
+      duplicated_presences_sample: duplicatedPresences,
+      top_clubs: topClubs,
+    });
+
+    console.log(
+      `${logPrefix} sample_linked_rows (max 25)`,
+      (debugRows || []).slice(0, 25).map((r) => ({
+        player_id: Number(r.player_id),
+        giornata: Number(r.giornata),
+        vote_league_id: Number(r.vote_league_id),
+        link_league_id: Number(r.link_league_id),
+        goals: Number(r.goals || 0),
+        clean_sheet: Number(r.clean_sheet || 0),
+        stat_value: Number(r.stat_value || 0),
+        player_team: `${r.player_team_name}(#${r.player_team_id})`,
+        linked_team: `${r.linked_team_name}(#${r.linked_team_id})`,
+        link_match_mode: r.link_match_mode,
+        match_id: Number(r.official_match_id),
+        home: `${r.home_team_name}(#${r.home_team_id})`,
+        away: `${r.away_team_name}(#${r.away_team_id})`,
+        opponent: r.opponent_team_id
+          ? `${r.opponent_team_name}(#${r.opponent_team_id})`
+          : null,
+        opponent_resolve_mode: r.opponent_resolve_mode,
+      })),
+    );
+
+    if (positiveStatRows.length > 0) {
+      console.log(
+        `${logPrefix} sample_positive_stat_rows (max 25)`,
+        positiveStatRows.slice(0, 25).map((r) => ({
+          giornata: Number(r.giornata),
+          stat_value: Number(r.stat_value || 0),
+          player_team: r.player_team_name,
+          opponent: r.opponent_team_name,
+          match_id: Number(r.official_match_id),
+          link_match_mode: r.link_match_mode,
+          opponent_resolve_mode: r.opponent_resolve_mode,
+          cross_league: Number(r.vote_league_id) !== Number(r.link_league_id),
+        })),
+      );
+    }
+
     const rows = await query(
       `WITH player_votes AS (
          SELECT DISTINCT ON (pr.player_id, pr.league_id, pr.giornata)
@@ -516,49 +733,32 @@ async function fetchFavouriteOpponent(playerIds, leagueIds, playerRole) {
       [...playerIds, ...leagueIds, ...leagueIds]
     );
 
-    const linkCountRows = await query(
-      `SELECT COUNT(*)::int AS linked_count
-       FROM player_ratings pr
-       INNER JOIN players p ON p.id = pr.player_id
-       INNER JOIN teams pt ON pt.id = p.team_id
-       INNER JOIN official_match_matchday_links l
-         ON l.giornata = pr.giornata
-        AND l.league_id IN (${leaguesPh})
-       INNER JOIN teams lt ON lt.id = l.team_id
-       WHERE pr.player_id IN (${playerPh})
-         AND pr.league_id IN (${leaguesPh})
-         AND ${SQL_WHERE_PRESENCE_VOTE}
-         AND (
-           l.team_id = p.team_id
-           OR (
-             LOWER(TRIM(COALESCE(pt.name, ''))) <> ''
-             AND LOWER(TRIM(COALESCE(lt.name, ''))) = LOWER(TRIM(COALESCE(pt.name, '')))
-           )
-         )`,
-      [...leagueIds, ...playerIds, ...leagueIds]
-    );
-
-    const linkedCount = Number(linkCountRows[0]?.linked_count || 0);
     const row = rows[0];
     if (row && Number(row.value || 0) > 0) {
-      return {
-        favourite: {
-          kind,
-          team_id: Number(row.opponent_team_id) || null,
-          team_name: String(row.team_name || '').trim() || null,
-          team_logo_path: String(row.team_logo_path || '').trim() || null,
-          value: Number(row.value || 0),
-        },
-        reason: null,
+      const favourite = {
+        kind,
+        team_id: Number(row.opponent_team_id) || null,
+        team_name: String(row.team_name || '').trim() || null,
+        team_logo_path: String(row.team_logo_path || '').trim() || null,
+        value: Number(row.value || 0),
       };
+      console.log(`${logPrefix} result`, {
+        favourite,
+        warning_flags: {
+          has_duplicated_presences: duplicatedPresences.length > 0,
+          has_cross_league_links: crossLeague.length > 0,
+          has_name_only_links: nameLinked.length > 0,
+          has_unresolved_opponents: unresolved.length > 0,
+        },
+      });
+      return { favourite, reason: null };
     }
 
-    return {
-      favourite: null,
-      reason: linkedCount > 0 ? 'no_events' : 'no_official_links',
-    };
+    const reason = linkedCount > 0 ? 'no_events' : 'no_official_links';
+    console.log(`${logPrefix} empty`, { reason, linked_rows: linkedCount });
+    return { favourite: null, reason };
   } catch (error) {
-    console.error('fetchFavouriteOpponent error:', error?.message || error);
+    console.error(`${logPrefix} error:`, error?.message || error);
     return { favourite: null, reason: 'no_official_links' };
   }
 }
