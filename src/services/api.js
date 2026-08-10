@@ -153,9 +153,24 @@ api.interceptors.response.use(
       }
     }
 
-    if (error.response?.status === 401) {
-      // Token scaduto/non valido: svuota storage e notifica l'app
-      if (!isHandlingUnauthorized) {
+    if (error.response?.status === 401 || error.response?.status === 403) {
+      const path = String(originalConfig?.url || '');
+      const skipSessionClear =
+        path.includes('/auth/login')
+        || path.includes('/auth/register')
+        || path.includes('/auth/change-password')
+        || path.includes('/auth/delete-account')
+        || path.includes('/auth/forgot-password');
+
+      const msg = String(error.response?.data?.message || '').toLowerCase();
+      const isTokenAuthFailure =
+        error.response?.status === 401
+        || /token/.test(msg)
+        || /scadut/.test(msg)
+        || /non valido/.test(msg);
+
+      // 403 di permesso (es. solo admin) non deve fare logout.
+      if (!skipSessionClear && isTokenAuthFailure && !isHandlingUnauthorized) {
         isHandlingUnauthorized = true;
         try {
           await AsyncStorage.removeItem('authToken');

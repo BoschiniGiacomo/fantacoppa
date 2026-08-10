@@ -7,6 +7,9 @@ const { sendTransactionalEmail, buildForgotPasswordHtml } = require('../utils/em
 require('dotenv').config();
 const { authenticateToken } = require('../middleware/auth');
 
+/** Sessione “remember me” sul dispositivo: resta valida per anni anche senza riaprire l’app. */
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '10y';
+
 async function syncUsersIdSequence() {
   await query(
     "SELECT setval(pg_get_serial_sequence('users','id'), COALESCE((SELECT MAX(id) FROM users), 0) + 1, false)"
@@ -88,7 +91,7 @@ router.post('/register', async (req, res) => {
     const token = jwt.sign(
       { userId: userId, username: username },
       process.env.JWT_SECRET,
-      { expiresIn: '7d' }
+      { expiresIn: JWT_EXPIRES_IN }
     );
 
     res.status(201).json({
@@ -154,7 +157,7 @@ router.post('/login', async (req, res) => {
     const token = jwt.sign(
       { userId: user.id, username: user.username },
       process.env.JWT_SECRET,
-      { expiresIn: '7d' }
+      { expiresIn: JWT_EXPIRES_IN }
     );
 
     res.json({
@@ -306,8 +309,17 @@ router.get('/verify', authenticateToken, async (req, res) => {
     );
     const user = rows[0];
     if (!user) return res.status(404).json({ message: 'Utente non trovato' });
+
+    // Sliding session: rinnova il JWT così aggiornamenti OTA / riaperture non fanno scadere il login.
+    const token = jwt.sign(
+      { userId: user.id, username: user.username },
+      process.env.JWT_SECRET,
+      { expiresIn: JWT_EXPIRES_IN }
+    );
+
     res.json({
       valid: true,
+      token,
       user: {
         id: user.id,
         username: user.username,

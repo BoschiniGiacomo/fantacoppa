@@ -13,6 +13,13 @@ import { registerPushTokenIfPermitted } from '../services/notificationService';
 
 const AuthContext = createContext({});
 
+const AUTH_TOKEN_KEY = 'authToken';
+const AUTH_USER_KEY = 'user';
+/** Solo username/email dell’ultimo login (mai la password). */
+export const LAST_LOGIN_ID_KEY = 'lastLoginId';
+
+const SESSION_VALIDATE_TIMEOUT_MS = 15000;
+
 /** Evita setItem(undefined) se il server non restituisce token/user (HTML, JSON incompleto, ecc.) */
 function parseAuthResponsePayload(data) {
   if (data == null) {
@@ -49,6 +56,25 @@ function parseAuthResponsePayload(data) {
   }
 
   return { ok: true, token, user };
+}
+
+async function clearPersistedAuth() {
+  await AsyncStorage.multiRemove([AUTH_TOKEN_KEY, AUTH_USER_KEY]);
+}
+
+/**
+ * Solo errori che dimostrano sessione non più valida.
+ * Timeout/rete/5xx NON devono far uscire l’utente (tipico dopo OTA / cold start Render).
+ */
+function isDefinitiveSessionInvalid(error) {
+  if (error?.code === 'SESSION_VALIDATE_TIMEOUT') return false;
+  if (error?.code === 'ECONNABORTED') return false;
+  if (error?.message === 'Network Error' || error?.code === 'ERR_NETWORK') return false;
+
+  const status = Number(error?.response?.status);
+  if (status === 401 || status === 403) return true;
+  if (status === 404) return true;
+  return false;
 }
 
 export const useAuth = () => {
@@ -132,7 +158,7 @@ export const AuthProvider = ({ children }) => {
     const guard = setTimeout(() => {
       setBootstrapProgress(1);
       setLoading(false);
-    }, 12000);
+    }, 20000);
 
     return () => {
       setUnauthorizedHandler(null);
@@ -141,49 +167,107 @@ export const AuthProvider = ({ children }) => {
     };
   }, []);
 
+  const persistSession = async (newToken, newUser) => {
+    await AsyncStorage.setItem(AUTH_TOKEN_KEY, newToken);
+    await AsyncStorage.setItem(AUTH_USER_KEY, JSON.stringify(newUser));
+    setToken(newToken);
+    setUser(newUser);
+    authService.setAuthToken(newToken);
+  };
+
   const loadStoredAuth = async () => {
     setBootstrapProgress(0);
     try {
       setBootstrapProgress(0.04);
-      const storedToken = await AsyncStorage.getItem('authToken');
-      const storedUser = await AsyncStorage.getItem('user');
+      const storedToken = await AsyncStorage.getItem(AUTH_TOKEN_KEY);
+      const storedUser = await AsyncStorage.getItem(AUTH_USER_KEY);
       setBootstrapProgress(0.1);
 
-      if (storedToken && storedUser) {
-        authService.setAuthToken(storedToken);
-        setBootstrapProgress(0.16);
-        await Promise.race([
+      if (!storedToken || !storedUser) {
+        authService.setAuthToken(null);
+        setBootstrapProgress(0.45);
+        return;
+      }
+
+      let parsedUser = null;
+      try {
+        parsedUser = JSON.parse(storedUser);
+      } catch (_) {
+        await clearPersistedAuth();
+        authService.setAuthToken(null);
+        setBootstrapProgress(0.45);
+        return;
+      }
+
+      // Restore ottimistico: resta loggato anche se verify è lento/offline (OTA, cold start).
+      authService.setAuthToken(storedToken);
+      setToken(storedToken);
+      setUser(parsedUser);
+      setBootstrapProgress(0.16);
+
+      let sessionOk = false;
+      try {
+        const verifyRes = await Promise.race([
           authService.validateSession(),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Session validation timeout')), 8000)),
+          new Promise((_, reject) => {
+            const err = new Error('Session validation timeout');
+            err.code = 'SESSION_VALIDATE_TIMEOUT';
+            setTimeout(() => reject(err), SESSION_VALIDATE_TIMEOUT_MS);
+          }),
         ]);
-        setBootstrapProgress(0.24);
-        setToken(storedToken);
-        let parsedUser = null;
-        try {
-          parsedUser = JSON.parse(storedUser);
-          setUser(parsedUser);
-        } catch (_) {
-          setUser(null);
+
+        const remoteUser = verifyRes?.data?.user;
+        let nextUser = parsedUser;
+        if (remoteUser && typeof remoteUser === 'object') {
+          nextUser = { ...parsedUser, ...remoteUser };
+          setUser(nextUser);
+          await AsyncStorage.setItem(AUTH_USER_KEY, JSON.stringify(nextUser));
         }
-        if (parsedUser) {
-          fetchAndCacheStripTeams(storedToken).catch(() => {});
+
+        const refreshedToken = verifyRes?.data?.token;
+        if (refreshedToken && typeof refreshedToken === 'string' && refreshedToken !== storedToken) {
+          await AsyncStorage.setItem(AUTH_TOKEN_KEY, refreshedToken);
+          setToken(refreshedToken);
+          authService.setAuthToken(refreshedToken);
+        }
+
+        parsedUser = nextUser;
+        sessionOk = true;
+        setBootstrapProgress(0.24);
+      } catch (verifyError) {
+        if (isDefinitiveSessionInvalid(verifyError)) {
+          console.warn('[auth] Sessione non valida, logout locale:', verifyError?.response?.status || verifyError?.message);
+          await clearPersistedAuth();
+          setToken(null);
+          setUser(null);
+          authService.setAuthToken(null);
+          setBootstrapProgress(0.75);
+          return;
+        }
+        // Rete/timeout/5xx: mantieni sessione salvata; l’utente resta dentro.
+        console.warn('[auth] Verify non riuscito, sessione conservata:', verifyError?.code || verifyError?.message);
+        setBootstrapProgress(0.22);
+      }
+
+      if (parsedUser) {
+        const activeToken = (await AsyncStorage.getItem(AUTH_TOKEN_KEY)) || storedToken;
+        fetchAndCacheStripTeams(activeToken).catch(() => {});
+        try {
           await prefetchLeagueWarmData({
             onProgress: (f) => setBootstrapProgress(0.24 + Math.min(1, f) * 0.7),
             userId: parsedUser?.id,
           });
+        } catch (_) {
+          // Prefetch non deve far uscire dalla sessione.
         }
-        setBootstrapProgress(0.98);
-        registerPushTokenIfPermitted().catch(() => {});
-      } else {
-        authService.setAuthToken(null);
-        setBootstrapProgress(0.45);
+        if (sessionOk) {
+          registerPushTokenIfPermitted().catch(() => {});
+        }
       }
+      setBootstrapProgress(0.98);
     } catch (error) {
-      await AsyncStorage.removeItem('authToken');
-      await AsyncStorage.removeItem('user');
-      setToken(null);
-      setUser(null);
-      authService.setAuthToken(null);
+      // Errori di lettura storage: non cancellare se possibile.
+      console.warn('[auth] loadStoredAuth error:', error?.message || error);
       setBootstrapProgress(0.75);
     } finally {
       setBootstrapProgress(1);
@@ -200,12 +284,11 @@ export const AuthProvider = ({ children }) => {
       }
       const { token: newToken, user: newUser } = parsed;
 
-      await AsyncStorage.setItem('authToken', newToken);
-      await AsyncStorage.setItem('user', JSON.stringify(newUser));
-
-      setToken(newToken);
-      setUser(newUser);
-      authService.setAuthToken(newToken);
+      await persistSession(newToken, newUser);
+      const loginId = String(username || '').trim();
+      if (loginId) {
+        await AsyncStorage.setItem(LAST_LOGIN_ID_KEY, loginId).catch(() => {});
+      }
       registerPushTokenIfPermitted().catch(() => {});
       fetchAndCacheStripTeams(newToken).catch(() => {});
       await prefetchLeagueWarmData({ onProgress: () => {}, userId: newUser?.id });
@@ -236,12 +319,11 @@ export const AuthProvider = ({ children }) => {
       }
       const { token: newToken, user: newUser } = parsed;
 
-      await AsyncStorage.setItem('authToken', newToken);
-      await AsyncStorage.setItem('user', JSON.stringify(newUser));
-
-      setToken(newToken);
-      setUser(newUser);
-      authService.setAuthToken(newToken);
+      await persistSession(newToken, newUser);
+      const loginId = String(username || '').trim();
+      if (loginId) {
+        await AsyncStorage.setItem(LAST_LOGIN_ID_KEY, loginId).catch(() => {});
+      }
       registerPushTokenIfPermitted().catch(() => {});
       fetchAndCacheStripTeams(newToken).catch(() => {});
       await prefetchLeagueWarmData({ onProgress: () => {}, userId: newUser?.id });
@@ -259,8 +341,7 @@ export const AuthProvider = ({ children }) => {
     try {
       invalidateAllLeagueWarmCache();
       clearStripTeamsCache();
-      await AsyncStorage.removeItem('authToken');
-      await AsyncStorage.removeItem('user');
+      await clearPersistedAuth();
       setToken(null);
       setUser(null);
       authService.setAuthToken(null);

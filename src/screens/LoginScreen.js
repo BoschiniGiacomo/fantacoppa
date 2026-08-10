@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -11,9 +11,10 @@ import {
   Keyboard,
   Image,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useAuth } from '../context/AuthContext';
+import { useAuth, LAST_LOGIN_ID_KEY } from '../context/AuthContext';
 import { useAuthBranding } from '../context/AuthBrandingContext';
 import AuthScreenBackground from '../components/AuthScreenBackground';
 
@@ -27,6 +28,21 @@ export default function LoginScreen({ navigation }) {
   const passwordInputRef = useRef(null);
   const { login } = useAuth();
   const { logo: loginLogo } = useAuthBranding();
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const saved = await AsyncStorage.getItem(LAST_LOGIN_ID_KEY);
+        if (!cancelled && saved) setUsername(saved);
+      } catch (_) {
+        // ignore
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const showToast = (text, type = 'error') => {
     setToastMsg({ text, type });
