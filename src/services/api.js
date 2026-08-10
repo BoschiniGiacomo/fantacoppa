@@ -771,6 +771,14 @@ export const superuserService = {
     api.get(`/superuser/player-clusters/suggestions/${encodeURIComponent(Number(groupId))}`, { timeout: 45000 }),
   getNeverPlayedPlayers: (groupId) =>
     api.get(`/superuser/official-groups/${encodeURIComponent(Number(groupId))}/never-played-players`, { timeout: 60000 }),
+  getLiveBonusDiscrepancies: (groupId, leagueId) => {
+    const gid = encodeURIComponent(Number(groupId));
+    const q =
+      leagueId != null && Number(leagueId) > 0
+        ? `?league_id=${encodeURIComponent(Number(leagueId))}`
+        : '';
+    return api.get(`/superuser/official-groups/${gid}/live-bonus-discrepancies${q}`, { timeout: 120000 });
+  },
   deleteNeverPlayedPlayer: (groupId, playerId) =>
     api.delete(
       `/superuser/official-groups/${encodeURIComponent(Number(groupId))}/never-played-players/${encodeURIComponent(Number(playerId))}`

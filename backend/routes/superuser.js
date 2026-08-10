@@ -1142,6 +1142,39 @@ router.get('/official-groups/:groupId/never-played-players', authenticateToken, 
 });
 
 /**
+ * Discrepanze tra bonus diretta (eventi) e valori salvati nei voti (player_ratings).
+ * Stessa logica di allineamento del salvataggio voti partita.
+ */
+router.get(
+  '/official-groups/:groupId/live-bonus-discrepancies',
+  authenticateToken,
+  requireSuperuser,
+  async (req, res) => {
+    try {
+      const groupId = Number(req.params.groupId);
+      if (!groupId || groupId <= 0) return res.status(400).json({ message: 'ID gruppo non valido' });
+      const leagueIdRaw = req.query?.league_id;
+      const leagueId =
+        leagueIdRaw != null && String(leagueIdRaw).trim() !== ''
+          ? Number(leagueIdRaw)
+          : null;
+      const { scanOfficialGroupLiveBonusDiscrepancies } = require('../utils/liveBonusDiscrepancyScan');
+      const result = await scanOfficialGroupLiveBonusDiscrepancies(groupId, {
+        leagueId: Number.isFinite(leagueId) && leagueId > 0 ? leagueId : null,
+      });
+      return res.json(result);
+    } catch (error) {
+      const status = Number(error?.status) || 500;
+      console.error('[superuser] GET live-bonus-discrepancies error:', error?.message || error);
+      return res.status(status).json({
+        message: error?.message || 'Errore scansione discrepanze diretta/voti',
+        error: error.message,
+      });
+    }
+  }
+);
+
+/**
  * Elimina un giocatore "mai giocato" e i dati collegati (voti N.D., cluster, ecc.).
  * Bloccato se è in rosa di un utente (user_players) o se ha voti di presenza.
  */

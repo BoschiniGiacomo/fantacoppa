@@ -1350,4 +1350,11 @@ module.exports = {
   getMatchVotesTabBundle,
   saveMatchVotes,
   isOfficialLeague,
+  getEffectiveLeagueId,
+  getBonusSettings,
+  loadRatingsForGiornata,
+  fetchMatchLiveDirectEvents,
+  buildLiveDirectBonusFromEvents,
+  mergeVoteWithLiveDirect,
+  ALL_LIVE_DIRECT_FIELDS,
 };

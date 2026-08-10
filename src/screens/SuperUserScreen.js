@@ -338,6 +338,14 @@ export default function SuperUserScreen() {
   const [neverPlayedSearchText, setNeverPlayedSearchText] = useState('');
   const [neverPlayedYearFilter, setNeverPlayedYearFilter] = useState(null); // null = tutti, 'none' = senza anno, number = anno
   const [deletingNeverPlayedId, setDeletingNeverPlayedId] = useState(null);
+  const [showLiveBonusDiscrepancyModal, setShowLiveBonusDiscrepancyModal] = useState(false);
+  const [discrepancyGroupId, setDiscrepancyGroupId] = useState(null);
+  const [loadingLiveBonusDiscrepancies, setLoadingLiveBonusDiscrepancies] = useState(false);
+  const [liveBonusDiscrepancyResult, setLiveBonusDiscrepancyResult] = useState(null);
+  const [discrepancyViewMode, setDiscrepancyViewMode] = useState('matches'); // 'matches' | 'players'
+  const [discrepancySearchText, setDiscrepancySearchText] = useState('');
+  const [expandedDiscrepancyMatchIds, setExpandedDiscrepancyMatchIds] = useState({});
+  const [expandedDiscrepancyPlayerKeys, setExpandedDiscrepancyPlayerKeys] = useState({});
   const [clusterFilterStatus, setClusterFilterStatus] = useState(null); // null, 'pending', 'approved', 'rejected'
   const [clusterTabSearchText, setClusterTabSearchText] = useState('');
   const [showClusterFilters, setShowClusterFilters] = useState(false);
@@ -1738,6 +1746,95 @@ export default function SuperUserScreen() {
     setDeletingNeverPlayedId(null);
   };
 
+  const openLiveBonusDiscrepancyModal = () => {
+    setLiveBonusDiscrepancyResult(null);
+    setDiscrepancySearchText('');
+    setDiscrepancyViewMode('matches');
+    setExpandedDiscrepancyMatchIds({});
+    setExpandedDiscrepancyPlayerKeys({});
+    const firstId = officialGroups?.[0]?.id != null ? Number(officialGroups[0].id) : null;
+    setDiscrepancyGroupId(firstId);
+    setShowLiveBonusDiscrepancyModal(true);
+  };
+
+  const closeLiveBonusDiscrepancyModal = () => {
+    setShowLiveBonusDiscrepancyModal(false);
+    setLoadingLiveBonusDiscrepancies(false);
+    setLiveBonusDiscrepancyResult(null);
+    setDiscrepancySearchText('');
+    setExpandedDiscrepancyMatchIds({});
+    setExpandedDiscrepancyPlayerKeys({});
+  };
+
+  const loadLiveBonusDiscrepancies = async (groupId) => {
+    const gid = Number(groupId);
+    if (!gid) {
+      showToast('Seleziona un gruppo ufficiale');
+      return;
+    }
+    try {
+      setLoadingLiveBonusDiscrepancies(true);
+      setLiveBonusDiscrepancyResult(null);
+      setExpandedDiscrepancyMatchIds({});
+      setExpandedDiscrepancyPlayerKeys({});
+      const res = await superuserService.getLiveBonusDiscrepancies(gid);
+      setLiveBonusDiscrepancyResult(res.data || null);
+    } catch (error) {
+      console.error('Error loading live-bonus discrepancies:', error);
+      showToast(error.response?.data?.message || 'Errore scansione discrepanze');
+      setLiveBonusDiscrepancyResult(null);
+    } finally {
+      setLoadingLiveBonusDiscrepancies(false);
+    }
+  };
+
+  const discrepancyIssueLabel = (issueType) => {
+    if (issueType === 'missing_votes') return 'Voti non salvati';
+    if (issueType === 'no_presence_with_diretta') return 'Diretta senza presenza';
+    return 'Valori diversi';
+  };
+
+  const filteredDiscrepancyMatches = useMemo(() => {
+    const list = Array.isArray(liveBonusDiscrepancyResult?.matches)
+      ? liveBonusDiscrepancyResult.matches
+      : [];
+    const q = discrepancySearchText.trim().toLowerCase();
+    if (!q) return list;
+    return list.filter((m) => {
+      const hay = [
+        m.label,
+        m.league_name,
+        m.home_team_name,
+        m.away_team_name,
+        ...(m.players || []).flatMap((p) => [p.player_name, p.team_name, p.cluster_name, p.fix_summary]),
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return q.split(/\s+/).every((part) => hay.includes(part));
+    });
+  }, [liveBonusDiscrepancyResult, discrepancySearchText]);
+
+  const filteredDiscrepancyPlayers = useMemo(() => {
+    const list = Array.isArray(liveBonusDiscrepancyResult?.players)
+      ? liveBonusDiscrepancyResult.players
+      : [];
+    const q = discrepancySearchText.trim().toLowerCase();
+    if (!q) return list;
+    return list.filter((p) => {
+      const hay = [
+        p.player_name,
+        p.cluster_name,
+        p.net_summary,
+        ...(p.matches_affected || []).flatMap((m) => [m.label, m.team_name, m.fix_summary]),
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return q.split(/\s+/).every((part) => hay.includes(part));
+    });
+  }, [liveBonusDiscrepancyResult, discrepancySearchText]);
+
   const neverPlayedYearOptions = useMemo(() => {
     const years = new Set();
     let hasNone = false;
@@ -2515,74 +2612,93 @@ export default function SuperUserScreen() {
                 <ActivityIndicator size="large" color="#667eea" />
               </View>
             ) : (
-              <FlatList
-                data={officialGroups}
-                keyExtractor={(item) => item.id.toString()}
-                renderItem={({ item }) => (
-                  <TouchableOpacity
-                    style={styles.officialGroupItem}
-                    onPress={async () => {
-                      try {
-                        const response = await superuserService.getOfficialGroupLeagues(item.id);
-                        const leaguesInGroup = response.data.leagues || [];
-                        setSelectedGroupForEdit({
-                          ...item,
-                          ...(response.data?.group || {}),
-                          leagues: leaguesInGroup,
-                        });
-                        const nextDrafts = {};
-                        leaguesInGroup.forEach((lg) => {
-                          nextDrafts[String(lg.id)] = lg?.reference_year != null ? String(lg.reference_year) : '';
-                        });
-                        setReferenceYearDrafts(nextDrafts);
-                        setShowGroupDetailModal(true);
-                        leaguesInGroup.forEach((lg) => {
-                          if (Number(lg.official_two_groups) === 1) {
-                            void (async () => {
-                              try {
-                                const gt = await superuserService.getOfficialLeagueGironiTeams(item.id, lg.id);
-                                setGironiTeamsByLeague((prev) => ({
-                                  ...prev,
-                                  [lg.id]: gt.data?.teams || [],
-                                }));
-                              } catch (_) {
-                                /* ignore */
-                              }
-                            })();
-                          }
-                        });
-                      } catch (error) {
-                        console.error('Error loading group leagues:', error);
-                        showToast('Impossibile caricare le leghe del gruppo');
-                      }
-                    }}
-                  >
-                    <View style={styles.officialGroupInfo}>
-                      <Text style={styles.officialGroupName}>{item.name}</Text>
-                      {item.description && (
-                        <Text style={styles.officialGroupDescription}>{item.description}</Text>
-                      )}
-                      <Text style={styles.officialGroupStats}>
-                        {item.league_count} leghe • Creato da {item.created_by_username} • {formatDateTime(item.created_at)}
-                      </Text>
+              <View style={styles.officialsTabBody}>
+                <FlatList
+                  data={officialGroups}
+                  keyExtractor={(item) => item.id.toString()}
+                  style={styles.officialsList}
+                  renderItem={({ item }) => (
+                    <TouchableOpacity
+                      style={styles.officialGroupItem}
+                      onPress={async () => {
+                        try {
+                          const response = await superuserService.getOfficialGroupLeagues(item.id);
+                          const leaguesInGroup = response.data.leagues || [];
+                          setSelectedGroupForEdit({
+                            ...item,
+                            ...(response.data?.group || {}),
+                            leagues: leaguesInGroup,
+                          });
+                          const nextDrafts = {};
+                          leaguesInGroup.forEach((lg) => {
+                            nextDrafts[String(lg.id)] = lg?.reference_year != null ? String(lg.reference_year) : '';
+                          });
+                          setReferenceYearDrafts(nextDrafts);
+                          setShowGroupDetailModal(true);
+                          leaguesInGroup.forEach((lg) => {
+                            if (Number(lg.official_two_groups) === 1) {
+                              void (async () => {
+                                try {
+                                  const gt = await superuserService.getOfficialLeagueGironiTeams(item.id, lg.id);
+                                  setGironiTeamsByLeague((prev) => ({
+                                    ...prev,
+                                    [lg.id]: gt.data?.teams || [],
+                                  }));
+                                } catch (_) {
+                                  /* ignore */
+                                }
+                              })();
+                            }
+                          });
+                        } catch (error) {
+                          console.error('Error loading group leagues:', error);
+                          showToast('Impossibile caricare le leghe del gruppo');
+                        }
+                      }}
+                    >
+                      <View style={styles.officialGroupInfo}>
+                        <Text style={styles.officialGroupName}>{item.name}</Text>
+                        {item.description && (
+                          <Text style={styles.officialGroupDescription}>{item.description}</Text>
+                        )}
+                        <Text style={styles.officialGroupStats}>
+                          {item.league_count} leghe • Creato da {item.created_by_username} • {formatDateTime(item.created_at)}
+                        </Text>
+                      </View>
+                      <Ionicons name="chevron-forward" size={20} color="#ccc" />
+                    </TouchableOpacity>
+                  )}
+                  refreshControl={
+                    <RefreshControl refreshing={refreshingOfficialGroups} onRefresh={() => {
+                      setRefreshingOfficialGroups(true);
+                      loadOfficialGroups();
+                    }} />
+                  }
+                  ListEmptyComponent={
+                    <View style={styles.emptyContainer}>
+                      <Ionicons name="ribbon-outline" size={48} color="#ccc" />
+                      <Text style={styles.emptyText}>Nessun gruppo ufficiale trovato</Text>
                     </View>
-                    <Ionicons name="chevron-forward" size={20} color="#ccc" />
-                  </TouchableOpacity>
-                )}
-                refreshControl={
-                  <RefreshControl refreshing={refreshingOfficialGroups} onRefresh={() => {
-                    setRefreshingOfficialGroups(true);
-                    loadOfficialGroups();
-                  }} />
-                }
-                ListEmptyComponent={
-                  <View style={styles.emptyContainer}>
-                    <Ionicons name="ribbon-outline" size={48} color="#ccc" />
-                    <Text style={styles.emptyText}>Nessun gruppo ufficiale trovato</Text>
+                  }
+                  contentContainerStyle={styles.listContent}
+                />
+                <TouchableOpacity
+                  style={styles.liveBonusRepairBtn}
+                  onPress={openLiveBonusDiscrepancyModal}
+                  activeOpacity={0.85}
+                >
+                  <View style={styles.liveBonusRepairBtnIcon}>
+                    <Ionicons name="build" size={20} color="#fff" />
                   </View>
-                }
-                contentContainerStyle={styles.listContent}
-              />
+                  <View style={styles.liveBonusRepairBtnTextWrap}>
+                    <Text style={styles.liveBonusRepairBtnTitle}>Ripara discrepanze</Text>
+                    <Text style={styles.liveBonusRepairBtnSub}>
+                      Confronta diretta e bonus salvati nei voti
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={18} color="#c7d2fe" />
+                </TouchableOpacity>
+              </View>
             )}
           </>
         )}
@@ -4126,6 +4242,339 @@ export default function SuperUserScreen() {
         </View>
       </Modal>
 
+      {/* Modal scansione discrepanze diretta ↔ voti */}
+      <Modal
+        visible={showLiveBonusDiscrepancyModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={closeLiveBonusDiscrepancyModal}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { maxHeight: '92%' }]}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Discrepanze diretta / voti</Text>
+              <TouchableOpacity onPress={closeLiveBonusDiscrepancyModal}>
+                <Ionicons name="close" size={24} color="#666" />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.neverPlayedIntro}>
+              <View style={styles.neverPlayedIntroIcon}>
+                <Ionicons name="build-outline" size={20} color="#667eea" />
+              </View>
+              <Text style={styles.neverPlayedIntroText}>
+                Confronta gol, assist, cartellini e altri bonus della diretta con quelli salvati nei voti.
+                {'\n'}
+                Per ogni partita indica cosa correggere (valore voti → valore diretta).
+              </Text>
+            </View>
+
+            <Text style={styles.discrepancySectionLabel}>Gruppo ufficiale</Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.neverPlayedYearFilters}
+              contentContainerStyle={styles.neverPlayedYearFiltersContent}
+            >
+              {(officialGroups || []).map((g) => {
+                const active = Number(discrepancyGroupId) === Number(g.id);
+                return (
+                  <TouchableOpacity
+                    key={`disc-g-${g.id}`}
+                    style={[
+                      styles.neverPlayedYearChipBtn,
+                      active && styles.neverPlayedYearChipBtnActive,
+                    ]}
+                    onPress={() => {
+                      setDiscrepancyGroupId(Number(g.id));
+                      setLiveBonusDiscrepancyResult(null);
+                    }}
+                  >
+                    <Text
+                      style={[
+                        styles.neverPlayedYearChipBtnText,
+                        active && styles.neverPlayedYearChipBtnTextActive,
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {g.name}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+
+            <TouchableOpacity
+              style={[
+                styles.discrepancyScanBtn,
+                (!discrepancyGroupId || loadingLiveBonusDiscrepancies) && styles.discrepancyScanBtnDisabled,
+              ]}
+              onPress={() => void loadLiveBonusDiscrepancies(discrepancyGroupId)}
+              disabled={!discrepancyGroupId || loadingLiveBonusDiscrepancies}
+              activeOpacity={0.85}
+            >
+              {loadingLiveBonusDiscrepancies ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Ionicons name="search" size={18} color="#fff" />
+              )}
+              <Text style={styles.discrepancyScanBtnText}>
+                {loadingLiveBonusDiscrepancies ? 'Scansione in corso…' : 'Avvia ricerca'}
+              </Text>
+            </TouchableOpacity>
+
+            {liveBonusDiscrepancyResult ? (
+              <View style={{ flex: 1 }}>
+                <View style={styles.discrepancySummaryBar}>
+                  <Text style={styles.discrepancySummaryText}>
+                    {liveBonusDiscrepancyResult.match_count || 0} partite ·{' '}
+                    {liveBonusDiscrepancyResult.player_count || 0} giocatori/cluster ·{' '}
+                    {liveBonusDiscrepancyResult.discrepancy_count || 0} differenze
+                  </Text>
+                  <Text style={styles.discrepancySummarySub}>
+                    Scansionate {liveBonusDiscrepancyResult.scanned_matches || 0} partite collegate
+                  </Text>
+                </View>
+
+                <View style={styles.discrepancyModeRow}>
+                  <TouchableOpacity
+                    style={[
+                      styles.discrepancyModeChip,
+                      discrepancyViewMode === 'matches' && styles.discrepancyModeChipActive,
+                    ]}
+                    onPress={() => setDiscrepancyViewMode('matches')}
+                  >
+                    <Text
+                      style={[
+                        styles.discrepancyModeChipText,
+                        discrepancyViewMode === 'matches' && styles.discrepancyModeChipTextActive,
+                      ]}
+                    >
+                      Per partita
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.discrepancyModeChip,
+                      discrepancyViewMode === 'players' && styles.discrepancyModeChipActive,
+                    ]}
+                    onPress={() => setDiscrepancyViewMode('players')}
+                  >
+                    <Text
+                      style={[
+                        styles.discrepancyModeChipText,
+                        discrepancyViewMode === 'players' && styles.discrepancyModeChipTextActive,
+                      ]}
+                    >
+                      Per giocatore
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                <View style={[styles.searchContainer, { marginHorizontal: 0, marginBottom: 8 }]}>
+                  <Ionicons name="search" size={18} color="#999" style={styles.searchIcon} />
+                  <TextInput
+                    style={styles.searchInput}
+                    placeholder="Filtra partita, giocatore, squadra…"
+                    placeholderTextColor="#999"
+                    value={discrepancySearchText}
+                    onChangeText={setDiscrepancySearchText}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+                  {discrepancySearchText.length > 0 ? (
+                    <TouchableOpacity onPress={() => setDiscrepancySearchText('')} style={styles.clearButton}>
+                      <Ionicons name="close-circle" size={18} color="#999" />
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+
+                <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
+                  {discrepancyViewMode === 'matches' ? (
+                    filteredDiscrepancyMatches.length === 0 ? (
+                      <View style={styles.neverPlayedEmpty}>
+                        <Ionicons name="checkmark-circle-outline" size={40} color="#86efac" />
+                        <Text style={styles.neverPlayedEmptyTitle}>
+                          {discrepancySearchText.trim()
+                            ? 'Nessun risultato per il filtro'
+                            : 'Nessuna discrepanza'}
+                        </Text>
+                        <Text style={styles.neverPlayedEmptySub}>
+                          {discrepancySearchText.trim()
+                            ? 'Prova con altri termini'
+                            : 'Diretta e voti sono allineati sulle partite collegate'}
+                        </Text>
+                      </View>
+                    ) : (
+                      filteredDiscrepancyMatches.map((match) => {
+                        const expanded = !!expandedDiscrepancyMatchIds[String(match.match_id)];
+                        return (
+                          <View key={`disc-m-${match.match_id}`} style={styles.discrepancyCard}>
+                            <TouchableOpacity
+                              style={styles.discrepancyCardHeader}
+                              onPress={() =>
+                                setExpandedDiscrepancyMatchIds((prev) => ({
+                                  ...prev,
+                                  [String(match.match_id)]: !prev[String(match.match_id)],
+                                }))
+                              }
+                              activeOpacity={0.75}
+                            >
+                              <View style={{ flex: 1 }}>
+                                <Text style={styles.discrepancyCardTitle} numberOfLines={2}>
+                                  {match.label}
+                                </Text>
+                                <Text style={styles.discrepancyCardMeta}>
+                                  {[
+                                    match.league_name,
+                                    match.reference_year ? String(match.reference_year) : null,
+                                    `${match.player_count} giocatori`,
+                                  ]
+                                    .filter(Boolean)
+                                    .join(' · ')}
+                                </Text>
+                              </View>
+                              <Ionicons
+                                name={expanded ? 'chevron-up' : 'chevron-down'}
+                                size={18}
+                                color="#94a3b8"
+                              />
+                            </TouchableOpacity>
+                            {expanded
+                              ? (match.players || []).map((p) => (
+                                  <View
+                                    key={`disc-mp-${match.match_id}-${p.player_id}-${p.giornata}`}
+                                    style={styles.discrepancyPlayerBlock}
+                                  >
+                                    <View style={styles.discrepancyPlayerTitleRow}>
+                                      <Text style={styles.discrepancyPlayerName} numberOfLines={1}>
+                                        {p.player_name}
+                                      </Text>
+                                      {p.is_cluster ? (
+                                        <View style={styles.discrepancyClusterBadge}>
+                                          <Text style={styles.discrepancyClusterBadgeText}>Cluster</Text>
+                                        </View>
+                                      ) : null}
+                                    </View>
+                                    <Text style={styles.discrepancyPlayerMeta}>
+                                      {p.team_name}
+                                      {p.giornata != null ? ` · G${p.giornata}` : ''}
+                                      {' · '}
+                                      {discrepancyIssueLabel(p.issue_type)}
+                                    </Text>
+                                    {(p.diffs || []).map((d) => (
+                                      <View
+                                        key={`disc-d-${match.match_id}-${p.player_id}-${d.field}`}
+                                        style={styles.discrepancyDiffRow}
+                                      >
+                                        <Text style={styles.discrepancyDiffLabel}>{d.label}</Text>
+                                        <Text style={styles.discrepancyDiffValues}>
+                                          voti {d.from_voti} → diretta {d.fix_to}
+                                        </Text>
+                                      </View>
+                                    ))}
+                                  </View>
+                                ))
+                              : null}
+                          </View>
+                        );
+                      })
+                    )
+                  ) : filteredDiscrepancyPlayers.length === 0 ? (
+                    <View style={styles.neverPlayedEmpty}>
+                      <Ionicons name="checkmark-circle-outline" size={40} color="#86efac" />
+                      <Text style={styles.neverPlayedEmptyTitle}>
+                        {discrepancySearchText.trim()
+                          ? 'Nessun risultato per il filtro'
+                          : 'Nessuna discrepanza'}
+                      </Text>
+                    </View>
+                  ) : (
+                    filteredDiscrepancyPlayers.map((p) => {
+                      const expanded = !!expandedDiscrepancyPlayerKeys[String(p.key)];
+                      return (
+                        <View key={`disc-p-${p.key}`} style={styles.discrepancyCard}>
+                          <TouchableOpacity
+                            style={styles.discrepancyCardHeader}
+                            onPress={() =>
+                              setExpandedDiscrepancyPlayerKeys((prev) => ({
+                                ...prev,
+                                [String(p.key)]: !prev[String(p.key)],
+                              }))
+                            }
+                            activeOpacity={0.75}
+                          >
+                            <View style={{ flex: 1 }}>
+                              <View style={styles.discrepancyPlayerTitleRow}>
+                                <Text style={styles.discrepancyCardTitle} numberOfLines={1}>
+                                  {p.player_name}
+                                </Text>
+                                {p.kind === 'cluster' ? (
+                                  <View style={styles.discrepancyClusterBadge}>
+                                    <Text style={styles.discrepancyClusterBadgeText}>Cluster</Text>
+                                  </View>
+                                ) : null}
+                              </View>
+                              <Text style={styles.discrepancyCardMeta} numberOfLines={2}>
+                                {p.match_count} partite
+                                {p.net_summary ? ` · ${p.net_summary}` : ''}
+                              </Text>
+                            </View>
+                            <Ionicons
+                              name={expanded ? 'chevron-up' : 'chevron-down'}
+                              size={18}
+                              color="#94a3b8"
+                            />
+                          </TouchableOpacity>
+                          {expanded
+                            ? (p.matches_affected || []).map((m, idx) => (
+                                <View
+                                  key={`disc-pm-${p.key}-${m.match_id}-${m.player_id}-${idx}`}
+                                  style={styles.discrepancyPlayerBlock}
+                                >
+                                  <Text style={styles.discrepancyPlayerName} numberOfLines={2}>
+                                    {m.label}
+                                  </Text>
+                                  <Text style={styles.discrepancyPlayerMeta}>
+                                    {m.team_name}
+                                    {m.giornata != null ? ` · G${m.giornata}` : ''}
+                                    {m.reference_year != null ? ` · ${m.reference_year}` : ''}
+                                    {' · '}
+                                    {discrepancyIssueLabel(m.issue_type)}
+                                  </Text>
+                                  {(m.diffs || []).map((d) => (
+                                    <View
+                                      key={`disc-pd-${p.key}-${m.match_id}-${d.field}-${idx}`}
+                                      style={styles.discrepancyDiffRow}
+                                    >
+                                      <Text style={styles.discrepancyDiffLabel}>{d.label}</Text>
+                                      <Text style={styles.discrepancyDiffValues}>
+                                        voti {d.from_voti} → diretta {d.fix_to}
+                                      </Text>
+                                    </View>
+                                  ))}
+                                </View>
+                              ))
+                            : null}
+                        </View>
+                      );
+                    })
+                  )}
+                </ScrollView>
+              </View>
+            ) : !loadingLiveBonusDiscrepancies ? (
+              <View style={styles.neverPlayedEmpty}>
+                <Ionicons name="construct-outline" size={40} color="#cbd5e1" />
+                <Text style={styles.neverPlayedEmptyTitle}>Seleziona un gruppo e avvia la ricerca</Text>
+                <Text style={styles.neverPlayedEmptySub}>
+                  Verranno confrontate solo le partite ufficiali collegate a una giornata voti.
+                </Text>
+              </View>
+            ) : null}
+          </View>
+        </View>
+      </Modal>
+
       <Modal
         visible={!!suggestionEditModal}
         animationType="slide"
@@ -5392,6 +5841,192 @@ const styles = StyleSheet.create({
   officialGroupStats: {
     fontSize: 12,
     color: '#999',
+  },
+  officialsTabBody: {
+    flex: 1,
+  },
+  officialsList: {
+    flex: 1,
+  },
+  liveBonusRepairBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 16,
+    marginBottom: 12,
+    marginTop: 4,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    backgroundColor: '#4338ca',
+    gap: 12,
+  },
+  liveBonusRepairBtnIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.16)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  liveBonusRepairBtnTextWrap: {
+    flex: 1,
+  },
+  liveBonusRepairBtnTitle: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  liveBonusRepairBtnSub: {
+    color: '#c7d2fe',
+    fontSize: 12,
+    marginTop: 2,
+  },
+  discrepancySectionLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#64748b',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+    marginBottom: 6,
+    marginTop: 4,
+  },
+  discrepancyScanBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#667eea',
+    borderRadius: 12,
+    paddingVertical: 12,
+    marginBottom: 10,
+  },
+  discrepancyScanBtnDisabled: {
+    opacity: 0.55,
+  },
+  discrepancyScanBtnText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  discrepancySummaryBar: {
+    backgroundColor: '#f1f5f9',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 8,
+  },
+  discrepancySummaryText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#334155',
+  },
+  discrepancySummarySub: {
+    fontSize: 11,
+    color: '#64748b',
+    marginTop: 2,
+  },
+  discrepancyModeRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 8,
+  },
+  discrepancyModeChip: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: '#f1f5f9',
+  },
+  discrepancyModeChipActive: {
+    backgroundColor: '#e0e7ff',
+  },
+  discrepancyModeChipText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#64748b',
+  },
+  discrepancyModeChipTextActive: {
+    color: '#4338ca',
+  },
+  discrepancyCard: {
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 12,
+    marginBottom: 10,
+    overflow: 'hidden',
+    backgroundColor: '#fff',
+  },
+  discrepancyCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    backgroundColor: '#f8fafc',
+  },
+  discrepancyCardTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#0f172a',
+    flexShrink: 1,
+  },
+  discrepancyCardMeta: {
+    fontSize: 12,
+    color: '#64748b',
+    marginTop: 3,
+  },
+  discrepancyPlayerBlock: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#e2e8f0',
+  },
+  discrepancyPlayerTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  discrepancyPlayerName: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#1e293b',
+    flexShrink: 1,
+  },
+  discrepancyPlayerMeta: {
+    fontSize: 11,
+    color: '#64748b',
+    marginTop: 2,
+    marginBottom: 6,
+  },
+  discrepancyClusterBadge: {
+    backgroundColor: '#ede9fe',
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  discrepancyClusterBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#6d28d9',
+  },
+  discrepancyDiffRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 4,
+    gap: 8,
+  },
+  discrepancyDiffLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#475569',
+  },
+  discrepancyDiffValues: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#b45309',
+    flexShrink: 1,
+    textAlign: 'right',
   },
   modalOverlay: {
     flex: 1,
