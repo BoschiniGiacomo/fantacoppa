@@ -346,6 +346,7 @@ export default function SuperUserScreen() {
   const [discrepancySearchText, setDiscrepancySearchText] = useState('');
   const [expandedDiscrepancyMatchIds, setExpandedDiscrepancyMatchIds] = useState({});
   const [expandedDiscrepancyPlayerKeys, setExpandedDiscrepancyPlayerKeys] = useState({});
+  const [discrepancyInfoOpen, setDiscrepancyInfoOpen] = useState(false);
   const [clusterFilterStatus, setClusterFilterStatus] = useState(null); // null, 'pending', 'approved', 'rejected'
   const [clusterTabSearchText, setClusterTabSearchText] = useState('');
   const [showClusterFilters, setShowClusterFilters] = useState(false);
@@ -1750,6 +1751,7 @@ export default function SuperUserScreen() {
     setLiveBonusDiscrepancyResult(null);
     setDiscrepancySearchText('');
     setDiscrepancyViewMode('matches');
+    setDiscrepancyInfoOpen(false);
     setExpandedDiscrepancyMatchIds({});
     setExpandedDiscrepancyPlayerKeys({});
     const firstId = officialGroups?.[0]?.id != null ? Number(officialGroups[0].id) : null;
@@ -1762,6 +1764,7 @@ export default function SuperUserScreen() {
     setLoadingLiveBonusDiscrepancies(false);
     setLiveBonusDiscrepancyResult(null);
     setDiscrepancySearchText('');
+    setDiscrepancyInfoOpen(false);
     setExpandedDiscrepancyMatchIds({});
     setExpandedDiscrepancyPlayerKeys({});
   };
@@ -2683,7 +2686,7 @@ export default function SuperUserScreen() {
                   contentContainerStyle={styles.listContent}
                 />
                 <TouchableOpacity
-                  style={styles.liveBonusRepairBtn}
+                  style={[styles.liveBonusRepairBtn, { marginBottom: 12 + Math.max(insets.bottom, 8) }]}
                   onPress={openLiveBonusDiscrepancyModal}
                   activeOpacity={0.85}
                 >
@@ -2692,9 +2695,6 @@ export default function SuperUserScreen() {
                   </View>
                   <View style={styles.liveBonusRepairBtnTextWrap}>
                     <Text style={styles.liveBonusRepairBtnTitle}>Ripara discrepanze</Text>
-                    <Text style={styles.liveBonusRepairBtnSub}>
-                      Confronta diretta e bonus salvati nei voti
-                    </Text>
                   </View>
                   <Ionicons name="chevron-forward" size={18} color="#c7d2fe" />
                 </TouchableOpacity>
@@ -4250,148 +4250,264 @@ export default function SuperUserScreen() {
         onRequestClose={closeLiveBonusDiscrepancyModal}
       >
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { maxHeight: '92%' }]}>
+          <View
+            style={[
+              styles.modalContent,
+              styles.discrepancyModalContent,
+              { paddingBottom: Math.max(insets.bottom, 8) },
+            ]}
+          >
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Discrepanze diretta / voti</Text>
-              <TouchableOpacity onPress={closeLiveBonusDiscrepancyModal}>
+              <Text style={[styles.modalTitle, { flex: 1, marginRight: 8 }]} numberOfLines={1}>
+                Discrepanze diretta / voti
+              </Text>
+              <TouchableOpacity
+                style={[
+                  styles.discrepancyInfoIconBtn,
+                  discrepancyInfoOpen && styles.discrepancyInfoIconBtnActive,
+                ]}
+                onPress={() => setDiscrepancyInfoOpen((v) => !v)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityLabel="Info sul confronto"
+              >
+                <Ionicons
+                  name="information-circle-outline"
+                  size={22}
+                  color={discrepancyInfoOpen ? '#4338ca' : '#64748b'}
+                />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={closeLiveBonusDiscrepancyModal} hitSlop={8}>
                 <Ionicons name="close" size={24} color="#666" />
               </TouchableOpacity>
             </View>
 
-            <View style={styles.neverPlayedIntro}>
-              <View style={styles.neverPlayedIntroIcon}>
-                <Ionicons name="build-outline" size={20} color="#667eea" />
-              </View>
-              <Text style={styles.neverPlayedIntroText}>
-                Confronta gol, assist, cartellini e altri bonus della diretta con quelli salvati nei voti.
-                {'\n'}
-                Per ogni partita indica cosa correggere (valore voti → valore diretta).
-              </Text>
-            </View>
-
-            <Text style={styles.discrepancySectionLabel}>Gruppo ufficiale</Text>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              style={styles.neverPlayedYearFilters}
-              contentContainerStyle={styles.neverPlayedYearFiltersContent}
-            >
-              {(officialGroups || []).map((g) => {
-                const active = Number(discrepancyGroupId) === Number(g.id);
-                return (
-                  <TouchableOpacity
-                    key={`disc-g-${g.id}`}
-                    style={[
-                      styles.neverPlayedYearChipBtn,
-                      active && styles.neverPlayedYearChipBtnActive,
-                    ]}
-                    onPress={() => {
-                      setDiscrepancyGroupId(Number(g.id));
-                      setLiveBonusDiscrepancyResult(null);
-                    }}
-                  >
-                    <Text
-                      style={[
-                        styles.neverPlayedYearChipBtnText,
-                        active && styles.neverPlayedYearChipBtnTextActive,
-                      ]}
-                      numberOfLines={1}
-                    >
-                      {g.name}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-
-            <TouchableOpacity
-              style={[
-                styles.discrepancyScanBtn,
-                (!discrepancyGroupId || loadingLiveBonusDiscrepancies) && styles.discrepancyScanBtnDisabled,
-              ]}
-              onPress={() => void loadLiveBonusDiscrepancies(discrepancyGroupId)}
-              disabled={!discrepancyGroupId || loadingLiveBonusDiscrepancies}
-              activeOpacity={0.85}
-            >
-              {loadingLiveBonusDiscrepancies ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <Ionicons name="search" size={18} color="#fff" />
-              )}
-              <Text style={styles.discrepancyScanBtnText}>
-                {loadingLiveBonusDiscrepancies ? 'Scansione in corso…' : 'Avvia ricerca'}
-              </Text>
-            </TouchableOpacity>
-
-            {liveBonusDiscrepancyResult ? (
-              <View style={{ flex: 1 }}>
-                <View style={styles.discrepancySummaryBar}>
-                  <Text style={styles.discrepancySummaryText}>
-                    {liveBonusDiscrepancyResult.match_count || 0} partite ·{' '}
-                    {liveBonusDiscrepancyResult.player_count || 0} giocatori/cluster ·{' '}
-                    {liveBonusDiscrepancyResult.discrepancy_count || 0} differenze
-                  </Text>
-                  <Text style={styles.discrepancySummarySub}>
-                    Scansionate {liveBonusDiscrepancyResult.scanned_matches || 0} partite collegate
+            <View style={styles.discrepancyModalBody}>
+              {discrepancyInfoOpen ? (
+                <View style={styles.discrepancyInfoBanner}>
+                  <Text style={styles.discrepancyInfoBannerText}>
+                    Confronta gol, assist, cartellini e altri bonus della diretta con quelli salvati nei voti.
+                    {'\n'}
+                    Per ogni partita indica cosa correggere (valore voti → valore diretta).
                   </Text>
                 </View>
+              ) : null}
 
-                <View style={styles.discrepancyModeRow}>
-                  <TouchableOpacity
-                    style={[
-                      styles.discrepancyModeChip,
-                      discrepancyViewMode === 'matches' && styles.discrepancyModeChipActive,
-                    ]}
-                    onPress={() => setDiscrepancyViewMode('matches')}
-                  >
-                    <Text
+              <Text style={styles.discrepancySectionLabel}>Gruppo ufficiale</Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={styles.neverPlayedYearFilters}
+                contentContainerStyle={styles.neverPlayedYearFiltersContent}
+              >
+                {(officialGroups || []).map((g) => {
+                  const active = Number(discrepancyGroupId) === Number(g.id);
+                  return (
+                    <TouchableOpacity
+                      key={`disc-g-${g.id}`}
                       style={[
-                        styles.discrepancyModeChipText,
-                        discrepancyViewMode === 'matches' && styles.discrepancyModeChipTextActive,
+                        styles.neverPlayedYearChipBtn,
+                        active && styles.neverPlayedYearChipBtnActive,
                       ]}
+                      onPress={() => {
+                        setDiscrepancyGroupId(Number(g.id));
+                        setLiveBonusDiscrepancyResult(null);
+                      }}
                     >
-                      Per partita
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[
-                      styles.discrepancyModeChip,
-                      discrepancyViewMode === 'players' && styles.discrepancyModeChipActive,
-                    ]}
-                    onPress={() => setDiscrepancyViewMode('players')}
-                  >
-                    <Text
-                      style={[
-                        styles.discrepancyModeChipText,
-                        discrepancyViewMode === 'players' && styles.discrepancyModeChipTextActive,
-                      ]}
-                    >
-                      Per giocatore
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-
-                <View style={[styles.searchContainer, { marginHorizontal: 0, marginBottom: 8 }]}>
-                  <Ionicons name="search" size={18} color="#999" style={styles.searchIcon} />
-                  <TextInput
-                    style={styles.searchInput}
-                    placeholder="Filtra partita, giocatore, squadra…"
-                    placeholderTextColor="#999"
-                    value={discrepancySearchText}
-                    onChangeText={setDiscrepancySearchText}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                  />
-                  {discrepancySearchText.length > 0 ? (
-                    <TouchableOpacity onPress={() => setDiscrepancySearchText('')} style={styles.clearButton}>
-                      <Ionicons name="close-circle" size={18} color="#999" />
+                      <Text
+                        style={[
+                          styles.neverPlayedYearChipBtnText,
+                          active && styles.neverPlayedYearChipBtnTextActive,
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {g.name}
+                      </Text>
                     </TouchableOpacity>
-                  ) : null}
-                </View>
+                  );
+                })}
+              </ScrollView>
 
-                <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
-                  {discrepancyViewMode === 'matches' ? (
-                    filteredDiscrepancyMatches.length === 0 ? (
+              <TouchableOpacity
+                style={[
+                  styles.discrepancyScanBtn,
+                  (!discrepancyGroupId || loadingLiveBonusDiscrepancies) && styles.discrepancyScanBtnDisabled,
+                ]}
+                onPress={() => void loadLiveBonusDiscrepancies(discrepancyGroupId)}
+                disabled={!discrepancyGroupId || loadingLiveBonusDiscrepancies}
+                activeOpacity={0.85}
+              >
+                {loadingLiveBonusDiscrepancies ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Ionicons name="search" size={18} color="#fff" />
+                )}
+                <Text style={styles.discrepancyScanBtnText}>
+                  {loadingLiveBonusDiscrepancies ? 'Scansione in corso…' : 'Avvia ricerca'}
+                </Text>
+              </TouchableOpacity>
+
+              {liveBonusDiscrepancyResult ? (
+                <View style={{ flex: 1, minHeight: 0 }}>
+                  <View style={styles.discrepancySummaryBar}>
+                    <Text style={styles.discrepancySummaryText}>
+                      {liveBonusDiscrepancyResult.match_count || 0} partite ·{' '}
+                      {liveBonusDiscrepancyResult.player_count || 0} giocatori/cluster ·{' '}
+                      {liveBonusDiscrepancyResult.discrepancy_count || 0} differenze
+                    </Text>
+                    <Text style={styles.discrepancySummarySub}>
+                      Scansionate {liveBonusDiscrepancyResult.scanned_matches || 0} partite collegate
+                    </Text>
+                  </View>
+
+                  <View style={styles.discrepancyModeRow}>
+                    <TouchableOpacity
+                      style={[
+                        styles.discrepancyModeChip,
+                        discrepancyViewMode === 'matches' && styles.discrepancyModeChipActive,
+                      ]}
+                      onPress={() => setDiscrepancyViewMode('matches')}
+                    >
+                      <Text
+                        style={[
+                          styles.discrepancyModeChipText,
+                          discrepancyViewMode === 'matches' && styles.discrepancyModeChipTextActive,
+                        ]}
+                      >
+                        Per partita
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[
+                        styles.discrepancyModeChip,
+                        discrepancyViewMode === 'players' && styles.discrepancyModeChipActive,
+                      ]}
+                      onPress={() => setDiscrepancyViewMode('players')}
+                    >
+                      <Text
+                        style={[
+                          styles.discrepancyModeChipText,
+                          discrepancyViewMode === 'players' && styles.discrepancyModeChipTextActive,
+                        ]}
+                      >
+                        Per giocatore
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  <View style={[styles.searchContainer, { marginHorizontal: 0, marginBottom: 8 }]}>
+                    <Ionicons name="search" size={18} color="#999" style={styles.searchIcon} />
+                    <TextInput
+                      style={styles.searchInput}
+                      placeholder="Filtra partita, giocatore, squadra…"
+                      placeholderTextColor="#999"
+                      value={discrepancySearchText}
+                      onChangeText={setDiscrepancySearchText}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                    />
+                    {discrepancySearchText.length > 0 ? (
+                      <TouchableOpacity onPress={() => setDiscrepancySearchText('')} style={styles.clearButton}>
+                        <Ionicons name="close-circle" size={18} color="#999" />
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
+
+                  <ScrollView
+                    style={{ flex: 1 }}
+                    contentContainerStyle={styles.discrepancyListContent}
+                    showsVerticalScrollIndicator={false}
+                  >
+                    {discrepancyViewMode === 'matches' ? (
+                      filteredDiscrepancyMatches.length === 0 ? (
+                        <View style={styles.neverPlayedEmpty}>
+                          <Ionicons name="checkmark-circle-outline" size={40} color="#86efac" />
+                          <Text style={styles.neverPlayedEmptyTitle}>
+                            {discrepancySearchText.trim()
+                              ? 'Nessun risultato per il filtro'
+                              : 'Nessuna discrepanza'}
+                          </Text>
+                          <Text style={styles.neverPlayedEmptySub}>
+                            {discrepancySearchText.trim()
+                              ? 'Prova con altri termini'
+                              : 'Diretta e voti sono allineati sulle partite collegate'}
+                          </Text>
+                        </View>
+                      ) : (
+                        filteredDiscrepancyMatches.map((match) => {
+                          const expanded = !!expandedDiscrepancyMatchIds[String(match.match_id)];
+                          return (
+                            <View key={`disc-m-${match.match_id}`} style={styles.discrepancyCard}>
+                              <TouchableOpacity
+                                style={styles.discrepancyCardHeader}
+                                onPress={() =>
+                                  setExpandedDiscrepancyMatchIds((prev) => ({
+                                    ...prev,
+                                    [String(match.match_id)]: !prev[String(match.match_id)],
+                                  }))
+                                }
+                                activeOpacity={0.75}
+                              >
+                                <View style={{ flex: 1 }}>
+                                  <Text style={styles.discrepancyCardTitle} numberOfLines={2}>
+                                    {match.label}
+                                  </Text>
+                                  <Text style={styles.discrepancyCardMeta}>
+                                    {[
+                                      match.league_name,
+                                      match.reference_year ? String(match.reference_year) : null,
+                                      `${match.player_count} giocatori`,
+                                    ]
+                                      .filter(Boolean)
+                                      .join(' · ')}
+                                  </Text>
+                                </View>
+                                <Ionicons
+                                  name={expanded ? 'chevron-up' : 'chevron-down'}
+                                  size={18}
+                                  color="#94a3b8"
+                                />
+                              </TouchableOpacity>
+                              {expanded
+                                ? (match.players || []).map((p) => (
+                                    <View
+                                      key={`disc-mp-${match.match_id}-${p.player_id}-${p.giornata}`}
+                                      style={styles.discrepancyPlayerBlock}
+                                    >
+                                      <View style={styles.discrepancyPlayerTitleRow}>
+                                        <Text style={styles.discrepancyPlayerName} numberOfLines={1}>
+                                          {p.player_name}
+                                        </Text>
+                                        {p.is_cluster ? (
+                                          <View style={styles.discrepancyClusterBadge}>
+                                            <Text style={styles.discrepancyClusterBadgeText}>Cluster</Text>
+                                          </View>
+                                        ) : null}
+                                      </View>
+                                      <Text style={styles.discrepancyPlayerMeta}>
+                                        {p.team_name}
+                                        {p.giornata != null ? ` · G${p.giornata}` : ''}
+                                        {' · '}
+                                        {discrepancyIssueLabel(p.issue_type)}
+                                      </Text>
+                                      {(p.diffs || []).map((d) => (
+                                        <View
+                                          key={`disc-d-${match.match_id}-${p.player_id}-${d.field}`}
+                                          style={styles.discrepancyDiffRow}
+                                        >
+                                          <Text style={styles.discrepancyDiffLabel}>{d.label}</Text>
+                                          <Text style={styles.discrepancyDiffValues}>
+                                            voti {d.from_voti} → diretta {d.fix_to}
+                                          </Text>
+                                        </View>
+                                      ))}
+                                    </View>
+                                  ))
+                                : null}
+                            </View>
+                          );
+                        })
+                      )
+                    ) : filteredDiscrepancyPlayers.length === 0 ? (
                       <View style={styles.neverPlayedEmpty}>
                         <Ionicons name="checkmark-circle-outline" size={40} color="#86efac" />
                         <Text style={styles.neverPlayedEmptyTitle}>
@@ -4399,39 +4515,36 @@ export default function SuperUserScreen() {
                             ? 'Nessun risultato per il filtro'
                             : 'Nessuna discrepanza'}
                         </Text>
-                        <Text style={styles.neverPlayedEmptySub}>
-                          {discrepancySearchText.trim()
-                            ? 'Prova con altri termini'
-                            : 'Diretta e voti sono allineati sulle partite collegate'}
-                        </Text>
                       </View>
                     ) : (
-                      filteredDiscrepancyMatches.map((match) => {
-                        const expanded = !!expandedDiscrepancyMatchIds[String(match.match_id)];
+                      filteredDiscrepancyPlayers.map((p) => {
+                        const expanded = !!expandedDiscrepancyPlayerKeys[String(p.key)];
                         return (
-                          <View key={`disc-m-${match.match_id}`} style={styles.discrepancyCard}>
+                          <View key={`disc-p-${p.key}`} style={styles.discrepancyCard}>
                             <TouchableOpacity
                               style={styles.discrepancyCardHeader}
                               onPress={() =>
-                                setExpandedDiscrepancyMatchIds((prev) => ({
+                                setExpandedDiscrepancyPlayerKeys((prev) => ({
                                   ...prev,
-                                  [String(match.match_id)]: !prev[String(match.match_id)],
+                                  [String(p.key)]: !prev[String(p.key)],
                                 }))
                               }
                               activeOpacity={0.75}
                             >
                               <View style={{ flex: 1 }}>
-                                <Text style={styles.discrepancyCardTitle} numberOfLines={2}>
-                                  {match.label}
-                                </Text>
-                                <Text style={styles.discrepancyCardMeta}>
-                                  {[
-                                    match.league_name,
-                                    match.reference_year ? String(match.reference_year) : null,
-                                    `${match.player_count} giocatori`,
-                                  ]
-                                    .filter(Boolean)
-                                    .join(' · ')}
+                                <View style={styles.discrepancyPlayerTitleRow}>
+                                  <Text style={styles.discrepancyCardTitle} numberOfLines={1}>
+                                    {p.player_name}
+                                  </Text>
+                                  {p.kind === 'cluster' ? (
+                                    <View style={styles.discrepancyClusterBadge}>
+                                      <Text style={styles.discrepancyClusterBadgeText}>Cluster</Text>
+                                    </View>
+                                  ) : null}
+                                </View>
+                                <Text style={styles.discrepancyCardMeta} numberOfLines={2}>
+                                  {p.match_count} partite
+                                  {p.net_summary ? ` · ${p.net_summary}` : ''}
                                 </Text>
                               </View>
                               <Ionicons
@@ -4441,30 +4554,24 @@ export default function SuperUserScreen() {
                               />
                             </TouchableOpacity>
                             {expanded
-                              ? (match.players || []).map((p) => (
+                              ? (p.matches_affected || []).map((m, idx) => (
                                   <View
-                                    key={`disc-mp-${match.match_id}-${p.player_id}-${p.giornata}`}
+                                    key={`disc-pm-${p.key}-${m.match_id}-${m.player_id}-${idx}`}
                                     style={styles.discrepancyPlayerBlock}
                                   >
-                                    <View style={styles.discrepancyPlayerTitleRow}>
-                                      <Text style={styles.discrepancyPlayerName} numberOfLines={1}>
-                                        {p.player_name}
-                                      </Text>
-                                      {p.is_cluster ? (
-                                        <View style={styles.discrepancyClusterBadge}>
-                                          <Text style={styles.discrepancyClusterBadgeText}>Cluster</Text>
-                                        </View>
-                                      ) : null}
-                                    </View>
-                                    <Text style={styles.discrepancyPlayerMeta}>
-                                      {p.team_name}
-                                      {p.giornata != null ? ` · G${p.giornata}` : ''}
-                                      {' · '}
-                                      {discrepancyIssueLabel(p.issue_type)}
+                                    <Text style={styles.discrepancyPlayerName} numberOfLines={2}>
+                                      {m.label}
                                     </Text>
-                                    {(p.diffs || []).map((d) => (
+                                    <Text style={styles.discrepancyPlayerMeta}>
+                                      {m.team_name}
+                                      {m.giornata != null ? ` · G${m.giornata}` : ''}
+                                      {m.reference_year != null ? ` · ${m.reference_year}` : ''}
+                                      {' · '}
+                                      {discrepancyIssueLabel(m.issue_type)}
+                                    </Text>
+                                    {(m.diffs || []).map((d) => (
                                       <View
-                                        key={`disc-d-${match.match_id}-${p.player_id}-${d.field}`}
+                                        key={`disc-pd-${p.key}-${m.match_id}-${d.field}-${idx}`}
                                         style={styles.discrepancyDiffRow}
                                       >
                                         <Text style={styles.discrepancyDiffLabel}>{d.label}</Text>
@@ -4479,98 +4586,19 @@ export default function SuperUserScreen() {
                           </View>
                         );
                       })
-                    )
-                  ) : filteredDiscrepancyPlayers.length === 0 ? (
-                    <View style={styles.neverPlayedEmpty}>
-                      <Ionicons name="checkmark-circle-outline" size={40} color="#86efac" />
-                      <Text style={styles.neverPlayedEmptyTitle}>
-                        {discrepancySearchText.trim()
-                          ? 'Nessun risultato per il filtro'
-                          : 'Nessuna discrepanza'}
-                      </Text>
-                    </View>
-                  ) : (
-                    filteredDiscrepancyPlayers.map((p) => {
-                      const expanded = !!expandedDiscrepancyPlayerKeys[String(p.key)];
-                      return (
-                        <View key={`disc-p-${p.key}`} style={styles.discrepancyCard}>
-                          <TouchableOpacity
-                            style={styles.discrepancyCardHeader}
-                            onPress={() =>
-                              setExpandedDiscrepancyPlayerKeys((prev) => ({
-                                ...prev,
-                                [String(p.key)]: !prev[String(p.key)],
-                              }))
-                            }
-                            activeOpacity={0.75}
-                          >
-                            <View style={{ flex: 1 }}>
-                              <View style={styles.discrepancyPlayerTitleRow}>
-                                <Text style={styles.discrepancyCardTitle} numberOfLines={1}>
-                                  {p.player_name}
-                                </Text>
-                                {p.kind === 'cluster' ? (
-                                  <View style={styles.discrepancyClusterBadge}>
-                                    <Text style={styles.discrepancyClusterBadgeText}>Cluster</Text>
-                                  </View>
-                                ) : null}
-                              </View>
-                              <Text style={styles.discrepancyCardMeta} numberOfLines={2}>
-                                {p.match_count} partite
-                                {p.net_summary ? ` · ${p.net_summary}` : ''}
-                              </Text>
-                            </View>
-                            <Ionicons
-                              name={expanded ? 'chevron-up' : 'chevron-down'}
-                              size={18}
-                              color="#94a3b8"
-                            />
-                          </TouchableOpacity>
-                          {expanded
-                            ? (p.matches_affected || []).map((m, idx) => (
-                                <View
-                                  key={`disc-pm-${p.key}-${m.match_id}-${m.player_id}-${idx}`}
-                                  style={styles.discrepancyPlayerBlock}
-                                >
-                                  <Text style={styles.discrepancyPlayerName} numberOfLines={2}>
-                                    {m.label}
-                                  </Text>
-                                  <Text style={styles.discrepancyPlayerMeta}>
-                                    {m.team_name}
-                                    {m.giornata != null ? ` · G${m.giornata}` : ''}
-                                    {m.reference_year != null ? ` · ${m.reference_year}` : ''}
-                                    {' · '}
-                                    {discrepancyIssueLabel(m.issue_type)}
-                                  </Text>
-                                  {(m.diffs || []).map((d) => (
-                                    <View
-                                      key={`disc-pd-${p.key}-${m.match_id}-${d.field}-${idx}`}
-                                      style={styles.discrepancyDiffRow}
-                                    >
-                                      <Text style={styles.discrepancyDiffLabel}>{d.label}</Text>
-                                      <Text style={styles.discrepancyDiffValues}>
-                                        voti {d.from_voti} → diretta {d.fix_to}
-                                      </Text>
-                                    </View>
-                                  ))}
-                                </View>
-                              ))
-                            : null}
-                        </View>
-                      );
-                    })
-                  )}
-                </ScrollView>
-              </View>
-            ) : !loadingLiveBonusDiscrepancies ? (
-              <View style={styles.neverPlayedEmpty}>
-                <Ionicons name="construct-outline" size={40} color="#cbd5e1" />
-                <Text style={styles.neverPlayedEmptyTitle}>Seleziona un gruppo e avvia la ricerca</Text>
-                <Text style={styles.neverPlayedEmptySub}>
-                  Verranno confrontate solo le partite ufficiali collegate a una giornata voti.
-                </Text>
-              </View>
-            ) : null}
+                    )}
+                  </ScrollView>
+                </View>
+              ) : !loadingLiveBonusDiscrepancies ? (
+                <View style={styles.neverPlayedEmpty}>
+                  <Ionicons name="construct-outline" size={40} color="#cbd5e1" />
+                  <Text style={styles.neverPlayedEmptyTitle}>Seleziona un gruppo e avvia la ricerca</Text>
+                  <Text style={styles.neverPlayedEmptySub}>
+                    Verranno confrontate solo le partite ufficiali collegate a una giornata voti.
+                  </Text>
+                </View>
+              ) : null}
+            </View>
           </View>
         </View>
       </Modal>
@@ -5889,6 +5917,43 @@ const styles = StyleSheet.create({
     letterSpacing: 0.4,
     marginBottom: 6,
     marginTop: 4,
+  },
+  discrepancyModalContent: {
+    maxHeight: '94%',
+    paddingBottom: 0,
+  },
+  discrepancyModalBody: {
+    flex: 1,
+    minHeight: 0,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+  },
+  discrepancyInfoIconBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 4,
+  },
+  discrepancyInfoIconBtnActive: {
+    backgroundColor: '#e0e7ff',
+  },
+  discrepancyInfoBanner: {
+    backgroundColor: '#eef2ff',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 10,
+  },
+  discrepancyInfoBannerText: {
+    fontSize: 12,
+    lineHeight: 17,
+    color: '#4338ca',
+  },
+  discrepancyListContent: {
+    paddingBottom: 4,
+    flexGrow: 1,
   },
   discrepancyScanBtn: {
     flexDirection: 'row',
