@@ -498,6 +498,7 @@ export default function PlayerStatsScreen({ route, navigation }) {
           form_series: [],
           favourite_opponent: null,
           favourite_opponent_reason: 'no_data',
+          opponent_rankings: [],
         });
       }
     } catch (error) {
@@ -510,6 +511,7 @@ export default function PlayerStatsScreen({ route, navigation }) {
           form_series: [],
           favourite_opponent: null,
           favourite_opponent_reason: 'no_data',
+          opponent_rankings: [],
         });
       }
       console.error(error);
@@ -670,6 +672,7 @@ export default function PlayerStatsScreen({ route, navigation }) {
           form_series: [],
           favourite_opponent: null,
           favourite_opponent_reason: 'no_data',
+          opponent_rankings: [],
         });
       }
       setHasOfficialGroup(true);
@@ -1192,50 +1195,68 @@ export default function PlayerStatsScreen({ route, navigation }) {
     return items;
   };
 
-  const renderFavouriteOpponent = (favouriteOpponent, reason, isGoalkeeper) => {
-    if (!favouriteOpponent || Number(favouriteOpponent.value || 0) <= 0) {
+  const renderFavouriteOpponent = (opponentRankings, favouriteOpponent, reason, isGoalkeeper) => {
+    const rankings = Array.isArray(opponentRankings) && opponentRankings.length
+      ? opponentRankings
+      : (favouriteOpponent && Number(favouriteOpponent.value || 0) > 0 ? [favouriteOpponent] : []);
+
+    const sectionTitle = isGoalkeeper ? 'Clean sheet per avversario' : 'Gol per avversario';
+
+    if (!rankings.length) {
       let emptyText = 'Dati disponibili solo con partite ufficiali collegate.';
       if (reason === 'no_events') {
         emptyText = isGoalkeeper
           ? 'Nessuna clean sheet contro avversari con partite ufficiali collegate.'
           : 'Nessun gol contro avversari con partite ufficiali collegate.';
       } else if (reason === 'no_data') {
-        emptyText = 'Nessun dato disponibile per l’avversario preferito.';
+        emptyText = isGoalkeeper
+          ? 'Nessun dato disponibile sulle clean sheet per avversario.'
+          : 'Nessun dato disponibile sui gol per avversario.';
       }
 
       return (
         <View style={styles.card}>
-          <Text style={styles.cardSectionTitle}>Avversario preferito</Text>
+          <Text style={styles.cardSectionTitle}>{sectionTitle}</Text>
           <Text style={styles.emptyOverviewText}>{emptyText}</Text>
         </View>
       );
     }
 
-    const isCleanSheets = favouriteOpponent.kind === 'clean_sheets';
-    const valueLabel = isCleanSheets ? 'Clean sheet' : 'Gol';
-    const teamName = String(favouriteOpponent.team_name || '').trim() || '–';
+    const valueLabel = isGoalkeeper ? 'CS' : 'Gol';
 
     return (
       <View style={styles.card}>
-        <Text style={styles.cardSectionTitle}>Avversario preferito</Text>
-        <View style={styles.favouriteRow}>
-          <TeamLogoImage
-            logoPath={favouriteOpponent.team_logo_path || undefined}
-            style={styles.favouriteLogo}
-            fallbackStyle={styles.favouriteLogoFallback}
-            fallbackIconSize={22}
-          />
-          <View style={styles.favouriteTextBlock}>
-            <Text style={styles.favouriteValue}>
-              {favouriteOpponent.value}
-              {' '}
-              <Text style={styles.favouriteValueLabel}>{valueLabel}</Text>
-            </Text>
-            <Text style={styles.favouriteTeamName} numberOfLines={2}>
-              vs {teamName}
-            </Text>
-          </View>
-        </View>
+        <Text style={styles.cardSectionTitle}>{sectionTitle}</Text>
+        {rankings.map((item, index) => {
+          const teamName = String(item.team_name || '').trim() || '–';
+          const key = `opp-${item.team_id || teamName}-${index}`;
+          return (
+            <View
+              key={key}
+              style={[
+                styles.favouriteRow,
+                index < rankings.length - 1 && styles.favouriteRowBorder,
+              ]}
+            >
+              <Text style={styles.favouriteRank}>{index + 1}</Text>
+              <TeamLogoImage
+                logoPath={item.team_logo_path || undefined}
+                style={styles.favouriteLogo}
+                fallbackStyle={styles.favouriteLogoFallback}
+                fallbackIconSize={20}
+              />
+              <View style={styles.favouriteTextBlock}>
+                <Text style={styles.favouriteTeamName} numberOfLines={1}>
+                  {teamName}
+                </Text>
+              </View>
+              <Text style={styles.favouriteValueCompact}>
+                {item.value}
+                <Text style={styles.favouriteValueLabelCompact}> {valueLabel}</Text>
+              </Text>
+            </View>
+          );
+        })}
       </View>
     );
   };
@@ -1302,6 +1323,7 @@ export default function PlayerStatsScreen({ route, navigation }) {
         </View>
 
         {renderFavouriteOpponent(
+          data.opponent_rankings,
           data.favourite_opponent,
           data.favourite_opponent_reason,
           scopeGoalkeeperRole === 'P',
@@ -1982,16 +2004,28 @@ const styles = StyleSheet.create({
   favouriteRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 14,
+    gap: 12,
+    paddingVertical: 10,
+  },
+  favouriteRowBorder: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#e2e8f0',
+  },
+  favouriteRank: {
+    width: 22,
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#94a3b8',
+    textAlign: 'center',
   },
   favouriteLogo: {
-    width: 48,
-    height: 48,
+    width: 36,
+    height: 36,
   },
   favouriteLogoFallback: {
-    width: 48,
-    height: 48,
-    borderRadius: 12,
+    width: 36,
+    height: 36,
+    borderRadius: 10,
     backgroundColor: '#eef2ff',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1999,7 +2033,6 @@ const styles = StyleSheet.create({
   favouriteTextBlock: {
     flex: 1,
     minWidth: 0,
-    gap: 4,
   },
   favouriteValue: {
     fontSize: 28,
@@ -2011,10 +2044,20 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#667eea',
   },
+  favouriteValueCompact: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#1e293b',
+  },
+  favouriteValueLabelCompact: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#667eea',
+  },
   favouriteTeamName: {
     fontSize: 15,
     fontWeight: '600',
-    color: '#64748b',
+    color: '#334155',
   },
 
   infoBanner: {

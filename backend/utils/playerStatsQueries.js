@@ -88,6 +88,7 @@ function emptyAnalytics() {
     form_series: [],
     favourite_opponent: null,
     favourite_opponent_reason: 'no_data',
+    opponent_rankings: [],
   };
 }
 
@@ -409,12 +410,13 @@ async function fetchPlayerAnalytics(playerIds, leagueIds, playerRole = '') {
     })),
     favourite_opponent: favouriteOpponentResult.favourite,
     favourite_opponent_reason: favouriteOpponentResult.reason,
+    opponent_rankings: favouriteOpponentResult.opponents || [],
   };
 }
 
 async function fetchFavouriteOpponent(playerIds, leagueIds, playerRole) {
   if (!playerIds.length || !leagueIds.length) {
-    return { favourite: null, reason: 'no_data' };
+    return { favourite: null, opponents: [], reason: 'no_data' };
   }
 
   const isGoalkeeper = String(playerRole || '').trim().toUpperCase() === 'P';
@@ -513,21 +515,24 @@ async function fetchFavouriteOpponent(playerIds, leagueIds, playerRole) {
        )
        SELECT opponent_team_id, value, team_name, team_logo_path
        FROM by_club
-       ORDER BY value DESC, team_name ASC
-       LIMIT 1`,
+       ORDER BY value DESC, team_name ASC`,
       [...playerIds, ...leagueIds]
     );
 
-    const row = rows[0];
-    if (row && Number(row.value || 0) > 0) {
+    const opponents = (rows || [])
+      .map((row) => ({
+        kind,
+        team_id: Number(row.opponent_team_id) || null,
+        team_name: String(row.team_name || '').trim() || null,
+        team_logo_path: String(row.team_logo_path || '').trim() || null,
+        value: Number(row.value || 0),
+      }))
+      .filter((row) => Number(row.value || 0) > 0);
+
+    if (opponents.length > 0) {
       return {
-        favourite: {
-          kind,
-          team_id: Number(row.opponent_team_id) || null,
-          team_name: String(row.team_name || '').trim() || null,
-          team_logo_path: String(row.team_logo_path || '').trim() || null,
-          value: Number(row.value || 0),
-        },
+        favourite: opponents[0],
+        opponents,
         reason: null,
       };
     }
@@ -548,10 +553,11 @@ async function fetchFavouriteOpponent(playerIds, leagueIds, playerRole) {
 
     return {
       favourite: null,
+      opponents: [],
       reason: Number(linkCountRows[0]?.linked_count || 0) > 0 ? 'no_events' : 'no_official_links',
     };
   } catch (_) {
-    return { favourite: null, reason: 'no_official_links' };
+    return { favourite: null, opponents: [], reason: 'no_official_links' };
   }
 }
 
