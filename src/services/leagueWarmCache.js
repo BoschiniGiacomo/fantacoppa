@@ -153,7 +153,9 @@ export function peekDashboard(leagueId) {
 export function setDashboard(leagueId, payload) {
   const id = nid(leagueId);
   if (id == null) return;
-  dashboardById.set(id, { payload: payload && typeof payload === 'object' ? payload : {}, ts: Date.now() });
+  if (!payload || typeof payload !== 'object') return;
+  if (Object.keys(payload).length === 0) return;
+  dashboardById.set(id, { payload, ts: Date.now() });
 }
 
 export function peekLeagueDetail(leagueId) {
@@ -182,7 +184,8 @@ export function peekTeamsRows(leagueId) {
 export function setTeamsRows(leagueId, rows) {
   const id = nid(leagueId);
   if (id == null) return;
-  teamsRowsById.set(id, { rows: Array.isArray(rows) ? rows : [], ts: Date.now() });
+  if (!Array.isArray(rows)) return;
+  teamsRowsById.set(id, { rows, ts: Date.now() });
 }
 
 /** Mercato con filtri default (tutti i ruoli, senza ricerca) — come all’ingresso in MarketScreen */
@@ -197,7 +200,19 @@ export function peekMarketBootstrapDefault(leagueId) {
 export function setMarketBootstrapDefault(leagueId, data) {
   const id = nid(leagueId);
   if (id == null) return;
-  marketBootstrapById.set(id, { data: data && typeof data === 'object' ? data : {}, ts: Date.now() });
+  if (!isUsableMarketBootstrap(data)) return;
+  marketBootstrapById.set(id, { data, ts: Date.now() });
+}
+
+/** true se il bootstrap mercato ha struttura usabile (anche con 0 giocatori ma role_limits/league). */
+export function isUsableMarketBootstrap(data) {
+  if (!data || typeof data !== 'object') return false;
+  if (data.message && data.role_limits == null && data.league == null && !Array.isArray(data.players)) return false;
+  return data.role_limits != null || data.league != null || Array.isArray(data.players);
+}
+
+export function marketBootstrapHasPlayers(data) {
+  return Array.isArray(data?.players) && data.players.length > 0;
 }
 
 export function peekSquadBootstrap(leagueId) {
@@ -278,10 +293,11 @@ export function peekStandingsFull(leagueId) {
 export function setStandingsFull(leagueId, data) {
   const id = nid(leagueId);
   if (id == null) return;
+  if (data == null) return;
   standingsFullById.set(id, { data, ts: Date.now() });
 }
 
-/** null = assente; [] = nessuna giornata */
+/** null = assente; [] = nessuna giornata (solo se cache valida) */
 export function peekFormationMatchdays(leagueId) {
   const id = nid(leagueId);
   if (id == null) return null;
@@ -293,8 +309,20 @@ export function peekFormationMatchdays(leagueId) {
 export function setFormationMatchdays(leagueId, matchdays) {
   const id = nid(leagueId);
   if (id == null) return;
+  if (!Array.isArray(matchdays)) return;
+  // Non sovrascrivere una cache non-vuota con [] (tipico di errori 200 legacy / race).
+  const prev = formationMatchdaysById.get(id);
+  if (
+    matchdays.length === 0
+    && prev
+    && !isStale(prev)
+    && Array.isArray(prev.matchdays)
+    && prev.matchdays.length > 0
+  ) {
+    return;
+  }
   formationMatchdaysById.set(id, {
-    matchdays: Array.isArray(matchdays) ? matchdays : [],
+    matchdays,
     ts: Date.now(),
   });
 }
@@ -310,7 +338,10 @@ export function peekLeagueSettings(leagueId) {
 export function setLeagueSettings(leagueId, data) {
   const id = nid(leagueId);
   if (id == null) return;
-  leagueSettingsById.set(id, { data: data && typeof data === 'object' ? data : {}, ts: Date.now() });
+  if (!data || typeof data !== 'object') return;
+  // {} da catch non deve avvelenare auto_lineup / titolari
+  if (Object.keys(data).length === 0) return;
+  leagueSettingsById.set(id, { data, ts: Date.now() });
 }
 
 /** Risposta grezza di GET /squad/:leagueId (oggetto con players, ecc.) */
@@ -347,7 +378,23 @@ export function getFormationPayloadWarmMeta(leagueId, giornata) {
 export function setFormationPayload(leagueId, giornata, payload) {
   const k = formationPayloadKey(leagueId, giornata);
   if (!k) return;
+  if (!isUsableFormationPayload(payload)) return;
   formationPayloadByKey.set(k, { payload, ts: Date.now() });
+}
+
+/** Payload formazione con campi minimi (non {} da catch/errore). */
+export function isUsableFormationPayload(payload) {
+  if (!payload || typeof payload !== 'object') return false;
+  // Errore avvelenato: oggetto vuoto o solo message
+  const keys = Object.keys(payload);
+  if (keys.length === 0) return false;
+  return (
+    'deadline' in payload
+    || 'formation' in payload
+    || 'isExpired' in payload
+    || 'canEdit' in payload
+    || Array.isArray(payload.formation_players)
+  );
 }
 
 export function peekTeamDetail(leagueId, userId) {
@@ -364,8 +411,12 @@ export function setTeamDetail(leagueId, userId, payload) {
   const lid = nid(leagueId);
   const uid = nid(userId);
   if (lid == null || uid == null) return;
+  if (!payload || typeof payload !== 'object') return;
+  if (Object.keys(payload).length === 0) return;
+  // Non cacheare dettaglio senza team/players strutturati
+  if (payload.message && !payload.id && !Array.isArray(payload.players)) return;
   const k = `${lid}:${uid}`;
-  teamDetailByKey.set(k, { payload: payload && typeof payload === 'object' ? payload : {}, ts: Date.now() });
+  teamDetailByKey.set(k, { payload, ts: Date.now() });
 }
 
 export function pickDefaultFormationGiornata(matchdays) {
@@ -624,7 +675,7 @@ export async function prefetchLeagueWarmData(opts = {}) {
         }
         if (teamsR.status === 'fulfilled') {
           const rows = teamsR.value?.data;
-          setTeamsRows(id, Array.isArray(rows) ? rows : []);
+          if (Array.isArray(rows)) setTeamsRows(id, rows);
         }
         if (squadBootR.status === 'fulfilled') {
           const data = squadBootR.value?.data;
@@ -638,7 +689,7 @@ export async function prefetchLeagueWarmData(opts = {}) {
         let md = [];
         if (matchdaysR.status === 'fulfilled') {
           md = Array.isArray(matchdaysR.value?.data) ? matchdaysR.value.data : [];
-          setFormationMatchdays(id, md);
+          if (md.length > 0) setFormationMatchdays(id, md);
         }
         if (squadListR.status === 'fulfilled') {
           const sd = squadListR.value?.data;

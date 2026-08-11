@@ -241,8 +241,9 @@ router.get('/:leagueId/matchdays', authenticateToken, async (req, res) => {
       has_formation: lineupSet.has(Number(r.giornata)),
     }));
     res.json(enriched);
-  } catch (_) {
-    res.json([]);
+  } catch (error) {
+    console.error('Formation matchdays error:', error);
+    return res.status(500).json({ message: 'Errore caricamento giornate' });
   }
 });
 
@@ -265,7 +266,7 @@ router.get('/:leagueId/:giornata/deadline', authenticateToken, async (req, res) 
     const deadline = rows[0]?.deadline || null;
     res.json({ deadline, isExpired: deadline ? new Date(deadline) < new Date() : false });
   } catch (_) {
-    res.json({ deadline: null, isExpired: false });
+    res.status(500).json({ deadline: null, isExpired: false, message: 'Errore deadline' });
   }
 });
 
@@ -498,16 +499,9 @@ router.get('/:leagueId/:giornata', authenticateToken, async (req, res) => {
       isExpired,
       ...editAvailability,
     });
-  } catch (_) {
-    res.json({
-      formation: null,
-      formation_players: [],
-      formation_recovered: false,
-      deadline: null,
-      isExpired: false,
-      canEdit: true,
-      releaseAt: null,
-    });
+  } catch (error) {
+    console.error('Formation get error:', error);
+    return res.status(500).json({ message: 'Errore caricamento formazione' });
   }
 });
 

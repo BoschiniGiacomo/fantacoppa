@@ -219,7 +219,7 @@ export default function StandingsScreen({ route, navigation }) {
     const warmL = peekLeagueDetail(leagueId);
     const warmStand = peekStandingsFull(leagueId);
     const warmMd = peekFormationMatchdays(leagueId);
-    const hasWarm = warmStand != null && warmMd != null;
+    const hasWarm = warmStand != null && Array.isArray(warmMd) && warmMd.length > 0;
 
     if (hasWarm) {
       if (warmL != null) setLeague(warmL);
@@ -233,8 +233,13 @@ export default function StandingsScreen({ route, navigation }) {
         setSelectedMatchday(mdArr[mdArr.length - 1].giornata);
       }
       setLoading(false);
+      // Skip solo se classifica e giornate sono entrambe non vuote
+      const standingsLen = Array.isArray(standingsData)
+        ? standingsData.length
+        : (standingsData && typeof standingsData === 'object' ? Object.keys(standingsData).length : 0);
       if (
-        canSkipWarmNetwork([
+        standingsLen > 0
+        && canSkipWarmNetwork([
           getStandingsFullWarmMeta(leagueId),
           getFormationMatchdaysWarmMeta(leagueId),
         ])
@@ -264,9 +269,11 @@ export default function StandingsScreen({ route, navigation }) {
 
       const matchdaysData = matchdaysRes.data;
       const mdList = excludeGhostMatchdays(matchdaysData);
-      setMatchdays(mdList);
-      setFormationMatchdays(leagueId, mdList);
-      const defaultMatchday = pickDefaultMatchday(mdList, statusRes?.data || []);
+      if (mdList.length > 0) {
+        setMatchdays(mdList);
+        setFormationMatchdays(leagueId, mdList);
+      }
+      const defaultMatchday = pickDefaultMatchday(mdList.length > 0 ? mdList : excludeGhostMatchdays(warmMd || []), statusRes?.data || []);
       if (defaultMatchday) setSelectedMatchday(defaultMatchday);
     } catch (error) {
       console.error('Error loading standings:', error);
@@ -289,7 +296,7 @@ export default function StandingsScreen({ route, navigation }) {
 
     } catch (error) {
       console.error('Error loading matchday results:', error);
-      setMatchdayResults([]);
+      // Non azzerare risultati già a video su errore rete
     } finally {
       setLoadingMatchdayResults(false);
     }

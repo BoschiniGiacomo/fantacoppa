@@ -59,7 +59,7 @@ export default function CalendarScreen({ route, navigation }) {
   const loadData = async () => {
     const warmL = peekLeagueDetail(leagueId);
     const warmMd = peekFormationMatchdays(leagueId);
-    const hasWarmCore = warmL != null && warmMd != null;
+    const hasWarmCore = warmL != null && Array.isArray(warmMd) && warmMd.length > 0;
 
     if (hasWarmCore) {
       setLeague(warmL);
@@ -90,12 +90,12 @@ export default function CalendarScreen({ route, navigation }) {
       if (leagueData && typeof leagueData === 'object') setLeagueDetail(leagueId, leagueData);
 
       const rawMd = Array.isArray(matchdaysRes.data) ? matchdaysRes.data : [];
-      setFormationMatchdays(leagueId, rawMd);
-
-      const matchdaysWithStatus = buildMatchdays(leagueData, rawMd);
-      setMatchdays(matchdaysWithStatus);
-
-      if (matchdaysWithStatus.some((m) => m.hasFormation)) markDone('submitted_formation');
+      if (rawMd.length > 0) {
+        setFormationMatchdays(leagueId, rawMd);
+        const matchdaysWithStatus = buildMatchdays(leagueData, rawMd);
+        setMatchdays(matchdaysWithStatus);
+        if (matchdaysWithStatus.some((m) => m.hasFormation)) markDone('submitted_formation');
+      }
     } catch (error) {
       console.error('Error loading calendar:', error);
       if (!hasWarmCore) {

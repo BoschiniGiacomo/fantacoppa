@@ -184,9 +184,13 @@ export default function LeagueScreen({ route, navigation }) {
     };
 
     const warm = peekDashboard(leagueId);
-    if (warm != null) {
+    const warmUsable = warm != null && typeof warm === 'object' && Object.keys(warm).length > 0;
+    if (warmUsable) {
       applyFromPayload(warm);
-      if (getDashboardWarmMeta(leagueId)?.skipNetwork) {
+      if (
+        getDashboardWarmMeta(leagueId)?.skipNetwork
+        && (Array.isArray(warm.top_standings) ? warm.top_standings.length > 0 : true)
+      ) {
         return;
       }
     } else {
@@ -203,13 +207,10 @@ export default function LeagueScreen({ route, navigation }) {
         markDone('submitted_formation');
       }
     } catch (error) {
-      if (warm == null) {
+      if (!warmUsable) {
         showToast('Impossibile caricare i dati della lega');
         console.error('Error loading league data:', error);
         console.error('Error details:', error.response?.data || error.message);
-        setTopStandings([]);
-        setSquadPlayersCount(0);
-        setMarketPlayersCount(0);
       } else {
         showToast('Impossibile aggiornare i dati della lega');
         console.error('Error loading league data:', error);

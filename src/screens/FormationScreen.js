@@ -24,6 +24,7 @@ import {
   getSquadPlayersWarmMeta,
   getLeagueSettingsWarmMeta,
   canSkipWarmNetwork,
+  isUsableFormationPayload,
 } from '../services/leagueWarmCache';
 import { Ionicons } from '@expo/vector-icons';
 import { parseAppDate } from '../utils/dateTime';
@@ -349,13 +350,15 @@ export default function FormationScreen({ route }) {
   const loadFormationForMatchday = async (giornata, squadOverride, warmPayload = null) => {
     try {
       let data = {};
-      if (warmPayload != null && typeof warmPayload === 'object') {
+      const warmOk = isUsableFormationPayload(warmPayload);
+      if (warmOk) {
         data = warmPayload;
-        setFormationPayload(leagueId, giornata, data);
       } else {
         const res = await formationService.getFormation(leagueId, giornata);
         data = res.data || {};
-        setFormationPayload(leagueId, giornata, data);
+        if (isUsableFormationPayload(data)) {
+          setFormationPayload(leagueId, giornata, data);
+        }
       }
       setDeadlineStr(data.deadline || null);
       setIsExpired(!!data.isExpired);
@@ -415,13 +418,14 @@ export default function FormationScreen({ route }) {
     const warmL = peekLeagueDetail(leagueId);
     const warmSquad = peekSquadPlayersData(leagueId);
     const warmSet = peekLeagueSettings(leagueId);
-    const hasWarmCore = warmMd != null && warmL != null && warmSquad != null && warmSet != null;
+    const warmMdOk = Array.isArray(warmMd) && warmMd.length > 0;
+    const hasWarmCore = warmMdOk && warmL != null && warmSquad != null && warmSet != null;
 
     if (hasWarmCore) {
       setMatchdays(warmMd);
       setLeague(warmL);
-      const playersRaw = warmSquad?.players || [];
-      const activePlayers = playersRaw.filter((p) => Number(p?.is_injured || 0) !== 1);
+      const playersRaw = warmSquad?.players || warmSquad?.squad || [];
+      const activePlayers = (Array.isArray(playersRaw) ? playersRaw : []).filter((p) => Number(p?.is_injured || 0) !== 1);
       setSquad(activePlayers);
       const nt = warmSet.numero_titolari || 10;
       const al = !!warmSet.auto_lineup_mode;
@@ -461,7 +465,7 @@ export default function FormationScreen({ route }) {
     try {
       // Predict default giornata from warm cache so we can prefetch formation in parallel
       const predictedGiornata = (() => {
-        const wMd = warmMd || [];
+        const wMd = warmMdOk ? warmMd : [];
         if (wMd.length === 0) return null;
         if (requestedGiornata && wMd.some(m => m.giornata === requestedGiornata)) return requestedGiornata;
         const now = new Date();
@@ -473,18 +477,20 @@ export default function FormationScreen({ route }) {
         formationService.getMatchdays(leagueId),
         leagueService.getById(leagueId).catch(() => ({ data: null })),
         squadService.getSquad(leagueId).catch(() => ({ data: null })),
-        leagueService.getSettings(leagueId).catch(() => ({ data: {} })),
+        leagueService.getSettings(leagueId).catch(() => ({ data: null })),
       ];
       if (predictedGiornata != null) {
-        apiCalls.push(formationService.getFormation(leagueId, predictedGiornata).catch(() => ({ data: {} })));
+        apiCalls.push(formationService.getFormation(leagueId, predictedGiornata).catch(() => ({ data: null })));
       }
       const results = await Promise.all(apiCalls);
       const [matchdaysRes, leagueRes, squadRes, settingsRes] = results;
       const prefetchedFormation = predictedGiornata != null ? results[4] : null;
 
-      const md = matchdaysRes.data || [];
-      setMatchdays(md);
-      setFormationMatchdays(leagueId, md);
+      const md = Array.isArray(matchdaysRes.data) ? matchdaysRes.data : [];
+      if (md.length > 0) {
+        setMatchdays(md);
+        setFormationMatchdays(leagueId, md);
+      }
 
       if (leagueRes?.data) {
         const ld = Array.isArray(leagueRes.data) ? leagueRes.data[0] : leagueRes.data;
@@ -492,42 +498,47 @@ export default function FormationScreen({ route }) {
         if (ld && typeof ld === 'object') setLeagueDetail(leagueId, ld);
       }
 
+      let activePlayers = [];
       const squadPayload = squadRes?.data;
       if (squadPayload && typeof squadPayload === 'object' && (Array.isArray(squadPayload.players) || Array.isArray(squadPayload.squad))) {
         setSquadPlayersData(leagueId, squadPayload);
         const playersRaw = squadPayload.players || squadPayload.squad || [];
-        const activePlayers = playersRaw.filter((p) => Number(p?.is_injured || 0) !== 1);
+        activePlayers = playersRaw.filter((p) => Number(p?.is_injured || 0) !== 1);
         setSquad(activePlayers);
       } else {
-        const warmSquad = peekSquadPlayersData(leagueId);
-        const playersRaw = warmSquad?.players || warmSquad?.squad || [];
-        const activePlayers = (Array.isArray(playersRaw) ? playersRaw : []).filter((p) => Number(p?.is_injured || 0) !== 1);
+        const warmSquadFallback = peekSquadPlayersData(leagueId);
+        const playersRaw = warmSquadFallback?.players || warmSquadFallback?.squad || [];
+        activePlayers = (Array.isArray(playersRaw) ? playersRaw : []).filter((p) => Number(p?.is_injured || 0) !== 1);
         if (activePlayers.length > 0) setSquad(activePlayers);
       }
 
       const settingsPayload = settingsRes?.data;
-      if (settingsPayload && typeof settingsPayload === 'object') setLeagueSettings(leagueId, settingsPayload);
+      if (settingsPayload && typeof settingsPayload === 'object' && Object.keys(settingsPayload).length > 0) {
+        setLeagueSettings(leagueId, settingsPayload);
+        setNumeroTitolari(settingsPayload.numero_titolari || 10);
+        setAutoLineup(!!settingsPayload.auto_lineup_mode);
+      } else if (warmSet) {
+        setNumeroTitolari(warmSet.numero_titolari || 10);
+        setAutoLineup(!!warmSet.auto_lineup_mode);
+      }
 
-      const nt = settingsRes?.data?.numero_titolari || 10;
-      const al = !!(settingsRes?.data?.auto_lineup_mode);
-      setNumeroTitolari(nt);
-      setAutoLineup(al);
-
-      if (md.length > 0) {
+      const mdFinal = md.length > 0 ? md : (warmMdOk ? warmMd : []);
+      if (mdFinal.length > 0) {
         let defaultMd;
-        if (requestedGiornata && md.some(m => m.giornata === requestedGiornata)) {
+        if (requestedGiornata && mdFinal.some(m => m.giornata === requestedGiornata)) {
           defaultMd = requestedGiornata;
         } else {
           const now = new Date();
-          const futureMatchday = md.find((m) => {
+          const futureMatchday = mdFinal.find((m) => {
             const d = parseDeadlineDate(m?.deadline);
             return !!d && d > now;
           });
-          defaultMd = futureMatchday ? futureMatchday.giornata : md[md.length - 1].giornata;
+          defaultMd = futureMatchday ? futureMatchday.giornata : mdFinal[mdFinal.length - 1].giornata;
         }
         setSelectedMatchday(defaultMd);
-        if (predictedGiornata === defaultMd && prefetchedFormation) {
-          await loadFormationForMatchday(defaultMd, activePlayers, prefetchedFormation.data);
+        const prefData = prefetchedFormation?.data;
+        if (predictedGiornata === defaultMd && isUsableFormationPayload(prefData)) {
+          await loadFormationForMatchday(defaultMd, activePlayers, prefData);
         } else {
           await loadFormationForMatchday(defaultMd, activePlayers);
         }

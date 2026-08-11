@@ -17,7 +17,7 @@ import { useAuth } from '../context/AuthContext';
 import { useOnboarding } from '../context/OnboardingContext';
 import { marketService, squadService } from '../services/api';
 import { PlayerPhotoImage } from '../components/StableCachedImage';
-import { peekMarketBootstrapDefault, setMarketBootstrapDefault, invalidateLeagueWarmCache, getMarketBootstrapWarmMeta, setSquadBootstrap } from '../services/leagueWarmCache';
+import { peekMarketBootstrapDefault, setMarketBootstrapDefault, invalidateLeagueWarmCache, getMarketBootstrapWarmMeta, setSquadBootstrap, isUsableMarketBootstrap, marketBootstrapHasPlayers } from '../services/leagueWarmCache';
 import { Ionicons } from '@expo/vector-icons';
 import { useMarketBlockPoll } from '../hooks/useMarketBlockPoll';
 
@@ -49,6 +49,9 @@ export default function MarketScreen({ route, navigation }) {
   const [confirmPlayer, setConfirmPlayer] = useState(null);
   const [removing, setRemoving] = useState(false);
   const debounceRef = useRef(null);
+  const loadGenRef = useRef(0);
+  const playersRef = useRef([]);
+  playersRef.current = players;
 
   const roles = [
     { key: '', label: 'Tutti', icon: 'list' },
@@ -95,6 +98,7 @@ export default function MarketScreen({ route, navigation }) {
   });
 
   const applyBootstrapData = (data) => {
+    if (!isUsableMarketBootstrap(data)) return;
     const playersList = Array.isArray(data.players) ? data.players : [];
     setPlayers(playersList);
     const budgetValue = data?.budget ?? 0;
@@ -121,12 +125,14 @@ export default function MarketScreen({ route, navigation }) {
   };
 
   const loadData = async () => {
+    const gen = ++loadGenRef.current;
     const warm = peekMarketBootstrapDefault(leagueId);
-    if (warm != null) {
+    const warmUsable = isUsableMarketBootstrap(warm);
+    if (warmUsable) {
       applyBootstrapData(warm);
       setLoading(false);
-      // Warm molto fresco (post-login): evita doppio scarico; pull/invalidate forzano rete.
-      if (getMarketBootstrapWarmMeta(leagueId)?.skipNetwork) {
+      // Skip rete solo con lista giocatori già presente e warm freschissimo
+      if (marketBootstrapHasPlayers(warm) && getMarketBootstrapWarmMeta(leagueId)?.skipNetwork) {
         setRefreshing(false);
         return;
       }
@@ -135,23 +141,28 @@ export default function MarketScreen({ route, navigation }) {
     }
     try {
       const bootstrapRes = await marketService.getBootstrap(leagueId, {});
+      if (gen !== loadGenRef.current) return;
       const data = bootstrapRes?.data || {};
+      if (!isUsableMarketBootstrap(data)) throw new Error('Payload mercato non valido');
       applyBootstrapData(data);
       setMarketBootstrapDefault(leagueId, data);
     } catch (error) {
       console.error('Error loading market data:', error);
-      if (warm == null) {
+      if (gen !== loadGenRef.current) return;
+      if (warmUsable || playersRef.current.length > 0) {
+        showError('Impossibile aggiornare i dati del mercato');
+      } else {
         showError('Impossibile caricare i dati del mercato');
         setBudget(0);
         setPlayers([]);
         setMarketBlocked(false);
         setMarketBlockReason('none');
-      } else {
-        showError('Impossibile aggiornare i dati del mercato');
       }
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (gen === loadGenRef.current) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
   };
 

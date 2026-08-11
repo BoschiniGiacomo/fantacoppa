@@ -73,10 +73,12 @@ export default function TeamDetailScreen({ route, navigation }) {
 
   const loadTeamDetail = async () => {
     const warm = peekTeamDetail(leagueId, userId);
-    if (warm != null) {
+    const warmUsable = warm != null && typeof warm === 'object' && (warm.id != null || Array.isArray(warm.players));
+    const warmHasPlayers = Array.isArray(warm?.players) && warm.players.length > 0;
+    if (warmUsable) {
       applyDetailPayload(warm);
       setLoading(false);
-      if (getTeamDetailWarmMeta(leagueId, userId)?.skipNetwork) {
+      if (warmHasPlayers && getTeamDetailWarmMeta(leagueId, userId)?.skipNetwork) {
         return;
       }
     } else {
@@ -89,7 +91,7 @@ export default function TeamDetailScreen({ route, navigation }) {
       applyDetailPayload(payload);
       setTeamDetail(leagueId, userId, payload);
     } catch (error) {
-      if (warm == null) {
+      if (!warmUsable) {
         showToast('Impossibile caricare i dettagli della squadra');
         console.error(error);
       } else {

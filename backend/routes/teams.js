@@ -104,7 +104,7 @@ router.get('/:leagueId/:userId', authenticateToken, async (req, res) => {
          LEFT JOIN teams t ON t.id = p.team_id
          GROUP BY p.id, p.first_name, p.last_name, p.role, p.rating, p.is_injured, p.injury_replacement_player_id, t.name, p.photo_path`,
         [userId, leagueId]
-      ).catch(() => []),
+      ),
       query(
         `SELECT mr.giornata,
                 mr.punteggio AS punteggio_giornata,
@@ -116,7 +116,7 @@ router.get('/:leagueId/:userId', authenticateToken, async (req, res) => {
          WHERE mr.league_id = ? AND mr.user_id = ?
          ORDER BY mr.giornata DESC`,
         [leagueId, userId]
-      ).catch(() => []),
+      ),
     ]);
     if (teamRows.length < 1) return res.status(404).json({ message: 'Squadra non trovata' });
 

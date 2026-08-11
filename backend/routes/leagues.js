@@ -3411,8 +3411,9 @@ router.get('/:id/standings/matchday/:giornata', authenticateToken, async (req, r
         [leagueId, giornata]
       );
       return res.json(rows);
-    } catch (_) {
-      return res.json([]);
+    } catch (innerErr) {
+      console.error('Standings matchday query error:', innerErr);
+      return res.status(500).json({ message: 'Errore classifica giornata' });
     }
   } catch (error) {
     console.error('Standings matchday error:', error);
@@ -3480,8 +3481,9 @@ router.get('/:id/matchday-status', authenticateToken, async (req, res) => {
       );
     }
     res.json(filterGhostMatchdaysForUser(rows, false));
-  } catch (_) {
-    res.json([]);
+  } catch (error) {
+    console.error('Matchday status error:', error);
+    return res.status(500).json({ message: 'Errore caricamento stato giornate' });
   }
 });
 

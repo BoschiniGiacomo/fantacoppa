@@ -116,8 +116,7 @@ export default function LiveScoresScreen({ route, navigation }) {
     } catch (error) {
       const msg = error?.response?.data?.message || error?.message || 'Errore caricamento live';
       setLoadError(msg);
-      setLiveData({ results: [], is_calculated: false });
-      // In errore tieni il poll attivo: può essere un glitch temporaneo durante la diretta.
+      // Non cancellare l'ultimo payload buono su glitch di rete
       livePollEnabledRef.current = true;
     } finally {
       setLoading(false);

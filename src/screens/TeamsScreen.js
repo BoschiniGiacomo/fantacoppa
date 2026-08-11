@@ -70,7 +70,9 @@ export default function TeamsScreen({ route, navigation }) {
     if (hasWarm) {
       setLoading(false);
       if (
-        canSkipWarmNetwork([
+        Array.isArray(warmRows)
+        && warmRows.length > 0
+        && canSkipWarmNetwork([
           getLeagueDetailWarmMeta(leagueId),
           getTeamsRowsWarmMeta(leagueId),
         ])
