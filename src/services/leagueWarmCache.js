@@ -214,6 +214,47 @@ export function setSquadBootstrap(leagueId, data) {
   squadBootstrapById.set(id, { data: data && typeof data === 'object' ? data : {}, ts: Date.now() });
 }
 
+/** Aggiorna solo lo stato blocco mercato nel warm (senza invalidare lista giocatori/budget). */
+export function patchMarketBootstrapBlockStatus(leagueId, { blocked, block_reason } = {}) {
+  const id = nid(leagueId);
+  if (id == null) return;
+  const row = marketBootstrapById.get(id);
+  if (!row?.data || typeof row.data !== 'object') return;
+  const nextBlocked = Boolean(blocked);
+  const nextReason = String(block_reason || (nextBlocked ? 'global' : 'none'));
+  row.data = {
+    ...row.data,
+    blocked: nextBlocked,
+    market_blocked: nextBlocked,
+    block_reason: nextReason,
+  };
+}
+
+export function patchSquadBootstrapBlockStatus(leagueId, { blocked } = {}) {
+  const id = nid(leagueId);
+  if (id == null) return;
+  const row = squadBootstrapById.get(id);
+  if (!row?.data || typeof row.data !== 'object') return;
+  row.data = {
+    ...row.data,
+    market_blocked: Boolean(blocked),
+  };
+}
+
+/** Aggiorna badge mercato nella snapshot home senza rifare GET /leagues. */
+export function patchHomeLeaguesMarketLocked(leagueId, marketLocked) {
+  const id = nid(leagueId);
+  if (id == null || !homeLeaguesBootstrapSnapshot?.leagues) return;
+  const locked = marketLocked ? 1 : 0;
+  homeLeaguesBootstrapSnapshot.leagues = homeLeaguesBootstrapSnapshot.leagues.map((l) =>
+    Number(l?.id) === id ? { ...l, market_locked: locked } : l
+  );
+  const dash = dashboardById.get(id);
+  if (dash?.payload && typeof dash.payload === 'object') {
+    dash.payload = { ...dash.payload, market_locked: locked };
+  }
+}
+
 export function peekStandingsFull(leagueId) {
   const id = nid(leagueId);
   if (id == null) return null;

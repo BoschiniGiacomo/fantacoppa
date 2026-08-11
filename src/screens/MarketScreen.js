@@ -19,6 +19,7 @@ import { marketService, squadService } from '../services/api';
 import { PlayerPhotoImage } from '../components/StableCachedImage';
 import { peekMarketBootstrapDefault, setMarketBootstrapDefault, invalidateLeagueWarmCache, getMarketBootstrapWarmMeta } from '../services/leagueWarmCache';
 import { Ionicons } from '@expo/vector-icons';
+import { useMarketBlockPoll } from '../hooks/useMarketBlockPoll';
 
 export default function MarketScreen({ route, navigation }) {
   const { user } = useAuth();
@@ -84,6 +85,14 @@ export default function MarketScreen({ route, navigation }) {
       loadData();
     }, [leagueId])
   );
+
+  // Solo stato blocco: poll leggero + evento admin (non rifà bootstrap giocatori)
+  useMarketBlockPoll(leagueId, {
+    onStatus: ({ blocked, block_reason }) => {
+      setMarketBlocked(Boolean(blocked));
+      setMarketBlockReason(String(block_reason || 'none'));
+    },
+  });
 
   const applyBootstrapData = (data) => {
     const playersList = Array.isArray(data.players) ? data.players : [];

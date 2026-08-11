@@ -26,6 +26,8 @@ import { leagueService, marketService } from '../services/api';
 import { useOnboarding } from '../context/OnboardingContext';
 import { defaultLogos, defaultLogosMap } from '../constants/defaultLogos';
 import { parseAppDate } from '../utils/dateTime';
+import { emitMarketBlockChanged } from '../hooks/useMarketBlockPoll';
+import { patchHomeLeaguesMarketLocked } from '../services/leagueWarmCache';
 
 export default function SettingsScreen({ route, navigation }) {
   const { leagueId, section } = route.params || {};
@@ -887,6 +889,10 @@ export default function SettingsScreen({ route, navigation }) {
         blocked: parseInt(m.blocked) || 0
       }));
       setMarketMembers(updatedMembers);
+      patchHomeLeaguesMarketLocked(leagueId, value);
+      // Stato effettivo dipende anche dalle eccezioni utente: lascia che i client in focus
+      // rifacciano solo GET /blocked (evento + poll), senza invalidare i bootstrap pesanti.
+      emitMarketBlockChanged(leagueId);
     } catch (error) {
       console.error('Error toggling market lock:', error);
       setMarketLocked(!value);
@@ -939,6 +945,7 @@ export default function SettingsScreen({ route, navigation }) {
         m.user_id === userId ? { ...m, blocked: newDbBlocked } : m
       ));
       await marketService.updateUserBlock(leagueId, userId, newDbBlocked);
+      emitMarketBlockChanged(leagueId);
     } catch (error) {
       console.error('Error toggling user block:', error);
       // Ripristina

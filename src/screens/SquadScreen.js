@@ -19,6 +19,7 @@ import { PlayerPhotoImage } from '../components/StableCachedImage';
 import { peekSquadBootstrap, setSquadBootstrap, invalidateLeagueWarmCache, getSquadBootstrapWarmMeta } from '../services/leagueWarmCache';
 import { Ionicons } from '@expo/vector-icons';
 import InjurySwapIcon from '../components/InjurySwapIcon';
+import { useMarketBlockPoll } from '../hooks/useMarketBlockPoll';
 
 export default function SquadScreen({ route, navigation }) {
   const { user } = useAuth();
@@ -119,6 +120,12 @@ export default function SquadScreen({ route, navigation }) {
       loadData();
     }, [loadData])
   );
+
+  useMarketBlockPoll(leagueId, {
+    onStatus: ({ blocked }) => {
+      setMarketBlocked(Boolean(blocked));
+    },
+  });
 
   // Aggiorna onboarding: rosa completa quando tutti gli slot di ogni ruolo sono pieni
   useEffect(() => {
