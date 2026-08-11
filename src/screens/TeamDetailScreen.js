@@ -180,16 +180,20 @@ export default function TeamDetailScreen({ route, navigation }) {
             </View>
 
             {/* Budget */}
-            <View style={styles.budgetBox}>
-              <Text style={[styles.budgetValue, (squadHidden || team.budget == null) && styles.playerHiddenText]}>
-                {squadHidden || team.budget == null ? '••••' : (team.budget?.toFixed(2) || '0.00')}
-              </Text>
-              <Text style={styles.budgetLabel}>
-                {squadHidden || team.budget == null
-                  ? 'crediti'
-                  : (team.budget === 1 ? 'credito' : 'crediti')}
-              </Text>
-            </View>
+            {squadHidden || team.budget == null ? (
+              <View style={styles.budgetBoxHidden}>
+                <View style={styles.budgetHiddenIconWrap}>
+                  <Ionicons name="eye-off-outline" size={16} color="#667eea" />
+                </View>
+                <View style={styles.budgetHiddenValueBar} />
+                <Text style={styles.budgetHiddenLabel}>crediti nascosti</Text>
+              </View>
+            ) : (
+              <View style={styles.budgetBox}>
+                <Text style={styles.budgetValue}>{team.budget?.toFixed(2) || '0.00'}</Text>
+                <Text style={styles.budgetLabel}>{team.budget === 1 ? 'credito' : 'crediti'}</Text>
+              </View>
+            )}
           </View>
         </View>
 
@@ -274,14 +278,21 @@ export default function TeamDetailScreen({ route, navigation }) {
                         </View>
                       )}
                       <View style={styles.playerInfo}>
-                        <Text style={[styles.playerName, isPlayerHidden && styles.playerHiddenText]} numberOfLines={1}>
-                          {isPlayerHidden ? '••••••••' : `${player.first_name} ${player.last_name}`}
-                        </Text>
                         {isPlayerHidden ? (
-                          <Text style={[styles.playerTeam, styles.playerHiddenText]} numberOfLines={1}>••••</Text>
-                        ) : player.team_name ? (
-                          <Text style={styles.playerTeam} numberOfLines={1}>{player.team_name}</Text>
-                        ) : null}
+                          <>
+                            <View style={[styles.hiddenBar, styles.hiddenBarName]} />
+                            <View style={[styles.hiddenBar, styles.hiddenBarTeam]} />
+                          </>
+                        ) : (
+                          <>
+                            <Text style={styles.playerName} numberOfLines={1}>
+                              {player.first_name} {player.last_name}
+                            </Text>
+                            {player.team_name ? (
+                              <Text style={styles.playerTeam} numberOfLines={1}>{player.team_name}</Text>
+                            ) : null}
+                          </>
+                        )}
                       </View>
                       <View style={styles.playerRight}>
                         {!isPlayerHidden && Number(player?.acquired_as_injury_replacement || 0) === 1 && (
@@ -294,9 +305,13 @@ export default function TeamDetailScreen({ route, navigation }) {
                             <Ionicons name="bandage" size={22} color="#e65050" />
                           </View>
                         )}
-                        <Text style={[styles.playerRating, isPlayerHidden && styles.playerHiddenText]}>
-                          {isPlayerHidden ? '••' : (player.rating?.toFixed(2) || '-')}
-                        </Text>
+                        {isPlayerHidden ? (
+                          <View style={[styles.hiddenBar, styles.hiddenBarRating]} />
+                        ) : (
+                          <Text style={styles.playerRating}>
+                            {player.rating?.toFixed(2) || '-'}
+                          </Text>
+                        )}
                       </View>
                     </RowComponent>
                     );
@@ -469,6 +484,36 @@ const styles = StyleSheet.create({
     color: '#388e3c',
     marginTop: 1,
   },
+  budgetBoxHidden: {
+    alignItems: 'center',
+    paddingLeft: 10,
+    minWidth: 72,
+  },
+  budgetHiddenIconWrap: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#eef1ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 4,
+    borderWidth: 1,
+    borderColor: '#d8def0',
+    borderStyle: 'dashed',
+  },
+  budgetHiddenValueBar: {
+    width: 42,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#c5cbe8',
+    marginBottom: 3,
+  },
+  budgetHiddenLabel: {
+    fontSize: 9,
+    fontWeight: '600',
+    color: '#667eea',
+    letterSpacing: 0.2,
+  },
 
   /* ===== Tabs ===== */
   tabBar: {
@@ -563,11 +608,26 @@ const styles = StyleSheet.create({
     elevation: 1,
   },
   playerRowHidden: {
-    opacity: 0.85,
+    opacity: 0.9,
   },
-  playerHiddenText: {
-    color: '#9aa0b5',
-    letterSpacing: 1,
+  hiddenBar: {
+    borderRadius: 5,
+    backgroundColor: '#c5cbe8',
+  },
+  hiddenBarName: {
+    width: '72%',
+    maxWidth: 150,
+    height: 11,
+    marginBottom: 7,
+  },
+  hiddenBarTeam: {
+    width: '48%',
+    maxWidth: 96,
+    height: 8,
+  },
+  hiddenBarRating: {
+    width: 36,
+    height: 12,
   },
   playerPhotoCol: {
     width: 56,

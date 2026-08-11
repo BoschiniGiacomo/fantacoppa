@@ -58,6 +58,7 @@ router.get('/:leagueId', authenticateToken, async (req, res) => {
         budget: hideBudget ? null : budgetFromSquadValue(initialBudget, totalValue),
         total_value: hideBudget ? null : Number(totalValue.toFixed(2)),
         budget_hidden: hideBudget,
+        hide_formations: hideFormations,
       };
     });
 

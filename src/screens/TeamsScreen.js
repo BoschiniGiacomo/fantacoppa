@@ -64,6 +64,7 @@ export default function TeamsScreen({ route, navigation }) {
         ...row,
         budget: row?.budget == null ? null : safeNumber(row?.budget, 0),
         budget_hidden: row?.budget_hidden === true || row?.budget_hidden === 1,
+        hide_formations: row?.hide_formations === true || row?.hide_formations === 1,
       }));
       setTeams(normalizedWarm);
     }
@@ -116,6 +117,7 @@ export default function TeamsScreen({ route, navigation }) {
         ...row,
         budget: row?.budget == null ? null : safeNumber(row?.budget, 0),
         budget_hidden: row?.budget_hidden === true || row?.budget_hidden === 1,
+        hide_formations: row?.hide_formations === true || row?.hide_formations === 1,
       }));
       setTeams(normalized);
     } catch (error) {
@@ -185,13 +187,18 @@ export default function TeamsScreen({ route, navigation }) {
           </Text>
           <View style={styles.teamMeta}>
             <Text style={styles.username} numberOfLines={1}>{item.username}</Text>
-            <View style={styles.budgetChip}>
-              <Text style={styles.budgetText}>
-                {budgetHidden
-                  ? '•••• crediti'
-                  : `${budgetValue.toFixed(2)} ${budgetValue === 1 ? 'credito' : 'crediti'}`}
-              </Text>
-            </View>
+            {budgetHidden ? (
+              <View style={styles.budgetChipHidden}>
+                <View style={styles.budgetHiddenBar} />
+                <Text style={styles.budgetHiddenHint}>crediti</Text>
+              </View>
+            ) : (
+              <View style={styles.budgetChip}>
+                <Text style={styles.budgetText}>
+                  {`${budgetValue.toFixed(2)} ${budgetValue === 1 ? 'credito' : 'crediti'}`}
+                </Text>
+              </View>
+            )}
           </View>
         </View>
 
@@ -241,6 +248,12 @@ export default function TeamsScreen({ route, navigation }) {
             <Ionicons name="people-outline" size={14} color="#667eea" />
             <Text style={styles.countText}>{filteredTeams.length} squadr{filteredTeams.length === 1 ? 'a' : 'e'}</Text>
           </View>
+          {teams.some((t) => t?.hide_formations === true || t?.hide_formations === 1 || t?.budget_hidden) ? (
+            <View style={styles.hiddenFormationsChip}>
+              <Ionicons name="eye-off-outline" size={14} color="#667eea" />
+              <Text style={styles.hiddenFormationsText}>Formazioni nascoste</Text>
+            </View>
+          ) : null}
         </View>
       )}
 
@@ -327,6 +340,9 @@ const styles = StyleSheet.create({
   /* Contatore */
   countRow: {
     flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
     paddingHorizontal: 16,
     paddingTop: 10,
     paddingBottom: 2,
@@ -341,6 +357,23 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   countText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#667eea',
+  },
+  hiddenFormationsChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#eef1ff',
+    borderRadius: 20,
+    paddingVertical: 4,
+    paddingHorizontal: 12,
+    gap: 6,
+    borderWidth: 1,
+    borderColor: '#d8def0',
+    borderStyle: 'dashed',
+  },
+  hiddenFormationsText: {
     fontSize: 12,
     fontWeight: '600',
     color: '#667eea',
@@ -439,6 +472,30 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '600',
     color: '#2e7d32',
+  },
+  budgetChipHidden: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#eef1ff',
+    borderRadius: 8,
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderWidth: 1,
+    borderColor: '#d8def0',
+    borderStyle: 'dashed',
+  },
+  budgetHiddenBar: {
+    width: 28,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#c5cbe8',
+    opacity: 0.85,
+  },
+  budgetHiddenHint: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#667eea',
   },
 
   /* Empty state */
