@@ -313,6 +313,7 @@ export default function MatchesScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [items, setItems] = useState([]);
   const [error, setError] = useState(null);
+  const lastLoadedDateRef = useRef(null);
   const [daysViewportWidth, setDaysViewportWidth] = useState(0);
   const [dayLayouts, setDayLayouts] = useState({});
   const daysScrollRef = useRef(null);
@@ -436,19 +437,22 @@ export default function MatchesScreen() {
 
   const load = useCallback(async (date, isRefresh = false) => {
     const requestDate = String(date || '').trim();
+    // Refresh silenzioso solo se stiamo ricaricando la stessa data già mostrata.
+    const silent = isRefresh && lastLoadedDateRef.current === requestDate;
     try {
       setError(null);
-      if (!isRefresh) setLoading(true);
+      if (!silent) setLoading(true);
       const res = await matchesService.getByDate(requestDate);
       const matches = Array.isArray(res?.data?.matches) ? res.data.matches : [];
       if (selectedDateRef.current !== requestDate) return;
       setItems(matches);
+      lastLoadedDateRef.current = requestDate;
     } catch (e) {
       if (selectedDateRef.current !== requestDate) return;
       setError(e?.response?.data?.message || e?.message || 'Errore caricamento partite');
     } finally {
       if (selectedDateRef.current === requestDate) {
-        if (!isRefresh) setLoading(false);
+        setLoading(false);
         setRefreshing(false);
       }
     }

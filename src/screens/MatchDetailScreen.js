@@ -60,7 +60,22 @@ const RECENT_FORM_RESULT_COLORS = {
   P: '#dc2626',
 };
 
-const PREDICTION_DRAW_BORDER = '#6b7280';
+const PREDICTION_DRAW_BORDER = '#9ca3af';
+
+/** Stempera un hex (#RRGGBB) verso il bianco per bordi meno accesi. */
+function softenPredictionBorderColor(hex, amount = 0.38) {
+  const raw = String(hex || '').trim();
+  const m = raw.match(/^#([0-9a-f]{6})$/i);
+  if (!m) return PREDICTION_DRAW_BORDER;
+  const n = parseInt(m[1], 16);
+  const r = (n >> 16) & 255;
+  const g = (n >> 8) & 255;
+  const b = n & 255;
+  const t = Math.min(1, Math.max(0, Number(amount) || 0));
+  const mix = (c) => Math.round(c + (255 - c) * t);
+  const toHex = (c) => mix(c).toString(16).padStart(2, '0');
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+}
 
 function formatPredictionVotesCount(total) {
   const n = Number(total) || 0;
@@ -70,10 +85,13 @@ function formatPredictionVotesCount(total) {
 
 function predictionFlexWeights(percents, revealed) {
   if (!revealed) return { home: 1, draw: 1, away: 1 };
-  const home = Math.max(1, Number(percents?.home) || 0);
-  const draw = Math.max(1, Number(percents?.draw) || 0);
-  const away = Math.max(1, Number(percents?.away) || 0);
-  return { home, draw, away };
+  // Minimo spazio leggibile anche con 0% (es. 100 / 0 / 0).
+  const MIN = 1;
+  return {
+    home: Math.max(MIN, Number(percents?.home) || 0),
+    draw: Math.max(MIN, Number(percents?.draw) || 0),
+    away: Math.max(MIN, Number(percents?.away) || 0),
+  };
 }
 
 function MatchPredictionPanel({
@@ -93,11 +111,12 @@ function MatchPredictionPanel({
   const total = Number(prediction?.total) || 0;
   const percents = prediction?.percents || { home: 0, draw: 0, away: 0 };
   const flex = predictionFlexWeights(percents, revealed);
+  const homeSoft = softenPredictionBorderColor(homeBorderColor);
+  const awaySoft = softenPredictionBorderColor(awayBorderColor);
 
   const segmentBorder = (choice) => {
-    if (myChoice !== choice) return 'transparent';
-    if (choice === 'home') return homeBorderColor || PREDICTION_DRAW_BORDER;
-    if (choice === 'away') return awayBorderColor || PREDICTION_DRAW_BORDER;
+    if (choice === 'home') return homeSoft;
+    if (choice === 'away') return awaySoft;
     return PREDICTION_DRAW_BORDER;
   };
 
@@ -111,9 +130,11 @@ function MatchPredictionPanel({
           styles.predictionSegment,
           rounded === 'left' && styles.predictionSegmentLeft,
           rounded === 'right' && styles.predictionSegmentRight,
-          { flex: flex[choice] },
-          selected && { borderColor, borderWidth: 2 },
-          !selected && styles.predictionSegmentIdle,
+          {
+            flex: flex[choice],
+            borderColor,
+            borderWidth: selected ? 1.5 : 1,
+          },
         ]}
         activeOpacity={0.75}
         disabled={busy}
@@ -158,7 +179,7 @@ function MatchPredictionPanel({
                 logoPath={homeLogoPath}
                 style={styles.predictionTeamLogo}
                 fallbackStyle={styles.predictionTeamLogoFallback}
-                fallbackIconSize={14}
+                fallbackIconSize={18}
               />
             ),
             'left'
@@ -184,7 +205,7 @@ function MatchPredictionPanel({
                 logoPath={awayLogoPath}
                 style={styles.predictionTeamLogo}
                 fallbackStyle={styles.predictionTeamLogoFallback}
-                fallbackIconSize={14}
+                fallbackIconSize={18}
               />
             ),
             'right'
@@ -3203,19 +3224,27 @@ export default function MatchDetailScreen({ navigation, route }) {
             <Text style={styles.row}><Ionicons name="calendar-outline" size={14} color="#666" />  {formatOverviewKickoffLine(match.kickoff_at)}</Text>
             <Text style={styles.row}><Ionicons name="location-outline" size={14} color="#666" />  {match.venue || '-'}</Text>
             <Text style={styles.row}><MaterialCommunityIcons name="whistle" size={14} color="#666" />  {match.referee || '-'}</Text>
-            <Text style={styles.row}><MaterialCommunityIcons name="soccer-field" size={14} color="#666" />  {match.match_stage || '-'}</Text>
             {timingSegments && timingSegments.length > 0 ? (
-              <View style={styles.timingWrap}>
+              <>
                 <TouchableOpacity
-                  style={styles.timingDisclosure}
+                  style={[styles.stageTimingRow, timingOpen && styles.stageTimingRowOpen]}
                   onPress={() => setTimingOpen((o) => !o)}
                   activeOpacity={0.65}
+                  accessibilityRole="button"
+                  accessibilityLabel="Tempi e regolamento"
+                  accessibilityState={{ expanded: timingOpen }}
                 >
-                  <View style={styles.timingDisclosureLeft}>
-                    <Ionicons name="time-outline" size={18} color="#667eea" />
-                    <Text style={styles.timingDisclosureTitle}>Tempi e regolamento</Text>
+                  <View style={styles.stageTimingLeft}>
+                    <MaterialCommunityIcons name="soccer-field" size={14} color="#666" />
+                    <Text style={styles.stageTimingStage} numberOfLines={1}>
+                      {match.match_stage || '-'}
+                    </Text>
                   </View>
-                  <Ionicons name={timingOpen ? 'chevron-up' : 'chevron-down'} size={20} color="#9ca3af" />
+                  <View style={styles.stageTimingRight}>
+                    <Ionicons name="time-outline" size={15} color="#666" />
+                    <Text style={styles.stageTimingLink}>Formato gara</Text>
+                    <Ionicons name={timingOpen ? 'chevron-up' : 'chevron-down'} size={18} color="#9ca3af" />
+                  </View>
                 </TouchableOpacity>
                 {timingOpen ? (
                   <View style={styles.timingChipsRow}>
@@ -3231,19 +3260,14 @@ export default function MatchDetailScreen({ navigation, route }) {
                     ))}
                   </View>
                 ) : null}
-              </View>
-            ) : null}
+              </>
+            ) : (
+              <Text style={[styles.row, styles.rowLast]}>
+                <MaterialCommunityIcons name="soccer-field" size={14} color="#666" />  {match.match_stage || '-'}
+              </Text>
+            )}
           </View>
         )}
-        {activeTab === 'overview' && showRecentForm ? (
-          <View style={styles.recentFormSection}>
-            <Text style={styles.recentFormTitle}>Ultimi Risultati</Text>
-            <View style={styles.recentFormRow}>
-              <RecentFormTeamColumn items={recentFormHome} />
-              <RecentFormTeamColumn items={recentFormAway} />
-            </View>
-          </View>
-        ) : null}
         {activeTab === 'overview' ? (
           <MatchPredictionPanel
             prediction={prediction}
@@ -3257,6 +3281,15 @@ export default function MatchDetailScreen({ navigation, route }) {
             onVote={votePrediction}
             onClear={clearPrediction}
           />
+        ) : null}
+        {activeTab === 'overview' && showRecentForm ? (
+          <View style={styles.recentFormSection}>
+            <Text style={styles.recentFormTitle}>Ultimi Risultati</Text>
+            <View style={styles.recentFormRow}>
+              <RecentFormTeamColumn items={recentFormHome} />
+              <RecentFormTeamColumn items={recentFormAway} />
+            </View>
+          </View>
         ) : null}
         {activeTab === 'lineup' && (
           <View style={[styles.card, styles.cardLineup, lineupEditMode && styles.cardLineupCompact]}>
@@ -5393,13 +5426,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 6,
     paddingVertical: 8,
-    minWidth: 0,
+    minWidth: 36,
     position: 'relative',
     backgroundColor: '#fff',
-    borderWidth: 2,
-    borderColor: 'transparent',
+    borderWidth: 1,
+    borderColor: PREDICTION_DRAW_BORDER,
   },
-  predictionSegmentIdle: {},
   predictionSegmentLeft: {
     borderTopLeftRadius: 21,
     borderBottomLeftRadius: 21,
@@ -5413,11 +5445,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#d1d5db',
     alignSelf: 'stretch',
   },
-  predictionTeamLogo: { width: 26, height: 26 },
+  predictionTeamLogo: { width: 34, height: 34 },
   predictionTeamLogoFallback: {
-    width: 26,
-    height: 26,
-    borderRadius: 8,
+    width: 34,
+    height: 34,
+    borderRadius: 10,
     backgroundColor: '#eef2ff',
     alignItems: 'center',
     justifyContent: 'center',
@@ -5439,18 +5471,30 @@ const styles = StyleSheet.create({
   cardLineup: { marginHorizontal: -4, paddingLeft: 10, paddingRight: 10, paddingVertical: 12 },
   cardLineupCompact: { marginHorizontal: -6, paddingLeft: 6, paddingRight: 6, paddingVertical: 10 },
   row: { color: '#333', marginBottom: 10 },
-  timingWrap: {
-    marginTop: 2,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: '#f0f0f0',
-    paddingTop: 8,
-  },
-  timingDisclosure: {
+  rowLast: { marginBottom: 0 },
+  stageTimingRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 4,
+    gap: 10,
+    minHeight: 22,
   },
+  stageTimingRowOpen: { marginBottom: 2 },
+  stageTimingLeft: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  stageTimingStage: { flex: 1, minWidth: 0, color: '#333', fontSize: 14 },
+  stageTimingRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    flexShrink: 0,
+  },
+  stageTimingLink: { fontSize: 13, fontWeight: '600', color: '#666' },
   standingsFoldHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -5458,8 +5502,6 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     marginBottom: 2,
   },
-  timingDisclosureLeft: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 },
-  timingDisclosureTitle: { fontSize: 14, fontWeight: '600', color: '#374151' },
   timingChipsRow: {
     flexDirection: 'row',
     flexWrap: 'nowrap',
