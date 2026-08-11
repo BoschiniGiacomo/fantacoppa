@@ -1512,7 +1512,7 @@ export default function FormationScreen({ route }) {
                             logoPath={oppLogo}
                             style={s.modalOppLogo}
                             fallbackStyle={s.modalOppLogoFallback}
-                            fallbackIconSize={12}
+                            fallbackIconSize={14}
                           />
                         ) : (
                           <View style={s.modalOppAbbrevBox}>
@@ -1794,24 +1794,24 @@ const s = StyleSheet.create({
   modalPhotoRoleText: { color: '#fff', fontSize: 8, fontWeight: 'bold' },
   modalPlayerName: { fontSize: 15, fontWeight: '600', color: '#333' },
   modalPlayerTeam: { fontSize: 12, color: '#888', marginTop: 1 },
-  modalOppWrap: { flexDirection: 'row', alignItems: 'center', gap: 6, marginLeft: 4 },
-  modalOppVs: { fontSize: 11, fontWeight: '700', color: '#94a3b8', textTransform: 'lowercase' },
-  modalOppLogo: { width: 28, height: 28 },
+  modalOppWrap: { flexDirection: 'row', alignItems: 'center', gap: 7, marginLeft: 4 },
+  modalOppVs: { fontSize: 13, fontWeight: '700', color: '#94a3b8', textTransform: 'lowercase' },
+  modalOppLogo: { width: 34, height: 34 },
   modalOppLogoFallback: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     backgroundColor: '#eef2ff',
     alignItems: 'center',
     justifyContent: 'center',
   },
   modalOppAbbrevBox: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     backgroundColor: '#e2e8f0',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  modalOppAbbrevText: { fontSize: 9, fontWeight: '800', color: '#475569' },
+  modalOppAbbrevText: { fontSize: 10, fontWeight: '800', color: '#475569' },
 });
