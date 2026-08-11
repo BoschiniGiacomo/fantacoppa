@@ -14,6 +14,7 @@ const {
   isGhostMatchday,
   filterGhostMatchdaysForUser,
 } = require('../utils/matchdayGhost');
+const { ensureOfficialMatchMatchdayLinksSchema } = require('../utils/officialMatchMatchdayLinks');
 
 const AUTO_MODULES = {
   '1-1-1': [1, 1, 1],
@@ -443,6 +444,7 @@ router.get('/:leagueId/:giornata', authenticateToken, async (req, res) => {
       try {
         return await query(
           `SELECT p.id, p.first_name, p.last_name, p.role,
+                  p.team_id,
                   COALESCE(p.photo_path, '') AS photo_path,
                   t.name AS team_name
            FROM players p
@@ -477,10 +479,58 @@ router.get('/:leagueId/:giornata', authenticateToken, async (req, res) => {
       }
     })();
 
-    const [formationPlayers, leagueSurnameCounts, editAvailability] = await Promise.all([
+    const [formationPlayers, leagueSurnameCounts, editAvailability, opponentsByTeam] = await Promise.all([
       formationPlayersPromise,
       leagueSurnameCountsPromise,
       getMatchdayEditAvailability({ leagueId, effectiveLeagueId, giornata }),
+      (async () => {
+        try {
+          await ensureOfficialMatchMatchdayLinksSchema();
+          const leagueIds = [...new Set(
+            [Number(leagueId), Number(effectiveLeagueId)].filter((x) => Number.isFinite(x) && x > 0)
+          )];
+          if (!leagueIds.length || !Number.isFinite(giornata)) return {};
+          const ph = leagueIds.map(() => '?').join(',');
+          const rows = await query(
+            `SELECT l.team_id,
+                    CASE
+                      WHEN om.home_team_id = l.team_id THEN om.away_team_id
+                      ELSE om.home_team_id
+                    END AS opponent_team_id,
+                    CASE
+                      WHEN om.home_team_id = l.team_id THEN COALESCE(at.name, '')
+                      ELSE COALESCE(ht.name, '')
+                    END AS opponent_team_name,
+                    CASE
+                      WHEN om.home_team_id = l.team_id THEN COALESCE(at.logo_path, '')
+                      ELSE COALESCE(ht.logo_path, '')
+                    END AS opponent_logo_path
+             FROM official_match_matchday_links l
+             INNER JOIN official_matches om ON om.id = l.official_match_id
+             LEFT JOIN teams ht ON ht.id = om.home_team_id
+             LEFT JOIN teams at ON at.id = om.away_team_id
+             WHERE l.giornata = ?
+               AND l.league_id IN (${ph})`,
+            [giornata, ...leagueIds]
+          );
+          const out = {};
+          (rows || []).forEach((r) => {
+            const tid = Number(r.team_id);
+            if (!Number.isFinite(tid) || tid <= 0) return;
+            const name = String(r.opponent_team_name || '').trim();
+            if (!name && !String(r.opponent_logo_path || '').trim()) return;
+            out[tid] = {
+              team_id: Number(r.opponent_team_id) || null,
+              name,
+              logo_path: String(r.opponent_logo_path || '').trim() || null,
+            };
+          });
+          return out;
+        } catch (e) {
+          console.error('Formation opponents_by_team error:', e?.message || e);
+          return {};
+        }
+      })(),
     ]);
     const formationPlayersWithSurnameDisambig = (formationPlayers || []).map((p) => {
       const surnameKey = String(p?.last_name || '').trim().toLocaleLowerCase('it-IT');
@@ -497,6 +547,7 @@ router.get('/:leagueId/:giornata', authenticateToken, async (req, res) => {
       formation_recovered: formationRecovered,
       deadline,
       isExpired,
+      opponents_by_team: opponentsByTeam || {},
       ...editAvailability,
     });
   } catch (error) {

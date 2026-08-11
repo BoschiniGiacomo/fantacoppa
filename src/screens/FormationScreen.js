@@ -7,7 +7,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { useOnboarding } from '../context/OnboardingContext';
 import { formationService, leagueService, squadService } from '../services/api';
-import { PlayerPhotoImage } from '../components/StableCachedImage';
+import { PlayerPhotoImage, TeamLogoImage } from '../components/StableCachedImage';
 import {
   peekFormationMatchdays,
   peekLeagueDetail,
@@ -27,6 +27,7 @@ import {
   isUsableFormationPayload,
 } from '../services/leagueWarmCache';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { parseAppDate } from '../utils/dateTime';
 import { syncSubmittedFormationOnboarding } from '../utils/formationSubmission';
 import { buildFieldSurnameCountMap, getFieldPlayerLabel } from '../utils/fieldPlayerLabel';
@@ -64,6 +65,26 @@ const FIELD_H = 420;
 const FIELD_W = SCREEN_W - 28;
 const DEPLOY_OUT_MS = 200;
 const DEPLOY_IN_MS = 460;
+
+const OPPONENT_NAME_ARTICLES = new Set([
+  'la', 'lo', 'il', 'i', 'gli', 'le', "l'", 'l',
+  'un', 'una', 'uno', 'the', 'a', 'an',
+  'del', 'dello', 'della', 'dei', 'degli', 'delle', 'di',
+]);
+
+/** Prime 3 lettere del nome squadra senza articoli (es. "La Buca" → "Buc"). */
+function abbreviateOpponentName(name) {
+  const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return '';
+  const meaningful = parts.filter((p) => {
+    const key = p.toLowerCase().replace(/\.$/, '');
+    return key && !OPPONENT_NAME_ARTICLES.has(key);
+  });
+  const base = (meaningful[0] || parts[0] || '').replace(/[^a-zA-ZÀ-ÿ]/g, '');
+  if (!base) return '';
+  const slice = base.slice(0, 3);
+  return slice.charAt(0).toUpperCase() + slice.slice(1).toLowerCase();
+}
 
 /** Offset dal centro campo → posizione slot (per animazione ingresso/uscita). */
 function getDeployFromCenter({ topPct, yOffset, si, count, slotSize, slotMarginH }) {
@@ -134,6 +155,7 @@ const midTruncate = (str, max = 9) => {
 export default function FormationScreen({ route }) {
   const { user } = useAuth();
   const { markDone } = useOnboarding();
+  const insets = useSafeAreaInsets();
   const leagueId = route?.params?.leagueId || 1;
   const requestedGiornata = route?.params?.giornata ? Number(route.params.giornata) : null;
 
@@ -151,6 +173,7 @@ export default function FormationScreen({ route }) {
   const [modulo, setModulo] = useState(null);       // string "4-4-2"
   const [starters, setStarters] = useState([]);     // array di player objects o null per slot vuoti
   const [bench, setBench] = useState([]);           // array di player objects
+  const [opponentsByTeamId, setOpponentsByTeamId] = useState({});
 
   // Deadline
   const [deadlineStr, setDeadlineStr] = useState(null);
@@ -172,6 +195,10 @@ export default function FormationScreen({ route }) {
   const fieldDeployAnim = useRef(new Animated.Value(1)).current;
   const matchdaySwitchGenRef = useRef(0);
   const [fieldDeploying, setFieldDeploying] = useState(false);
+  const mdScrollRef = useRef(null);
+  const mdViewportWRef = useRef(SCREEN_W);
+  const mdContentWRef = useRef(0);
+  const mdChipLayoutsRef = useRef({});
 
   const showToast = (text, type = 'error') => {
     setToastMsg({ text, type });
@@ -365,6 +392,11 @@ export default function FormationScreen({ route }) {
       setCanEdit(data.canEdit !== false);
       setReleaseAt(data.releaseAt || null);
       setFormationRecovered(!!data.formation_recovered);
+      setOpponentsByTeamId(
+        data.opponents_by_team && typeof data.opponents_by_team === 'object'
+          ? data.opponents_by_team
+          : {}
+      );
 
       const playersMap = {};
       (squadOverride || squad).forEach(p => { playersMap[p.id] = p; });
@@ -585,6 +617,37 @@ export default function FormationScreen({ route }) {
     const id = setInterval(() => { if (!tick()) clearInterval(id); }, 1000);
     return () => clearInterval(id);
   }, [deadlineStr]);
+
+  // Porta la chip giornata selezionata ben dentro lo scroll orizzontale (non tagliata a dx)
+  const scrollSelectedMatchdayIntoView = useCallback((animated = true) => {
+    const g = selectedMatchday;
+    if (g == null || !mdScrollRef.current) return;
+    const layout = mdChipLayoutsRef.current[g];
+    if (!layout || !Number.isFinite(layout.x) || !Number.isFinite(layout.width)) return;
+    const viewport = mdViewportWRef.current || SCREEN_W;
+    const contentW = mdContentWRef.current || 0;
+    const pad = 12;
+    // Centra la chip; garantisce almeno pad dai bordi
+    let x = layout.x + layout.width / 2 - viewport / 2;
+    const maxX = Math.max(0, contentW - viewport);
+    if (x < 0) x = 0;
+    if (x > maxX) x = maxX;
+    // Se ancora troppo a destra rispetto al bordo destro della chip
+    const chipRight = layout.x + layout.width + pad;
+    if (chipRight - x > viewport) {
+      x = Math.min(maxX, chipRight - viewport);
+    }
+    if (layout.x - pad < x) {
+      x = Math.max(0, layout.x - pad);
+    }
+    mdScrollRef.current.scrollTo({ x, animated });
+  }, [selectedMatchday]);
+
+  useEffect(() => {
+    if (selectedMatchday == null || matchdays.length === 0) return undefined;
+    const t = setTimeout(() => scrollSelectedMatchdayIntoView(true), 60);
+    return () => clearTimeout(t);
+  }, [selectedMatchday, matchdays, scrollSelectedMatchdayIntoView]);
 
   // Quando cambia giornata
   const handleMatchdayChange = async (giornata) => {
@@ -887,6 +950,11 @@ export default function FormationScreen({ route }) {
   }
   const fieldSurnameCountMap = buildFieldSurnameCountMap(fieldRows, (row) => row.slots);
 
+  // Spazio sotto: tab (~64+inset) + eventuale barra Salva (bottom:95), così la riga P resta scrollabile tutta
+  const scrollPadBottom = (autoLineup || isExpired || !canEdit)
+    ? 88 + insets.bottom
+    : 188 + insets.bottom;
+
   // ============================================================
   // MAIN RENDER
   // ============================================================
@@ -895,7 +963,7 @@ export default function FormationScreen({ route }) {
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={{
-          paddingBottom: autoLineup || isExpired || !canEdit ? 80 : 175,
+          paddingBottom: scrollPadBottom,
         }}
       >
         {/* ── Header ── */}
@@ -905,7 +973,22 @@ export default function FormationScreen({ route }) {
         </View>
 
         {/* ── Matchday selector ── */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.mdRow} contentContainerStyle={{ paddingHorizontal: 12, gap: 8 }}>
+        <ScrollView
+          ref={mdScrollRef}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={s.mdRow}
+          contentContainerStyle={{ paddingHorizontal: 12, gap: 8 }}
+          onLayout={(e) => {
+            mdViewportWRef.current = e.nativeEvent.layout.width;
+          }}
+          onContentSizeChange={(w) => {
+            mdContentWRef.current = w;
+            if (selectedMatchday != null) {
+              requestAnimationFrame(() => scrollSelectedMatchdayIntoView(false));
+            }
+          }}
+        >
           {matchdays.map(m => {
             const active = m.giornata === selectedMatchday;
             const past = (() => {
@@ -917,6 +1000,13 @@ export default function FormationScreen({ route }) {
                 key={m.giornata}
                 style={[s.mdChip, active && s.mdChipActive, past && !active && s.mdChipPast]}
                 onPress={() => handleMatchdayChange(m.giornata)}
+                onLayout={(e) => {
+                  const { x, width } = e.nativeEvent.layout;
+                  mdChipLayoutsRef.current[m.giornata] = { x, width };
+                  if (m.giornata === selectedMatchday) {
+                    requestAnimationFrame(() => scrollSelectedMatchdayIntoView(false));
+                  }
+                }}
               >
                 <Text style={[s.mdChipText, active && s.mdChipTextActive]}>{m.giornata}ª G</Text>
               </TouchableOpacity>
@@ -1049,7 +1139,7 @@ export default function FormationScreen({ route }) {
                       // Centrocampo più basso quando 4 giocatori; > 4 gestito dallo sfasamento
                       const topPct = ri === 0 ? 6
                         : ri === 1 ? (count <= 4 ? 35 : 30)
-                        : ri === 2 ? 58 : 82;
+                        : ri === 2 ? 58 : 78;
                       // Cerchi sempre 70px — sfasamento verticale forte permette sovrapposizione
                       const slotSize = 70;
                       const fontSize = 11;
@@ -1392,6 +1482,10 @@ export default function FormationScreen({ route }) {
               keyExtractor={item => String(item.id)}
               renderItem={({ item }) => {
                 const isOnBench = benchIds.has(item.id);
+                const opp = opponentsByTeamId[Number(item.team_id)] || opponentsByTeamId[String(item.team_id)] || null;
+                const oppLogo = opp?.logo_path ? String(opp.logo_path).trim() : '';
+                const oppAbbrev = !oppLogo && opp?.name ? abbreviateOpponentName(opp.name) : '';
+                const showOpp = !!(opp && (oppLogo || oppAbbrev));
                 return (
                   <TouchableOpacity style={s.modalRow} onPress={() => selectPlayer(item)}>
                     {item.photo_path ? (
@@ -1406,10 +1500,27 @@ export default function FormationScreen({ route }) {
                         <Text style={s.modalRoleText}>{item.role}</Text>
                       </View>
                     )}
-                    <View style={{ flex: 1 }}>
-                      <Text style={s.modalPlayerName}>{item.first_name} {item.last_name}</Text>
-                      <Text style={s.modalPlayerTeam}>{item.team_name}{isOnBench ? '  ·  in panchina' : ''}</Text>
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text style={s.modalPlayerName} numberOfLines={1}>{item.first_name} {item.last_name}</Text>
+                      <Text style={s.modalPlayerTeam} numberOfLines={1}>{item.team_name}{isOnBench ? '  ·  in panchina' : ''}</Text>
                     </View>
+                    {showOpp ? (
+                      <View style={s.modalOppWrap}>
+                        <Text style={s.modalOppVs}>vs</Text>
+                        {oppLogo ? (
+                          <TeamLogoImage
+                            logoPath={oppLogo}
+                            style={s.modalOppLogo}
+                            fallbackStyle={s.modalOppLogoFallback}
+                            fallbackIconSize={12}
+                          />
+                        ) : (
+                          <View style={s.modalOppAbbrevBox}>
+                            <Text style={s.modalOppAbbrevText}>{oppAbbrev}</Text>
+                          </View>
+                        )}
+                      </View>
+                    ) : null}
                   </TouchableOpacity>
                 );
               }}
@@ -1683,4 +1794,24 @@ const s = StyleSheet.create({
   modalPhotoRoleText: { color: '#fff', fontSize: 8, fontWeight: 'bold' },
   modalPlayerName: { fontSize: 15, fontWeight: '600', color: '#333' },
   modalPlayerTeam: { fontSize: 12, color: '#888', marginTop: 1 },
+  modalOppWrap: { flexDirection: 'row', alignItems: 'center', gap: 6, marginLeft: 4 },
+  modalOppVs: { fontSize: 11, fontWeight: '700', color: '#94a3b8', textTransform: 'lowercase' },
+  modalOppLogo: { width: 28, height: 28 },
+  modalOppLogoFallback: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#eef2ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalOppAbbrevBox: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#e2e8f0',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalOppAbbrevText: { fontSize: 9, fontWeight: '800', color: '#475569' },
 });

@@ -33,6 +33,7 @@ router.get('/:leagueId', authenticateToken, async (req, res) => {
        SELECT p.id, p.first_name, p.last_name, p.role, p.rating,
               COALESCE(p.is_injured, 0)::int AS is_injured,
               p.injury_replacement_player_id,
+              p.team_id,
               COALESCE(t.name, '') AS team_name,
               COALESCE(p.photo_path, '') AS photo_path,
               MAX(ep.acquired_as_injury_replacement)::int AS acquired_as_injury_replacement,
@@ -40,7 +41,7 @@ router.get('/:leagueId', authenticateToken, async (req, res) => {
        FROM effective_players ep
        JOIN players p ON p.id = ep.player_id
        LEFT JOIN teams t ON t.id = p.team_id
-       GROUP BY p.id, p.first_name, p.last_name, p.role, p.rating, p.is_injured, p.injury_replacement_player_id, t.name, p.photo_path`,
+       GROUP BY p.id, p.first_name, p.last_name, p.role, p.rating, p.is_injured, p.injury_replacement_player_id, p.team_id, t.name, p.photo_path`,
       [userId, leagueId]
     );
     res.json({ squad: players, players });
@@ -81,6 +82,7 @@ router.get('/:leagueId/bootstrap', authenticateToken, async (req, res) => {
          SELECT p.id, p.first_name, p.last_name, p.role, p.rating,
                 COALESCE(p.is_injured, 0)::int AS is_injured,
                 p.injury_replacement_player_id,
+                p.team_id,
                 COALESCE(t.name, '') AS team_name,
                 COALESCE(p.photo_path, '') AS photo_path,
                 MAX(ep.acquired_as_injury_replacement)::int AS acquired_as_injury_replacement,
@@ -88,7 +90,7 @@ router.get('/:leagueId/bootstrap', authenticateToken, async (req, res) => {
          FROM effective_players ep
          JOIN players p ON p.id = ep.player_id
          LEFT JOIN teams t ON t.id = p.team_id
-         GROUP BY p.id, p.first_name, p.last_name, p.role, p.rating, p.is_injured, p.injury_replacement_player_id, t.name, p.photo_path`,
+         GROUP BY p.id, p.first_name, p.last_name, p.role, p.rating, p.is_injured, p.injury_replacement_player_id, p.team_id, t.name, p.photo_path`,
         [userId, leagueId]
       ),
       query(
