@@ -10,7 +10,7 @@ import {
   Dimensions,
   TextInput,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
 import { leagueService, formationService } from '../services/api';
@@ -621,16 +621,16 @@ export default function StandingsScreen({ route, navigation }) {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container} edges={['top']}>
+      <View style={styles.container}>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#667eea" />
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+    <View style={styles.container}>
       <View style={[styles.header, { paddingTop: insets.top }]}>
         <Text style={styles.headerTitle}>Classifica</Text>
         {league && <Text style={styles.headerSub}>{league.name}</Text>}
@@ -761,7 +761,7 @@ export default function StandingsScreen({ route, navigation }) {
           <Text style={styles.toastText}>{toastMsg.text}</Text>
         </View>
       )}
-    </SafeAreaView>
+    </View>
   );
 }
 

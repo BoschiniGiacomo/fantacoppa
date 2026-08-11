@@ -3673,13 +3673,13 @@ export default function MatchDetailScreen({ navigation, route }) {
                       onPress={() => setStandingsTableFoldedOpen((o) => !o)}
                       activeOpacity={0.65}
                     >
-                      <View style={styles.timingDisclosureLeft}>
-                        <MaterialCommunityIcons name="table-large" size={18} color="#667eea" />
-                        <Text style={styles.timingDisclosureTitle}>Classifica</Text>
+                      <View style={styles.standingsFoldLeft}>
+                        <MaterialCommunityIcons name="table-large" size={15} color="#666" />
+                        <Text style={styles.standingsFoldLabel}>Classifica</Text>
                       </View>
                       <Ionicons
                         name={standingsTableFoldedOpen ? 'chevron-up' : 'chevron-down'}
-                        size={20}
+                        size={18}
                         color="#9ca3af"
                       />
                     </TouchableOpacity>
@@ -3697,13 +3697,13 @@ export default function MatchDetailScreen({ navigation, route }) {
                       onPress={() => setStandingsKnockoutExpanded((o) => !o)}
                       activeOpacity={0.65}
                     >
-                      <View style={styles.timingDisclosureLeft}>
-                        <MaterialCommunityIcons name="trophy-outline" size={18} color="#667eea" />
-                        <Text style={styles.timingDisclosureTitle}>Fasi finali</Text>
+                      <View style={styles.standingsFoldLeft}>
+                        <MaterialCommunityIcons name="trophy-outline" size={15} color="#666" />
+                        <Text style={styles.standingsFoldLabel}>Fasi finali</Text>
                       </View>
                       <Ionicons
                         name={standingsKnockoutExpanded ? 'chevron-up' : 'chevron-down'}
-                        size={20}
+                        size={18}
                         color="#9ca3af"
                       />
                     </TouchableOpacity>
@@ -5503,8 +5503,22 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 6,
+    gap: 10,
+    minHeight: 22,
+    paddingVertical: 2,
     marginBottom: 2,
+  },
+  standingsFoldLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexShrink: 1,
+    minWidth: 0,
+  },
+  standingsFoldLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#666',
   },
   timingChipsRow: {
     flexDirection: 'row',
