@@ -60,15 +60,147 @@ const RECENT_FORM_RESULT_COLORS = {
   P: '#dc2626',
 };
 
-function RecentFormResultBadge({ result, highlight }) {
+const PREDICTION_DRAW_BORDER = '#6b7280';
+
+function formatPredictionVotesCount(total) {
+  const n = Number(total) || 0;
+  const formatted = Math.max(0, Math.trunc(n)).toLocaleString('it-IT');
+  return `${formatted} ${n === 1 ? 'voto' : 'voti'}`;
+}
+
+function predictionFlexWeights(percents, revealed) {
+  if (!revealed) return { home: 1, draw: 1, away: 1 };
+  const home = Math.max(1, Number(percents?.home) || 0);
+  const draw = Math.max(1, Number(percents?.draw) || 0);
+  const away = Math.max(1, Number(percents?.away) || 0);
+  return { home, draw, away };
+}
+
+function MatchPredictionPanel({
+  prediction,
+  homeLogoUrl,
+  homeLogoPath,
+  awayLogoUrl,
+  awayLogoPath,
+  homeBorderColor,
+  awayBorderColor,
+  busy,
+  onVote,
+  onClear,
+}) {
+  const myChoice = prediction?.my_choice || null;
+  const revealed = !!myChoice;
+  const total = Number(prediction?.total) || 0;
+  const percents = prediction?.percents || { home: 0, draw: 0, away: 0 };
+  const flex = predictionFlexWeights(percents, revealed);
+
+  const segmentBorder = (choice) => {
+    if (myChoice !== choice) return 'transparent';
+    if (choice === 'home') return homeBorderColor || PREDICTION_DRAW_BORDER;
+    if (choice === 'away') return awayBorderColor || PREDICTION_DRAW_BORDER;
+    return PREDICTION_DRAW_BORDER;
+  };
+
+  const renderSegment = (choice, content, rounded) => {
+    const selected = myChoice === choice;
+    const borderColor = segmentBorder(choice);
+    return (
+      <TouchableOpacity
+        key={choice}
+        style={[
+          styles.predictionSegment,
+          rounded === 'left' && styles.predictionSegmentLeft,
+          rounded === 'right' && styles.predictionSegmentRight,
+          { flex: flex[choice] },
+          selected && { borderColor, borderWidth: 2 },
+          !selected && styles.predictionSegmentIdle,
+        ]}
+        activeOpacity={0.75}
+        disabled={busy}
+        onPress={() => {
+          if (myChoice === choice) return;
+          onVote?.(choice);
+        }}
+      >
+        {content}
+        {selected ? (
+          <TouchableOpacity
+            style={styles.predictionClearBtn}
+            hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
+            disabled={busy}
+            onPress={() => onClear?.()}
+            accessibilityRole="button"
+            accessibilityLabel="Rimuovi pronostico"
+          >
+            <Ionicons name="close" size={12} color="#64748b" />
+          </TouchableOpacity>
+        ) : null}
+      </TouchableOpacity>
+    );
+  };
+
+  return (
+    <View style={styles.predictionSection}>
+      <Text style={styles.predictionTitle}>Pronostico</Text>
+      <View style={styles.predictionCard}>
+        <View style={styles.predictionHeaderRow}>
+          <Text style={styles.predictionQuestion}>CHI VINCERÀ?</Text>
+          <Text style={styles.predictionVotesCount}>{formatPredictionVotesCount(total)}</Text>
+        </View>
+        <View style={styles.predictionBar}>
+          {renderSegment(
+            'home',
+            revealed ? (
+              <Text style={styles.predictionPercentText}>{`${percents.home}%`}</Text>
+            ) : (
+              <TeamLogoImage
+                logoUrl={homeLogoUrl}
+                logoPath={homeLogoPath}
+                style={styles.predictionTeamLogo}
+                fallbackStyle={styles.predictionTeamLogoFallback}
+                fallbackIconSize={14}
+              />
+            ),
+            'left'
+          )}
+          <View style={styles.predictionDivider} />
+          {renderSegment(
+            'draw',
+            revealed ? (
+              <Text style={styles.predictionPercentText}>{`${percents.draw}%`}</Text>
+            ) : (
+              <Text style={styles.predictionDrawText}>Pareggio</Text>
+            ),
+            null
+          )}
+          <View style={styles.predictionDivider} />
+          {renderSegment(
+            'away',
+            revealed ? (
+              <Text style={styles.predictionPercentText}>{`${percents.away}%`}</Text>
+            ) : (
+              <TeamLogoImage
+                logoUrl={awayLogoUrl}
+                logoPath={awayLogoPath}
+                style={styles.predictionTeamLogo}
+                fallbackStyle={styles.predictionTeamLogoFallback}
+                fallbackIconSize={14}
+              />
+            ),
+            'right'
+          )}
+        </View>
+      </View>
+    </View>
+  );
+}
+
+function RecentFormResultBadge({ result }) {
   const letter = String(result || '').toUpperCase();
   const color = RECENT_FORM_RESULT_COLORS[letter] || RECENT_FORM_RESULT_COLORS.N;
   return (
-    <View style={styles.recentFormBadgeCol}>
-      <View style={[styles.recentFormBadge, { backgroundColor: color }]}>
-        <Text style={styles.recentFormBadgeText}>{letter || '-'}</Text>
-      </View>
-      {highlight ? <View style={[styles.recentFormBadgeUnderline, { backgroundColor: color }]} /> : null}
+    <View style={[styles.recentFormBadge, { backgroundColor: color }]}>
+      <Text style={styles.recentFormBadgeText}>{letter || '-'}</Text>
     </View>
   );
 }
@@ -85,20 +217,29 @@ function RecentFormTeamColumn({ items }) {
   return (
     <View style={styles.recentFormTeamBox}>
       <View style={styles.recentFormItemsRow}>
+        {list.map((item, idx) => (
+          <View key={`rf-${item.match_id || idx}`} style={styles.recentFormItem}>
+            <View style={styles.recentFormLogoWrap}>
+              <TeamLogoImage
+                logoUrl={item.opponent_team_logo_url}
+                logoPath={item.opponent_team_logo_path}
+                style={styles.recentFormLogo}
+                fallbackStyle={styles.recentFormLogoFallback}
+                fallbackIconSize={12}
+              />
+            </View>
+            <RecentFormResultBadge result={item.result} />
+          </View>
+        ))}
+      </View>
+      <View style={styles.recentFormUnderlineRow}>
         {list.map((item, idx) => {
           const isLatest = idx === list.length - 1;
+          const letter = String(item.result || '').toUpperCase();
+          const color = RECENT_FORM_RESULT_COLORS[letter] || RECENT_FORM_RESULT_COLORS.N;
           return (
-            <View key={`rf-${item.match_id || idx}`} style={styles.recentFormItem}>
-              <View style={styles.recentFormLogoWrap}>
-                <TeamLogoImage
-                  logoUrl={item.opponent_team_logo_url}
-                  logoPath={item.opponent_team_logo_path}
-                  style={styles.recentFormLogo}
-                  fallbackStyle={styles.recentFormLogoFallback}
-                  fallbackIconSize={12}
-                />
-              </View>
-              <RecentFormResultBadge result={item.result} highlight={isLatest} />
+            <View key={`rf-ul-${item.match_id || idx}`} style={styles.recentFormUnderlineSlot}>
+              {isLatest ? <View style={[styles.recentFormBadgeUnderline, { backgroundColor: color }]} /> : null}
             </View>
           );
         })}
@@ -1366,6 +1507,7 @@ export default function MatchDetailScreen({ navigation, route }) {
   const [overviewDetailsOptions, setOverviewDetailsOptions] = useState({ venues: [], referees: [] });
   const [loadingOverviewOptions, setLoadingOverviewOptions] = useState(false);
   const [savingOverviewMeta, setSavingOverviewMeta] = useState(false);
+  const [predictionBusy, setPredictionBusy] = useState(false);
   const [editorModalTab, setEditorModalTab] = useState('events');
   /** Se true, il campo Minuto negli eventi non segue più il cronometro live. */
   const [eventMinuteDirty, setEventMinuteDirty] = useState(false);
@@ -1430,6 +1572,7 @@ export default function MatchDetailScreen({ navigation, route }) {
           standings_groups: delta.standings_groups ?? null,
           knockout: delta.knockout || { quarterfinals: [], semifinals: [], final: null },
           recent_form: { home: [], away: [] },
+          prediction: { my_choice: null, total: 0, counts: { home: 0, draw: 0, away: 0 }, percents: { home: 0, draw: 0, away: 0 } },
           lineups: { home: [], away: [] },
           unavailable_lineups: { home: [], away: [] },
           team_players: { home: [], away: [] },
@@ -1471,6 +1614,7 @@ export default function MatchDetailScreen({ navigation, route }) {
               full.standings_groups !== undefined ? full.standings_groups : prev.standings_groups,
             knockout: full.knockout != null ? full.knockout : prev.knockout,
             recent_form: full.recent_form != null ? full.recent_form : prev.recent_form,
+            prediction: full.prediction != null ? full.prediction : prev.prediction,
           };
         });
       } catch {
@@ -1558,6 +1702,7 @@ export default function MatchDetailScreen({ navigation, route }) {
   const recentFormHome = Array.isArray(recentForm.home) ? recentForm.home : [];
   const recentFormAway = Array.isArray(recentForm.away) ? recentForm.away : [];
   const showRecentForm = recentFormHome.length > 0 || recentFormAway.length > 0;
+  const prediction = data?.prediction || { my_choice: null, total: 0, counts: { home: 0, draw: 0, away: 0 }, percents: { home: 0, draw: 0, away: 0 } };
   const matchStageId = match?.match_stage_id != null ? Number(match.match_stage_id) : NaN;
   const standingsIsKnockoutMatch = matchStageId === 2 || matchStageId === 3 || matchStageId === 4;
   const hasKnockoutBracket = hasOfficialKnockoutBracket(knockout);
@@ -2079,6 +2224,42 @@ export default function MatchDetailScreen({ navigation, route }) {
     overviewVenue,
     savingOverviewMeta,
   ]);
+
+  const applyPredictionUpdate = useCallback((nextPrediction) => {
+    if (!nextPrediction || typeof nextPrediction !== 'object') return;
+    setData((prev) => (prev ? { ...prev, prediction: nextPrediction } : prev));
+  }, []);
+
+  const votePrediction = useCallback(
+    async (choice) => {
+      if (!matchId || predictionBusy) return;
+      try {
+        setPredictionBusy(true);
+        const res = await matchesService.setMatchPrediction(matchId, choice);
+        applyPredictionUpdate(res?.data?.prediction);
+      } catch (err) {
+        const msg = err?.response?.data?.message || err?.message || 'Voto non riuscito';
+        Alert.alert('Errore', String(msg));
+      } finally {
+        setPredictionBusy(false);
+      }
+    },
+    [applyPredictionUpdate, matchId, predictionBusy]
+  );
+
+  const clearPrediction = useCallback(async () => {
+    if (!matchId || predictionBusy) return;
+    try {
+      setPredictionBusy(true);
+      const res = await matchesService.clearMatchPrediction(matchId);
+      applyPredictionUpdate(res?.data?.prediction);
+    } catch (err) {
+      const msg = err?.response?.data?.message || err?.message || 'Rimozione non riuscita';
+      Alert.alert('Errore', String(msg));
+    } finally {
+      setPredictionBusy(false);
+    }
+  }, [applyPredictionUpdate, matchId, predictionBusy]);
 
   const openPlayerStatsFromLineup = (p, displayName, leagueIdRaw) => {
     const pid = p?.id != null ? Number(p.id) : 0;
@@ -3062,6 +3243,20 @@ export default function MatchDetailScreen({ navigation, route }) {
               <RecentFormTeamColumn items={recentFormAway} />
             </View>
           </View>
+        ) : null}
+        {activeTab === 'overview' ? (
+          <MatchPredictionPanel
+            prediction={prediction}
+            homeLogoUrl={match.home_team_logo_url}
+            homeLogoPath={match.home_team_logo_path}
+            awayLogoUrl={match.away_team_logo_url}
+            awayLogoPath={match.away_team_logo_path}
+            homeBorderColor={homeKitBaseHex}
+            awayBorderColor={awayKitBaseHex}
+            busy={predictionBusy}
+            onVote={votePrediction}
+            onClear={clearPrediction}
+          />
         ) : null}
         {activeTab === 'lineup' && (
           <View style={[styles.card, styles.cardLineup, lineupEditMode && styles.cardLineupCompact]}>
@@ -5135,7 +5330,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  recentFormBadgeCol: { alignItems: 'center' },
   recentFormBadge: {
     width: 28,
     height: 28,
@@ -5144,13 +5338,103 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   recentFormBadgeText: { color: '#fff', fontSize: 13, fontWeight: '800' },
+  recentFormUnderlineRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-evenly',
+    gap: 4,
+    marginTop: 5,
+    height: 3,
+  },
+  recentFormUnderlineSlot: {
+    flex: 1,
+    minWidth: 0,
+    height: 3,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   recentFormBadgeUnderline: {
-    marginTop: 4,
     width: 28,
     height: 3,
     borderRadius: 2,
   },
   recentFormEmptyText: { fontSize: 12, color: '#9ca3af', textAlign: 'center', fontWeight: '600' },
+  predictionSection: { marginBottom: 12 },
+  predictionTitle: { fontSize: 16, fontWeight: '800', color: '#222', marginBottom: 10 },
+  predictionCard: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#ececec',
+    paddingHorizontal: 12,
+    paddingTop: 12,
+    paddingBottom: 14,
+  },
+  predictionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  predictionQuestion: { fontSize: 13, fontWeight: '800', color: '#111827', letterSpacing: 0.3 },
+  predictionVotesCount: { fontSize: 13, fontWeight: '500', color: '#6b7280' },
+  predictionBar: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    overflow: 'hidden',
+    minHeight: 44,
+    backgroundColor: '#fff',
+  },
+  predictionSegment: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 6,
+    paddingVertical: 8,
+    minWidth: 0,
+    position: 'relative',
+    backgroundColor: '#fff',
+    borderWidth: 2,
+    borderColor: 'transparent',
+  },
+  predictionSegmentIdle: {},
+  predictionSegmentLeft: {
+    borderTopLeftRadius: 21,
+    borderBottomLeftRadius: 21,
+  },
+  predictionSegmentRight: {
+    borderTopRightRadius: 21,
+    borderBottomRightRadius: 21,
+  },
+  predictionDivider: {
+    width: StyleSheet.hairlineWidth,
+    backgroundColor: '#d1d5db',
+    alignSelf: 'stretch',
+  },
+  predictionTeamLogo: { width: 26, height: 26 },
+  predictionTeamLogoFallback: {
+    width: 26,
+    height: 26,
+    borderRadius: 8,
+    backgroundColor: '#eef2ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  predictionDrawText: { fontSize: 13, fontWeight: '600', color: '#374151' },
+  predictionPercentText: { fontSize: 15, fontWeight: '700', color: '#111827' },
+  predictionClearBtn: {
+    position: 'absolute',
+    top: 2,
+    right: 4,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: '#f3f4f6',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   /** Formazione: un filo più vicina ai bordi schermo, più padding interno così le maglie non “toccano” il bordo card. */
   cardLineup: { marginHorizontal: -4, paddingLeft: 10, paddingRight: 10, paddingVertical: 12 },
   cardLineupCompact: { marginHorizontal: -6, paddingLeft: 6, paddingRight: 6, paddingVertical: 10 },

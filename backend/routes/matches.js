@@ -26,6 +26,13 @@ const {
   scheduleOfficialGroupAbsoluteStatsRefreshForMatch,
 } = require('../utils/officialGroupAbsoluteStatsRefresh');
 const { createShortTtlCache } = require('../utils/shortTtlCache');
+const {
+  ensureOfficialMatchPredictionSchema,
+  loadOfficialMatchPrediction,
+  setOfficialMatchPrediction,
+  clearOfficialMatchPrediction,
+  emptyPrediction,
+} = require('../utils/officialMatchPrediction');
 
 /** Cache condivisa lista partite per data (non include preferenze utente). */
 const MATCHES_LIST_SHARED_CACHE = createShortTtlCache({ ttlMs: 6000, maxEntries: 80 });
@@ -2511,6 +2518,7 @@ async function loadRecentFormForMatch({
 router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
   try {
     await ensureOfficialMatchShootoutSchema();
+    await ensureOfficialMatchPredictionSchema();
     const userId = Number(req.user?.userId);
     const matchId = Number(req.params.matchId);
     if (!matchId || matchId <= 0) return res.status(400).json({ message: 'matchId non valido' });
@@ -2569,7 +2577,7 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
 
     await ensureUnavailablePlayersTable();
     const emptyKnockout = { quarterfinals: [], semifinals: [], final: null };
-    const [homeTeam, awayTeam, rawEvents, homeLineup, awayLineup, unavailableRows, standingsBundle, knockout, recentForm] = await Promise.all([
+    const [homeTeam, awayTeam, rawEvents, homeLineup, awayLineup, unavailableRows, standingsBundle, knockout, recentForm, prediction] = await Promise.all([
       getTeamMeta(homeTeamId),
       getTeamMeta(awayTeamId),
       query(
@@ -2599,6 +2607,7 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
         awayTeamName: matchRow.away_team_name,
         limit: RECENT_FORM_LIMIT,
       }).catch(() => ({ home: [], away: [] })),
+      loadOfficialMatchPrediction(matchId, userId).catch(() => emptyPrediction(null)),
     ]);
 
     const homeLogoPath = normalizeTeamLogoPathForApi(homeTeam?.logo_path);
@@ -2662,6 +2671,7 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
             away: Array.isArray(recentForm.away) ? recentForm.away : [],
           }
         : { home: [], away: [] },
+      prediction: prediction && typeof prediction === 'object' ? prediction : emptyPrediction(null),
       favorites: {
         match: Number(match.is_favorite_match) ? 1 : 0,
         home_team: 0,
@@ -2677,6 +2687,7 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
 
 // GET /matches/:matchId/live-delta
 // Poll leggero in diretta: hero/score + eventi sempre freschi; classifica/knockout cache 6s.
+
 router.get('/matches/:matchId/live-delta', authenticateToken, async (req, res) => {
   try {
     await ensureOfficialMatchShootoutSchema();
@@ -5416,6 +5427,41 @@ router.put('/admin/matches/:matchId/unavailable-players', authenticateToken, req
   }
 });
 
+// POST /matches/:matchId/prediction — voto pronostico (home|draw|away)
+router.post('/matches/:matchId/prediction', authenticateToken, async (req, res) => {
+  try {
+    const userId = Number(req.user?.userId);
+    const matchId = Number(req.params.matchId);
+    const choice = req.body?.choice;
+    if (!matchId || matchId <= 0) return res.status(400).json({ message: 'matchId non valido' });
+    const prediction = await setOfficialMatchPrediction(matchId, userId, choice);
+    return res.json({ ok: true, prediction });
+  } catch (err) {
+    if (err?.status === 400 || err?.status === 404) {
+      return res.status(err.status).json({ message: err.message });
+    }
+    if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
+    return res.status(500).json({ message: 'Errore salvataggio pronostico', error: err.message });
+  }
+});
+
+// DELETE /matches/:matchId/prediction — rimuove il proprio voto
+router.delete('/matches/:matchId/prediction', authenticateToken, async (req, res) => {
+  try {
+    const userId = Number(req.user?.userId);
+    const matchId = Number(req.params.matchId);
+    if (!matchId || matchId <= 0) return res.status(400).json({ message: 'matchId non valido' });
+    const prediction = await clearOfficialMatchPrediction(matchId, userId);
+    return res.json({ ok: true, prediction });
+  } catch (err) {
+    if (err?.status === 400 || err?.status === 404) {
+      return res.status(err.status).json({ message: err.message });
+    }
+    if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
+    return res.status(500).json({ message: 'Errore rimozione pronostico', error: err.message });
+  }
+});
+
 // POST /matches/notifications/toggle — campanella singola partita
 router.post('/matches/notifications/toggle', authenticateToken, async (req, res) => {
   try {
@@ -6694,7 +6740,9 @@ router.delete('/admin/matches/:matchId', authenticateToken, requireSuperuserLeve
       return res.status(400).json({ message: 'matchId non valido' });
     }
 
+    await ensureOfficialMatchPredictionSchema();
     await query('BEGIN');
+    await query(`DELETE FROM official_match_predictions WHERE match_id = ?`, [matchId]);
     await query(`DELETE FROM user_official_match_notifications WHERE match_id = ?`, [matchId]);
     await query(`DELETE FROM user_official_match_favorites WHERE match_id = ?`, [matchId]);
     await query(`DELETE FROM official_match_events WHERE match_id = ?`, [matchId]);

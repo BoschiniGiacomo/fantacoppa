@@ -640,6 +640,9 @@ export const matchesService = {
       team_name: teamName,
       enabled: enabled ? 1 : 0,
     }),
+  setMatchPrediction: (matchId, choice) =>
+    api.post(`matches/${matchId}/prediction`, { choice }),
+  clearMatchPrediction: (matchId) => api.delete(`matches/${matchId}/prediction`),
   getStripTeams: () => api.get('matches/strip-teams'),
   /** Competizioni, squadre ufficiali e preferenze utente (stellina + notifiche squadra) */
   getFollowSetup: () => api.get('matches/follow-setup'),
