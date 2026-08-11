@@ -4203,18 +4203,6 @@ router.get('/:id/live/:giornata', authenticateToken, async (req, res) => {
       );
       if (calcRows.length > 0) {
         isCalculated = true;
-        let psRows = [];
-        try {
-          psRows = await query(
-            `SELECT user_id, player_id, player_name, player_role, rating, bonus_total, total_score
-             FROM matchday_player_scores
-             WHERE league_id = ? AND giornata = ?
-             ORDER BY total_score DESC`,
-            [leagueId, giornata]
-          );
-        } catch (_) {
-          psRows = [];
-        }
         try {
           await ensureMatchdayResultsCalculatedAtColumn();
           const cRows = await query(
@@ -4227,36 +4215,15 @@ router.get('/:id/live/:giornata', authenticateToken, async (req, res) => {
         } catch (_) {
           calculatedAt = null;
         }
-        const byUser = {};
-        const scoreByUser = {};
-        psRows.forEach((r) => {
-          const uid = Number(r.user_id);
-          if (!byUser[uid]) byUser[uid] = [];
-          byUser[uid].push({
-            player_id: Number(r.player_id),
-            player_name: r.player_name,
-            player_role: r.player_role,
-            rating: normalizeVoteRating(r.rating || 0),
-            bonus_total: Number(r.bonus_total || 0),
-            total_score: Number(r.total_score || 0),
-          });
-          scoreByUser[uid] = Number((Number(scoreByUser[uid] || 0) + Number(r.total_score || 0)).toFixed(2));
-        });
-        const hasPlayerScores = psRows.length > 0;
-        calculatedResults = calcRows.map((r) => {
-          const uid = Number(r.user_id);
-          const recalculatedScore = hasPlayerScores ? Number(scoreByUser[uid] || 0) : Number(r.punteggio || 0);
-          return {
-            user_id: uid,
-            username: r.username,
-            team_name: r.team_name,
-            coach_name: r.coach_name,
-            team_logo: r.team_logo,
-            // Se i player scores esistono, la classifica live deve seguire il dettaglio aggiornato.
-            punteggio: Number(recalculatedScore.toFixed(2)),
-            players: byUser[uid] || [],
-          };
-        }).sort((a, b) => {
+        // Summary: solo ranking + punteggi (il dettaglio rosa si carica all'espandi via formation API).
+        calculatedResults = calcRows.map((r) => ({
+          user_id: Number(r.user_id),
+          username: r.username,
+          team_name: r.team_name,
+          coach_name: r.coach_name,
+          team_logo: r.team_logo,
+          punteggio: Number(Number(r.punteggio || 0).toFixed(2)),
+        })).sort((a, b) => {
           const scoreDiff = Number(b.punteggio || 0) - Number(a.punteggio || 0);
           if (scoreDiff !== 0) return scoreDiff;
           const nameA = String(a.team_name || a.username || '').toLocaleLowerCase('it-IT');
@@ -4344,7 +4311,6 @@ router.get('/:id/live/:giornata', authenticateToken, async (req, res) => {
     });
 
     const sums = {};
-    const playersByUser = {};
     await Promise.all(members.map(async (m) => {
       const uid = Number(m.user_id);
       try {
@@ -4395,22 +4361,12 @@ router.get('/:id/live/:giornata', authenticateToken, async (req, res) => {
           computeBonusTotal,
         });
         sums[uid] = scored.punteggio;
-        playersByUser[uid] = scored.playerScores
-          .map((ps) => ({
-            player_id: ps.player_id,
-            player_name: ps.player_name,
-            player_role: ps.player_role,
-            rating: ps.rating,
-            bonus_total: ps.bonus_total,
-            total_score: ps.total_score,
-          }))
-          .sort((a, b) => b.total_score - a.total_score);
       } catch (memberErr) {
         sums[uid] = 0;
-        playersByUser[uid] = [];
       }
     }));
 
+    // Summary: niente players[] — il dettaglio rosa si apre con getMatchdayFormation.
     const results = members.map((m) => ({
       user_id: Number(m.user_id),
       username: m.username,
@@ -4418,7 +4374,6 @@ router.get('/:id/live/:giornata', authenticateToken, async (req, res) => {
       coach_name: m.coach_name || '',
       team_logo: m.team_logo || 'default_1',
       punteggio: Number((sums[Number(m.user_id)] || 0).toFixed(2)),
-      players: (playersByUser[Number(m.user_id)] || []).sort((a, b) => b.total_score - a.total_score),
     })).sort((a, b) => {
       const scoreDiff = Number(b.punteggio || 0) - Number(a.punteggio || 0);
       if (scoreDiff !== 0) return scoreDiff;

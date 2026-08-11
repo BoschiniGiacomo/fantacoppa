@@ -101,26 +101,32 @@ export default function LiveScoresScreen({ route, navigation }) {
   );
 
   const [loadError, setLoadError] = useState(null);
+  const livePollEnabledRef = useRef(false);
+  const LIVE_POLL_MS = 15000;
 
-  const loadLiveData = async (isRefresh = false) => {
+  const loadLiveData = useCallback(async (isRefresh = false) => {
     try {
       if (!isRefresh) setLoading(true);
       setLoadError(null);
       const res = await leagueService.getLiveScores(leagueId, currentGiornata);
       const payload = res?.data || {};
       setLiveData(payload);
+      // Poll solo mentre la giornata non è ancora calcolata (punteggi in movimento).
+      livePollEnabledRef.current = !payload?.is_calculated;
     } catch (error) {
       const msg = error?.response?.data?.message || error?.message || 'Errore caricamento live';
       setLoadError(msg);
       setLiveData({ results: [], is_calculated: false });
+      // In errore tieni il poll attivo: può essere un glitch temporaneo durante la diretta.
+      livePollEnabledRef.current = true;
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  };
+  }, [leagueId, currentGiornata]);
 
   // Carica le giornate live disponibili (non calcolate, con voti, deadline passata)
-  const loadAvailableMatchdays = async () => {
+  const loadAvailableMatchdays = useCallback(async () => {
     try {
       const statusRes = await leagueService.getMatchdayStatus(leagueId);
       const statuses = statusRes?.data || [];
@@ -135,17 +141,21 @@ export default function LiveScoresScreen({ route, navigation }) {
     } catch (e) {
       console.log('Could not load available matchdays:', e);
     }
-  };
+  }, [leagueId]);
 
-  // Polling every 15 seconds
+  // Focus: load fresco. Poll 15s solo se !is_calculated (stop automatico dopo calcolo).
   useFocusEffect(
     useCallback(() => {
       scrollToMePendingRef.current = true;
-      loadAvailableMatchdays();
-      loadLiveData();
-      const interval = setInterval(() => loadLiveData(true), 15000);
+      livePollEnabledRef.current = false;
+      void loadAvailableMatchdays();
+      void loadLiveData();
+      const interval = setInterval(() => {
+        if (!livePollEnabledRef.current) return;
+        void loadLiveData(true);
+      }, LIVE_POLL_MS);
       return () => clearInterval(interval);
-    }, [leagueId, currentGiornata])
+    }, [loadAvailableMatchdays, loadLiveData])
   );
 
   const handleMyTeamCardLayout = useCallback((userId, event) => {
