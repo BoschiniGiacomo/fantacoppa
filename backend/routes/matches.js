@@ -31,6 +31,9 @@ const { createShortTtlCache } = require('../utils/shortTtlCache');
 const MATCHES_LIST_SHARED_CACHE = createShortTtlCache({ ttlMs: 6000, maxEntries: 80 });
 /** Cache classifica + knockout per live-delta (match/eventi restano sempre freschi). */
 const LIVE_DELTA_TABLES_CACHE = createShortTtlCache({ ttlMs: 6000, maxEntries: 60 });
+/** Cache ultimi risultati (form) per dettaglio partita — dato relativamente stabile. */
+const RECENT_FORM_CACHE = createShortTtlCache({ ttlMs: 60_000, maxEntries: 120 });
+const RECENT_FORM_LIMIT = 3;
 
 function isMissingDbObjectError(err) {
   return err && (err.code === '42P01' || err.code === '42703'); // undefined_table / undefined_column
@@ -2355,6 +2358,155 @@ router.get('/matches/search', authenticateToken, async (req, res) => {
   }
 });
 
+/**
+ * Ultimi N risultati (anche anni precedenti) per casa/ospite nello stesso gruppo ufficiale.
+ * Match chiusi (match_end), esclusa la partita corrente; esito via eventi/outcome ufficiale.
+ * Ordine cronologico ascendente (più recente a destra).
+ */
+async function loadRecentFormForMatch({
+  competitionId,
+  matchId,
+  homeTeamName,
+  awayTeamName,
+  limit = RECENT_FORM_LIMIT,
+} = {}) {
+  const compId = Number(competitionId) || 0;
+  const mid = Number(matchId) || 0;
+  const homeName = String(homeTeamName || '').trim();
+  const awayName = String(awayTeamName || '').trim();
+  const homeNorm = normalizeTeamNameForFavorite(homeName);
+  const awayNorm = normalizeTeamNameForFavorite(awayName);
+  const empty = { home: [], away: [] };
+  if (!(compId > 0) || !homeNorm || !awayNorm) return empty;
+
+  const cacheKey = `form:${compId}:${mid}:${homeNorm}:${awayNorm}:${limit}`;
+  return RECENT_FORM_CACHE.getOrSet(cacheKey, async () => {
+    const candidateLimit = Math.max(12, limit * 8);
+    const rows = await query(
+      `
+      SELECT
+        m.id,
+        m.kickoff_at,
+        m.home_team_id,
+        m.away_team_id,
+        m.home_score,
+        m.away_score,
+        ht.name AS home_team_name,
+        ht.logo_path AS home_team_logo_path,
+        at.name AS away_team_name,
+        at.logo_path AS away_team_logo_path
+      FROM official_matches m
+      INNER JOIN teams ht ON ht.id = m.home_team_id
+      INNER JOIN teams at ON at.id = m.away_team_id
+      WHERE m.competition_id = ?
+        AND (? <= 0 OR m.id <> ?)
+        AND COALESCE(m.is_admin_only, 0) = 0
+        AND (
+          LOWER(TRIM(ht.name)) IN (LOWER(TRIM(?)), LOWER(TRIM(?)))
+          OR LOWER(TRIM(at.name)) IN (LOWER(TRIM(?)), LOWER(TRIM(?)))
+        )
+        AND EXISTS (
+          SELECT 1 FROM official_match_events e
+          WHERE e.match_id = m.id AND e.event_type = 'match_end'
+        )
+      ORDER BY m.kickoff_at DESC NULLS LAST, m.id DESC
+      LIMIT ?
+      `,
+      [compId, mid, mid, homeName, awayName, homeName, awayName, candidateLimit]
+    );
+
+    const candidates = Array.isArray(rows) ? rows : [];
+    if (candidates.length === 0) return empty;
+
+    const matchIds = candidates
+      .map((r) => Number(r.id))
+      .filter((id) => Number.isFinite(id) && id > 0);
+    const evRows =
+      matchIds.length > 0
+        ? await query(
+            `SELECT match_id, event_type, team_side, team_id
+             FROM official_match_events
+             WHERE match_id IN (${matchIds.map(() => '?').join(', ')})
+               AND event_type IN (
+                 'goal', 'penalty_goal', 'own_goal',
+                 'shootout_goal', 'shootout_missed',
+                 'pre_shootout_goal', 'pre_shootout_missed'
+               )
+             ORDER BY id ASC`,
+            matchIds
+          )
+        : [];
+
+    const evByMatch = new Map();
+    for (const ev of evRows || []) {
+      const id = Number(ev.match_id);
+      if (!evByMatch.has(id)) evByMatch.set(id, []);
+      evByMatch.get(id).push(ev);
+    }
+
+    const logoMap = await buildBestOfficialTeamLogoMap([compId], false).catch(() => new Map());
+
+    const pickForTeam = (teamNorm) => {
+      const picked = [];
+      for (const m of candidates) {
+        if (picked.length >= limit) break;
+        const homeId = Number(m.home_team_id);
+        const awayId = Number(m.away_team_id);
+        const mHomeNorm = normalizeTeamNameForFavorite(m.home_team_name);
+        const mAwayNorm = normalizeTeamNameForFavorite(m.away_team_name);
+        const isHome = mHomeNorm === teamNorm;
+        const isAway = mAwayNorm === teamNorm;
+        if (!isHome && !isAway) continue;
+        if (isHome && isAway) continue;
+
+        const events = evByMatch.get(Number(m.id)) || [];
+        const tallied = tallyOfficialMatchEventScores(events, homeId, awayId);
+        const evScore = { has: tallied.hasGoalEvents, home: tallied.homeGoals, away: tallied.awayGoals };
+        const resolved = resolveOfficialMatchResultForStandings(m, evScore, true);
+        let hs = resolved.counted ? resolved.home : null;
+        let as = resolved.counted ? resolved.away : null;
+        if (hs == null && (tallied.hasRigEvents || tallied.homePreShootout > 0 || tallied.awayPreShootout > 0)) hs = 0;
+        if (as == null && (tallied.hasRigEvents || tallied.homePreShootout > 0 || tallied.awayPreShootout > 0)) as = 0;
+        if (!Number.isFinite(hs) || !Number.isFinite(as)) continue;
+
+        const outcome = resolveOfficialMatchOutcome({
+          regHome: hs,
+          regAway: as,
+          preHome: tallied.homePreShootout,
+          preAway: tallied.awayPreShootout,
+          rigHome: tallied.homeRig,
+          rigAway: tallied.awayRig,
+          hasRig: tallied.hasRigEvents,
+        });
+        const gf = isHome ? outcome.home : outcome.away;
+        const ga = isHome ? outcome.away : outcome.home;
+        const result = gf > ga ? 'V' : gf < ga ? 'P' : 'N';
+
+        const oppName = String((isHome ? m.away_team_name : m.home_team_name) || '').trim();
+        const oppId = isHome ? awayId : homeId;
+        const oppLogoFromRow = isHome ? m.away_team_logo_path : m.home_team_logo_path;
+        const oppLogoPath = pickBestOfficialTeamLogo(logoMap, compId, oppName, oppLogoFromRow);
+
+        picked.push({
+          match_id: Number(m.id),
+          kickoff_at: m.kickoff_at || null,
+          result,
+          opponent_team_id: Number.isFinite(oppId) && oppId > 0 ? oppId : null,
+          opponent_team_name: oppName || null,
+          opponent_team_logo_path: oppLogoPath,
+          opponent_team_logo_url: logoUrlForPath(oppLogoPath),
+        });
+      }
+      return picked.reverse();
+    };
+
+    return {
+      home: pickForTeam(homeNorm),
+      away: pickForTeam(awayNorm),
+    };
+  });
+}
+
 // GET /matches/:matchId/detail — dettaglio match con tabs (overview/formazione/classifica)
 router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
   try {
@@ -2417,7 +2569,7 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
 
     await ensureUnavailablePlayersTable();
     const emptyKnockout = { quarterfinals: [], semifinals: [], final: null };
-    const [homeTeam, awayTeam, rawEvents, homeLineup, awayLineup, unavailableRows, standingsBundle, knockout] = await Promise.all([
+    const [homeTeam, awayTeam, rawEvents, homeLineup, awayLineup, unavailableRows, standingsBundle, knockout, recentForm] = await Promise.all([
       getTeamMeta(homeTeamId),
       getTeamMeta(awayTeamId),
       query(
@@ -2440,6 +2592,13 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
             competitionId: Number(matchRow.competition_id),
           }).catch(() => emptyKnockout)
         : Promise.resolve(emptyKnockout),
+      loadRecentFormForMatch({
+        competitionId: Number(matchRow.competition_id),
+        matchId,
+        homeTeamName: matchRow.home_team_name,
+        awayTeamName: matchRow.away_team_name,
+        limit: RECENT_FORM_LIMIT,
+      }).catch(() => ({ home: [], away: [] })),
     ]);
 
     const homeLogoPath = normalizeTeamLogoPathForApi(homeTeam?.logo_path);
@@ -2497,6 +2656,12 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
       standings,
       standings_groups,
       knockout: knockoutSafe,
+      recent_form: recentForm && typeof recentForm === 'object'
+        ? {
+            home: Array.isArray(recentForm.home) ? recentForm.home : [],
+            away: Array.isArray(recentForm.away) ? recentForm.away : [],
+          }
+        : { home: [], away: [] },
       favorites: {
         match: Number(match.is_favorite_match) ? 1 : 0,
         home_team: 0,

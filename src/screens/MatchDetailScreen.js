@@ -54,6 +54,59 @@ import { parseAppDate } from '../utils/dateTime';
 
 const MONTH_SHORT_IT = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic'];
 
+const RECENT_FORM_RESULT_COLORS = {
+  V: '#16a34a',
+  N: '#6b7280',
+  P: '#dc2626',
+};
+
+function RecentFormResultBadge({ result, highlight }) {
+  const letter = String(result || '').toUpperCase();
+  const color = RECENT_FORM_RESULT_COLORS[letter] || RECENT_FORM_RESULT_COLORS.N;
+  return (
+    <View style={styles.recentFormBadgeCol}>
+      <View style={[styles.recentFormBadge, { backgroundColor: color }]}>
+        <Text style={styles.recentFormBadgeText}>{letter || '-'}</Text>
+      </View>
+      {highlight ? <View style={[styles.recentFormBadgeUnderline, { backgroundColor: color }]} /> : null}
+    </View>
+  );
+}
+
+function RecentFormTeamColumn({ items }) {
+  const list = Array.isArray(items) ? items : [];
+  if (list.length === 0) {
+    return (
+      <View style={styles.recentFormTeamBox}>
+        <Text style={styles.recentFormEmptyText}>Nessun risultato</Text>
+      </View>
+    );
+  }
+  return (
+    <View style={styles.recentFormTeamBox}>
+      <View style={styles.recentFormItemsRow}>
+        {list.map((item, idx) => {
+          const isLatest = idx === list.length - 1;
+          return (
+            <View key={`rf-${item.match_id || idx}`} style={styles.recentFormItem}>
+              <View style={styles.recentFormLogoWrap}>
+                <TeamLogoImage
+                  logoUrl={item.opponent_team_logo_url}
+                  logoPath={item.opponent_team_logo_path}
+                  style={styles.recentFormLogo}
+                  fallbackStyle={styles.recentFormLogoFallback}
+                  fallbackIconSize={12}
+                />
+              </View>
+              <RecentFormResultBadge result={item.result} highlight={isLatest} />
+            </View>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
 function startOfLocalDay(d) {
   const x = new Date(d);
   x.setHours(0, 0, 0, 0);
@@ -1376,6 +1429,7 @@ export default function MatchDetailScreen({ navigation, route }) {
           standings: Array.isArray(delta.standings) ? delta.standings : [],
           standings_groups: delta.standings_groups ?? null,
           knockout: delta.knockout || { quarterfinals: [], semifinals: [], final: null },
+          recent_form: { home: [], away: [] },
           lineups: { home: [], away: [] },
           unavailable_lineups: { home: [], away: [] },
           team_players: { home: [], away: [] },
@@ -1416,6 +1470,7 @@ export default function MatchDetailScreen({ navigation, route }) {
             standings_groups:
               full.standings_groups !== undefined ? full.standings_groups : prev.standings_groups,
             knockout: full.knockout != null ? full.knockout : prev.knockout,
+            recent_form: full.recent_form != null ? full.recent_form : prev.recent_form,
           };
         });
       } catch {
@@ -1499,6 +1554,10 @@ export default function MatchDetailScreen({ navigation, route }) {
   const standings = data?.standings || [];
   const standings_groups = Array.isArray(data?.standings_groups) ? data.standings_groups : null;
   const knockout = data?.knockout || EMPTY_OFFICIAL_KNOCKOUT;
+  const recentForm = data?.recent_form || { home: [], away: [] };
+  const recentFormHome = Array.isArray(recentForm.home) ? recentForm.home : [];
+  const recentFormAway = Array.isArray(recentForm.away) ? recentForm.away : [];
+  const showRecentForm = recentFormHome.length > 0 || recentFormAway.length > 0;
   const matchStageId = match?.match_stage_id != null ? Number(match.match_stage_id) : NaN;
   const standingsIsKnockoutMatch = matchStageId === 2 || matchStageId === 3 || matchStageId === 4;
   const hasKnockoutBracket = hasOfficialKnockoutBracket(knockout);
@@ -2995,6 +3054,15 @@ export default function MatchDetailScreen({ navigation, route }) {
             ) : null}
           </View>
         )}
+        {activeTab === 'overview' && showRecentForm ? (
+          <View style={styles.recentFormSection}>
+            <Text style={styles.recentFormTitle}>Ultimi Risultati</Text>
+            <View style={styles.recentFormRow}>
+              <RecentFormTeamColumn items={recentFormHome} />
+              <RecentFormTeamColumn items={recentFormAway} />
+            </View>
+          </View>
+        ) : null}
         {activeTab === 'lineup' && (
           <View style={[styles.card, styles.cardLineup, lineupEditMode && styles.cardLineupCompact]}>
             <View style={[styles.twoCol, lineupEditMode && styles.twoColCompact]}>
@@ -5030,6 +5098,59 @@ const styles = StyleSheet.create({
   tabTextActive: { color: '#667eea' },
   content: { flex: 1, paddingHorizontal: 12, paddingTop: 8 },
   card: { backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#ececec', padding: 12, marginBottom: 12 },
+  recentFormSection: { marginBottom: 12 },
+  recentFormTitle: { fontSize: 16, fontWeight: '800', color: '#222', marginBottom: 10 },
+  recentFormRow: { flexDirection: 'row', alignItems: 'stretch', gap: 10 },
+  recentFormTeamBox: {
+    flex: 1,
+    minWidth: 0,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#ececec',
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    justifyContent: 'center',
+  },
+  recentFormItemsRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-evenly',
+    gap: 4,
+  },
+  recentFormItem: { alignItems: 'center', flex: 1, minWidth: 0 },
+  recentFormLogoWrap: {
+    width: 26,
+    height: 26,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 6,
+  },
+  recentFormLogo: { width: 24, height: 24 },
+  recentFormLogoFallback: {
+    width: 24,
+    height: 24,
+    borderRadius: 6,
+    backgroundColor: '#eef2ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  recentFormBadgeCol: { alignItems: 'center' },
+  recentFormBadge: {
+    width: 28,
+    height: 28,
+    borderRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  recentFormBadgeText: { color: '#fff', fontSize: 13, fontWeight: '800' },
+  recentFormBadgeUnderline: {
+    marginTop: 4,
+    width: 28,
+    height: 3,
+    borderRadius: 2,
+  },
+  recentFormEmptyText: { fontSize: 12, color: '#9ca3af', textAlign: 'center', fontWeight: '600' },
   /** Formazione: un filo più vicina ai bordi schermo, più padding interno così le maglie non “toccano” il bordo card. */
   cardLineup: { marginHorizontal: -4, paddingLeft: 10, paddingRight: 10, paddingVertical: 12 },
   cardLineupCompact: { marginHorizontal: -6, paddingLeft: 6, paddingRight: 6, paddingVertical: 10 },
