@@ -25,7 +25,7 @@ router.get('/:leagueId', authenticateToken, async (req, res) => {
       return res.status(400).json({ message: 'League ID non valido' });
     }
 
-    const [initialBudget, squadValuesByUser, rows] = await Promise.all([
+    const [initialBudget, squadValuesByUser, rows, hideRows] = await Promise.all([
       getInitialBudget(leagueId),
       computeLeagueSquadValuesByUser(leagueId),
       query(
@@ -38,15 +38,26 @@ router.get('/:leagueId', authenticateToken, async (req, res) => {
          ORDER BY u.username ASC`,
         [leagueId]
       ),
+      query(
+        `SELECT COALESCE(hide_formations, 0)::int AS hide_formations
+         FROM leagues WHERE id = ? LIMIT 1`,
+        [leagueId]
+      ).catch(() => [{ hide_formations: 0 }]),
     ]);
+
+    const hideFormations = Number(hideRows?.[0]?.hide_formations || 0) === 1;
+    const viewerId = Number(req.user.userId);
 
     const teams = rows.map((row) => {
       const uid = Number(row.id);
       const totalValue = squadValuesByUser[uid] || 0;
+      const isOwnTeam = viewerId === uid;
+      const hideBudget = hideFormations && !isOwnTeam;
       return {
         ...row,
-        budget: budgetFromSquadValue(initialBudget, totalValue),
-        total_value: Number(totalValue.toFixed(2)),
+        budget: hideBudget ? null : budgetFromSquadValue(initialBudget, totalValue),
+        total_value: hideBudget ? null : Number(totalValue.toFixed(2)),
+        budget_hidden: hideBudget,
       };
     });
 
@@ -158,11 +169,12 @@ router.get('/:leagueId/:userId', authenticateToken, async (req, res) => {
 
     res.json({
       ...teamRows[0],
-      budget: computedBudget,
-      total_value: Number(totalValue.toFixed(2)),
+      budget: squadHidden ? null : computedBudget,
+      total_value: squadHidden ? null : Number(totalValue.toFixed(2)),
       players: playersOut,
       results,
       squad_hidden: squadHidden,
+      budget_hidden: squadHidden,
       hide_formations: hideFormations,
     });
   } catch (error) {

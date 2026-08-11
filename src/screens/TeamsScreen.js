@@ -62,7 +62,8 @@ export default function TeamsScreen({ route, navigation }) {
     if (warmRows != null) {
       const normalizedWarm = warmRows.map((row) => ({
         ...row,
-        budget: safeNumber(row?.budget, 0),
+        budget: row?.budget == null ? null : safeNumber(row?.budget, 0),
+        budget_hidden: row?.budget_hidden === true || row?.budget_hidden === 1,
       }));
       setTeams(normalizedWarm);
     }
@@ -113,7 +114,8 @@ export default function TeamsScreen({ route, navigation }) {
       setTeamsRows(leagueId, rows);
       const normalized = rows.map((row) => ({
         ...row,
-        budget: safeNumber(row?.budget, 0),
+        budget: row?.budget == null ? null : safeNumber(row?.budget, 0),
+        budget_hidden: row?.budget_hidden === true || row?.budget_hidden === 1,
       }));
       setTeams(normalized);
     } catch (error) {
@@ -145,8 +147,13 @@ export default function TeamsScreen({ route, navigation }) {
   const renderTeamItem = ({ item, index }) => {
     const teamLogo = item.team_logo || 'default_1';
     const isDefaultLogo = teamLogo.startsWith('default_');
-    const isMe = item.id === user?.id;
-    const budgetValue = safeNumber(item?.budget, 0);
+    const isMe = Number(item.id) === Number(user?.id);
+    const budgetHidden =
+      !isMe &&
+      (item?.budget_hidden === true ||
+        item?.budget_hidden === 1 ||
+        item?.budget == null);
+    const budgetValue = budgetHidden ? null : safeNumber(item?.budget, 0);
 
     return (
       <TouchableOpacity
@@ -179,7 +186,11 @@ export default function TeamsScreen({ route, navigation }) {
           <View style={styles.teamMeta}>
             <Text style={styles.username} numberOfLines={1}>{item.username}</Text>
             <View style={styles.budgetChip}>
-              <Text style={styles.budgetText}>{budgetValue.toFixed(2)} {budgetValue === 1 ? 'credito' : 'crediti'}</Text>
+              <Text style={styles.budgetText}>
+                {budgetHidden
+                  ? '•••• crediti'
+                  : `${budgetValue.toFixed(2)} ${budgetValue === 1 ? 'credito' : 'crediti'}`}
+              </Text>
             </View>
           </View>
         </View>

@@ -68,7 +68,10 @@ export default function TeamDetailScreen({ route, navigation }) {
     const normalizedTeam = teamData && typeof teamData === 'object'
       ? {
           ...teamData,
-          budget: Number.isFinite(Number(teamData?.budget)) ? Number(teamData.budget) : 0,
+          budget:
+            teamData?.budget == null || teamData?.budget_hidden === true || teamData?.budget_hidden === 1
+              ? null
+              : (Number.isFinite(Number(teamData?.budget)) ? Number(teamData.budget) : 0),
         }
       : null;
 
@@ -178,8 +181,14 @@ export default function TeamDetailScreen({ route, navigation }) {
 
             {/* Budget */}
             <View style={styles.budgetBox}>
-              <Text style={styles.budgetValue}>{team.budget?.toFixed(2) || '0.00'}</Text>
-              <Text style={styles.budgetLabel}>{team.budget === 1 ? 'credito' : 'crediti'}</Text>
+              <Text style={[styles.budgetValue, (squadHidden || team.budget == null) && styles.playerHiddenText]}>
+                {squadHidden || team.budget == null ? '••••' : (team.budget?.toFixed(2) || '0.00')}
+              </Text>
+              <Text style={styles.budgetLabel}>
+                {squadHidden || team.budget == null
+                  ? 'crediti'
+                  : (team.budget === 1 ? 'credito' : 'crediti')}
+              </Text>
             </View>
           </View>
         </View>
