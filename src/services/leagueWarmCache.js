@@ -506,11 +506,11 @@ async function mapPool(items, concurrency, iterator) {
   await Promise.all(workers);
 }
 
-const MAX_FORMATION_PREFETCH_PER_LEAGUE = 2;
+const MAX_FORMATION_PREFETCH_PER_LEAGUE = 5;
 
 /**
  * Dopo login/sessione valida: prefetch per leghe in ordine {@link sortLeaguesForPrefetch}.
- * Default: max 3 leghe non archiviate; formazioni solo corrente + precedente.
+ * Default: max 3 leghe non archiviate; formazioni ultime 5 (corrente + precedenti).
  * @param {{ onProgress?: (0..1) => void, maxLeagues?: number, concurrency?: number, userId?: number|string, calendarYear?: number }} opts
  */
 export async function prefetchLeagueWarmData(opts = {}) {
@@ -605,22 +605,20 @@ export async function prefetchLeagueWarmData(opts = {}) {
         }
 
         const defaultG = pickDefaultFormationGiornata(md);
-        const prefetchGiornate = new Set();
+        const prefetchGiornate = [];
         if (defaultG != null) {
-          prefetchGiornate.add(defaultG);
           const sortedG = [...new Set(
             md.map((m) => Number(m?.giornata)).filter((g) => Number.isFinite(g))
           )].sort((a, b) => a - b);
           const idx = sortedG.indexOf(defaultG);
-          if (idx > 0) {
-            prefetchGiornate.add(sortedG[idx - 1]);
-          } else {
-            const prev = sortedG.filter((g) => g < defaultG).pop();
-            if (prev != null) prefetchGiornate.add(prev);
+          const end = idx >= 0 ? idx : sortedG.length - 1;
+          const start = Math.max(0, end - (MAX_FORMATION_PREFETCH_PER_LEAGUE - 1));
+          for (let i = end; i >= start; i -= 1) {
+            prefetchGiornate.push(sortedG[i]);
           }
         }
-        // Cap di sicurezza (corrente + precedente).
-        const limitedGiornate = [...prefetchGiornate].slice(0, MAX_FORMATION_PREFETCH_PER_LEAGUE);
+        // Cap di sicurezza (ultime N rispetto alla giornata default).
+        const limitedGiornate = prefetchGiornate.slice(0, MAX_FORMATION_PREFETCH_PER_LEAGUE);
 
         await Promise.all(
           limitedGiornate.map(async (g) => {

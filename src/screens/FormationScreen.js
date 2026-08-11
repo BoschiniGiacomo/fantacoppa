@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, ActivityIndicator,
-  ScrollView, Modal, FlatList, Dimensions, Animated, PanResponder, Image,
+  ScrollView, Modal, FlatList, Dimensions, Animated, PanResponder, Image, Easing,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
@@ -60,6 +60,66 @@ const ALL_MODULES = {
 const ROLE_COLOR = { P: '#0d6efd', D: '#198754', C: '#e6a800', A: '#dc3545' };
 const ROLE_LABEL = { P: 'Portiere', D: 'Difensore', C: 'Centrocampista', A: 'Attaccante' };
 const FIELD_H = 420;
+const FIELD_W = SCREEN_W - 28;
+const DEPLOY_OUT_MS = 200;
+const DEPLOY_IN_MS = 460;
+
+/** Offset dal centro campo → posizione slot (per animazione ingresso/uscita). */
+function getDeployFromCenter({ topPct, yOffset, si, count, slotSize, slotMarginH }) {
+  const fieldCx = FIELD_W / 2;
+  const fieldCy = FIELD_H / 2;
+  const slotCy = (topPct / 100) * FIELD_H + (yOffset || 0) + slotSize / 2;
+  let slotCx;
+  if (count <= 1) {
+    slotCx = fieldCx;
+  } else if (count === 4) {
+    const gap = 4;
+    const total = count * slotSize + (count - 1) * gap;
+    const start = (FIELD_W - total) / 2;
+    slotCx = start + slotSize / 2 + si * (slotSize + gap);
+  } else if (count >= 5) {
+    const m = slotMarginH || 0;
+    const pitch = slotSize + 2 * m;
+    const total = count * pitch;
+    const start = (FIELD_W - total) / 2;
+    slotCx = start + pitch / 2 + si * pitch;
+  } else {
+    slotCx = (FIELD_W / (count + 1)) * (si + 1);
+  }
+  return { dx: fieldCx - slotCx, dy: fieldCy - slotCy };
+}
+
+function DeployingSlot({ deployAnim, dx, dy, children, style }) {
+  const translateX = deployAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [dx, 0],
+  });
+  const translateY = deployAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [dy, 0],
+  });
+  const scale = deployAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.42, 1],
+  });
+  const opacity = deployAnim.interpolate({
+    inputRange: [0, 0.18, 1],
+    outputRange: [0, 1, 1],
+  });
+  return (
+    <Animated.View
+      style={[
+        style,
+        {
+          opacity,
+          transform: [{ translateX }, { translateY }, { scale }],
+        },
+      ]}
+    >
+      {children}
+    </Animated.View>
+  );
+}
 
 // Tronca al centro: "Moscatelli" → "Mos...lli"
 const midTruncate = (str, max = 9) => {
@@ -98,6 +158,7 @@ export default function FormationScreen({ route }) {
   const [releaseAt, setReleaseAt] = useState(null);
   const [formationRecovered, setFormationRecovered] = useState(false);
   const [hasSaved, setHasSaved] = useState(false);   // true se esiste già una formazione salvata
+  const [modulePickerOpen, setModulePickerOpen] = useState(false);
   const [countdown, setCountdown] = useState(null);  // { days, hours, mins, secs } o null
   const parseDeadlineDate = (value) => parseAppDate(value);
 
@@ -107,6 +168,9 @@ export default function FormationScreen({ route }) {
   const [pickerVisible, setPickerVisible] = useState(false);
   const [pickerRole, setPickerRole] = useState(null);    // ruolo filtro ('P','D','C','A' o null per panchina)
   const [pickerSlotIdx, setPickerSlotIdx] = useState(null); // indice nello starters array, o 'bench'
+  const fieldDeployAnim = useRef(new Animated.Value(1)).current;
+  const matchdaySwitchGenRef = useRef(0);
+  const [fieldDeploying, setFieldDeploying] = useState(false);
 
   const showToast = (text, type = 'error') => {
     setToastMsg({ text, type });
@@ -507,14 +571,44 @@ export default function FormationScreen({ route }) {
 
   // Quando cambia giornata
   const handleMatchdayChange = async (giornata) => {
+    if (giornata === selectedMatchday && !fieldDeploying) return;
     setSelectedMatchday(giornata);
-    await loadFormationForMatchday(giornata);
+    setModulePickerOpen(false);
+    const gen = ++matchdaySwitchGenRef.current;
+    setFieldDeploying(true);
+
+    const animateDeploy = (toValue, duration) =>
+      new Promise((resolve) => {
+        Animated.timing(fieldDeployAnim, {
+          toValue,
+          duration,
+          easing: toValue >= 1 ? Easing.out(Easing.cubic) : Easing.in(Easing.cubic),
+          useNativeDriver: true,
+        }).start(({ finished }) => resolve(!!finished));
+      });
+
+    // Raccogli i giocatori al centro (nasconde il “cambio a pezzi” della lineup precedente)
+    await animateDeploy(0, DEPLOY_OUT_MS);
+    if (gen !== matchdaySwitchGenRef.current) return;
+
+    const warm = peekFormationPayload(leagueId, giornata);
+    await loadFormationForMatchday(giornata, null, warm);
+    if (gen !== matchdaySwitchGenRef.current) return;
+
+    fieldDeployAnim.setValue(0);
+    // Un frame così il layout nuovo è montato prima del deploy
+    await new Promise((r) => requestAnimationFrame(() => r()));
+    if (gen !== matchdaySwitchGenRef.current) return;
+
+    await animateDeploy(1, DEPLOY_IN_MS);
+    if (gen === matchdaySwitchGenRef.current) setFieldDeploying(false);
   };
 
   // Quando cambia modulo
   const handleModuleChange = (mod) => {
     setModulo(mod);
     setStarters(buildStarterSlots(mod, starters));
+    setModulePickerOpen(false);
   };
 
   // --- Player selection ---
@@ -562,6 +656,9 @@ export default function FormationScreen({ route }) {
   const lastTarget = useRef(null);
   const benchRef = useRef(bench);
   benchRef.current = bench;
+  const canReorderBench = !isExpired && canEdit;
+  const canReorderBenchRef = useRef(canReorderBench);
+  canReorderBenchRef.current = canReorderBench;
 
   const calcTarget = useCallback((index, dx, dy) => {
     const colOff = Math.round(dx / (BENCH_CARD_W + BENCH_GAP));
@@ -573,8 +670,12 @@ export default function FormationScreen({ route }) {
   const dragIndexRef = useRef(null);
   const panResponder = useMemo(() => PanResponder.create({
     onStartShouldSetPanResponder: () => false,
-    onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) > 6 || Math.abs(g.dy) > 6,
+    onMoveShouldSetPanResponder: (_, g) => {
+      if (!canReorderBenchRef.current) return false;
+      return Math.abs(g.dx) > 6 || Math.abs(g.dy) > 6;
+    },
     onPanResponderGrant: () => {
+      if (!canReorderBenchRef.current) return;
       const idx = dragIndexRef.current;
       if (idx === null) return;
       lastTarget.current = idx;
@@ -582,6 +683,7 @@ export default function FormationScreen({ route }) {
       setDragState({ active: true, fromIdx: idx, toIdx: idx });
     },
     onPanResponderMove: (_, g) => {
+      if (!canReorderBenchRef.current) return;
       dragPos.setValue({ x: g.dx, y: g.dy });
       const idx = dragIndexRef.current;
       if (idx === null) return;
@@ -594,14 +696,16 @@ export default function FormationScreen({ route }) {
     onPanResponderRelease: (_, g) => {
       const idx = dragIndexRef.current;
       if (idx === null) return;
-      const newIdx = calcTarget(idx, g.dx, g.dy);
-      if (newIdx !== idx) {
-        setBench(prev => {
-          const arr = [...prev];
-          const [item] = arr.splice(idx, 1);
-          arr.splice(newIdx, 0, item);
-          return arr;
-        });
+      if (canReorderBenchRef.current) {
+        const newIdx = calcTarget(idx, g.dx, g.dy);
+        if (newIdx !== idx) {
+          setBench(prev => {
+            const arr = [...prev];
+            const [item] = arr.splice(idx, 1);
+            arr.splice(newIdx, 0, item);
+            return arr;
+          });
+        }
       }
       setDragState({ active: false, fromIdx: null, toIdx: null });
       dragPos.setValue({ x: 0, y: 0 });
@@ -771,7 +875,12 @@ export default function FormationScreen({ route }) {
   // ============================================================
   return (
     <View style={s.container}>
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: autoLineup ? 80 : 175 }}>
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{
+          paddingBottom: autoLineup || isExpired || !canEdit ? 80 : 175,
+        }}
+      >
         {/* ── Header ── */}
         <View style={s.header}>
           <Text style={s.title}>Formazione</Text>
@@ -863,136 +972,204 @@ export default function FormationScreen({ route }) {
           </View>
         ) : (
           <>
-            {/* ── Selettore modulo ── */}
-            <View style={s.sectionLabel}>
-              <Text style={s.sectionLabelText}>Modulo</Text>
-            </View>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.moduleRow} contentContainerStyle={{ paddingHorizontal: 12, gap: 6 }}>
-              {availableModules.map(m => {
-                const active = modulo === m.key;
-                return (
-                  <TouchableOpacity
-                    key={m.key}
-                    style={[s.moduleChip, active && s.moduleChipActive]}
-                    onPress={() => handleModuleChange(m.key)}
-                    disabled={isExpired || !canEdit}
-                  >
-                    <Text style={[s.moduleChipText, active && s.moduleChipTextActive]}>{m.key}</Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
+            {/* ── Campo da calcio (modulo sovrapposto in alto) ── */}
+            <View style={s.fieldWithModule}>
+              <View style={s.moduleSelectedBtnWrap} pointerEvents="box-none">
+                <TouchableOpacity
+                  style={[
+                    s.moduleSelectedBtn,
+                    !modulo && s.moduleSelectedBtnEmpty,
+                    modulePickerOpen && s.moduleSelectedBtnOpen,
+                  ]}
+                  onPress={() => {
+                    if (isExpired || !canEdit) return;
+                    setModulePickerOpen((o) => !o);
+                  }}
+                  disabled={isExpired || !canEdit}
+                  activeOpacity={0.75}
+                  accessibilityRole="button"
+                  accessibilityLabel={modulo ? `Modulo ${modulo}` : 'Scegli modulo'}
+                >
+                  <Text style={[s.moduleSelectedText, !modulo && s.moduleSelectedTextEmpty]}>
+                    {modulo || 'Scegli modulo'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
 
-            {/* ── Campo da calcio ── */}
-            {modulo && moduleParts ? (
+              {modulePickerOpen && !isExpired && canEdit ? (
+                <View style={s.modulePickerPanelOnField}>
+                  <View style={s.modulePickerGrid}>
+                    {availableModules.map((m) => {
+                      const active = modulo === m.key;
+                      return (
+                        <TouchableOpacity
+                          key={m.key}
+                          style={[s.moduleOptionChip, active && s.moduleOptionChipActive]}
+                          onPress={() => handleModuleChange(m.key)}
+                        >
+                          <Text style={[s.moduleOptionText, active && s.moduleOptionTextActive]}>
+                            {m.key}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+              ) : null}
+
               <View style={s.fieldWrapper}>
-                <View style={s.field}>
+                <View style={s.field} pointerEvents={fieldDeploying ? 'none' : 'auto'}>
                   {/* Linee del campo */}
                   <View style={s.fieldCenter} />
                   <View style={s.fieldCircle} />
                   <View style={s.fieldAreaTop} />
                   <View style={s.fieldAreaBottom} />
 
-                  {/* Righe giocatori */}
-                  {fieldRows.map((row, ri) => {
-                    const count = row.slots.length;
-                    // Centrocampo più basso quando 4 giocatori; > 4 gestito dallo sfasamento
-                    const topPct = ri === 0 ? 6
-                      : ri === 1 ? (count <= 4 ? 35 : 30)
-                      : ri === 2 ? 58 : 82;
-                    // Cerchi sempre 70px — sfasamento verticale forte permette sovrapposizione
-                    const slotSize = 70;
-                    const fontSize = 11;
-                    const teamFontSize = 8;
-                    const truncLen = 10;
-                    const iconSize = 18;
-                    const slotMarginH = count >= 7 ? -10 : count >= 6 ? -8 : count >= 5 ? -3 : 0;
+                  {modulo && moduleParts ? (
+                    /* Righe giocatori */
+                    fieldRows.map((row, ri) => {
+                      const count = row.slots.length;
+                      // Centrocampo più basso quando 4 giocatori; > 4 gestito dallo sfasamento
+                      const topPct = ri === 0 ? 6
+                        : ri === 1 ? (count <= 4 ? 35 : 30)
+                        : ri === 2 ? 58 : 82;
+                      // Cerchi sempre 70px — sfasamento verticale forte permette sovrapposizione
+                      const slotSize = 70;
+                      const fontSize = 11;
+                      const teamFontSize = 8;
+                      const truncLen = 10;
+                      const iconSize = 18;
+                      const slotMarginH = count >= 7 ? -10 : count >= 6 ? -8 : count >= 5 ? -3 : 0;
 
-                    return (
-                      <View key={ri} style={[s.fieldRow, { top: `${topPct}%` }, count >= 5 && { justifyContent: 'center', marginHorizontal: 4 }, count === 4 && { justifyContent: 'center', gap: 4 }]}>
-                        {row.slots.map((player, si) => {
-                          const globalIdx = row.startIdx + si;
-                          const roleColor = ROLE_COLOR[row.role];
-                          // Sfasamento verticale: laterali molto in alto, centrali molto in basso
-                          let yOffset = 0;
-                          if (count >= 5) {
-                            const center = (count - 1) / 2;
-                            const dist = Math.abs(si - center) / center; // 1 = esterno, 0 = centro
-                            const up = count >= 7 ? -130 : count >= 6 ? -120 : -110;
-                            const down = count >= 7 ? 20 : count >= 6 ? 18 : 15;
-                            yOffset = Math.round(up * dist + down * (1 - dist));
-                          }
+                      return (
+                        <View key={ri} style={[s.fieldRow, { top: `${topPct}%` }, count >= 5 && { justifyContent: 'center', marginHorizontal: 4 }, count === 4 && { justifyContent: 'center', gap: 4 }]}>
+                          {row.slots.map((player, si) => {
+                            const globalIdx = row.startIdx + si;
+                            const roleColor = ROLE_COLOR[row.role];
+                            // Sfasamento verticale: laterali molto in alto, centrali molto in basso
+                            let yOffset = 0;
+                            if (count >= 5) {
+                              const center = (count - 1) / 2;
+                              const dist = Math.abs(si - center) / center; // 1 = esterno, 0 = centro
+                              const up = count >= 7 ? -130 : count >= 6 ? -120 : -110;
+                              const down = count >= 7 ? 20 : count >= 6 ? 18 : 15;
+                              yOffset = Math.round(up * dist + down * (1 - dist));
+                            }
 
-                          const dynSlot = {
-                            width: slotSize, height: slotSize, borderRadius: slotSize / 2,
-                            ...(yOffset !== 0 ? { marginTop: yOffset } : {}),
-                            ...(slotMarginH !== 0 ? { marginHorizontal: slotMarginH } : {}),
-                          };
+                            const dynSlot = {
+                              width: slotSize, height: slotSize, borderRadius: slotSize / 2,
+                              ...(yOffset !== 0 ? { marginTop: yOffset } : {}),
+                              ...(slotMarginH !== 0 ? { marginHorizontal: slotMarginH } : {}),
+                            };
+                            const { dx, dy } = getDeployFromCenter({
+                              topPct, yOffset, si, count, slotSize, slotMarginH,
+                            });
 
-                          if (player) {
-                            const hasPhoto = !!player.photo_path;
-                            const fieldLabel = getFieldPlayerLabel(player, fieldSurnameCountMap, midTruncate);
+                            if (player) {
+                              const hasPhoto = !!player.photo_path;
+                              const fieldLabel = getFieldPlayerLabel(player, fieldSurnameCountMap, midTruncate);
+                              return (
+                                <DeployingSlot
+                                  key={`s-${globalIdx}-${player.id}`}
+                                  deployAnim={fieldDeployAnim}
+                                  dx={dx}
+                                  dy={dy}
+                                >
+                                  <TouchableOpacity
+                                    style={[
+                                      s.playerSlot,
+                                      { borderColor: roleColor, backgroundColor: hasPhoto ? 'transparent' : roleColor },
+                                      dynSlot,
+                                      hasPhoto && { borderWidth: 0 },
+                                    ]}
+                                    onPress={() => !isExpired && canEdit && removeStarter(globalIdx)}
+                                    disabled={isExpired || !canEdit || fieldDeploying}
+                                  >
+                                    {hasPhoto ? (
+                                      <>
+                                        <View style={[s.fieldPhotoClip, { width: slotSize, height: slotSize, borderRadius: slotSize / 2 }]}>
+                                          <PlayerPhotoImage
+                                            photoPath={player.photo_path}
+                                            style={{ width: slotSize * 0.90, height: slotSize * 0.90, position: 'absolute', top: -slotSize * 0.11 }}
+                                          />
+                                        </View>
+                                        <View style={[s.fieldPhotoNameBadge, { backgroundColor: roleColor }]}>
+                                          <Text style={s.fieldPhotoNameBadgeText} numberOfLines={1}>{fieldLabel}</Text>
+                                        </View>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Text style={[s.playerSlotName, { fontSize }]} numberOfLines={1}>{fieldLabel}</Text>
+                                        <Text style={[s.playerSlotTeam, { fontSize: teamFontSize }]} numberOfLines={1}>{midTruncate(player.team_name, truncLen)}</Text>
+                                      </>
+                                    )}
+                                  </TouchableOpacity>
+                                </DeployingSlot>
+                              );
+                            }
                             return (
-                              <TouchableOpacity
-                                key={globalIdx}
-                                style={[
-                                  s.playerSlot,
-                                  { borderColor: roleColor, backgroundColor: hasPhoto ? 'transparent' : roleColor },
-                                  dynSlot,
-                                  hasPhoto && { borderWidth: 0 },
-                                ]}
-                                onPress={() => !isExpired && canEdit && removeStarter(globalIdx)}
-                                disabled={isExpired || !canEdit}
+                              <DeployingSlot
+                                key={`e-${globalIdx}`}
+                                deployAnim={fieldDeployAnim}
+                                dx={dx}
+                                dy={dy}
                               >
-                                {hasPhoto ? (
-                                  <>
-                                    <View style={[s.fieldPhotoClip, { width: slotSize, height: slotSize, borderRadius: slotSize / 2 }]}>
-                                      <PlayerPhotoImage
-                                        photoPath={player.photo_path}
-                                        style={{ width: slotSize * 0.90, height: slotSize * 0.90, position: 'absolute', top: -slotSize * 0.11 }}
-                                      />
-                                    </View>
-                                    <View style={[s.fieldPhotoNameBadge, { backgroundColor: roleColor }]}>
-                                      <Text style={s.fieldPhotoNameBadgeText} numberOfLines={1}>{fieldLabel}</Text>
-                                    </View>
-                                  </>
-                                ) : (
-                                  <>
-                                    <Text style={[s.playerSlotName, { fontSize }]} numberOfLines={1}>{fieldLabel}</Text>
-                                    <Text style={[s.playerSlotTeam, { fontSize: teamFontSize }]} numberOfLines={1}>{midTruncate(player.team_name, truncLen)}</Text>
-                                  </>
-                                )}
-                              </TouchableOpacity>
+                                <TouchableOpacity
+                                  style={[s.emptySlot, { borderColor: roleColor }, dynSlot]}
+                                  onPress={() => !isExpired && canEdit && openPicker(row.role, globalIdx)}
+                                  disabled={isExpired || !canEdit || fieldDeploying}
+                                >
+                                  <Ionicons name="add" size={iconSize} color={roleColor} />
+                                  <Text style={[s.emptySlotLabel, { color: roleColor, fontSize: teamFontSize }]}>{row.role}</Text>
+                                </TouchableOpacity>
+                              </DeployingSlot>
                             );
-                          }
-                          return (
-                            <TouchableOpacity
-                              key={globalIdx}
-                              style={[s.emptySlot, { borderColor: roleColor }, dynSlot]}
-                              onPress={() => !isExpired && canEdit && openPicker(row.role, globalIdx)}
-                              disabled={isExpired || !canEdit}
-                            >
-                              <Ionicons name="add" size={iconSize} color={roleColor} />
-                              <Text style={[s.emptySlotLabel, { color: roleColor, fontSize: teamFontSize }]}>{row.role}</Text>
-                            </TouchableOpacity>
-                          );
-                        })}
-                      </View>
-                    );
-                  })}
+                          })}
+                        </View>
+                      );
+                    })
+                  ) : (
+                    <Animated.View
+                      style={[
+                        s.noModuleOnField,
+                        {
+                          opacity: fieldDeployAnim.interpolate({
+                            inputRange: [0, 0.2, 1],
+                            outputRange: [0, 1, 1],
+                          }),
+                          transform: [{
+                            scale: fieldDeployAnim.interpolate({
+                              inputRange: [0, 1],
+                              outputRange: [0.92, 1],
+                            }),
+                          }],
+                        },
+                      ]}
+                    >
+                      <TouchableOpacity
+                        style={s.noModuleOnFieldHit}
+                        onPress={() => {
+                          if (isExpired || !canEdit || fieldDeploying) return;
+                          setModulePickerOpen(true);
+                        }}
+                        disabled={isExpired || !canEdit || fieldDeploying}
+                        activeOpacity={0.85}
+                      >
+                        <Ionicons name="football-outline" size={40} color="rgba(255,255,255,0.85)" />
+                        <Text style={s.noModuleOnFieldText}>Seleziona un modulo per iniziare</Text>
+                      </TouchableOpacity>
+                    </Animated.View>
+                  )}
                 </View>
               </View>
-            ) : (
-              <View style={s.noModule}>
-                <Ionicons name="football-outline" size={40} color="#bbb" />
-                <Text style={s.noModuleText}>Seleziona un modulo per iniziare</Text>
-              </View>
-            )}
+            </View>
 
             {/* ── Panchina ── */}
             <View style={s.sectionLabel}>
               <Text style={s.sectionLabelText}>Panchina ({bench.length})</Text>
-              <Text style={s.sectionLabelHint}>Trascina per riordinare</Text>
+              {canReorderBench ? (
+                <Text style={s.sectionLabelHint}>Trascina per riordinare</Text>
+              ) : null}
             </View>
             <View style={s.benchGrid}>
               {bench.map((player, i) => {
@@ -1001,8 +1178,8 @@ export default function FormationScreen({ route }) {
                 return (
                   <View
                     key={player.id}
-                    onTouchStart={() => { dragIndexRef.current = i; }}
-                    {...panResponder.panHandlers}
+                    onTouchStart={canReorderBench ? () => { dragIndexRef.current = i; } : undefined}
+                    {...(canReorderBench ? panResponder.panHandlers : null)}
                     style={[
                       s.benchCard,
                       { borderTopColor: ROLE_COLOR[player.role], width: BENCH_CARD_W },
@@ -1094,9 +1271,9 @@ export default function FormationScreen({ route }) {
         )}
       </ScrollView>
 
-      {/* ── Pulsante Salva (sempre visibile in basso) ── */}
-      {!autoLineup && (() => {
-        const saveBlocked = isExpired || !canEdit || saving;
+      {/* ── Pulsante Salva: nascosto se scadenza passata o formazione non ancora editabile ── */}
+      {!autoLineup && !isExpired && canEdit && (() => {
+        const saveBlocked = saving;
         const incompleteSquad = !squadComplete;
         const showFormationWarning = formationIncomplete && squadComplete && !saveBlocked;
         const btnDisabled = saveBlocked || incompleteSquad;
@@ -1281,15 +1458,104 @@ const s = StyleSheet.create({
   sectionLabelText: { fontSize: 14, fontWeight: '700', color: '#555', textTransform: 'uppercase', letterSpacing: 0.5 },
   sectionLabelHint: { fontSize: 11, color: '#aaa', fontStyle: 'italic' },
 
-  // Module chips
-  moduleRow: { maxHeight: 42 },
-  moduleChip: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 18, backgroundColor: '#fff', borderWidth: 1.5, borderColor: '#ddd' },
-  moduleChipActive: { backgroundColor: '#667eea', borderColor: '#667eea' },
-  moduleChipText: { fontSize: 14, fontWeight: '700', color: '#555' },
-  moduleChipTextActive: { color: '#fff' },
+  // Module selector (sovrapposto al bordo superiore del campo)
+  fieldWithModule: {
+    marginHorizontal: 14,
+    marginTop: 28,
+    position: 'relative',
+    zIndex: 4,
+  },
+  moduleSelectedBtnWrap: {
+    position: 'absolute',
+    top: -25,
+    left: 0,
+    right: 0,
+    zIndex: 6,
+    elevation: 6,
+    alignItems: 'center',
+  },
+  moduleSelectedBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 18,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1.5,
+    borderColor: '#e2e8f0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 6,
+  },
+  moduleSelectedBtnEmpty: {
+    backgroundColor: '#fff',
+    borderColor: '#e2e8f0',
+  },
+  moduleSelectedBtnOpen: {
+    borderColor: '#cbd5e1',
+  },
+  moduleSelectedText: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#475569',
+    letterSpacing: 0.3,
+  },
+  moduleSelectedTextEmpty: {
+    color: '#64748b',
+    fontWeight: '700',
+  },
+  modulePickerPanelOnField: {
+    position: 'absolute',
+    top: 22,
+    left: 0,
+    right: 0,
+    zIndex: 7,
+    elevation: 7,
+    marginHorizontal: 0,
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#e8e8e8',
+    padding: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+  },
+  modulePickerGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  moduleOptionChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 16,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1.5,
+    borderColor: '#e2e8f0',
+    minWidth: 64,
+    alignItems: 'center',
+  },
+  moduleOptionChipActive: {
+    backgroundColor: '#eef2ff',
+    borderColor: '#667eea',
+  },
+  moduleOptionText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#475569',
+  },
+  moduleOptionTextActive: {
+    color: '#667eea',
+  },
 
   // Soccer field
-  fieldWrapper: { marginHorizontal: 14, marginTop: 10, borderRadius: 14, overflow: 'hidden', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, elevation: 3 },
+  fieldWrapper: { borderRadius: 14, overflow: 'hidden', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, elevation: 3 },
   field: { height: FIELD_H, backgroundColor: '#2e8b57', position: 'relative' },
   fieldCenter: { position: 'absolute', top: '49%', left: 0, right: 0, height: 2, backgroundColor: 'rgba(255,255,255,0.25)' },
   fieldCircle: { position: 'absolute', top: '50%', left: '50%', width: 70, height: 70, borderRadius: 35, borderWidth: 2, borderColor: 'rgba(255,255,255,0.2)', marginLeft: -35, marginTop: -35 },
@@ -1317,8 +1583,26 @@ const s = StyleSheet.create({
   emptySlotLabel: { fontWeight: '700', marginTop: 1 },
 
   // No module
-  noModule: { margin: 14, padding: 40, backgroundColor: '#fff', borderRadius: 12, alignItems: 'center', gap: 10 },
-  noModuleText: { fontSize: 14, color: '#999' },
+  noModuleOnField: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 28,
+  },
+  noModuleOnFieldHit: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  noModuleOnFieldText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: 'rgba(255,255,255,0.92)',
+    textAlign: 'center',
+    textShadowColor: 'rgba(0,0,0,0.25)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
 
   // Bench (3-col grid with drag reorder)
   benchGrid: { flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: 14, gap: 8 },
