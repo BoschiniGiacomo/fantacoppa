@@ -36,10 +36,12 @@ export default function TeamDetailScreen({ route, navigation }) {
   const [team, setTeam] = useState(null);
   const [squad, setSquad] = useState([]);
   const [results, setResults] = useState([]);
+  const [squadHidden, setSquadHidden] = useState(false);
   const [activeTab, setActiveTab] = useState('squad');
   const [loading, setLoading] = useState(true);
   const parseDeadlineDate = (value) => parseAppDate(value);
   const [toastMsg, setToastMsg] = useState(null);
+  const isOwnTeam = Number(user?.id) === Number(userId);
 
   const showToast = (text, type = 'error') => {
     setToastMsg({ text, type });
@@ -58,6 +60,10 @@ export default function TeamDetailScreen({ route, navigation }) {
       ? payload.squad
       : (Array.isArray(payload?.players) ? payload.players : []);
     const resultsData = Array.isArray(payload?.results) ? payload.results : [];
+    const hidden =
+      payload?.squad_hidden === true ||
+      payload?.squad_hidden === 1 ||
+      squadData.some((p) => p?.hidden === true);
 
     const normalizedTeam = teamData && typeof teamData === 'object'
       ? {
@@ -69,16 +75,18 @@ export default function TeamDetailScreen({ route, navigation }) {
     setTeam(normalizedTeam);
     setSquad(squadData);
     setResults(resultsData);
+    setSquadHidden(!!hidden && !isOwnTeam);
   };
 
   const loadTeamDetail = async () => {
     const warm = peekTeamDetail(leagueId, userId);
     const warmUsable = warm != null && typeof warm === 'object' && (warm.id != null || Array.isArray(warm.players));
     const warmHasPlayers = Array.isArray(warm?.players) && warm.players.length > 0;
+    // Per le squadre altrui non saltare la rete: hide_formations deve sempre riflettersi dal server
     if (warmUsable) {
       applyDetailPayload(warm);
       setLoading(false);
-      if (warmHasPlayers && getTeamDetailWarmMeta(leagueId, userId)?.skipNetwork) {
+      if (isOwnTeam && warmHasPlayers && getTeamDetailWarmMeta(leagueId, userId)?.skipNetwork) {
         return;
       }
     } else {
@@ -201,6 +209,14 @@ export default function TeamDetailScreen({ route, navigation }) {
         {/* === Tab: Rosa === */}
         {activeTab === 'squad' && (
           <View>
+            {squadHidden ? (
+              <View style={styles.hiddenBanner}>
+                <Ionicons name="eye-off-outline" size={16} color="#667eea" />
+                <Text style={styles.hiddenBannerText}>
+                  Formazioni nascoste dall&apos;admin della lega
+                </Text>
+              </View>
+            ) : null}
             {groupedSquad.length > 0 ? (
               groupedSquad.map(group => (
                 <View key={group.role} style={styles.roleSection}>
@@ -212,22 +228,29 @@ export default function TeamDetailScreen({ route, navigation }) {
                   </View>
 
                   {/* Giocatori */}
-                  {group.players.map(player => (
-                    <TouchableOpacity
-                      key={player.id}
-                      style={styles.playerRow}
-                      onPress={() => navigation.navigate('PlayerStats', {
-                        playerId: player.id,
-                        leagueId,
-                        playerName: `${player.first_name} ${player.last_name}`,
-                        playerRole: player.role,
-                        playerRating: player.rating,
-                        playerPhotoPath: player.photo_path || undefined,
-                        entrySource: 'league',
-                      })}
-                      activeOpacity={0.7}
+                  {group.players.map(player => {
+                    const isPlayerHidden = squadHidden || player?.hidden === true;
+                    const RowComponent = isPlayerHidden ? View : TouchableOpacity;
+                    return (
+                    <RowComponent
+                      key={String(player.id)}
+                      style={[styles.playerRow, isPlayerHidden && styles.playerRowHidden]}
+                      {...(isPlayerHidden
+                        ? {}
+                        : {
+                            onPress: () => navigation.navigate('PlayerStats', {
+                              playerId: player.id,
+                              leagueId,
+                              playerName: `${player.first_name} ${player.last_name}`,
+                              playerRole: player.role,
+                              playerRating: player.rating,
+                              playerPhotoPath: player.photo_path || undefined,
+                              entrySource: 'league',
+                            }),
+                            activeOpacity: 0.7,
+                          })}
                     >
-                      {player.photo_path ? (
+                      {player.photo_path && !isPlayerHidden ? (
                         <View style={styles.playerPhotoCol}>
                           <PlayerPhotoImage photoPath={player.photo_path} style={styles.playerPhotoBadge} />
                           <View style={[styles.playerPhotoRoleOverlay, { backgroundColor: ROLE_COLORS[player.role] || '#999' }]}>
@@ -242,28 +265,33 @@ export default function TeamDetailScreen({ route, navigation }) {
                         </View>
                       )}
                       <View style={styles.playerInfo}>
-                        <Text style={styles.playerName} numberOfLines={1}>
-                          {player.first_name} {player.last_name}
+                        <Text style={[styles.playerName, isPlayerHidden && styles.playerHiddenText]} numberOfLines={1}>
+                          {isPlayerHidden ? '••••••••' : `${player.first_name} ${player.last_name}`}
                         </Text>
-                        {player.team_name ? (
+                        {isPlayerHidden ? (
+                          <Text style={[styles.playerTeam, styles.playerHiddenText]} numberOfLines={1}>••••</Text>
+                        ) : player.team_name ? (
                           <Text style={styles.playerTeam} numberOfLines={1}>{player.team_name}</Text>
                         ) : null}
                       </View>
                       <View style={styles.playerRight}>
-                        {Number(player?.acquired_as_injury_replacement || 0) === 1 && (
+                        {!isPlayerHidden && Number(player?.acquired_as_injury_replacement || 0) === 1 && (
                           <View style={styles.replacementActionBadge}>
                             <InjurySwapIcon size={26} />
                           </View>
                         )}
-                        {Number(player?.is_injured || 0) === 1 && (
+                        {!isPlayerHidden && Number(player?.is_injured || 0) === 1 && (
                           <View style={styles.injuredActionBadge}>
                             <Ionicons name="bandage" size={22} color="#e65050" />
                           </View>
                         )}
-                        <Text style={styles.playerRating}>{player.rating?.toFixed(2) || '-'}</Text>
+                        <Text style={[styles.playerRating, isPlayerHidden && styles.playerHiddenText]}>
+                          {isPlayerHidden ? '••' : (player.rating?.toFixed(2) || '-')}
+                        </Text>
                       </View>
-                    </TouchableOpacity>
-                  ))}
+                    </RowComponent>
+                    );
+                  })}
                 </View>
               ))
             ) : (
@@ -493,6 +521,22 @@ const styles = StyleSheet.create({
     color: '#aaa',
     fontWeight: '600',
   },
+  hiddenBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#eef1ff',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 12,
+  },
+  hiddenBannerText: {
+    flex: 1,
+    fontSize: 13,
+    color: '#445',
+    fontWeight: '600',
+  },
   playerRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -508,6 +552,13 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.04,
     shadowRadius: 2,
     elevation: 1,
+  },
+  playerRowHidden: {
+    opacity: 0.85,
+  },
+  playerHiddenText: {
+    color: '#9aa0b5',
+    letterSpacing: 1,
   },
   playerPhotoCol: {
     width: 56,

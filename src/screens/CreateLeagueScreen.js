@@ -200,6 +200,7 @@ export default function CreateLeagueScreen({ navigation }) {
     maxAttaccanti: '6',
     numeroTitolari: '11',
     autoLineupMode: true,
+    hideFormations: false,
     enableBonusMalus: true,
     enableGoal: true,
     bonusGoal: '3.0',
@@ -525,6 +526,7 @@ export default function CreateLeagueScreen({ navigation }) {
         maxAttaccanti: Math.max(1, toInt(formData.maxAttaccanti, 6)),
         numeroTitolari: Math.min(11, Math.max(4, toInt(formData.numeroTitolari, 11))),
         autoLineupMode: formData.autoLineupMode ? 1 : 0,
+        hideFormations: formData.hideFormations ? 1 : 0,
         linked_to_league_id: linkedLeagueId > 0 ? linkedLeagueId : null,
         bonusSettings: formData.enableBonusMalus ? {
           enable_bonus_malus: 1,
@@ -562,7 +564,10 @@ export default function CreateLeagueScreen({ navigation }) {
         await AsyncStorage.removeItem(CREATE_LEAGUE_DRAFT_KEY).catch(() => {});
         navigation.navigate('League', {
           leagueId: createdLeagueId,
-          leagueBootstrap: { auto_lineup_mode: formData.autoLineupMode ? 1 : 0 },
+          leagueBootstrap: {
+            auto_lineup_mode: formData.autoLineupMode ? 1 : 0,
+            hide_formations: formData.hideFormations ? 1 : 0,
+          },
         });
       } else {
         showToast('Lega creata con successo!', 'success');
@@ -591,7 +596,10 @@ export default function CreateLeagueScreen({ navigation }) {
               () =>
                 navigation.navigate('League', {
                   leagueId: fallbackLeague.id,
-                  leagueBootstrap: { auto_lineup_mode: formData.autoLineupMode ? 1 : 0 },
+                  leagueBootstrap: {
+            auto_lineup_mode: formData.autoLineupMode ? 1 : 0,
+            hide_formations: formData.hideFormations ? 1 : 0,
+          },
                 }),
               350
             );
@@ -1051,6 +1059,21 @@ export default function CreateLeagueScreen({ navigation }) {
             onValueChange={(value) => setFormData({ ...formData, autoLineupMode: value })}
             trackColor={{ false: '#e0e0e0', true: '#667eea' }}
             thumbColor={formData.autoLineupMode ? '#fff' : '#f4f3f4'}
+          />
+        </View>
+
+        <View style={[styles.switchGroup, { marginTop: 12 }]}>
+          <View style={styles.switchInfo}>
+            <Text style={styles.label}>Nascondi formazioni</Text>
+            <Text style={styles.labelHint}>
+              Se attiva, in Squadre le rose degli altri giocatori restano oscurate
+            </Text>
+          </View>
+          <Switch
+            value={!!formData.hideFormations}
+            onValueChange={(value) => setFormData({ ...formData, hideFormations: value })}
+            trackColor={{ false: '#e0e0e0', true: '#667eea' }}
+            thumbColor={formData.hideFormations ? '#fff' : '#f4f3f4'}
           />
         </View>
 

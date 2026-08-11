@@ -406,6 +406,20 @@ async function ensureBonusOfficialSvVoteColumn() {
   bonusOfficialSvColumnReady = true;
 }
 
+let hideFormationsColumnReady = false;
+async function ensureHideFormationsColumn() {
+  if (hideFormationsColumnReady) return;
+  try {
+    await query(
+      `ALTER TABLE leagues
+       ADD COLUMN IF NOT EXISTS hide_formations SMALLINT NOT NULL DEFAULT 0`
+    );
+  } catch (_) {
+    // ignore
+  }
+  hideFormationsColumnReady = true;
+}
+
 function normalizeBonusSettings(input = {}) {
   const merged = { ...BONUS_DEFAULTS, ...(input || {}) };
   return {
@@ -4418,10 +4432,12 @@ router.get('/:id/settings', authenticateToken, async (req, res) => {
   try {
     const leagueId = toValidLeagueId(req.params.id);
     if (!leagueId) return res.status(400).json({ message: 'League ID non valido' });
+    await ensureHideFormationsColumn();
     const rows = await query(
       `SELECT id, name, creator_id, initial_budget, access_code, default_deadline_time, numero_titolari,
               max_portieri, max_difensori, max_centrocampisti, max_attaccanti, auto_lineup_mode,
-              enable_next_matchday_from_next_day, recover_previous_lineup_if_missing, enable_sv_fallback_vote
+              enable_next_matchday_from_next_day, recover_previous_lineup_if_missing, enable_sv_fallback_vote,
+              COALESCE(hide_formations, 0)::int AS hide_formations
        FROM leagues
        WHERE id = ?
        LIMIT 1`,
@@ -4465,7 +4481,12 @@ router.put('/:id/settings', authenticateToken, async (req, res) => {
       req.body?.enable_sv_fallback_vote != null
         ? Number(req.body.enable_sv_fallback_vote)
         : null;
+    const hideFormations =
+      req.body?.hide_formations != null
+        ? Number(req.body.hide_formations)
+        : null;
 
+    await ensureHideFormationsColumn();
     await query(
       `UPDATE leagues
        SET access_code = CASE WHEN ? THEN ? ELSE access_code END,
@@ -4474,7 +4495,8 @@ router.put('/:id/settings', authenticateToken, async (req, res) => {
            auto_lineup_mode = COALESCE(?, auto_lineup_mode),
            enable_next_matchday_from_next_day = COALESCE(?, enable_next_matchday_from_next_day),
            recover_previous_lineup_if_missing = COALESCE(?, recover_previous_lineup_if_missing),
-           enable_sv_fallback_vote = COALESCE(?, enable_sv_fallback_vote)
+           enable_sv_fallback_vote = COALESCE(?, enable_sv_fallback_vote),
+           hide_formations = COALESCE(?, hide_formations)
        WHERE id = ?`,
       [
         hasAccessCodeField,
@@ -4485,6 +4507,7 @@ router.put('/:id/settings', authenticateToken, async (req, res) => {
         Number.isFinite(enableNextMatchdayFromNextDay) ? enableNextMatchdayFromNextDay : null,
         Number.isFinite(recoverPreviousLineupIfMissing) ? recoverPreviousLineupIfMissing : null,
         Number.isFinite(enableSvFallbackVote) ? enableSvFallbackVote : null,
+        Number.isFinite(hideFormations) ? (hideFormations ? 1 : 0) : null,
         leagueId,
       ]
     );
@@ -5049,6 +5072,8 @@ router.post('/', authenticateToken, async (req, res) => {
     const linkedToLeagueId = linkedToLeagueRaw == null ? null : Number(linkedToLeagueRaw);
     const requireApprovalRaw = pickFirst(body.requireApproval, body.require_approval, 0);
     const requireApproval = Number(requireApprovalRaw) ? 1 : 0;
+    const hideFormationsRaw = pickFirst(body.hideFormations, body.hide_formations, 0);
+    const hideFormations = Number(hideFormationsRaw) ? 1 : 0;
     const incomingBonusSettings = body.bonusSettings ?? body.bonus_settings ?? null;
 
     if (!name || String(name).trim() === '') {
@@ -5074,6 +5099,7 @@ router.post('/', authenticateToken, async (req, res) => {
     }
 
     const accessCode = normalizeLeagueAccessCodeInput(accessCodeRaw);
+    await ensureHideFormationsColumn();
 
     const insertLeagueParams = [
       String(name).trim(),
@@ -5087,12 +5113,13 @@ router.post('/', authenticateToken, async (req, res) => {
       Number(maxAttaccanti),
       Number(numeroTitolari),
       Number(autoLineupMode),
+      hideFormations,
       linkedToLeagueId || null,
     ];
     const insertLeagueSql = `
       INSERT INTO leagues
-        (name, access_code, creator_id, initial_budget, default_deadline_time, max_portieri, max_difensori, max_centrocampisti, max_attaccanti, numero_titolari, auto_lineup_mode, linked_to_league_id, is_hidden_from_discovery, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NOW())
+        (name, access_code, creator_id, initial_budget, default_deadline_time, max_portieri, max_difensori, max_centrocampisti, max_attaccanti, numero_titolari, auto_lineup_mode, hide_formations, linked_to_league_id, is_hidden_from_discovery, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NOW())
        RETURNING id`;
 
     let insertLeague;

@@ -27,7 +27,7 @@ import { useOnboarding } from '../context/OnboardingContext';
 import { defaultLogos, defaultLogosMap } from '../constants/defaultLogos';
 import { parseAppDate } from '../utils/dateTime';
 import { emitMarketBlockChanged } from '../hooks/useMarketBlockPoll';
-import { patchHomeLeaguesMarketLocked } from '../services/leagueWarmCache';
+import { patchHomeLeaguesMarketLocked, invalidateLeagueWarmCache } from '../services/leagueWarmCache';
 
 export default function SettingsScreen({ route, navigation }) {
   const { leagueId, section } = route.params || {};
@@ -155,6 +155,7 @@ export default function SettingsScreen({ route, navigation }) {
     enable_next_matchday_from_next_day: 1,
     recover_previous_lineup_if_missing: 1,
     enable_sv_fallback_vote: 0,
+    hide_formations: 0,
   });
   
   // Impostazioni bonus/malus
@@ -332,6 +333,8 @@ export default function SettingsScreen({ route, navigation }) {
           data.recover_previous_lineup_if_missing === 0 || data.recover_previous_lineup_if_missing === false ? 0 : 1,
         enable_sv_fallback_vote:
           data.enable_sv_fallback_vote === 1 || data.enable_sv_fallback_vote === true ? 1 : 0,
+        hide_formations:
+          data.hide_formations === 1 || data.hide_formations === true ? 1 : 0,
       });
       
       setAutoLineupMode(data.auto_lineup_mode === 1 || data.auto_lineup_mode === true);
@@ -530,6 +533,7 @@ export default function SettingsScreen({ route, navigation }) {
     try {
       setSaving(true);
       await leagueService.updateSettings(leagueId, settings);
+      invalidateLeagueWarmCache(leagueId);
       await loadSettings();
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -1191,6 +1195,39 @@ export default function SettingsScreen({ route, navigation }) {
                 maxLength={20}
                 editable={!isReadOnlyObserver}
               />
+            </View>
+
+            <View style={styles.formGroup}>
+              <View style={styles.labelContainer}>
+                <Ionicons name="eye-off-outline" size={18} color="#667eea" style={styles.labelIcon} />
+                <Text style={styles.label}>Nascondi formazioni</Text>
+              </View>
+              <Text style={styles.subtitle}>
+                {settings.hide_formations === 1
+                  ? 'Nella sezione Squadre, le rose degli altri giocatori risultano oscurate (nome, club e valore)'
+                  : 'Le rose delle altre squadre restano visibili in Squadre'}
+              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 6 }}>
+                <Text
+                  style={{
+                    fontSize: 13,
+                    color: settings.hide_formations === 1 ? '#28a745' : '#999',
+                    flex: 1,
+                  }}
+                >
+                  {settings.hide_formations === 1 ? 'Attiva' : 'Disattiva'}
+                </Text>
+                <Switch
+                  value={settings.hide_formations === 1}
+                  onValueChange={(value) =>
+                    setSettings({
+                      ...settings,
+                      hide_formations: value ? 1 : 0,
+                    })
+                  }
+                  disabled={isReadOnlyObserver}
+                />
+              </View>
             </View>
 
             {/* Limiti per ruolo */}

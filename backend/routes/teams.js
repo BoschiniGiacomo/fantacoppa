@@ -120,16 +120,50 @@ router.get('/:leagueId/:userId', authenticateToken, async (req, res) => {
     ]);
     if (teamRows.length < 1) return res.status(404).json({ message: 'Squadra non trovata' });
 
+    const viewerId = Number(req.user.userId);
+    const isOwnTeam = viewerId === userId;
+    let hideFormations = false;
+    try {
+      const hideRows = await query(
+        `SELECT COALESCE(hide_formations, 0)::int AS hide_formations
+         FROM leagues WHERE id = ? LIMIT 1`,
+        [leagueId]
+      );
+      hideFormations = Number(hideRows[0]?.hide_formations || 0) === 1;
+    } catch (_) {
+      hideFormations = false;
+    }
+
     const initialBudget = await getInitialBudget(leagueId);
     const totalValue = await computeSquadValue(userId, leagueId);
     const computedBudget = budgetFromSquadValue(initialBudget, totalValue);
+
+    const squadHidden = hideFormations && !isOwnTeam;
+    const playersOut = squadHidden
+      ? (players || []).map((p, idx) => ({
+          id: `hidden-${p.role || 'X'}-${idx}`,
+          role: p.role,
+          first_name: '••••',
+          last_name: '',
+          team_name: '••••',
+          rating: null,
+          photo_path: '',
+          is_injured: 0,
+          injury_replacement_player_id: null,
+          acquired_as_injury_replacement: 0,
+          directly_owned: p.directly_owned,
+          hidden: true,
+        }))
+      : players;
 
     res.json({
       ...teamRows[0],
       budget: computedBudget,
       total_value: Number(totalValue.toFixed(2)),
-      players,
+      players: playersOut,
       results,
+      squad_hidden: squadHidden,
+      hide_formations: hideFormations,
     });
   } catch (error) {
     console.error('Get team detail error:', error);
