@@ -1567,15 +1567,20 @@ export default function MatchDetailScreen({ navigation, route }) {
   /** showLoading: solo al primo caricamento; refresh in background per focus. */
   const loadDetail = useCallback(
     async ({ showLoading = false } = {}) => {
-      if (!matchId) return;
+      if (!matchId) {
+        setData(null);
+        setLoading(false);
+        return;
+      }
       try {
         if (showLoading) setLoading(true);
         const res = await matchesService.getDetail(matchId);
         setData(res?.data || null);
       } catch {
-        /* mantieni dati precedenti */
+        /* mantieni dati precedenti; se non ce n'erano, togli lo spinner */
       } finally {
-        if (showLoading) setLoading(false);
+        // Sempre: evita spinner infinito se showLoading era true o se un reset ha lasciato loading=true.
+        setLoading(false);
       }
     },
     [matchId]
@@ -1585,22 +1590,8 @@ export default function MatchDetailScreen({ navigation, route }) {
   const mergeLiveDelta = useCallback((delta) => {
     if (!delta || typeof delta !== 'object') return;
     setData((prev) => {
-      if (!prev) {
-        return {
-          match: delta.match || null,
-          events: Array.isArray(delta.events) ? delta.events : [],
-          standings: Array.isArray(delta.standings) ? delta.standings : [],
-          standings_groups: delta.standings_groups ?? null,
-          knockout: delta.knockout || { quarterfinals: [], semifinals: [], final: null },
-          recent_form: { home: [], away: [] },
-          prediction: { my_choice: null, total: 0, counts: { home: 0, draw: 0, away: 0 }, percents: { home: 0, draw: 0, away: 0 } },
-          lineups: { home: [], away: [] },
-          unavailable_lineups: { home: [], away: [] },
-          team_players: { home: [], away: [] },
-          favorites: { match: 0, home_team: 0, away_team: 0 },
-          notifications: { enabled: 0 },
-        };
-      }
+      // Non creare uno stub incompleto: aspetta il detail pieno (prediction/form/lineups).
+      if (!prev) return prev;
       return {
         ...prev,
         match: delta.match != null ? { ...(prev.match || {}), ...delta.match } : prev.match,
@@ -1680,9 +1671,15 @@ export default function MatchDetailScreen({ navigation, route }) {
 
   useFocusEffect(
     useCallback(() => {
-      if (!matchId) return undefined;
-      // Un solo load al focus (niente doppio mount+focus). Spinner solo al primo ingresso senza dati.
-      void loadDetail({ showLoading: dataRef.current == null });
+      if (!matchId) {
+        setLoading(false);
+        setData(null);
+        return undefined;
+      }
+      const currentId = Number(dataRef.current?.match?.id);
+      const needsFullLoad = dataRef.current == null || currentId !== Number(matchId);
+      // Un solo load al focus (niente doppio mount+focus). Spinner solo se manca il detail giusto.
+      void loadDetail({ showLoading: needsFullLoad });
       const poll = setInterval(() => {
         if (livePollEnabledRef.current) {
           void loadLiveDelta();
@@ -1697,7 +1694,14 @@ export default function MatchDetailScreen({ navigation, route }) {
   );
 
   useEffect(() => {
+    // Cambio partita sulla stessa screen instance (navigate senza push): reset immediato.
+    setData(null);
+    setLoading(!!matchId);
+    setActiveTab('overview');
     setTimingOpen(false);
+    setShowEventEditor(false);
+    setShowOverviewEditor(false);
+    setLineupEditMode(false);
   }, [matchId]);
 
   useEffect(() => {

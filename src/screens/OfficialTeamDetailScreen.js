@@ -433,13 +433,17 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
   const teamPickerAnchorRef = useRef(null);
 
   const load = useCallback(async (showLoading = false) => {
-    if (!teamId || !competitionId) return;
+    if (!teamId || !competitionId) {
+      setData(null);
+      setLoading(false);
+      return;
+    }
     try {
       if (showLoading) setLoading(true);
       const res = await matchesService.getOfficialTeamDetail(teamId, competitionId);
       setData(res?.data || null);
     } finally {
-      if (showLoading) setLoading(false);
+      setLoading(false);
     }
   }, [teamId, competitionId]);
 

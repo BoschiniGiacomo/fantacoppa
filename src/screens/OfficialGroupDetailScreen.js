@@ -369,13 +369,17 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
   const statsPickerAnchorRef = useRef(null);
 
   const load = useCallback(async (showLoading = false) => {
-    if (!competitionId) return;
+    if (!competitionId) {
+      setData(null);
+      setLoading(false);
+      return;
+    }
     try {
       if (showLoading) setLoading(true);
       const res = await matchesService.getOfficialGroupDetail(competitionId);
       setData(res?.data || null);
     } finally {
-      if (showLoading) setLoading(false);
+      setLoading(false);
     }
   }, [competitionId]);
 

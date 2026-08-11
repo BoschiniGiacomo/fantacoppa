@@ -2,7 +2,7 @@
  * Cache in-memory a TTL breve (es. liste partite live).
  * Pensata per ridurre query Supabase con tanti client sullo stesso dato.
  */
-function createShortTtlCache({ ttlMs = 6000, maxEntries = 100 } = {}) {
+function createShortTtlCache({ ttlMs = 6000, maxEntries = 100, producerTimeoutMs = 25000 } = {}) {
   const store = new Map();
   const inflight = new Map();
 
@@ -37,6 +37,28 @@ function createShortTtlCache({ ttlMs = 6000, maxEntries = 100 } = {}) {
     });
   }
 
+  function withTimeout(promise, ms) {
+    const timeout = Number(ms);
+    if (!Number.isFinite(timeout) || timeout <= 0) return Promise.resolve().then(() => promise);
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        reject(new Error(`shortTtlCache producer timeout after ${timeout}ms`));
+      }, timeout);
+      Promise.resolve()
+        .then(() => promise)
+        .then(
+          (value) => {
+            clearTimeout(timer);
+            resolve(value);
+          },
+          (err) => {
+            clearTimeout(timer);
+            reject(err);
+          }
+        );
+    });
+  }
+
   async function getOrSet(key, producer, customTtlMs = ttlMs) {
     const hit = get(key);
     if (hit !== undefined) return hit;
@@ -45,8 +67,7 @@ function createShortTtlCache({ ttlMs = 6000, maxEntries = 100 } = {}) {
       return inflight.get(key);
     }
 
-    const job = Promise.resolve()
-      .then(() => producer())
+    const job = withTimeout(Promise.resolve().then(() => producer()), producerTimeoutMs)
       .then((value) => {
         set(key, value, customTtlMs);
         return value;

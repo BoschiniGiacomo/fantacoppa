@@ -5,6 +5,7 @@ import {
   Image,
   Modal,
   Platform,
+  Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -449,6 +450,8 @@ export default function MatchesScreen() {
       lastLoadedDateRef.current = requestDate;
     } catch (e) {
       if (selectedDateRef.current !== requestDate) return;
+      setItems([]);
+      lastLoadedDateRef.current = null;
       setError(e?.response?.data?.message || e?.message || 'Errore caricamento partite');
     } finally {
       if (selectedDateRef.current === requestDate) {
@@ -481,9 +484,11 @@ export default function MatchesScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      if (showCalendarPicker) return undefined;
+      // Anche con calendario aperto: la data va comunque caricata (iOS non chiude il picker da solo).
       const date = selectedDate;
       void load(date, true);
+
+      if (showCalendarPicker) return undefined;
 
       const id = setInterval(() => {
         if (selectedDateRef.current !== date) return;
@@ -633,10 +638,15 @@ export default function MatchesScreen() {
       selectDate(toDateKey(nextDate));
       return;
     }
+    // iOS spinner: aggiorna la data in anteprima; chiusura esplicita con Fatto.
     if (!pickedDate) return;
     setCalendarPickerDate(pickedDate);
     selectDate(toDateKey(pickedDate));
   };
+
+  const closeCalendarPicker = useCallback(() => {
+    setShowCalendarPicker(false);
+  }, []);
 
   useEffect(() => {
     const layout = dayLayouts[selectedDate];
@@ -940,12 +950,32 @@ export default function MatchesScreen() {
         )}
       </View>
       {showCalendarPicker ? (
-        <DateTimePicker
-          value={calendarPickerDate}
-          mode="date"
-          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-          onChange={handleCalendarChange}
-        />
+        Platform.OS === 'ios' ? (
+          <View style={styles.iosCalendarOverlay}>
+            <Pressable style={styles.iosCalendarBackdrop} onPress={closeCalendarPicker} />
+            <View style={[styles.iosCalendarSheet, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+              <View style={styles.iosCalendarHeader}>
+                <Text style={styles.iosCalendarTitle}>Scegli data</Text>
+                <TouchableOpacity onPress={closeCalendarPicker} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                  <Text style={styles.iosCalendarDone}>Fatto</Text>
+                </TouchableOpacity>
+              </View>
+              <DateTimePicker
+                value={calendarPickerDate}
+                mode="date"
+                display="spinner"
+                onChange={handleCalendarChange}
+              />
+            </View>
+          </View>
+        ) : (
+          <DateTimePicker
+            value={calendarPickerDate}
+            mode="date"
+            display="default"
+            onChange={handleCalendarChange}
+          />
+        )
       ) : null}
 
       {token ? (
@@ -1480,5 +1510,29 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     maxWidth: 72,
   },
+  iosCalendarOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'flex-end',
+    zIndex: 50,
+  },
+  iosCalendarBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(15, 23, 42, 0.35)',
+  },
+  iosCalendarSheet: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    paddingTop: 8,
+  },
+  iosCalendarHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  iosCalendarTitle: { fontSize: 16, fontWeight: '700', color: '#111827' },
+  iosCalendarDone: { fontSize: 16, fontWeight: '700', color: '#667eea' },
 });
 
