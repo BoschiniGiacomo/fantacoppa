@@ -68,6 +68,71 @@ async function ensureManageSettingsTable() {
   manageSettingsTableReady = true;
 }
 
+/** Lista mercato: JOIN ownership invece di EXISTS correlati (meno carico su Supabase). */
+function buildMarketPlayersQuery({ userId, leagueId, sourceLeagueId, role, search }) {
+  let sql = `
+    SELECT p.id, p.first_name, p.last_name, p.role, p.rating,
+           COALESCE(p.is_injured, 0)::int AS is_injured,
+           NULLIF(BTRIM(COALESCE(p.photo_path, '')), '') AS photo_path,
+           COALESCE(t.name, '') AS team_name,
+           CASE
+             WHEN own.player_id IS NOT NULL OR repl.replacement_id IS NOT NULL THEN 1
+             ELSE 0
+           END AS owned,
+           CASE WHEN own.player_id IS NOT NULL THEN 1 ELSE 0 END AS directly_owned
+    FROM players p
+    JOIN teams t
+      ON t.id = p.team_id
+     AND t.league_id = ?
+    LEFT JOIN (
+      SELECT up.player_id
+      FROM user_players up
+      WHERE up.user_id = ? AND up.league_id = ?
+    ) own ON own.player_id = p.id
+    LEFT JOIN (
+      SELECT inj.injury_replacement_player_id AS replacement_id
+      FROM user_players up2
+      JOIN players inj ON inj.id = up2.player_id
+      WHERE up2.user_id = ?
+        AND up2.league_id = ?
+        AND COALESCE(inj.is_injured, 0) = 1
+        AND inj.injury_replacement_player_id IS NOT NULL
+    ) repl ON repl.replacement_id = p.id
+    WHERE 1=1
+  `;
+  const params = [sourceLeagueId, userId, leagueId, userId, leagueId];
+  if (role) {
+    sql += ' AND p.role = ?';
+    params.push(role);
+  }
+  if (search) {
+    sql += ' AND (p.first_name ILIKE ? OR p.last_name ILIKE ?)';
+    params.push(`%${search}%`, `%${search}%`);
+  }
+  sql += ' ORDER BY p.rating DESC, p.last_name ASC LIMIT 1000';
+  return { sql, params };
+}
+
+/** Tolgie photo_path vuoti dal JSON (gzip + payload più snello). */
+function slimMarketPlayerRows(rows) {
+  return (Array.isArray(rows) ? rows : []).map((r) => {
+    const out = {
+      id: r.id,
+      first_name: r.first_name,
+      last_name: r.last_name,
+      role: r.role,
+      rating: r.rating,
+      is_injured: Number(r.is_injured || 0),
+      team_name: r.team_name || '',
+      owned: Number(r.owned || 0),
+      directly_owned: Number(r.directly_owned || 0),
+    };
+    const photo = r.photo_path != null ? String(r.photo_path).trim() : '';
+    if (photo) out.photo_path = photo;
+    return out;
+  });
+}
+
 // GET /api/market/:leagueId/players
 router.get('/:leagueId/players', authenticateToken, async (req, res) => {
   try {
@@ -77,61 +142,15 @@ router.get('/:leagueId/players', authenticateToken, async (req, res) => {
     const search = String(req.query?.search || '').trim();
     const userId = Number(req.user.userId);
     const sourceLeagueId = await getEffectiveSourceLeagueId(leagueId);
-
-    let sql = `
-      SELECT p.id, p.first_name, p.last_name, p.role, p.rating,
-             COALESCE(p.is_injured, 0)::int AS is_injured,
-             COALESCE(p.photo_path, '') AS photo_path,
-             COALESCE(t.name, '') AS team_name,
-             CASE
-               WHEN EXISTS (
-                 SELECT 1
-                 FROM user_players up
-                 WHERE up.player_id = p.id
-                   AND up.user_id = ?
-                   AND up.league_id = ?
-                 LIMIT 1
-               ) OR EXISTS (
-                 SELECT 1
-                 FROM user_players up2
-                 JOIN players inj ON inj.id = up2.player_id
-                 WHERE up2.user_id = ?
-                   AND up2.league_id = ?
-                   AND COALESCE(inj.is_injured, 0) = 1
-                   AND inj.injury_replacement_player_id = p.id
-                 LIMIT 1
-               ) THEN 1
-               ELSE 0
-             END AS owned,
-             CASE
-               WHEN EXISTS (
-                 SELECT 1
-                 FROM user_players up
-                 WHERE up.player_id = p.id
-                   AND up.user_id = ?
-                   AND up.league_id = ?
-                 LIMIT 1
-               ) THEN 1
-               ELSE 0
-             END AS directly_owned
-      FROM players p
-      JOIN teams t
-        ON t.id = p.team_id
-       AND t.league_id = ?
-      WHERE 1=1
-    `;
-    const params = [userId, leagueId, userId, leagueId, userId, leagueId, sourceLeagueId];
-    if (role) {
-      sql += ' AND p.role = ?';
-      params.push(role);
-    }
-    if (search) {
-      sql += ' AND (p.first_name ILIKE ? OR p.last_name ILIKE ?)';
-      params.push(`%${search}%`, `%${search}%`);
-    }
-    sql += ' ORDER BY p.rating DESC, p.last_name ASC LIMIT 1000';
+    const { sql, params } = buildMarketPlayersQuery({
+      userId,
+      leagueId,
+      sourceLeagueId,
+      role,
+      search,
+    });
     const rows = await query(sql, params);
-    res.json(rows);
+    res.json(slimMarketPlayerRows(rows));
   } catch (error) {
     console.error('Market players error:', error);
     res.status(500).json({ message: 'Errore caricamento giocatori mercato' });
@@ -206,63 +225,17 @@ router.get('/:leagueId/bootstrap', authenticateToken, async (req, res) => {
       if (ownedCounts[key] != null) ownedCounts[key] = Number(r.c || 0);
     });
 
-    // ── Phase 2: players query (needs sourceLeagueId) ──
-    let sql = `
-      SELECT p.id, p.first_name, p.last_name, p.role, p.rating,
-             COALESCE(p.is_injured, 0)::int AS is_injured,
-             COALESCE(p.photo_path, '') AS photo_path,
-             COALESCE(t.name, '') AS team_name,
-             CASE
-               WHEN EXISTS (
-                 SELECT 1
-                 FROM user_players up
-                 WHERE up.player_id = p.id
-                   AND up.user_id = ?
-                   AND up.league_id = ?
-                 LIMIT 1
-               ) OR EXISTS (
-                 SELECT 1
-                 FROM user_players up2
-                 JOIN players inj ON inj.id = up2.player_id
-                 WHERE up2.user_id = ?
-                   AND up2.league_id = ?
-                   AND COALESCE(inj.is_injured, 0) = 1
-                   AND inj.injury_replacement_player_id = p.id
-                 LIMIT 1
-               ) THEN 1
-               ELSE 0
-             END AS owned,
-             CASE
-               WHEN EXISTS (
-                 SELECT 1
-                 FROM user_players up
-                 WHERE up.player_id = p.id
-                   AND up.user_id = ?
-                   AND up.league_id = ?
-                 LIMIT 1
-               ) THEN 1
-               ELSE 0
-             END AS directly_owned
-      FROM players p
-      JOIN teams t
-        ON t.id = p.team_id
-       AND t.league_id = ?
-      WHERE 1=1
-    `;
-    const params = [userId, leagueId, userId, leagueId, userId, leagueId, sourceLeagueId];
-    if (role) {
-      sql += ' AND p.role = ?';
-      params.push(role);
-    }
-    if (search) {
-      sql += ' AND (p.first_name ILIKE ? OR p.last_name ILIKE ?)';
-      params.push(`%${search}%`, `%${search}%`);
-    }
-    sql += ' ORDER BY p.rating DESC, p.last_name ASC LIMIT 1000';
+    const { sql, params } = buildMarketPlayersQuery({
+      userId,
+      leagueId,
+      sourceLeagueId,
+      role,
+      search,
+    });
     const players = await query(sql, params);
     return res.json({
       league,
-      players,
+      players: slimMarketPlayerRows(players),
       budget,
       blocked,
       block_reason: blockReason,

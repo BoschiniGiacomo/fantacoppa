@@ -95,7 +95,7 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     if (!token || !user) return undefined;
 
-    const HEARTBEAT_MS = 60 * 1000;
+    const HEARTBEAT_MS = 120 * 1000;
     let intervalId = null;
     let isForeground = AppState.currentState === 'active';
 

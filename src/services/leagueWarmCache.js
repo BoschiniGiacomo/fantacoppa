@@ -1,7 +1,6 @@
 import {
   leagueService,
   teamsService,
-  marketService,
   squadService,
   formationService,
 } from './api';
@@ -545,7 +544,7 @@ export async function prefetchLeagueWarmData(opts = {}) {
           leagueService.getDashboardData(id),
           leagueService.getById(id),
           teamsService.getTeams(id),
-          marketService.getBootstrap(id, {}),
+          // Mercato: niente prefetch login (dump fino a 1000 giocatori). Si carica all'apertura schermata.
           squadService.getBootstrap(id),
           leagueService.getStandingsFull(id),
           formationService.getMatchdays(id),
@@ -560,7 +559,6 @@ export async function prefetchLeagueWarmData(opts = {}) {
         const dashR = results[ri++];
         const detailR = results[ri++];
         const teamsR = results[ri++];
-        const marketR = results[ri++];
         const squadBootR = results[ri++];
         const standingsR = results[ri++];
         const matchdaysR = results[ri++];
@@ -580,10 +578,6 @@ export async function prefetchLeagueWarmData(opts = {}) {
         if (teamsR.status === 'fulfilled') {
           const rows = teamsR.value?.data;
           setTeamsRows(id, Array.isArray(rows) ? rows : []);
-        }
-        if (marketR.status === 'fulfilled') {
-          const data = marketR.value?.data;
-          if (data && typeof data === 'object') setMarketBootstrapDefault(id, data);
         }
         if (squadBootR.status === 'fulfilled') {
           const data = squadBootR.value?.data;

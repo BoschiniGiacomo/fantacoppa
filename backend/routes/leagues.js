@@ -27,6 +27,7 @@ const {
 } = require('../utils/injuryPropagation');
 const { scoreResolvedLineup } = require('../utils/lineupScoring');
 const { normalizeVoteRating, isSvVoteRating } = require('../utils/voteRating');
+const { createShortTtlCache } = require('../utils/shortTtlCache');
 const {
   buildOfficialTeamLogoFilename,
   buildPlayerClusterPhotoFilename,
@@ -48,6 +49,9 @@ const {
 const {
   scheduleOfficialGroupAbsoluteStatsRefreshForLeague,
 } = require('../utils/officialGroupAbsoluteStatsRefresh');
+
+/** Roster voti: stabile tra aperture successive; gzip + cache riducono SI. */
+const VOTES_PLAYERS_CACHE = createShortTtlCache({ ttlMs: 90_000, maxEntries: 80 });
 
 const MR_EXCLUDE_GHOST_JOIN = `INNER JOIN matchdays md_ghost ON md_ghost.league_id = ? AND md_ghost.giornata = mr.giornata AND COALESCE(md_ghost.is_ghost, 0) = 0`;
 
@@ -2287,6 +2291,7 @@ router.post('/:id/teams/:teamId/players', authenticateToken, async (req, res) =>
     if (birthYear != null && Number.isFinite(newPlayerId) && newPlayerId > 0) {
       await query(`UPDATE players SET birth_year = ? WHERE id = ?`, [birthYear, newPlayerId]).catch(() => {});
     }
+    VOTES_PLAYERS_CACHE.clear();
     res.status(201).json({
       id: newPlayerId,
       first_name: firstName,
@@ -2472,6 +2477,7 @@ router.put('/:id/teams/:teamId/players/:playerId', authenticateToken, async (req
       );
     }
 
+    VOTES_PLAYERS_CACHE.clear();
     res.json({
       message: 'Giocatore aggiornato',
       lineups_updated: cascadeResult?.lineups_updated ?? revertResult?.lineups_updated ?? 0,
@@ -2506,6 +2512,7 @@ router.delete('/:id/teams/:teamId/players/:playerId', authenticateToken, async (
        WHERE p.id = ? AND p.team_id = ? AND t.id = p.team_id AND t.league_id = ?`,
       [playerId, teamId, leagueId]
     );
+    VOTES_PLAYERS_CACHE.clear();
     res.json({ message: 'Giocatore eliminato' });
   } catch (error) {
     console.error('Delete player error:', error);
@@ -3592,26 +3599,37 @@ router.get('/:id/votes/players', authenticateToken, async (req, res) => {
     const leagueId = toValidLeagueId(req.params.id);
     if (!leagueId) return res.status(400).json({ message: 'League ID non valido' });
     const effectiveLeagueId = await getEffectiveLeagueId(leagueId);
-    const teams = await query(
-      `SELECT id, name
-       FROM teams
-       WHERE league_id = ?
-       ORDER BY id ASC`,
-      [effectiveLeagueId]
-    );
-    const players = await query(
-      `SELECT id, first_name, last_name, role, team_id
-       FROM players
-       WHERE team_id IN (SELECT id FROM teams WHERE league_id = ?)
-       ORDER BY team_id ASC, role ASC, last_name ASC`,
-      [effectiveLeagueId]
-    );
-    const byTeam = {};
-    teams.forEach((t) => { byTeam[t.id] = { id: t.id, name: t.name, players: [] }; });
-    players.forEach((p) => {
-      if (byTeam[p.team_id]) byTeam[p.team_id].players.push(p);
+    const payload = await VOTES_PLAYERS_CACHE.getOrSet(`votes-players:${effectiveLeagueId}`, async () => {
+      const teams = await query(
+        `SELECT id, name
+         FROM teams
+         WHERE league_id = ?
+         ORDER BY id ASC`,
+        [effectiveLeagueId]
+      );
+      const players = await query(
+        `SELECT id, first_name, last_name, role, team_id
+         FROM players
+         WHERE team_id IN (SELECT id FROM teams WHERE league_id = ?)
+         ORDER BY team_id ASC, role ASC, last_name ASC`,
+        [effectiveLeagueId]
+      );
+      const byTeam = {};
+      teams.forEach((t) => { byTeam[t.id] = { id: t.id, name: t.name, players: [] }; });
+      players.forEach((p) => {
+        if (byTeam[p.team_id]) {
+          byTeam[p.team_id].players.push({
+            id: p.id,
+            first_name: p.first_name,
+            last_name: p.last_name,
+            role: p.role,
+            team_id: p.team_id,
+          });
+        }
+      });
+      return Object.values(byTeam);
     });
-    res.json(Object.values(byTeam));
+    res.json(payload);
   } catch (error) {
     console.error('Votes players error:', error);
     res.status(500).json({ message: 'Errore caricamento giocatori voti' });

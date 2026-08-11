@@ -2,7 +2,7 @@ const jwt = require('jsonwebtoken');
 require('dotenv').config();
 const { query } = require('../config/database');
 
-const HEARTBEAT_INTERVAL_MS = 60 * 1000;
+const HEARTBEAT_INTERVAL_MS = 120 * 1000;
 const lastTouchedByUser = new Map();
 let lastLoginColumnMissing = false;
 let presenceTableReady = false;

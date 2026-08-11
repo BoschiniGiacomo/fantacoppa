@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const compression = require('compression');
 const path = require('path');
 const dotenv = require('dotenv');
 
@@ -31,6 +32,7 @@ const MIN_SUPPORTED_APP_VERSION_CODE = parseInt(process.env.MIN_SUPPORTED_APP_VE
 const APP_FORCE_UPDATE_URL = (process.env.APP_FORCE_UPDATE_URL || '').trim();
 
 // Middleware
+app.use(compression({ threshold: 1024 })); // Gzip JSON/HTML sopra ~1KB (meno HTTP outbound)
 app.use(cors()); // Permette richieste da qualsiasi origine (per sviluppo)
 app.use(express.json()); // Parse JSON bodies
 app.use(express.urlencoded({ extended: true })); // Parse URL-encoded bodies
