@@ -16,7 +16,7 @@ import { useAuth } from '../context/AuthContext';
 import { useOnboarding } from '../context/OnboardingContext';
 import { squadService } from '../services/api';
 import { PlayerPhotoImage } from '../components/StableCachedImage';
-import { peekSquadBootstrap, setSquadBootstrap, invalidateLeagueWarmCache } from '../services/leagueWarmCache';
+import { peekSquadBootstrap, setSquadBootstrap, invalidateLeagueWarmCache, getSquadBootstrapWarmMeta } from '../services/leagueWarmCache';
 import { Ionicons } from '@expo/vector-icons';
 import InjurySwapIcon from '../components/InjurySwapIcon';
 
@@ -83,6 +83,10 @@ export default function SquadScreen({ route, navigation }) {
     if (warm != null) {
       applyBootstrap(warm);
       setLoading(false);
+      if (getSquadBootstrapWarmMeta(leagueId)?.skipNetwork) {
+        setRefreshing(false);
+        return;
+      }
     } else {
       setLoading(true);
     }

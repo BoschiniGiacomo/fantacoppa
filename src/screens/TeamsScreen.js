@@ -17,6 +17,9 @@ import {
   setLeagueDetail,
   setTeamsRows,
   invalidateLeagueWarmCache,
+  getLeagueDetailWarmMeta,
+  getTeamsRowsWarmMeta,
+  canSkipWarmNetwork,
 } from '../services/leagueWarmCache';
 import { Ionicons } from '@expo/vector-icons';
 import { FantasyTeamLogoImage } from '../components/StableCachedImage';
@@ -66,6 +69,15 @@ export default function TeamsScreen({ route, navigation }) {
 
     if (hasWarm) {
       setLoading(false);
+      if (
+        canSkipWarmNetwork([
+          getLeagueDetailWarmMeta(leagueId),
+          getTeamsRowsWarmMeta(leagueId),
+        ])
+      ) {
+        setRefreshing(false);
+        return;
+      }
     } else {
       setLoading(true);
     }

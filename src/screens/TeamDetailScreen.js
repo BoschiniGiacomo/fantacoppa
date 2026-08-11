@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { useAuth } from '../context/AuthContext';
 import { teamsService } from '../services/api';
-import { peekTeamDetail, setTeamDetail } from '../services/leagueWarmCache';
+import { peekTeamDetail, setTeamDetail, getTeamDetailWarmMeta } from '../services/leagueWarmCache';
 import { Ionicons } from '@expo/vector-icons';
 import { FantasyTeamLogoImage, PlayerPhotoImage } from '../components/StableCachedImage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -76,6 +76,9 @@ export default function TeamDetailScreen({ route, navigation }) {
     if (warm != null) {
       applyDetailPayload(warm);
       setLoading(false);
+      if (getTeamDetailWarmMeta(leagueId, userId)?.skipNetwork) {
+        return;
+      }
     } else {
       setLoading(true);
     }

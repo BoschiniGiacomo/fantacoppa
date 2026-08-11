@@ -19,6 +19,11 @@ import {
   setSquadPlayersData,
   setLeagueSettings,
   setFormationPayload,
+  getFormationMatchdaysWarmMeta,
+  getLeagueDetailWarmMeta,
+  getSquadPlayersWarmMeta,
+  getLeagueSettingsWarmMeta,
+  canSkipWarmNetwork,
 } from '../services/leagueWarmCache';
 import { Ionicons } from '@expo/vector-icons';
 import { parseAppDate } from '../utils/dateTime';
@@ -375,6 +380,16 @@ export default function FormationScreen({ route }) {
         await loadFormationForMatchday(defaultMd, activePlayers, wf);
       }
       setLoading(false);
+      if (
+        canSkipWarmNetwork([
+          getFormationMatchdaysWarmMeta(leagueId),
+          getLeagueDetailWarmMeta(leagueId),
+          getSquadPlayersWarmMeta(leagueId),
+          getLeagueSettingsWarmMeta(leagueId),
+        ])
+      ) {
+        return;
+      }
     } else {
       setLoading(true);
     }

@@ -22,6 +22,9 @@ import {
   setLeagueDetail,
   setStandingsFull,
   setFormationMatchdays,
+  getStandingsFullWarmMeta,
+  getFormationMatchdaysWarmMeta,
+  canSkipWarmNetwork,
 } from '../services/leagueWarmCache';
 import { useFocusEffect } from '@react-navigation/native';
 import BonusIcon from '../components/BonusIcon';
@@ -230,6 +233,14 @@ export default function StandingsScreen({ route, navigation }) {
         setSelectedMatchday(mdArr[mdArr.length - 1].giornata);
       }
       setLoading(false);
+      if (
+        canSkipWarmNetwork([
+          getStandingsFullWarmMeta(leagueId),
+          getFormationMatchdaysWarmMeta(leagueId),
+        ])
+      ) {
+        return;
+      }
     } else {
       setLoading(true);
     }

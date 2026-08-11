@@ -12,7 +12,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { useOnboarding } from '../context/OnboardingContext';
 import { leagueService } from '../services/api';
-import { peekDashboard, setDashboard } from '../services/leagueWarmCache';
+import { peekDashboard, setDashboard, getDashboardWarmMeta } from '../services/leagueWarmCache';
 import { Ionicons } from '@expo/vector-icons';
 import TeamInfoModal from '../components/TeamInfoModal';
 import { defaultLogosMap } from '../constants/defaultLogos';
@@ -186,6 +186,9 @@ export default function LeagueScreen({ route, navigation }) {
     const warm = peekDashboard(leagueId);
     if (warm != null) {
       applyFromPayload(warm);
+      if (getDashboardWarmMeta(leagueId)?.skipNetwork) {
+        return;
+      }
     } else {
       setLoading(true);
     }

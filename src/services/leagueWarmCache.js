@@ -8,8 +8,14 @@ import {
 import { hiddenLeagues } from '../utils/dashboardEvents';
 import { parseAppDate } from '../utils/dateTime';
 
-/** Dati mostrabili subito dopo prefetch; la schermata rifà sempre la fetch e aggiorna. */
+/** Dati mostrabili subito dopo prefetch; la schermata rifà la fetch salvo warm molto fresco. */
 export const WARM_MAX_AGE_MS = 120000;
+/**
+ * Skip rete solo se il warm è più fresco di così (tipicamente subito dopo login/prefetch).
+ * Oltre questa soglia: paint da warm + refetch obbligatorio → niente dati “vecchi” ambigui.
+ */
+export const WARM_NETWORK_SKIP_MAX_AGE_MS = 30000;
+
 
 const dashboardById = new Map();
 const leagueDetailById = new Map();
@@ -57,6 +63,85 @@ function nid(leagueId) {
 function isStale(row) {
   return !row || Date.now() - row.ts > WARM_MAX_AGE_MS;
 }
+
+function warmMetaFromRow(row) {
+  if (isStale(row)) return null;
+  const ageMs = Date.now() - row.ts;
+  return {
+    ageMs,
+    skipNetwork: ageMs >= 0 && ageMs <= WARM_NETWORK_SKIP_MAX_AGE_MS,
+  };
+}
+
+/** Meta warm per decidere se saltare il refetch rete (null = assente/scaduto per display). */
+export function getDashboardWarmMeta(leagueId) {
+  const id = nid(leagueId);
+  if (id == null) return null;
+  return warmMetaFromRow(dashboardById.get(id));
+}
+
+export function getLeagueDetailWarmMeta(leagueId) {
+  const id = nid(leagueId);
+  if (id == null) return null;
+  return warmMetaFromRow(leagueDetailById.get(id));
+}
+
+export function getTeamsRowsWarmMeta(leagueId) {
+  const id = nid(leagueId);
+  if (id == null) return null;
+  return warmMetaFromRow(teamsRowsById.get(id));
+}
+
+export function getMarketBootstrapWarmMeta(leagueId) {
+  const id = nid(leagueId);
+  if (id == null) return null;
+  return warmMetaFromRow(marketBootstrapById.get(id));
+}
+
+export function getSquadBootstrapWarmMeta(leagueId) {
+  const id = nid(leagueId);
+  if (id == null) return null;
+  return warmMetaFromRow(squadBootstrapById.get(id));
+}
+
+export function getStandingsFullWarmMeta(leagueId) {
+  const id = nid(leagueId);
+  if (id == null) return null;
+  return warmMetaFromRow(standingsFullById.get(id));
+}
+
+export function getFormationMatchdaysWarmMeta(leagueId) {
+  const id = nid(leagueId);
+  if (id == null) return null;
+  return warmMetaFromRow(formationMatchdaysById.get(id));
+}
+
+export function getLeagueSettingsWarmMeta(leagueId) {
+  const id = nid(leagueId);
+  if (id == null) return null;
+  return warmMetaFromRow(leagueSettingsById.get(id));
+}
+
+export function getSquadPlayersWarmMeta(leagueId) {
+  const id = nid(leagueId);
+  if (id == null) return null;
+  return warmMetaFromRow(squadPlayersDataById.get(id));
+}
+
+export function getTeamDetailWarmMeta(leagueId, userId) {
+  const lid = nid(leagueId);
+  const uid = nid(userId);
+  if (lid == null || uid == null) return null;
+  return warmMetaFromRow(teamDetailByKey.get(`${lid}:${uid}`));
+}
+
+/** true solo se tutti i meta esistono e sono in finestra skip. */
+export function canSkipWarmNetwork(metas) {
+  const list = Array.isArray(metas) ? metas : [];
+  if (!list.length) return false;
+  return list.every((m) => m && m.skipNetwork === true);
+}
+
 
 export function peekDashboard(leagueId) {
   const id = nid(leagueId);
@@ -205,6 +290,12 @@ export function peekFormationPayload(leagueId, giornata) {
   const row = formationPayloadByKey.get(k);
   if (isStale(row)) return null;
   return row.payload != null ? row.payload : null;
+}
+
+export function getFormationPayloadWarmMeta(leagueId, giornata) {
+  const k = formationPayloadKey(leagueId, giornata);
+  if (!k) return null;
+  return warmMetaFromRow(formationPayloadByKey.get(k));
 }
 
 export function setFormationPayload(leagueId, giornata, payload) {
@@ -379,22 +470,25 @@ export function pickPrefetchLeagueIds(normalizedList, maxLeagues, calendarYear =
   const list = Array.isArray(normalizedList) ? normalizedList : [];
   const filtered =
     hiddenLeagues.size > 0 ? list.filter((l) => !hiddenLeagues.has(l.id)) : list;
+  // Prefetch solo leghe non archiviate (se meno di maxLeagues, carica solo quelle).
+  const nonArchived = filtered.filter((l) => !l.archived);
   const year = Number.isFinite(Number(calendarYear)) ? Number(calendarYear) : new Date().getFullYear();
-  const officialCurrentId = pickOfficialCurrentYearLeagueId(filtered, year);
+  const officialCurrentId = pickOfficialCurrentYearLeagueId(nonArchived, year);
   /** Prefetch warm: al massimo una lega ufficiale (stagione anno corrente); le altre ufficiali escluse per non appesantire. */
-  const eligible = filtered.filter((l) => {
+  const eligible = nonArchived.filter((l) => {
     if (!isOfficialLeague(l)) return true;
     return officialCurrentId != null && nid(l?.id) === officialCurrentId;
   });
   const merged = sortLeaguesForPrefetch(eligible, year);
   const seen = new Set();
   const out = [];
+  const limit = Number.isFinite(Number(maxLeagues)) ? Math.max(0, Number(maxLeagues)) : 3;
   for (const l of merged) {
     const leagueNid = nid(l?.id);
     if (leagueNid == null || seen.has(leagueNid)) continue;
     seen.add(leagueNid);
     out.push(leagueNid);
-    if (out.length >= maxLeagues) break;
+    if (out.length >= limit) break;
   }
   return out;
 }
@@ -413,14 +507,15 @@ async function mapPool(items, concurrency, iterator) {
   await Promise.all(workers);
 }
 
-const MAX_FORMATION_PREFETCH_PER_LEAGUE = 12;
+const MAX_FORMATION_PREFETCH_PER_LEAGUE = 2;
 
 /**
  * Dopo login/sessione valida: prefetch per leghe in ordine {@link sortLeaguesForPrefetch}.
+ * Default: max 3 leghe non archiviate; formazioni solo corrente + precedente.
  * @param {{ onProgress?: (0..1) => void, maxLeagues?: number, concurrency?: number, userId?: number|string, calendarYear?: number }} opts
  */
 export async function prefetchLeagueWarmData(opts = {}) {
-  const { onProgress, maxLeagues = 6, concurrency = 2, userId: userIdOpt, calendarYear } = opts;
+  const { onProgress, maxLeagues = 3, concurrency = 2, userId: userIdOpt, calendarYear } = opts;
   const year = Number.isFinite(Number(calendarYear)) ? Number(calendarYear) : new Date().getFullYear();
   const userId = nid(userIdOpt);
   const report = (v) => {
@@ -517,17 +612,24 @@ export async function prefetchLeagueWarmData(opts = {}) {
 
         const defaultG = pickDefaultFormationGiornata(md);
         const prefetchGiornate = new Set();
-        if (defaultG != null) prefetchGiornate.add(defaultG);
-        const tail = md.length <= MAX_FORMATION_PREFETCH_PER_LEAGUE
-          ? md
-          : md.slice(-MAX_FORMATION_PREFETCH_PER_LEAGUE);
-        tail.forEach((m) => {
-          const g = Number(m?.giornata);
-          if (Number.isFinite(g)) prefetchGiornate.add(g);
-        });
+        if (defaultG != null) {
+          prefetchGiornate.add(defaultG);
+          const sortedG = [...new Set(
+            md.map((m) => Number(m?.giornata)).filter((g) => Number.isFinite(g))
+          )].sort((a, b) => a - b);
+          const idx = sortedG.indexOf(defaultG);
+          if (idx > 0) {
+            prefetchGiornate.add(sortedG[idx - 1]);
+          } else {
+            const prev = sortedG.filter((g) => g < defaultG).pop();
+            if (prev != null) prefetchGiornate.add(prev);
+          }
+        }
+        // Cap di sicurezza (corrente + precedente).
+        const limitedGiornate = [...prefetchGiornate].slice(0, MAX_FORMATION_PREFETCH_PER_LEAGUE);
 
         await Promise.all(
-          [...prefetchGiornate].map(async (g) => {
+          limitedGiornate.map(async (g) => {
             try {
               const fr = await formationService.getFormation(id, g);
               setFormationPayload(id, g, fr?.data);

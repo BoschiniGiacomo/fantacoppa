@@ -15,6 +15,9 @@ import {
   peekFormationMatchdays,
   setLeagueDetail,
   setFormationMatchdays,
+  getLeagueDetailWarmMeta,
+  getFormationMatchdaysWarmMeta,
+  canSkipWarmNetwork,
 } from '../services/leagueWarmCache';
 import { useOnboarding } from '../context/OnboardingContext';
 import { parseAppDate } from '../utils/dateTime';
@@ -64,6 +67,14 @@ export default function CalendarScreen({ route, navigation }) {
       setMatchdays(initial);
       if (initial.some((m) => m.hasFormation)) markDone('submitted_formation');
       setLoading(false);
+      if (
+        canSkipWarmNetwork([
+          getLeagueDetailWarmMeta(leagueId),
+          getFormationMatchdaysWarmMeta(leagueId),
+        ])
+      ) {
+        return;
+      }
     } else {
       setLoading(true);
     }

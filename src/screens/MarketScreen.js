@@ -17,7 +17,7 @@ import { useAuth } from '../context/AuthContext';
 import { useOnboarding } from '../context/OnboardingContext';
 import { marketService, squadService } from '../services/api';
 import { PlayerPhotoImage } from '../components/StableCachedImage';
-import { peekMarketBootstrapDefault, setMarketBootstrapDefault, invalidateLeagueWarmCache } from '../services/leagueWarmCache';
+import { peekMarketBootstrapDefault, setMarketBootstrapDefault, invalidateLeagueWarmCache, getMarketBootstrapWarmMeta } from '../services/leagueWarmCache';
 import { Ionicons } from '@expo/vector-icons';
 
 export default function MarketScreen({ route, navigation }) {
@@ -116,6 +116,11 @@ export default function MarketScreen({ route, navigation }) {
     if (warm != null) {
       applyBootstrapData(warm);
       setLoading(false);
+      // Warm molto fresco (post-login): evita doppio scarico; pull/invalidate forzano rete.
+      if (getMarketBootstrapWarmMeta(leagueId)?.skipNetwork) {
+        setRefreshing(false);
+        return;
+      }
     } else {
       setLoading(true);
     }
