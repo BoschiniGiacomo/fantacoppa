@@ -1197,37 +1197,26 @@ export default function SettingsScreen({ route, navigation }) {
               />
             </View>
 
-            <View style={styles.formGroup}>
-              <View style={styles.labelContainer}>
-                <Ionicons name="eye-off-outline" size={18} color="#667eea" style={styles.labelIcon} />
-                <Text style={styles.label}>Nascondi formazioni</Text>
+            <View style={styles.hideFormationsRow}>
+              <View style={styles.hideFormationsIconWrap}>
+                <Ionicons name="eye-off-outline" size={18} color="#667eea" />
               </View>
-              <Text style={styles.subtitle}>
-                {settings.hide_formations === 1
-                  ? 'Nella sezione Squadre, le rose degli altri giocatori risultano oscurate (nome, club e valore)'
-                  : 'Le rose delle altre squadre restano visibili in Squadre'}
-              </Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 6 }}>
-                <Text
-                  style={{
-                    fontSize: 13,
-                    color: settings.hide_formations === 1 ? '#28a745' : '#999',
-                    flex: 1,
-                  }}
-                >
-                  {settings.hide_formations === 1 ? 'Attiva' : 'Disattiva'}
+              <View style={styles.hideFormationsTextCol}>
+                <Text style={styles.hideFormationsTitle}>Nascondi formazioni</Text>
+                <Text style={styles.hideFormationsHint}>
+                  Oscura rose e crediti altrui in Squadre
                 </Text>
-                <Switch
-                  value={settings.hide_formations === 1}
-                  onValueChange={(value) =>
-                    setSettings({
-                      ...settings,
-                      hide_formations: value ? 1 : 0,
-                    })
-                  }
-                  disabled={isReadOnlyObserver}
-                />
               </View>
+              <Switch
+                value={settings.hide_formations === 1}
+                onValueChange={(value) =>
+                  setSettings({
+                    ...settings,
+                    hide_formations: value ? 1 : 0,
+                  })
+                }
+                disabled={isReadOnlyObserver}
+              />
             </View>
 
             {/* Limiti per ruolo */}
@@ -2327,6 +2316,39 @@ const styles = StyleSheet.create({
     backgroundColor: '#eee',
     marginHorizontal: 12,
     alignSelf: 'stretch',
+  },
+  hideFormationsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    marginBottom: 10,
+    gap: 12,
+  },
+  hideFormationsIconWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    backgroundColor: '#eef1ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  hideFormationsTextCol: {
+    flex: 1,
+    minWidth: 0,
+  },
+  hideFormationsTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#2c3e50',
+    marginBottom: 2,
+  },
+  hideFormationsHint: {
+    fontSize: 12,
+    color: '#888',
+    lineHeight: 16,
   },
   labelContainer: {
     flexDirection: 'row',
