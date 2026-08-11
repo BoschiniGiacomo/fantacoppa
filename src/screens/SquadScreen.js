@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -16,10 +16,23 @@ import { useAuth } from '../context/AuthContext';
 import { useOnboarding } from '../context/OnboardingContext';
 import { squadService } from '../services/api';
 import { PlayerPhotoImage } from '../components/StableCachedImage';
-import { peekSquadBootstrap, setSquadBootstrap, invalidateLeagueWarmCache, getSquadBootstrapWarmMeta } from '../services/leagueWarmCache';
+import { peekSquadBootstrap, setSquadBootstrap, invalidateLeagueWarmCache, getSquadBootstrapWarmMeta, peekSquadPlayersData } from '../services/leagueWarmCache';
 import { Ionicons } from '@expo/vector-icons';
 import InjurySwapIcon from '../components/InjurySwapIcon';
 import { useMarketBlockPoll } from '../hooks/useMarketBlockPoll';
+
+function extractSquadPlayers(data) {
+  if (!data || typeof data !== 'object') return [];
+  if (Array.isArray(data.players)) return data.players;
+  if (Array.isArray(data.squad)) return data.squad;
+  return [];
+}
+
+function isUsableSquadBootstrap(data) {
+  if (!data || typeof data !== 'object') return false;
+  if (data.message && data.role_limits == null && data.league == null) return false;
+  return data.role_limits != null || data.league != null || Array.isArray(data.players) || Array.isArray(data.squad);
+}
 
 export default function SquadScreen({ route, navigation }) {
   const { user } = useAuth();
@@ -44,6 +57,9 @@ export default function SquadScreen({ route, navigation }) {
   const [removing, setRemoving] = useState(false);
   const [toastMsg, setToastMsg] = useState(null);
   const [confirmModal, setConfirmModal] = useState(null);
+  const loadGenRef = useRef(0);
+  const squadRef = useRef([]);
+  squadRef.current = squad;
 
   const showToast = (text, type = 'error') => {
     setToastMsg({ text, type });
@@ -59,9 +75,8 @@ export default function SquadScreen({ route, navigation }) {
   };
 
   const applyBootstrap = (data) => {
-    const players = Array.isArray(data?.players)
-      ? data.players
-      : (Array.isArray(data?.squad) ? data.squad : []);
+    if (!isUsableSquadBootstrap(data)) return;
+    const players = extractSquadPlayers(data);
     setSquad(players);
 
     const budgetValue = data?.budget ?? 0;
@@ -80,37 +95,55 @@ export default function SquadScreen({ route, navigation }) {
   };
 
   const loadData = useCallback(async () => {
+    const gen = ++loadGenRef.current;
     const warm = peekSquadBootstrap(leagueId);
-    if (warm != null) {
+    const warmPlayers = extractSquadPlayers(warm);
+    const fallbackList = warmPlayers.length === 0 ? peekSquadPlayersData(leagueId) : null;
+    const fallbackPlayers = extractSquadPlayers(fallbackList);
+
+    if (isUsableSquadBootstrap(warm)) {
       applyBootstrap(warm);
       setLoading(false);
-      if (getSquadBootstrapWarmMeta(leagueId)?.skipNetwork) {
+      // Rosa warm vuota: non saltare la rete (cache avvelenata / post-invalidate).
+      // Solo se ci sono già giocatori in warm e il warm è freschissimo, skip network.
+      if (warmPlayers.length > 0 && getSquadBootstrapWarmMeta(leagueId)?.skipNetwork) {
         setRefreshing(false);
         return;
       }
+    } else if (fallbackPlayers.length > 0) {
+      setSquad(fallbackPlayers);
+      setLoading(false);
     } else {
       setLoading(true);
     }
 
     try {
       const bootstrapRes = await squadService.getBootstrap(leagueId);
+      if (gen !== loadGenRef.current) return;
       const data = bootstrapRes?.data || {};
+      if (!isUsableSquadBootstrap(data)) {
+        throw new Error('Payload rosa non valido');
+      }
       applyBootstrap(data);
       setSquadBootstrap(leagueId, data);
     } catch (error) {
       console.error('Error loading squad data:', error);
-      if (warm == null) {
+      if (gen !== loadGenRef.current) return;
+      const hasWarmPlayers = warmPlayers.length > 0 || fallbackPlayers.length > 0;
+      if (hasWarmPlayers || squadRef.current.length > 0) {
+        showToast('Impossibile aggiornare la rosa');
+      } else {
         showToast('Impossibile caricare la rosa');
         setBudget(0);
         setTotalValue(0);
         setSquad([]);
         setMarketBlocked(false);
-      } else {
-        showToast('Impossibile aggiornare la rosa');
       }
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (gen === loadGenRef.current) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
   }, [leagueId]);
 

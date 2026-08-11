@@ -211,7 +211,19 @@ export function peekSquadBootstrap(leagueId) {
 export function setSquadBootstrap(leagueId, data) {
   const id = nid(leagueId);
   if (id == null) return;
-  squadBootstrapById.set(id, { data: data && typeof data === 'object' ? data : {}, ts: Date.now() });
+  if (!data || typeof data !== 'object') return;
+  // Evita di avvelenare il warm con payload errore/vuoti non strutturati.
+  if (data.message && data.role_limits == null && data.league == null && data.players == null && data.squad == null) {
+    return;
+  }
+  squadBootstrapById.set(id, { data, ts: Date.now() });
+}
+
+export function setSquadPlayersData(leagueId, data) {
+  const id = nid(leagueId);
+  if (id == null) return;
+  if (!data || typeof data !== 'object') return;
+  squadPlayersDataById.set(id, { data, ts: Date.now() });
 }
 
 /** Aggiorna solo lo stato blocco mercato nel warm (senza invalidare lista giocatori/budget). */
@@ -308,12 +320,6 @@ export function peekSquadPlayersData(leagueId) {
   const row = squadPlayersDataById.get(id);
   if (isStale(row)) return null;
   return row.data && typeof row.data === 'object' ? row.data : null;
-}
-
-export function setSquadPlayersData(leagueId, data) {
-  const id = nid(leagueId);
-  if (id == null) return;
-  squadPlayersDataById.set(id, { data: data && typeof data === 'object' ? data : {}, ts: Date.now() });
 }
 
 function formationPayloadKey(leagueId, giornata) {
@@ -622,7 +628,9 @@ export async function prefetchLeagueWarmData(opts = {}) {
         }
         if (squadBootR.status === 'fulfilled') {
           const data = squadBootR.value?.data;
-          if (data && typeof data === 'object') setSquadBootstrap(id, data);
+          if (data && typeof data === 'object' && (data.role_limits != null || data.league != null || Array.isArray(data.players) || Array.isArray(data.squad))) {
+            setSquadBootstrap(id, data);
+          }
         }
         if (standingsR.status === 'fulfilled') {
           setStandingsFull(id, standingsR.value?.data);
@@ -634,7 +642,10 @@ export async function prefetchLeagueWarmData(opts = {}) {
         }
         if (squadListR.status === 'fulfilled') {
           const sd = squadListR.value?.data;
-          if (sd && typeof sd === 'object') setSquadPlayersData(id, sd);
+          // Non cacheare liste vuote “sosette”: senza players/squad array validi ignora.
+          if (sd && typeof sd === 'object' && (Array.isArray(sd.players) || Array.isArray(sd.squad))) {
+            setSquadPlayersData(id, sd);
+          }
         }
         if (settingsR.status === 'fulfilled') {
           const sd = settingsR.value?.data;

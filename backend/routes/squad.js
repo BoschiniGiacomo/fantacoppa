@@ -46,7 +46,8 @@ router.get('/:leagueId', authenticateToken, async (req, res) => {
     res.json({ squad: players, players });
   } catch (error) {
     console.error('Squad get error:', error);
-    res.json({ squad: [], players: [] });
+    // Non restituire 200 con lista vuota: i client warm-cacheano e mostrano rosa vuota falsa.
+    return res.status(500).json({ message: 'Errore caricamento rosa' });
   }
 });
 

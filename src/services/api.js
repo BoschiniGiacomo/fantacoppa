@@ -513,8 +513,8 @@ export const marketService = {
 
 // Servizio per la rosa
 export const squadService = {
-  getBootstrap: (leagueId) => api.get(`/squad/${leagueId}/bootstrap`),
-  getSquad: (leagueId) => api.get(`/squad/${leagueId}`),
+  getBootstrap: (leagueId) => api.get(`/squad/${leagueId}/bootstrap`, { timeout: 25000 }),
+  getSquad: (leagueId) => api.get(`/squad/${leagueId}`, { timeout: 20000 }),
   removePlayer: (leagueId, playerId) =>
     api.delete(`/squad/${leagueId}/players/${playerId}`, { timeout: 60000 }),
   getRoleLimits: (leagueId) => api.get(`/squad/${leagueId}/limits`),

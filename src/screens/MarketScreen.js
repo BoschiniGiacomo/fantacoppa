@@ -17,7 +17,7 @@ import { useAuth } from '../context/AuthContext';
 import { useOnboarding } from '../context/OnboardingContext';
 import { marketService, squadService } from '../services/api';
 import { PlayerPhotoImage } from '../components/StableCachedImage';
-import { peekMarketBootstrapDefault, setMarketBootstrapDefault, invalidateLeagueWarmCache, getMarketBootstrapWarmMeta } from '../services/leagueWarmCache';
+import { peekMarketBootstrapDefault, setMarketBootstrapDefault, invalidateLeagueWarmCache, getMarketBootstrapWarmMeta, setSquadBootstrap } from '../services/leagueWarmCache';
 import { Ionicons } from '@expo/vector-icons';
 import { useMarketBlockPoll } from '../hooks/useMarketBlockPoll';
 
@@ -216,6 +216,14 @@ export default function MarketScreen({ route, navigation }) {
           const data = bootstrapRes?.data || {};
           applyBootstrapData(data);
           setMarketBootstrapDefault(leagueId, data);
+        })
+        .catch(() => {});
+      // Rewarm rosa subito: altrimenti Mia rosa apre a freddo e un timeout mostra rosa vuota.
+      squadService
+        .getBootstrap(leagueId)
+        .then((r) => {
+          const data = r?.data;
+          if (data && typeof data === 'object') setSquadBootstrap(leagueId, data);
         })
         .catch(() => {});
     } catch (error) {

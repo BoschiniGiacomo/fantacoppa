@@ -472,7 +472,7 @@ export default function FormationScreen({ route }) {
       const apiCalls = [
         formationService.getMatchdays(leagueId),
         leagueService.getById(leagueId).catch(() => ({ data: null })),
-        squadService.getSquad(leagueId).catch(() => ({ data: { players: [] } })),
+        squadService.getSquad(leagueId).catch(() => ({ data: null })),
         leagueService.getSettings(leagueId).catch(() => ({ data: {} })),
       ];
       if (predictedGiornata != null) {
@@ -493,11 +493,17 @@ export default function FormationScreen({ route }) {
       }
 
       const squadPayload = squadRes?.data;
-      if (squadPayload && typeof squadPayload === 'object') setSquadPlayersData(leagueId, squadPayload);
-
-      const playersRaw = squadRes?.data?.players || [];
-      const activePlayers = playersRaw.filter((p) => Number(p?.is_injured || 0) !== 1);
-      setSquad(activePlayers);
+      if (squadPayload && typeof squadPayload === 'object' && (Array.isArray(squadPayload.players) || Array.isArray(squadPayload.squad))) {
+        setSquadPlayersData(leagueId, squadPayload);
+        const playersRaw = squadPayload.players || squadPayload.squad || [];
+        const activePlayers = playersRaw.filter((p) => Number(p?.is_injured || 0) !== 1);
+        setSquad(activePlayers);
+      } else {
+        const warmSquad = peekSquadPlayersData(leagueId);
+        const playersRaw = warmSquad?.players || warmSquad?.squad || [];
+        const activePlayers = (Array.isArray(playersRaw) ? playersRaw : []).filter((p) => Number(p?.is_injured || 0) !== 1);
+        if (activePlayers.length > 0) setSquad(activePlayers);
+      }
 
       const settingsPayload = settingsRes?.data;
       if (settingsPayload && typeof settingsPayload === 'object') setLeagueSettings(leagueId, settingsPayload);
