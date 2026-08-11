@@ -290,7 +290,7 @@ export const AuthProvider = ({ children }) => {
         await AsyncStorage.setItem(LAST_LOGIN_ID_KEY, loginId).catch(() => {});
       }
       registerPushTokenIfPermitted().catch(() => {});
-      fetchAndCacheStripTeams(newToken).catch(() => {});
+      fetchAndCacheStripTeams(newToken, { force: true }).catch(() => {});
       await prefetchLeagueWarmData({ onProgress: () => {}, userId: newUser?.id });
 
       return { success: true };
@@ -325,7 +325,7 @@ export const AuthProvider = ({ children }) => {
         await AsyncStorage.setItem(LAST_LOGIN_ID_KEY, loginId).catch(() => {});
       }
       registerPushTokenIfPermitted().catch(() => {});
-      fetchAndCacheStripTeams(newToken).catch(() => {});
+      fetchAndCacheStripTeams(newToken, { force: true }).catch(() => {});
       await prefetchLeagueWarmData({ onProgress: () => {}, userId: newUser?.id });
 
       return { success: true };

@@ -447,12 +447,6 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
     void load(true);
   }, [load]);
 
-  useFocusEffect(
-    useCallback(() => {
-      void load(false);
-    }, [load])
-  );
-
   const loadTeamMatches = useCallback(async () => {
     if (!teamId || !competitionId) return;
     try {
@@ -1028,14 +1022,53 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
 
   const onToggleFavorite = async () => {
     if (!competitionId || !teamName || teamName === '-') return;
-    await matchesService.setFavoriteTeam(competitionId, teamName, Number(favorites.team) !== 1);
-    await load(false);
+    const nextIsFav = Number(favorites.team) !== 1;
+    const prevCount = Math.max(0, Number(team.favorite_count) || 0);
+    const nextCount = Math.max(0, prevCount + (nextIsFav ? 1 : -1));
+    // Update locale: stella + contatore animato subito, senza reload detail dal DB.
+    setData((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        team: { ...(prev.team || {}), favorite_count: nextCount },
+        favorites: { ...(prev.favorites || {}), team: nextIsFav ? 1 : 0 },
+      };
+    });
+    try {
+      await matchesService.setFavoriteTeam(competitionId, teamName, nextIsFav);
+    } catch (_) {
+      setData((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          team: { ...(prev.team || {}), favorite_count: prevCount },
+          favorites: { ...(prev.favorites || {}), team: nextIsFav ? 0 : 1 },
+        };
+      });
+    }
   };
 
   const onToggleNotifications = async () => {
     if (!competitionId || !teamName || teamName === '-') return;
-    await matchesService.setTeamNotifications(competitionId, teamName, Number(notifications.enabled) !== 1);
-    await load(false);
+    const nextEnabled = Number(notifications.enabled) !== 1;
+    setData((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        notifications: { ...(prev.notifications || {}), enabled: nextEnabled ? 1 : 0 },
+      };
+    });
+    try {
+      await matchesService.setTeamNotifications(competitionId, teamName, nextEnabled);
+    } catch (_) {
+      setData((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          notifications: { ...(prev.notifications || {}), enabled: nextEnabled ? 0 : 1 },
+        };
+      });
+    }
   };
 
   const handleBackNavigation = useCallback(() => {

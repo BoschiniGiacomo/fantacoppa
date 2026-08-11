@@ -57,7 +57,7 @@ import LeagueHamburgerMenu from './src/components/LeagueHamburgerMenu';
 import LeagueBottomMenu from './src/components/LeagueBottomMenu';
 import { OnboardingProvider } from './src/context/OnboardingContext';
 import { leagueService } from './src/services/api';
-import { peekLeagueDetail, peekHomeLeaguesBootstrapSnapshot } from './src/services/leagueWarmCache';
+import { peekLeagueDetail, peekHomeLeaguesBootstrapSnapshot, getLeagueDetailWarmMeta, setLeagueDetail } from './src/services/leagueWarmCache';
 
 function readLeagueBootstrapFromCache(leagueId) {
   const n = Number(leagueId);
@@ -90,14 +90,25 @@ function withLeagueWrapper(ScreenComponent) {
     });
 
     useEffect(() => {
-      if (leagueId) {
-        leagueService.getById(leagueId)
-          .then(res => {
-            const leagueData = Array.isArray(res.data) ? res.data[0] : res.data;
-            setLeague(leagueData);
-          })
-          .catch(() => {});
+      if (!leagueId) return undefined;
+      // Se warm fresco (post-login), evita getById ridondante: menu/bottom bar usano già la cache.
+      if (getLeagueDetailWarmMeta(leagueId)?.skipNetwork) {
+        const warm = peekLeagueDetail(leagueId) || readLeagueBootstrapFromCache(leagueId);
+        if (warm) setLeague((prev) => ({ ...(prev || {}), ...warm, id: Number(leagueId) }));
+        return undefined;
       }
+      let cancelled = false;
+      leagueService.getById(leagueId)
+        .then((res) => {
+          if (cancelled) return;
+          const leagueData = Array.isArray(res.data) ? res.data[0] : res.data;
+          setLeague(leagueData);
+          if (leagueData && typeof leagueData === 'object') setLeagueDetail(leagueId, leagueData);
+        })
+        .catch(() => {});
+      return () => {
+        cancelled = true;
+      };
     }, [leagueId]);
 
     return (
@@ -131,6 +142,7 @@ function MainTabs() {
   const { token } = useAuth();
 
   useEffect(() => {
+    // Prefetch strip a login tab: usa cache/TTL (force solo se vuota/scaduta).
     readStripTeamsDisk().catch(() => {});
     if (token) {
       fetchAndCacheStripTeams(token).catch(() => {});

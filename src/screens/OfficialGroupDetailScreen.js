@@ -379,15 +379,10 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
     }
   }, [competitionId]);
 
+  // Solo al mount / cambio competitionId — niente secondo load al focus.
   useEffect(() => {
     void load(true);
   }, [load]);
-
-  useFocusEffect(
-    useCallback(() => {
-      void load(false);
-    }, [load])
-  );
 
   const loadGroupMatches = useCallback(async () => {
     if (!competitionId) return;

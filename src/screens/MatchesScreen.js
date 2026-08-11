@@ -20,10 +20,11 @@ import { useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/n
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { matchesService } from '../services/api';
 import { matchDisplayScoreParts } from '../utils/matchDisplayScore';
-import { fetchAndCacheStripTeams } from '../services/matchesStripPrefetch';
+import { fetchAndCacheStripTeams, refreshStripTeams } from '../services/matchesStripPrefetch';
 import {
   peekStripTeamsMemory,
   readStripTeamsDisk,
+  isStripTeamsFresh,
 } from '../services/matchesStripTeamsCache';
 import { PlayerPhotoImage, TeamLogoImage } from '../components/StableCachedImage';
 import { useAuth } from '../context/AuthContext';
@@ -337,9 +338,16 @@ export default function MatchesScreen() {
     setHeaderHeight((prev) => (prev === nextHeight ? prev : nextHeight));
   }, []);
 
-  const loadStripTeams = useCallback(async () => {
+  const loadStripTeams = useCallback(async (force = false) => {
     try {
-      const teams = await fetchAndCacheStripTeams(token);
+      if (!force && isStripTeamsFresh()) {
+        const mem = peekStripTeamsMemory();
+        if (mem?.length) setHeartTeams(mem);
+        return;
+      }
+      const teams = force
+        ? await refreshStripTeams(token)
+        : await fetchAndCacheStripTeams(token);
       setHeartTeams(teams);
     } catch (_) {}
   }, [token]);
@@ -350,13 +358,10 @@ export default function MatchesScreen() {
     });
   }, []);
 
-  useEffect(() => {
-    loadStripTeams();
-  }, [loadStripTeams]);
-
+  // Solo al focus: niente doppio mount+focus. Rete solo se cache strip scaduta.
   useFocusEffect(
     useCallback(() => {
-      loadStripTeams();
+      void loadStripTeams(false);
     }, [loadStripTeams])
   );
 
@@ -469,10 +474,6 @@ export default function MatchesScreen() {
       }
     }
   }, []);
-
-  useEffect(() => {
-    load(selectedDate);
-  }, [selectedDate, load]);
 
   useFocusEffect(
     useCallback(() => {
@@ -711,7 +712,7 @@ export default function MatchesScreen() {
         })),
       });
       setFollowModalVisible(false);
-      await Promise.all([load(selectedDate, true), loadStripTeams()]);
+      await Promise.all([load(selectedDate, true), loadStripTeams(true)]);
     } catch (e) {
       setFollowError(e?.response?.data?.message || e?.message || 'Salvataggio non riuscito');
     } finally {

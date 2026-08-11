@@ -1267,6 +1267,8 @@ export default function MatchDetailScreen({ navigation, route }) {
   const [activeTab, setActiveTab] = useState('overview');
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState(null);
+  const dataRef = useRef(null);
+  dataRef.current = data;
   const [tick, setTick] = useState(0);
   const [showEventEditor, setShowEventEditor] = useState(false);
   const [confirmEndMatchOpen, setConfirmEndMatchOpen] = useState(false);
@@ -1449,10 +1451,6 @@ export default function MatchDetailScreen({ navigation, route }) {
   }, [matchId]);
 
   useEffect(() => {
-    void loadDetail({ showLoading: true });
-  }, [matchId, loadDetail]);
-
-  useEffect(() => {
     void loadVotesTabMeta();
   }, [loadVotesTabMeta]);
 
@@ -1463,8 +1461,8 @@ export default function MatchDetailScreen({ navigation, route }) {
   useFocusEffect(
     useCallback(() => {
       if (!matchId) return undefined;
-      // Un full load al focus; il poll parte solo se la partita è in diretta.
-      void loadDetail({ showLoading: false });
+      // Un solo load al focus (niente doppio mount+focus). Spinner solo al primo ingresso senza dati.
+      void loadDetail({ showLoading: dataRef.current == null });
       const poll = setInterval(() => {
         if (livePollEnabledRef.current) {
           void loadLiveDelta();
