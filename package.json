@@ -1,6 +1,6 @@
 {
   "name": "fantacoppa-mobile",
-  "version": "1.0.11",
+  "version": "1.0.12",
   "main": "node_modules/expo/AppEntry.js",
   "scripts": {
     "prestart": "node fix-node-sea.js && node scripts/generateBundledUploadsManifest.js",
