@@ -155,6 +155,7 @@ export const UPLOAD_PATH_ALIASES = {
   'uploads/player_photos/player_1003_1779957987_m9c9j6.png': 'uploads/player_photos/player_cluster_52_1779957987_m9c9j6.png',
   'uploads/player_photos/player_1004_1779960449_00rmck.png': 'uploads/player_photos/player_cluster_93_1779960449_00rmck.png',
   'uploads/player_photos/player_1005_1779958138_ogy872.png': 'uploads/player_photos/player_cluster_94_1779958138_ogy872.png',
+  'uploads/player_photos/player_1006_1779957923_mst99w.png': 'uploads/player_photos/player_cluster_69_1779957923_mst99w.png',
   'uploads/player_photos/player_1007_1779958186_fvfowl.png': 'uploads/player_photos/player_cluster_82_1779958186_fvfowl.png',
   'uploads/player_photos/player_1008_1779958086_0uawae.png': 'uploads/player_photos/player_cluster_90_1779958086_0uawae.png',
   'uploads/player_photos/player_1009_1780737925_zdf4j2.png': 'uploads/player_photos/player_cluster_76_1780737925_zdf4j2.png',
