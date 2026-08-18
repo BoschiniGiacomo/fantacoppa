@@ -20,7 +20,9 @@ import Animated, {
   useSharedValue,
   withTiming,
 } from 'react-native-reanimated';
+import Svg, { Circle, Line } from 'react-native-svg';
 import { PlayerPhotoImage, TeamLogoImage } from '../StableCachedImage';
+import BonusIcon from '../BonusIcon';
 import { parseAppDate } from '../../utils/dateTime';
 import { buildCompetitionRanks, formatCompetitionRank } from '../../utils/standingsRanking';
 
@@ -85,6 +87,13 @@ function IconGlyph({ pack = 'ion', name, size = 16, color }) {
     return <MaterialCommunityIcons name={name} size={size} color={color} />;
   }
   return <Ionicons name={name} size={size} color={color} />;
+}
+
+function BoardGlyph({ board, size = 15, color }) {
+  if (board?.bonusType) {
+    return <BonusIcon type={board.bonusType} size={size} />;
+  }
+  return <IconGlyph pack={board?.pack} name={board?.icon} size={size} color={color} />;
 }
 
 function StatShareBar({ ratio, color }) {
@@ -303,9 +312,8 @@ function CategoryChips({ boards, selectedKey, onSelect }) {
             onPress={() => onSelect(board.key)}
             activeOpacity={0.8}
           >
-            <IconGlyph
-              pack={board.pack}
-              name={board.icon}
+            <BoardGlyph
+              board={board}
               size={14}
               color={active ? '#fff' : board.accent}
             />
@@ -440,7 +448,7 @@ function TeaserStrip({ boards, onSelect }) {
               activeOpacity={0.8}
             >
               <View style={[styles.teaserIcon, { backgroundColor: `${board.accent}18` }]}>
-                <IconGlyph pack={board.pack} name={board.icon} size={15} color={board.accent} />
+                <BoardGlyph board={board} size={15} color={board.accent} />
               </View>
               <Text style={styles.teaserLabel} numberOfLines={1}>{board.shortLabel || board.label}</Text>
               <Text style={styles.teaserName} numberOfLines={1}>{String(top.name || '-')}</Text>
@@ -473,7 +481,11 @@ function HighlightCard({ item, onPressTeam, onPressMatch, index }) {
         }}
       >
         <View style={[styles.hlIcon, { backgroundColor: item.iconBg }]}>
-          <Ionicons name={item.icon} size={15} color={item.accent} />
+          {item.bonusType ? (
+            <BonusIcon type={item.bonusType} size={15} />
+          ) : (
+            <Ionicons name={item.icon} size={15} color={item.accent} />
+          )}
         </View>
         {item.label ? <Text style={styles.hlLabel}>{item.label}</Text> : null}
         {item.match ? (
@@ -606,6 +618,7 @@ function GroupHighlights({ highlights, onPressTeam, onPressMatch }) {
   if (h.most_penalties_for) {
     cards.push({
       key: 'pen-for',
+      bonusType: 'penalty_goal',
       icon: 'disc',
       accent: '#2563eb',
       iconBg: '#eff6ff',
@@ -620,6 +633,7 @@ function GroupHighlights({ highlights, onPressTeam, onPressMatch }) {
   if (h.most_penalties_against) {
     cards.push({
       key: 'pen-against',
+      bonusType: 'penalty_missed',
       icon: 'alert-circle',
       accent: '#db2777',
       iconBg: '#fdf2f8',
@@ -634,6 +648,7 @@ function GroupHighlights({ highlights, onPressTeam, onPressMatch }) {
   if (h.most_yellow_cards) {
     cards.push({
       key: 'yellow',
+      bonusType: 'yellow_card',
       icon: 'square',
       accent: '#ca8a04',
       iconBg: '#fefce8',
@@ -648,6 +663,7 @@ function GroupHighlights({ highlights, onPressTeam, onPressMatch }) {
   if (h.most_red_cards) {
     cards.push({
       key: 'red',
+      bonusType: 'red_card',
       icon: 'square',
       accent: '#dc2626',
       iconBg: '#fef2f2',
@@ -680,22 +696,86 @@ function GroupHighlights({ highlights, onPressTeam, onPressMatch }) {
   );
 }
 
-function KpiTile({ icon, pack, color, bg, value, hint, delay }) {
+function MidfieldDecoration({ width, height }) {
+  if (!width || !height) return null;
+  const cx = width / 2;
+  const cy = height / 2;
+  const r = Math.min(30, height * 0.34);
   return (
-    <Animated.View entering={FadeInDown.delay(delay).duration(280)} style={[styles.kpiTile, { backgroundColor: bg }]}>
-      <View style={[styles.kpiIcon, { backgroundColor: '#fff' }]}>
-        <IconGlyph pack={pack} name={icon} size={15} color={color} />
+    <Svg
+      pointerEvents="none"
+      width={width}
+      height={height}
+      style={[StyleSheet.absoluteFill, { opacity: 0.34 }]}
+    >
+      <Line x1={14} y1={cy} x2={width - 14} y2={cy} stroke="#fff" strokeWidth={1.6} />
+      <Circle cx={cx} cy={cy} r={r} fill="none" stroke="#fff" strokeWidth={1.6} />
+      <Circle cx={cx} cy={cy} r={2.5} fill="#fff" />
+    </Svg>
+  );
+}
+
+function PlayedPitchHero({ value, delay = 0 }) {
+  const [size, setSize] = useState({ width: 0, height: 0 });
+  return (
+    <Animated.View
+      entering={FadeInDown.delay(delay).duration(280)}
+      style={styles.pitchHero}
+      onLayout={(event) => {
+        const { width, height } = event.nativeEvent.layout;
+        setSize((prev) => (
+          prev.width === width && prev.height === height ? prev : { width, height }
+        ));
+      }}
+    >
+      <MidfieldDecoration width={size.width} height={size.height} />
+      <View style={styles.pitchHeroBody}>
+        <View style={styles.pitchHeroLeft}>
+          <View style={styles.pitchHeroBadge}>
+            <Ionicons name="calendar-outline" size={18} color="#fff" />
+          </View>
+          <Text style={styles.pitchHeroLabel}>Partite</Text>
+        </View>
+        <Text style={styles.pitchHeroValue}>{value}</Text>
       </View>
-      <Text style={styles.kpiValue} numberOfLines={1}>{value}</Text>
-      {hint ? <Text style={styles.kpiHint} numberOfLines={1}>{hint}</Text> : null}
     </Animated.View>
   );
 }
 
-function MiniStat({ icon, color, value, label }) {
+function KpiTile({ icon, pack, color, bg, value, hint, delay, bonusType, valueColor }) {
+  return (
+    <Animated.View
+      entering={FadeInDown.delay(delay).duration(280)}
+      style={[styles.kpiTile, { backgroundColor: bg }]}
+    >
+      <View style={[styles.kpiIcon, { backgroundColor: '#fff' }]}>
+        {bonusType ? (
+          <BonusIcon type={bonusType} size={17} />
+        ) : (
+          <IconGlyph pack={pack} name={icon} size={15} color={color} />
+        )}
+      </View>
+      <View style={styles.kpiBody}>
+        <Text
+          style={[styles.kpiValue, valueColor ? { color: valueColor } : null]}
+          numberOfLines={1}
+        >
+          {value}
+        </Text>
+        {hint ? <Text style={styles.kpiHint} numberOfLines={1}>{hint}</Text> : null}
+      </View>
+    </Animated.View>
+  );
+}
+
+function MiniStat({ icon, color, value, label, bonusType }) {
   return (
     <View style={styles.miniStat}>
-      <Ionicons name={icon} size={14} color={color} />
+      {bonusType ? (
+        <BonusIcon type={bonusType} size={15} />
+      ) : (
+        <Ionicons name={icon} size={14} color={color} />
+      )}
       <Text style={styles.miniStatValue}>{value}</Text>
       <Text style={styles.miniStatLabel}>{label}</Text>
     </View>
@@ -762,43 +842,47 @@ function TeamGeneral({ general, outcomes, onPressMatch }) {
   const lossPct = totalOut > 0 ? losses / totalOut : 0;
   const winStreak = Number(general?.longest_win_streak?.value || 0);
   const lossStreak = Number(general?.longest_loss_streak?.value || 0);
+  const diff = gf - ga;
+  const diffColor = diff > 0 ? '#15803d' : diff < 0 ? '#b91c1c' : '#0f766e';
 
   return (
     <View>
-      <View style={styles.kpiGrid}>
-        <KpiTile icon="calendar" color="#667eea" bg="#eef2ff" value={String(played)} hint="partite" delay={0} />
-        <KpiTile
-          pack="mci"
-          icon="soccer"
-          color="#15803d"
-          bg="#ecfdf3"
-          value={String(gf)}
-          hint={played > 0 ? `${formatStatAvg(general?.goals_avg)} / p` : 'gol fatti'}
-          delay={40}
-        />
-        <KpiTile
-          icon="shield-outline"
-          color="#b91c1c"
-          bg="#fef2f2"
-          value={String(ga)}
-          hint={played > 0 ? `${formatStatAvg(general?.goals_conceded_avg)} / p` : 'gol subiti'}
-          delay={80}
-        />
-        <KpiTile
-          icon="swap-vertical"
-          color="#0f766e"
-          bg="#f0fdfa"
-          value={`${gf - ga >= 0 ? '+' : ''}${gf - ga}`}
-          hint="differenza"
-          delay={120}
-        />
+      <View style={styles.kpiStack}>
+        <PlayedPitchHero value={played} delay={0} />
+        <View style={styles.kpiGoalsRow}>
+          <KpiTile
+            bonusType="goal"
+            color="#15803d"
+            bg="#ecfdf3"
+            value={String(gf)}
+            hint="Gol fatti"
+            delay={40}
+          />
+          <KpiTile
+            bonusType="goals_conceded"
+            color="#b91c1c"
+            bg="#fef2f2"
+            value={String(ga)}
+            hint="Gol subiti"
+            delay={80}
+          />
+          <KpiTile
+            icon="swap-vertical"
+            color={diffColor}
+            bg="#f0fdfa"
+            value={`${diff >= 0 ? '+' : ''}${diff}`}
+            valueColor={diffColor}
+            hint="Differenza"
+            delay={120}
+          />
+        </View>
       </View>
 
       <View style={styles.miniRow}>
-        <MiniStat icon="square" color="#ca8a04" value={Number(general?.yellow_cards || 0)} label="Gialli" />
-        <MiniStat icon="square" color="#dc2626" value={Number(general?.red_cards || 0)} label="Rossi" />
-        <MiniStat icon="disc" color="#2563eb" value={Number(general?.penalties_for || 0)} label="Rigori +" />
-        <MiniStat icon="alert-circle" color="#db2777" value={Number(general?.penalties_against || 0)} label="Rigori −" />
+        <MiniStat bonusType="yellow_card" value={Number(general?.yellow_cards || 0)} label="Gialli" />
+        <MiniStat bonusType="red_card" value={Number(general?.red_cards || 0)} label="Rossi" />
+        <MiniStat bonusType="penalty_goal" value={Number(general?.penalties_for || 0)} label="Rigori +" />
+        <MiniStat bonusType="penalty_missed" value={Number(general?.penalties_against || 0)} label="Rigori −" />
       </View>
 
       <View style={styles.wdlCard}>
@@ -884,10 +968,10 @@ export const GROUP_STATS_BOARDS = [
   { key: 'scorers', label: 'Marcatori', shortLabel: 'Gol', pack: 'mci', icon: 'soccer', accent: '#15803d', empty: 'Nessun marcatore disponibile.' },
   { key: 'assistmen', label: 'Assistman', shortLabel: 'Assist', pack: 'mci', icon: 'shoe-cleat', accent: '#1d4ed8', empty: 'Nessun assist disponibile.' },
   { key: 'presences', label: 'Presenze', shortLabel: 'Pres.', pack: 'ion', icon: 'people', accent: '#667eea', empty: 'Nessuna presenza con voto nel periodo selezionato.' },
-  { key: 'yellow_cards', label: 'Cartellini gialli', shortLabel: 'Gialli', pack: 'ion', icon: 'square', accent: '#ca8a04', empty: 'Nessun cartellino giallo disponibile.' },
-  { key: 'red_cards', label: 'Cartellini rossi', shortLabel: 'Rossi', pack: 'ion', icon: 'square', accent: '#dc2626', empty: 'Nessun cartellino rosso disponibile.' },
-  { key: 'penalty_goals', label: 'Rigori segnati', shortLabel: 'Rigori', pack: 'ion', icon: 'disc', accent: '#2563eb', empty: 'Nessun rigore segnato disponibile.' },
-  { key: 'penalty_saved', label: 'Rigori parati', shortLabel: 'Parate', pack: 'ion', icon: 'hand-left-outline', accent: '#0f766e', empty: 'Nessun rigore parato disponibile.' },
+  { key: 'yellow_cards', label: 'Cartellini gialli', shortLabel: 'Gialli', pack: 'ion', icon: 'square', accent: '#ca8a04', bonusType: 'yellow_card', empty: 'Nessun cartellino giallo disponibile.' },
+  { key: 'red_cards', label: 'Cartellini rossi', shortLabel: 'Rossi', pack: 'ion', icon: 'square', accent: '#dc2626', bonusType: 'red_card', empty: 'Nessun cartellino rosso disponibile.' },
+  { key: 'penalty_goals', label: 'Rigori segnati', shortLabel: 'Rigori +', pack: 'ion', icon: 'disc', accent: '#2563eb', bonusType: 'penalty_goal', empty: 'Nessun rigore segnato disponibile.' },
+  { key: 'penalty_saved', label: 'Rigori parati', shortLabel: 'Parate', pack: 'ion', icon: 'hand-left-outline', accent: '#0f766e', bonusType: 'penalty_saved', empty: 'Nessun rigore parato disponibile.' },
   { key: 'match_wins', label: 'Partite vinte', shortLabel: 'Vinte', pack: 'ion', icon: 'trophy', accent: '#d97706', empty: 'Nessuna partita vinta disponibile.' },
   { key: 'edition_wins', label: 'Edizioni vinte', shortLabel: 'Coppe', pack: 'ion', icon: 'ribbon', accent: '#7c3aed', empty: 'Nessuna coppa vinta disponibile.' },
 ];
@@ -1038,7 +1122,7 @@ export default function OfficialStatsExperience({
                 >
                   <View style={styles.boardHead}>
                     <View style={[styles.boardIcon, { backgroundColor: `${hit.board.accent}18` }]}>
-                      <IconGlyph pack={hit.board.pack} name={hit.board.icon} size={15} color={hit.board.accent} />
+                      <BoardGlyph board={hit.board} size={15} color={hit.board.accent} />
                     </View>
                     <Text style={styles.boardTitle}>{hit.board.label}</Text>
                     <Text style={styles.boardCount}>{hit.items.length}</Text>
@@ -1083,7 +1167,7 @@ export default function OfficialStatsExperience({
                 <View>
                   <View style={styles.boardHead}>
                     <View style={[styles.boardIcon, { backgroundColor: `${activeBoard.accent}18` }]}>
-                      <IconGlyph pack={activeBoard.pack} name={activeBoard.icon} size={16} color={activeBoard.accent} />
+                      <BoardGlyph board={activeBoard} size={16} color={activeBoard.accent} />
                     </View>
                     <Text style={styles.boardTitle}>{activeBoard.label}</Text>
                   </View>
@@ -1272,23 +1356,73 @@ const styles = StyleSheet.create({
   hlScoreBox: { minWidth: 64, alignItems: 'center' },
   hlScore: { fontSize: 20, fontWeight: '800', color: '#111827', letterSpacing: -0.4 },
   hlScoreSub: { fontSize: 10, fontWeight: '800', marginTop: 1 },
-  kpiGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 8 },
+  kpiStack: { gap: 8 },
+  kpiGoalsRow: { flexDirection: 'row', gap: 8 },
+  pitchHero: {
+    borderRadius: 16,
+    backgroundColor: '#14532d',
+    overflow: 'hidden',
+    position: 'relative',
+    minHeight: 84,
+    justifyContent: 'center',
+  },
+  pitchHeroBody: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    zIndex: 1,
+  },
+  pitchHeroLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+    minWidth: 0,
+  },
+  pitchHeroBadge: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+  },
+  pitchHeroLabel: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#fff',
+  },
+  pitchHeroValue: {
+    fontSize: 40,
+    fontWeight: '800',
+    color: '#fff',
+    letterSpacing: -1,
+    lineHeight: 44,
+  },
   kpiTile: {
-    width: '48.6%',
+    flex: 1,
+    minWidth: 0,
     borderRadius: 14,
-    paddingHorizontal: 12,
+    paddingHorizontal: 8,
     paddingVertical: 12,
+    alignItems: 'center',
   },
   kpiIcon: {
-    width: 26,
-    height: 26,
+    width: 28,
+    height: 28,
     borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 8,
+    overflow: 'visible',
   },
-  kpiValue: { fontSize: 22, fontWeight: '800', color: '#0f172a', letterSpacing: -0.4 },
-  kpiHint: { marginTop: 1, fontSize: 11, fontWeight: '700', color: '#64748b' },
+  kpiBody: { minWidth: 0, alignItems: 'center' },
+  kpiValue: { fontSize: 20, fontWeight: '800', color: '#0f172a', letterSpacing: -0.4, textAlign: 'center' },
+  kpiHint: { marginTop: 2, fontSize: 10, fontWeight: '800', color: '#64748b', textTransform: 'uppercase', textAlign: 'center' },
   miniRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
