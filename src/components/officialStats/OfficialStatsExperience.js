@@ -923,6 +923,8 @@ export default function OfficialStatsExperience({
   onScrollEndDrag,
   scrollRef,
   contentInsetTop = 0,
+  contentMinHeight = 0,
+  onScrollViewLayout,
 }) {
   const [query, setQuery] = useState('');
   const [selectedBoard, setSelectedBoard] = useState(boards[0]?.key || 'scorers');
@@ -983,10 +985,14 @@ export default function OfficialStatsExperience({
         <ScrollView
           ref={scrollRef}
           style={styles.scroll}
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={[
+            styles.scrollContent,
+            contentMinHeight > 0 ? { minHeight: contentMinHeight } : null,
+          ]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
+          onLayout={onScrollViewLayout}
           onScroll={onScroll}
           onScrollBeginDrag={onScrollBeginDrag}
           onScrollEndDrag={onScrollEndDrag}

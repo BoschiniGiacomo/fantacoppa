@@ -430,6 +430,7 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
   const [overlayHeight, setOverlayHeight] = useState(OVERLAY_HEIGHT_ESTIMATE);
   const [heroSlotHeight, setHeroSlotHeight] = useState(HERO_EXPANDED_ESTIMATE);
   const [trophiesViewportHeight, setTrophiesViewportHeight] = useState(0);
+  const [tabScrollViewportH, setTabScrollViewportH] = useState(0);
   const matchesScrollRef = useRef(null);
   const seasonScrollRef = useRef(null);
   const trophiesScrollRef = useRef(null);
@@ -1033,10 +1034,20 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
 
   const overlayPad = overlayHeight;
   const trophiesTabsChrome = Math.max(0, overlayHeight - heroSlotHeight);
+  const tabScrollMinHeight = Math.max(
+    0,
+    tabScrollViewportH + (heroCollapsed ? heroSlotHeight : 0)
+  );
   const trophiesBoardMinHeight = Math.max(
     0,
-    trophiesViewportHeight - (heroCollapsed ? trophiesTabsChrome : overlayHeight)
+    (trophiesViewportHeight || tabScrollViewportH) - (heroCollapsed ? trophiesTabsChrome : overlayHeight)
   );
+
+  const onTabScrollViewLayout = useCallback((event) => {
+    const h = Math.ceil(event?.nativeEvent?.layout?.height || 0);
+    if (h < 8) return;
+    setTabScrollViewportH((prev) => (Math.abs(prev - h) < 1 ? prev : h));
+  }, []);
 
   const getActiveTabScrollRef = useCallback(() => {
     if (activeTab === 'matches') return matchesScrollRef;
@@ -1150,8 +1161,9 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
       if (cancelled) return;
       tries += 1;
       const ok = syncActiveTabScrollToHero();
-      if (!ok && tries < 10) {
-        retry = setTimeout(tick, 50);
+      const collapsed = heroCollapsedRef.current;
+      if ((!ok && tries < 12) || (ok && collapsed && tries < 6)) {
+        retry = setTimeout(tick, 40);
       }
     };
     retry = setTimeout(tick, 16);
@@ -1426,8 +1438,12 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
           <ScrollView
             ref={seasonScrollRef}
             style={styles.seasonScroll}
-            contentContainerStyle={[styles.seasonScrollContent, { paddingBottom: Math.max(insets.bottom, 5)}]}
+            contentContainerStyle={[
+              styles.seasonScrollContent,
+              { paddingBottom: Math.max(insets.bottom, 5), minHeight: tabScrollMinHeight },
+            ]}
             showsVerticalScrollIndicator={false}
+            onLayout={onTabScrollViewLayout}
             {...tabScrollHeroProps}
           >
             <HeroListSpacer height={overlayPad} />
@@ -1570,9 +1586,12 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
               <ScrollView
                 ref={trophiesScrollRef}
                 style={styles.trophiesList}
-                contentContainerStyle={styles.trophiesScrollContent}
+                contentContainerStyle={[styles.trophiesScrollContent, { minHeight: tabScrollMinHeight }]}
                 showsVerticalScrollIndicator={false}
-                onLayout={(e) => setTrophiesViewportHeight(e.nativeEvent.layout.height)}
+                onLayout={(e) => {
+                  onTabScrollViewLayout(e);
+                  setTrophiesViewportHeight(e.nativeEvent.layout.height);
+                }}
                 {...tabScrollHeroProps}
               >
                 <HeroListSpacer height={overlayPad} />
@@ -1591,6 +1610,8 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
             <OfficialStatsExperience
               scrollRef={statsScrollRef}
               contentInsetTop={overlayPad}
+              contentMinHeight={tabScrollMinHeight}
+              onScrollViewLayout={onTabScrollViewLayout}
               loading={statsLoading}
               years={statsYears}
               selectedYear={selectedStatsYear}
@@ -1744,8 +1765,9 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
             <ScrollView
               ref={teamScrollRef}
               style={styles.teamSquadList}
-              contentContainerStyle={styles.teamSquadListContent}
+              contentContainerStyle={[styles.teamSquadListContent, { minHeight: tabScrollMinHeight }]}
               showsVerticalScrollIndicator={false}
+              onLayout={onTabScrollViewLayout}
               {...tabScrollHeroProps}
             >
               <HeroListSpacer height={overlayPad} />
@@ -2016,7 +2038,7 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
   },
   seasonScroll: { flex: 1, marginHorizontal: -12 },
-  seasonScrollContent: { paddingBottom: 8, paddingHorizontal: 12 },
+  seasonScrollContent: { paddingBottom: 8, paddingHorizontal: 12, flexGrow: 1 },
   matchesLoadingBox: { minHeight: 120, alignItems: 'center', justifyContent: 'center' },
   matchesList: { flex: 1 },
   matchesListContent: { paddingBottom: 12, width: '100%' },
@@ -2341,7 +2363,7 @@ const styles = StyleSheet.create({
   seasonKnockoutShootoutDivider: { width: 1, height: 10, backgroundColor: '#d1d5db' },
   seasonKnockoutShootoutScoreText: { fontSize: 8, fontWeight: '800', color: '#9ca3af' },
   teamSquadList: { flex: 1 },
-  teamSquadListContent: { paddingBottom: 8, paddingTop: 2 },
+  teamSquadListContent: { paddingBottom: 8, paddingTop: 2, flexGrow: 1 },
   squadRow: {
     flexDirection: 'row',
     alignItems: 'center',
