@@ -1048,6 +1048,7 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
   }, [activeTab]);
 
   const syncActiveTabScrollToHero = useCallback(() => {
+    if (activeTab === 'matches') return true;
     const collapsed = heroCollapsedRef.current;
     const heroH = Math.max(1, heroSlotHeightRef.current);
     const targetY = collapsed ? heroH : 0;
@@ -1060,7 +1061,7 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
       programmaticScrollRef.current = false;
     }, 80);
     return true;
-  }, [getActiveTabScrollRef]);
+  }, [activeTab, getActiveTabScrollRef]);
 
   const onTabScrollBeginDrag = useCallback((event) => {
     if (programmaticScrollRef.current) return;
@@ -1233,13 +1234,15 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
     if (!anchorLayout) return;
     const spaceFromAnchorToBottom = Math.max(0, matchesContentHeight - anchorLayout.y);
     programmaticScrollRef.current = true;
-    const visibleTop = overlayHeightRef.current;
+    const chromeH = heroCollapsedRef.current
+      ? Math.max(0, overlayHeightRef.current - heroSlotHeightRef.current)
+      : overlayHeightRef.current;
     let nextY = 0;
     if (spaceFromAnchorToBottom < matchesViewportHeight) {
       matchesScrollRef.current.scrollToEnd({ animated: false });
       nextY = Math.max(0, matchesContentHeight - matchesViewportHeight);
     } else {
-      nextY = Math.max(0, anchorLayout.y - visibleTop);
+      nextY = Math.max(0, anchorLayout.y - chromeH);
       matchesScrollRef.current.scrollTo({ y: nextY, animated: false });
     }
     lastScrollYRef.current = nextY;
