@@ -89,11 +89,28 @@ function IconGlyph({ pack = 'ion', name, size = 16, color }) {
   return <Ionicons name={name} size={size} color={color} />;
 }
 
-function BoardGlyph({ board, size = 15, color }) {
-  if (board?.bonusType) {
-    return <BonusIcon type={board.bonusType} size={size} />;
-  }
-  return <IconGlyph pack={board?.pack} name={board?.icon} size={size} color={color} />;
+function BoardGlyph({ board, size = 15, color, framed = false }) {
+  const glyph = board?.bonusType ? (
+    <BonusIcon type={board.bonusType} size={size} />
+  ) : (
+    <IconGlyph pack={board?.pack} name={board?.icon} size={size} color={color} />
+  );
+  if (!framed) return glyph;
+  return (
+    <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
+      <View
+        pointerEvents="none"
+        style={{
+          position: 'absolute',
+          width: size + 4,
+          height: size + 4,
+          borderRadius: (size + 4) / 2,
+          backgroundColor: '#fff',
+        }}
+      />
+      {glyph}
+    </View>
+  );
 }
 
 function StatShareBar({ ratio, color }) {
@@ -316,6 +333,7 @@ function CategoryChips({ boards, selectedKey, onSelect }) {
               board={board}
               size={14}
               color={active ? '#fff' : board.accent}
+              framed={active && board.keepIconOnWhite}
             />
             <Text style={[styles.catChipText, active && styles.catChipTextActive]}>
               {board.shortLabel || board.label}
@@ -961,10 +979,10 @@ export const GROUP_STATS_BOARDS = [
   { key: 'presences', label: 'Presenze', shortLabel: 'Pres.', pack: 'ion', icon: 'people', accent: '#667eea', empty: 'Nessuna presenza con voto nel periodo selezionato.' },
   { key: 'yellow_cards', label: 'Cartellini gialli', shortLabel: 'Gialli', pack: 'ion', icon: 'square', accent: '#ca8a04', bonusType: 'yellow_card', empty: 'Nessun cartellino giallo disponibile.' },
   { key: 'red_cards', label: 'Cartellini rossi', shortLabel: 'Rossi', pack: 'ion', icon: 'square', accent: '#dc2626', bonusType: 'red_card', empty: 'Nessun cartellino rosso disponibile.' },
-  { key: 'penalty_goals', label: 'Rigori segnati', shortLabel: 'Rigori +', pack: 'ion', icon: 'disc', accent: '#2563eb', bonusType: 'penalty_goal', empty: 'Nessun rigore segnato disponibile.' },
-  { key: 'penalty_saved', label: 'Rigori parati', shortLabel: 'Parate', pack: 'ion', icon: 'hand-left-outline', accent: '#0f766e', bonusType: 'penalty_saved', empty: 'Nessun rigore parato disponibile.' },
-  { key: 'match_wins', label: 'Partite vinte', shortLabel: 'Vinte', pack: 'ion', icon: 'trophy', accent: '#d97706', empty: 'Nessuna partita vinta disponibile.' },
-  { key: 'edition_wins', label: 'Edizioni vinte', shortLabel: 'Coppe', pack: 'ion', icon: 'ribbon', accent: '#7c3aed', empty: 'Nessuna coppa vinta disponibile.' },
+  { key: 'penalty_goals', label: 'Rigori segnati', shortLabel: 'Rigori', pack: 'ion', icon: 'disc', accent: '#2563eb', bonusType: 'penalty_goal', keepIconOnWhite: true, empty: 'Nessun rigore segnato disponibile.' },
+  { key: 'penalty_saved', label: 'Rigori parati', shortLabel: 'Parate', pack: 'ion', icon: 'hand-left-outline', accent: '#0f766e', bonusType: 'penalty_saved', keepIconOnWhite: true, empty: 'Nessun rigore parato disponibile.' },
+  { key: 'match_wins', label: 'Partite vinte', shortLabel: 'Vinte', pack: 'ion', icon: 'checkmark-circle', accent: '#16a34a', empty: 'Nessuna partita vinta disponibile.' },
+  { key: 'edition_wins', label: 'Edizioni vinte', shortLabel: 'Trofei', pack: 'ion', icon: 'trophy', accent: '#d97706', empty: 'Nessun trofeo vinto disponibile.' },
 ];
 
 export const TEAM_STATS_BOARDS = GROUP_STATS_BOARDS.filter(
@@ -1258,12 +1276,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
+    height: 32,
     paddingHorizontal: 10,
-    paddingVertical: 7,
     borderRadius: 999,
     backgroundColor: '#fff',
     borderWidth: 1,
     borderColor: '#e2e8f0',
+    overflow: 'hidden',
   },
   catChipText: { fontSize: 12, fontWeight: '800', color: '#334155' },
   catChipTextActive: { color: '#fff' },
