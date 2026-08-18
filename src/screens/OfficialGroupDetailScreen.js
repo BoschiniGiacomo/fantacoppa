@@ -25,6 +25,29 @@ import { matchDisplayScoreParts } from '../utils/matchDisplayScore';
 const SEASON_YEAR_PICKER_MAX_HEIGHT = 180;
 const ABSOLUTE_STATS_KEY = 'absolute';
 const STATS_LEADERBOARD_PREVIEW = 10;
+const EMPTY_TEAM_HIGHLIGHTS = {
+  best_attack: null,
+  best_defense: null,
+  longest_win_streak: null,
+  longest_loss_streak: null,
+  highest_scoring_match: null,
+  most_penalties_for: null,
+  most_penalties_against: null,
+  most_yellow_cards: null,
+  most_red_cards: null,
+};
+
+function formatHighlightDate(value) {
+  const d = parseAppDate(value);
+  if (!d) return '';
+  return d.toLocaleDateString('it-IT', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+function formatStatAvg(n) {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return '0,00';
+  return v.toFixed(2).replace('.', ',');
+}
 const HALL_WINNERS_PREVIEW = 5;
 const MATCH_LIST_ROW_HEIGHT = 127;
 const MATCH_LIST_YEAR_HEIGHT = 34;
@@ -345,6 +368,7 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
   const [statsPenaltySaved, setStatsPenaltySaved] = useState([]);
   const [statsMatchWins, setStatsMatchWins] = useState([]);
   const [statsEditionWins, setStatsEditionWins] = useState([]);
+  const [statsTeamHighlights, setStatsTeamHighlights] = useState(EMPTY_TEAM_HIGHLIGHTS);
   const [statsLeaderboardExpanded, setStatsLeaderboardExpanded] = useState({
     scorers: false,
     assistmen: false,
@@ -502,6 +526,9 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
         setStatsPenaltySaved(Array.isArray(res?.data?.penalty_saved) ? res.data.penalty_saved : []);
         setStatsMatchWins(Array.isArray(res?.data?.match_wins) ? res.data.match_wins : []);
         setStatsEditionWins(Array.isArray(res?.data?.edition_wins) ? res.data.edition_wins : []);
+        setStatsTeamHighlights(res?.data?.team_highlights && typeof res.data.team_highlights === 'object'
+          ? { ...EMPTY_TEAM_HIGHLIGHTS, ...res.data.team_highlights }
+          : EMPTY_TEAM_HIGHLIGHTS);
         setSelectedStatsYear((prev) => {
           if (yearOverride != null) {
             if (yearOverride === ABSOLUTE_STATS_KEY) return ABSOLUTE_STATS_KEY;
@@ -601,6 +628,253 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
 
   const toggleStatsLeaderboard = (tableKey) => {
     setStatsLeaderboardExpanded((prev) => ({ ...prev, [tableKey]: !prev[tableKey] }));
+  };
+
+  const renderTeamHighlightCard = (item) => {
+    if (!item) return null;
+    const accent = item.accent || '#667eea';
+    const teamId = Number(item.team_id);
+    const canOpenTeam = teamId > 0;
+    return (
+      <TouchableOpacity
+        key={item.key}
+        style={[styles.teamHlCard, item.wide && styles.teamHlCardWide]}
+        activeOpacity={canOpenTeam || item.onPress ? 0.75 : 1}
+        disabled={!canOpenTeam && !item.onPress}
+        onPress={() => {
+          if (item.onPress) {
+            item.onPress();
+            return;
+          }
+          if (canOpenTeam) openOfficialTeamDetail(teamId, item.team_name);
+        }}
+      >
+        <View style={styles.teamHlCardHead}>
+          <View style={[styles.teamHlIconWrap, { backgroundColor: item.iconBg || '#eef2ff' }]}>
+            <Ionicons name={item.icon} size={15} color={accent} />
+          </View>
+          <Text style={styles.teamHlLabel} numberOfLines={2}>{item.label}</Text>
+        </View>
+        {item.match ? (
+          <View style={styles.teamHlMatchBody}>
+            <View style={styles.teamHlMatchTeams}>
+              <View style={styles.teamHlMatchSide}>
+                <TeamRowLogo
+                  logoUrl={item.match.home_team_logo_url}
+                  logoPath={item.match.home_team_logo_path}
+                  style={styles.teamHlLogoLg}
+                  fallbackStyle={styles.teamHlLogoLgFallback}
+                  fallbackIconSize={18}
+                />
+                <Text style={styles.teamHlMatchName} numberOfLines={2}>{item.match.home_team_name}</Text>
+              </View>
+              <View style={styles.teamHlScoreBox}>
+                <Text style={styles.teamHlScoreText}>
+                  {Number(item.match.home_score || 0)}-{Number(item.match.away_score || 0)}
+                </Text>
+                <Text style={styles.teamHlScoreSub}>{Number(item.match.total_goals || 0)} gol</Text>
+              </View>
+              <View style={styles.teamHlMatchSide}>
+                <TeamRowLogo
+                  logoUrl={item.match.away_team_logo_url}
+                  logoPath={item.match.away_team_logo_path}
+                  style={styles.teamHlLogoLg}
+                  fallbackStyle={styles.teamHlLogoLgFallback}
+                  fallbackIconSize={18}
+                />
+                <Text style={styles.teamHlMatchName} numberOfLines={2}>{item.match.away_team_name}</Text>
+              </View>
+            </View>
+            {item.detail ? <Text style={styles.teamHlDetailCenter}>{item.detail}</Text> : null}
+          </View>
+        ) : (
+          <View style={styles.teamHlTeamBody}>
+            <TeamRowLogo
+              logoUrl={item.logoUrl}
+              logoPath={item.logoPath}
+              style={styles.teamHlLogo}
+              fallbackStyle={styles.teamHlLogoFallback}
+              fallbackIconSize={16}
+            />
+            <View style={styles.teamHlTeamText}>
+              <Text style={styles.teamHlTeamName} numberOfLines={1}>{item.team_name}</Text>
+              <Text style={styles.teamHlValue}>{item.value}</Text>
+              {item.unit ? <Text style={styles.teamHlUnit}>{item.unit}</Text> : null}
+              {item.detail ? <Text style={styles.teamHlDetail} numberOfLines={2}>{item.detail}</Text> : null}
+            </View>
+          </View>
+        )}
+      </TouchableOpacity>
+    );
+  };
+
+  const renderTeamHighlights = () => {
+    const h = statsTeamHighlights || EMPTY_TEAM_HIGHLIGHTS;
+    const attack = h.best_attack;
+    const defense = h.best_defense;
+    const winStreak = h.longest_win_streak;
+    const lossStreak = h.longest_loss_streak;
+    const topMatch = h.highest_scoring_match;
+    const penFor = h.most_penalties_for;
+    const penAgainst = h.most_penalties_against;
+    const yellow = h.most_yellow_cards;
+    const red = h.most_red_cards;
+    const hasAny = !!(attack || defense || winStreak || lossStreak || topMatch || penFor || penAgainst || yellow || red);
+    const cards = [];
+    if (topMatch) {
+      cards.push({
+        key: 'top-match',
+        wide: true,
+        icon: 'flash',
+        accent: '#7c3aed',
+        iconBg: '#f5f3ff',
+        label: 'Partita con più gol',
+        match: topMatch,
+        detail: formatHighlightDate(topMatch.kickoff_at),
+        onPress: Number(topMatch.match_id) > 0
+          ? () => navigation.navigate('MatchDetail', {
+            matchId: Number(topMatch.match_id),
+            from: 'official-group',
+            competitionId,
+            groupName,
+          })
+          : null,
+      });
+    }
+    if (attack) {
+      cards.push({
+        key: 'attack',
+        icon: 'football',
+        accent: '#667eea',
+        iconBg: '#eef2ff',
+        label: 'Miglior attacco',
+        team_id: attack.team_id,
+        team_name: attack.team_name,
+        logoUrl: attack.team_logo_url,
+        logoPath: attack.team_logo_path,
+        value: formatStatAvg(attack.avg),
+        unit: 'gol/partita',
+        detail: `${Number(attack.goals || 0)} gol in ${Number(attack.played || 0)} part.`,
+      });
+    }
+    if (defense) {
+      cards.push({
+        key: 'defense',
+        icon: 'shield',
+        accent: '#0d9488',
+        iconBg: '#f0fdfa',
+        label: 'Miglior difesa',
+        team_id: defense.team_id,
+        team_name: defense.team_name,
+        logoUrl: defense.team_logo_url,
+        logoPath: defense.team_logo_path,
+        value: formatStatAvg(defense.avg),
+        unit: 'gol/partita',
+        detail: `${Number(defense.goals_conceded || 0)} subiti in ${Number(defense.played || 0)} part.`,
+      });
+    }
+    if (winStreak) {
+      cards.push({
+        key: 'win-streak',
+        icon: 'flame',
+        accent: '#d97706',
+        iconBg: '#fffbeb',
+        label: 'Striscia vittorie',
+        team_id: winStreak.team_id,
+        team_name: winStreak.team_name,
+        logoUrl: winStreak.team_logo_url,
+        logoPath: winStreak.team_logo_path,
+        value: String(Number(winStreak.value || 0)),
+        unit: Number(winStreak.value) === 1 ? 'partita' : 'partite',
+      });
+    }
+    if (lossStreak) {
+      cards.push({
+        key: 'loss-streak',
+        icon: 'trending-down',
+        accent: '#64748b',
+        iconBg: '#f8fafc',
+        label: 'Striscia sconfitte',
+        team_id: lossStreak.team_id,
+        team_name: lossStreak.team_name,
+        logoUrl: lossStreak.team_logo_url,
+        logoPath: lossStreak.team_logo_path,
+        value: String(Number(lossStreak.value || 0)),
+        unit: Number(lossStreak.value) === 1 ? 'partita' : 'partite',
+      });
+    }
+    if (penFor) {
+      cards.push({
+        key: 'pen-for',
+        icon: 'disc',
+        accent: '#2563eb',
+        iconBg: '#eff6ff',
+        label: 'Rigori a favore',
+        team_id: penFor.team_id,
+        team_name: penFor.team_name,
+        logoUrl: penFor.team_logo_url,
+        logoPath: penFor.team_logo_path,
+        value: String(Number(penFor.value || 0)),
+        unit: 'rigori',
+      });
+    }
+    if (penAgainst) {
+      cards.push({
+        key: 'pen-against',
+        icon: 'alert-circle',
+        accent: '#db2777',
+        iconBg: '#fdf2f8',
+        label: 'Rigori a sfavore',
+        team_id: penAgainst.team_id,
+        team_name: penAgainst.team_name,
+        logoUrl: penAgainst.team_logo_url,
+        logoPath: penAgainst.team_logo_path,
+        value: String(Number(penAgainst.value || 0)),
+        unit: 'rigori',
+      });
+    }
+    if (yellow) {
+      cards.push({
+        key: 'yellow',
+        icon: 'square',
+        accent: '#ca8a04',
+        iconBg: '#fefce8',
+        label: 'Cartellini gialli',
+        team_id: yellow.team_id,
+        team_name: yellow.team_name,
+        logoUrl: yellow.team_logo_url,
+        logoPath: yellow.team_logo_path,
+        value: String(Number(yellow.value || 0)),
+        unit: 'gialli',
+      });
+    }
+    if (red) {
+      cards.push({
+        key: 'red',
+        icon: 'square',
+        accent: '#dc2626',
+        iconBg: '#fef2f2',
+        label: 'Cartellini rossi',
+        team_id: red.team_id,
+        team_name: red.team_name,
+        logoUrl: red.team_logo_url,
+        logoPath: red.team_logo_path,
+        value: String(Number(red.value || 0)),
+        unit: 'rossi',
+      });
+    }
+    return (
+      <>
+        <Text style={styles.statsSectionTitle}>Squadre</Text>
+        {hasAny ? (
+          <View style={[styles.teamHlGrid, styles.statsBlock]}>
+            {cards.map(renderTeamHighlightCard)}
+          </View>
+        ) : (
+          <Text style={[styles.placeholderText, styles.statsBlock]}>Nessuna statistica di squadra disponibile.</Text>
+        )}
+      </>
+    );
   };
 
   const renderStatsLeaderboardTable = (items, valueLabel, emptyText, tableKey) => {
@@ -1167,6 +1441,8 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
               </View>
             ) : (
               <ScrollView style={styles.teamSquadList} contentContainerStyle={styles.statsListContent} showsVerticalScrollIndicator={false}>
+                {renderTeamHighlights()}
+                <Text style={styles.statsSectionTitle}>Giocatori</Text>
                 <View style={styles.statsBlock}>
                   <Text style={styles.statsBlockTitle}>Marcatori</Text>
                   {renderStatsLeaderboardTable(statsScorers, 'Gol', 'Nessun marcatore disponibile.', 'scorers')}
@@ -1756,6 +2032,147 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   statsSectionTitleSpaced: { marginTop: 6 },
+  teamHlGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    rowGap: 8,
+  },
+  teamHlCard: {
+    width: '48.6%',
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#ececec',
+    borderRadius: 14,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+  },
+  teamHlCardWide: {
+    width: '100%',
+    marginBottom: 2,
+  },
+  teamHlCardHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    marginBottom: 8,
+  },
+  teamHlIconWrap: {
+    width: 26,
+    height: 26,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  teamHlLabel: {
+    flex: 1,
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#64748b',
+    letterSpacing: 0.2,
+    textTransform: 'uppercase',
+  },
+  teamHlTeamBody: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  teamHlLogo: {
+    width: 36,
+    height: 36,
+  },
+  teamHlLogoFallback: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    backgroundColor: '#eef2ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  teamHlLogoLg: {
+    width: 40,
+    height: 40,
+  },
+  teamHlLogoLgFallback: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    backgroundColor: '#eef2ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  teamHlTeamText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  teamHlTeamName: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#1e293b',
+  },
+  teamHlValue: {
+    marginTop: 1,
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#111827',
+    letterSpacing: -0.3,
+  },
+  teamHlUnit: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#667eea',
+    marginTop: -1,
+  },
+  teamHlDetail: {
+    marginTop: 2,
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#94a3b8',
+  },
+  teamHlMatchBody: {
+    paddingTop: 2,
+  },
+  teamHlMatchTeams: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  teamHlMatchSide: {
+    flex: 1,
+    minWidth: 0,
+    alignItems: 'center',
+    gap: 4,
+  },
+  teamHlMatchName: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#1e293b',
+    textAlign: 'center',
+  },
+  teamHlScoreBox: {
+    minWidth: 72,
+    alignItems: 'center',
+  },
+  teamHlScoreText: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#111827',
+    letterSpacing: -0.4,
+  },
+  teamHlScoreSub: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#7c3aed',
+    marginTop: 1,
+  },
+  teamHlDetailCenter: {
+    marginTop: 8,
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#94a3b8',
+    textAlign: 'center',
+  },
   statsTableWrap: {
     width: '100%',
     borderWidth: 1,

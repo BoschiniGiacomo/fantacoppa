@@ -3409,7 +3409,258 @@ function emptyOfficialGroupSeasonStats() {
     penalty_saved: [],
     match_wins: [],
     edition_wins: [],
+    team_highlights: emptyOfficialGroupTeamHighlights(),
   };
+}
+
+function emptyOfficialGroupTeamHighlights() {
+  return {
+    best_attack: null,
+    best_defense: null,
+    longest_win_streak: null,
+    longest_loss_streak: null,
+    highest_scoring_match: null,
+    most_penalties_for: null,
+    most_penalties_against: null,
+    most_yellow_cards: null,
+    most_red_cards: null,
+  };
+}
+
+function roundTeamStatAvg(n) {
+  return Math.round(Number(n) * 100) / 100;
+}
+
+function packOfficialTeamHighlight(row, extra) {
+  const logoPath = normalizeTeamLogoPathForApi(row?.logo_path);
+  return {
+    team_id: Number(row.team_id) > 0 ? Number(row.team_id) : null,
+    team_name: String(row.team_name || '').trim() || 'Squadra',
+    team_logo_path: logoPath,
+    team_logo_url: logoUrlForPath(logoPath),
+    ...extra,
+  };
+}
+
+function longestResultStreak(results, code) {
+  let best = 0;
+  let cur = 0;
+  for (const r of results || []) {
+    if (r?.result === code) {
+      cur += 1;
+      if (cur > best) best = cur;
+    } else {
+      cur = 0;
+    }
+  }
+  return best;
+}
+
+function sortTeamHighlightResults(results) {
+  return [...(results || [])].sort((a, b) => {
+    const ka = Number(a?.kickoffMs);
+    const kb = Number(b?.kickoffMs);
+    const aInf = !Number.isFinite(ka);
+    const bInf = !Number.isFinite(kb);
+    if (aInf && bInf) return Number(a?.matchId || 0) - Number(b?.matchId || 0);
+    if (aInf) return 1;
+    if (bInf) return -1;
+    if (ka !== kb) return ka - kb;
+    return Number(a?.matchId || 0) - Number(b?.matchId || 0);
+  });
+}
+
+function isBetterHighestScoringMatch(cand, cur) {
+  if (!cand || !(Number(cand.total) > 0)) return false;
+  if (!cur) return true;
+  const ct = Number(cand.total) || 0;
+  const ot = Number(cur.total) || 0;
+  if (ct !== ot) return ct > ot;
+  const ck = Number(cand.kickoffMs);
+  const ok = Number(cur.kickoffMs);
+  const cOk = Number.isFinite(ck) && ck < Number.POSITIVE_INFINITY;
+  const oOk = Number.isFinite(ok) && ok < Number.POSITIVE_INFINITY;
+  if (cOk && oOk && ck !== ok) return ck > ok;
+  return Number(cand.match_id || 0) > Number(cur.match_id || 0);
+}
+
+function packHighestScoringMatch(match) {
+  if (!match || !(Number(match.total) > 0)) return null;
+  const homeLp = normalizeTeamLogoPathForApi(match.home_logo_path);
+  const awayLp = normalizeTeamLogoPathForApi(match.away_logo_path);
+  return {
+    match_id: Number(match.match_id) > 0 ? Number(match.match_id) : null,
+    kickoff_at: match.kickoff_at || null,
+    total_goals: Number(match.total) || 0,
+    home_team_id: Number(match.home_team_id) > 0 ? Number(match.home_team_id) : null,
+    home_team_name: String(match.home_name || '').trim() || 'Casa',
+    home_team_logo_path: homeLp,
+    home_team_logo_url: logoUrlForPath(homeLp),
+    home_score: Number(match.home_score) || 0,
+    away_team_id: Number(match.away_team_id) > 0 ? Number(match.away_team_id) : null,
+    away_team_name: String(match.away_name || '').trim() || 'Ospite',
+    away_team_logo_path: awayLp,
+    away_team_logo_url: logoUrlForPath(awayLp),
+    away_score: Number(match.away_score) || 0,
+  };
+}
+
+function pickOfficialGroupTeamHighlightsFromRaw(raw) {
+  const out = emptyOfficialGroupTeamHighlights();
+  const teams = Array.isArray(raw?.teams) ? raw.teams : [];
+  out.highest_scoring_match = packHighestScoringMatch(raw?.topMatch);
+
+  let bestAttack = null;
+  let bestAttackAvg = -1;
+  let bestDefense = null;
+  let bestDefenseAvg = Infinity;
+  let bestWin = null;
+  let bestWinStreak = 0;
+  let bestLoss = null;
+  let bestLossStreak = 0;
+  let bestPenFor = null;
+  let bestPenAgainst = null;
+  let bestYellow = null;
+  let bestRed = null;
+
+  for (const t of teams) {
+    const played = Number(t.played) || 0;
+    const gf = Number(t.gf) || 0;
+    const ga = Number(t.ga) || 0;
+    const sorted = sortTeamHighlightResults(t.results);
+    const winStreak = longestResultStreak(sorted, 'W');
+    const lossStreak = longestResultStreak(sorted, 'L');
+    const penFor = Number(t.penFor) || 0;
+    const penAgainst = Number(t.penAgainst) || 0;
+    const yellow = Number(t.yellow) || 0;
+    const red = Number(t.red) || 0;
+    const nameCmp = (a) => String(t.team_name || '').localeCompare(String(a?.team_name || ''), 'it');
+
+    if (played > 0) {
+      const attackAvg = gf / played;
+      if (
+        attackAvg > bestAttackAvg
+        || (attackAvg === bestAttackAvg && bestAttack && (gf > Number(bestAttack.gf) || (gf === Number(bestAttack.gf) && nameCmp(bestAttack) < 0)))
+        || bestAttack == null
+      ) {
+        bestAttack = t;
+        bestAttackAvg = attackAvg;
+      }
+      const defenseAvg = ga / played;
+      if (
+        defenseAvg < bestDefenseAvg
+        || (defenseAvg === bestDefenseAvg && bestDefense && (ga < Number(bestDefense.ga) || (ga === Number(bestDefense.ga) && nameCmp(bestDefense) < 0)))
+        || bestDefense == null
+      ) {
+        bestDefense = t;
+        bestDefenseAvg = defenseAvg;
+      }
+    }
+    if (winStreak > bestWinStreak || (winStreak === bestWinStreak && bestWin && nameCmp(bestWin) < 0) || (winStreak > 0 && !bestWin)) {
+      if (winStreak > 0) {
+        bestWin = t;
+        bestWinStreak = winStreak;
+      }
+    }
+    if (lossStreak > bestLossStreak || (lossStreak === bestLossStreak && bestLoss && nameCmp(bestLoss) < 0) || (lossStreak > 0 && !bestLoss)) {
+      if (lossStreak > 0) {
+        bestLoss = t;
+        bestLossStreak = lossStreak;
+      }
+    }
+    if (penFor > 0 && (!bestPenFor || penFor > Number(bestPenFor.penFor) || (penFor === Number(bestPenFor.penFor) && nameCmp(bestPenFor) < 0))) {
+      bestPenFor = t;
+    }
+    if (penAgainst > 0 && (!bestPenAgainst || penAgainst > Number(bestPenAgainst.penAgainst) || (penAgainst === Number(bestPenAgainst.penAgainst) && nameCmp(bestPenAgainst) < 0))) {
+      bestPenAgainst = t;
+    }
+    if (yellow > 0 && (!bestYellow || yellow > Number(bestYellow.yellow) || (yellow === Number(bestYellow.yellow) && nameCmp(bestYellow) < 0))) {
+      bestYellow = t;
+    }
+    if (red > 0 && (!bestRed || red > Number(bestRed.red) || (red === Number(bestRed.red) && nameCmp(bestRed) < 0))) {
+      bestRed = t;
+    }
+  }
+
+  if (bestAttack && Number(bestAttack.played) > 0) {
+    out.best_attack = packOfficialTeamHighlight(bestAttack, {
+      avg: roundTeamStatAvg(Number(bestAttack.gf) / Number(bestAttack.played)),
+      goals: Number(bestAttack.gf) || 0,
+      played: Number(bestAttack.played) || 0,
+    });
+  }
+  if (bestDefense && Number(bestDefense.played) > 0) {
+    out.best_defense = packOfficialTeamHighlight(bestDefense, {
+      avg: roundTeamStatAvg(Number(bestDefense.ga) / Number(bestDefense.played)),
+      goals_conceded: Number(bestDefense.ga) || 0,
+      played: Number(bestDefense.played) || 0,
+    });
+  }
+  if (bestWin && bestWinStreak > 0) {
+    out.longest_win_streak = packOfficialTeamHighlight(bestWin, { value: bestWinStreak });
+  }
+  if (bestLoss && bestLossStreak > 0) {
+    out.longest_loss_streak = packOfficialTeamHighlight(bestLoss, { value: bestLossStreak });
+  }
+  if (bestPenFor) {
+    out.most_penalties_for = packOfficialTeamHighlight(bestPenFor, { value: Number(bestPenFor.penFor) || 0 });
+  }
+  if (bestPenAgainst) {
+    out.most_penalties_against = packOfficialTeamHighlight(bestPenAgainst, { value: Number(bestPenAgainst.penAgainst) || 0 });
+  }
+  if (bestYellow) {
+    out.most_yellow_cards = packOfficialTeamHighlight(bestYellow, { value: Number(bestYellow.yellow) || 0 });
+  }
+  if (bestRed) {
+    out.most_red_cards = packOfficialTeamHighlight(bestRed, { value: Number(bestRed.red) || 0 });
+  }
+  return out;
+}
+
+function mergeOfficialGroupTeamHighlightRaws(raws) {
+  const buckets = new Map();
+  let topMatch = null;
+  for (const raw of raws || []) {
+    if (!raw) continue;
+    if (isBetterHighestScoringMatch(raw.topMatch, topMatch)) topMatch = raw.topMatch;
+    for (const t of raw.teams || []) {
+      const norm = normalizeTeamNameForFavorite(t.team_name);
+      if (!norm) continue;
+      const prev = buckets.get(norm);
+      if (!prev) {
+        buckets.set(norm, {
+          team_id: t.team_id,
+          team_name: t.team_name,
+          logo_path: t.logo_path || null,
+          played: Number(t.played) || 0,
+          gf: Number(t.gf) || 0,
+          ga: Number(t.ga) || 0,
+          yellow: Number(t.yellow) || 0,
+          red: Number(t.red) || 0,
+          penFor: Number(t.penFor) || 0,
+          penAgainst: Number(t.penAgainst) || 0,
+          results: [...(t.results || [])],
+        });
+        continue;
+      }
+      prev.played += Number(t.played) || 0;
+      prev.gf += Number(t.gf) || 0;
+      prev.ga += Number(t.ga) || 0;
+      prev.yellow += Number(t.yellow) || 0;
+      prev.red += Number(t.red) || 0;
+      prev.penFor += Number(t.penFor) || 0;
+      prev.penAgainst += Number(t.penAgainst) || 0;
+      if (Array.isArray(t.results) && t.results.length) prev.results.push(...t.results);
+      const prevKick = Math.max(0, ...(prev.results || []).map((r) => Number(r.kickoffMs)).filter((n) => Number.isFinite(n) && n < Number.POSITIVE_INFINITY));
+      const tKick = Math.max(0, ...(t.results || []).map((r) => Number(r.kickoffMs)).filter((n) => Number.isFinite(n) && n < Number.POSITIVE_INFINITY));
+      if (tKick >= prevKick) {
+        if (Number(t.team_id) > 0) prev.team_id = t.team_id;
+        if (t.logo_path) prev.logo_path = t.logo_path;
+        if (t.team_name) prev.team_name = t.team_name;
+      }
+    }
+  }
+  return { teams: [...buckets.values()], topMatch };
 }
 
 function mapOfficialLeaderboardAggRows(rows, valueKey) {
@@ -4761,7 +5012,7 @@ const ABSOLUTE_GROUP_STATS_CACHE = new Map();
 const ABSOLUTE_GROUP_STATS_TTL_MS = 10 * 60 * 1000;
 
 function absoluteGroupStatsCacheKey(compId, mode) {
-  return `${compId}:${mode}:v3`;
+  return `${compId}:${mode}:v4`;
 }
 
 function resolveAbsoluteStatsMode(options = {}) {
@@ -4818,6 +5069,7 @@ async function computeOfficialGroupSeasonStats(competitionId, targetLeagueIds, i
           red_cards: scorersOnly ? [] : goalsPart.red_cards,
           penalty_goals: scorersOnly ? [] : goalsPart.penalty_goals,
           winning_pairs: scorersOnly ? [] : (Array.isArray(goalsPart.winning_pairs) ? goalsPart.winning_pairs : []),
+          team_highlights_raw: scorersOnly ? null : (goalsPart.team_highlights_raw || null),
           presences: votePart.presences,
           penalty_saved: scorersOnly ? [] : votePart.penalty_saved,
         };
@@ -4871,6 +5123,9 @@ async function computeOfficialGroupSeasonStats(competitionId, targetLeagueIds, i
         penalty_saved,
         match_wins,
         edition_wins,
+        team_highlights: pickOfficialGroupTeamHighlightsFromRaw(
+          mergeOfficialGroupTeamHighlightRaws(parts.map((p) => p.team_highlights_raw))
+        ),
       };
     }
 
@@ -4905,11 +5160,13 @@ async function computeOfficialGroupSeasonStatsCore(
   const phLeagueIds = leagueIds.map(() => '?').join(', ');
   const [seasonTeamRows, seasonMatches] = await Promise.all([
     query(
-      `SELECT id, league_id, name FROM teams WHERE league_id IN (${phLeagueIds}) ORDER BY id ASC`,
+      `SELECT id, league_id, name,
+              COALESCE(NULLIF(to_jsonb(teams)->>'logo_path',''), NULLIF(logo_path,'')) AS logo_path
+       FROM teams WHERE league_id IN (${phLeagueIds}) ORDER BY id ASC`,
       leagueIds
     ),
     query(
-      `SELECT id, home_team_id, away_team_id, home_score, away_score
+      `SELECT id, home_team_id, away_team_id, home_score, away_score, kickoff_at
        FROM official_matches
        WHERE competition_id = ?
          AND home_team_id IN (SELECT id FROM teams WHERE league_id IN (${phLeagueIds}))
@@ -4925,6 +5182,9 @@ async function computeOfficialGroupSeasonStatsCore(
   const seasonTeamIdSet = new Set(seasonTeamIds);
   const teamNameMap = new Map(
     (seasonTeamRows || []).map((r) => [Number(r.id), String(r.name || '').trim()]).filter(([id, name]) => id > 0 && name)
+  );
+  const teamLogoMap = new Map(
+    (seasonTeamRows || []).map((r) => [Number(r.id), r.logo_path || null]).filter(([id]) => id > 0)
   );
   const teamLeagueMap = new Map(
     (seasonTeamRows || []).map((r) => [Number(r.id), Number(r.league_id)]).filter(([id, lid]) => id > 0 && Number.isFinite(lid) && lid > 0)
@@ -5006,6 +5266,8 @@ async function computeOfficialGroupSeasonStatsCore(
   const redCardsMap = new Map();
   const penaltyGoalsMap = new Map();
   const winningPairs = [];
+  const teamHighlightMap = new Map();
+  let topScoringMatch = null;
   let orphanLeaderboardSeq = 0;
 
   const bumpLeaderboard = (map, key, name, teamName, playerId = null) => {
@@ -5040,6 +5302,43 @@ async function computeOfficialGroupSeasonStatsCore(
     return `orphan:${++orphanLeaderboardSeq}:${teamPart}`;
   };
 
+  const ensureTeamHighlight = (teamId) => {
+    const tid = Number(teamId);
+    if (!Number.isFinite(tid) || tid <= 0 || !seasonTeamIdSet.has(tid)) return null;
+    let row = teamHighlightMap.get(tid);
+    if (!row) {
+      row = {
+        team_id: tid,
+        team_name: teamNameMap.get(tid) || 'Squadra',
+        logo_path: teamLogoMap.get(tid) || null,
+        played: 0,
+        gf: 0,
+        ga: 0,
+        yellow: 0,
+        red: 0,
+        penFor: 0,
+        penAgainst: 0,
+        results: [],
+      };
+      teamHighlightMap.set(tid, row);
+    }
+    return row;
+  };
+
+  const resolveEventTeamId = (e, payload, homeId, awayId) => {
+    const fromEvent = Number(e.team_id) || Number(payload?.team_id);
+    if (Number.isFinite(fromEvent) && fromEvent > 0) return fromEvent;
+    const pid = Number(e.player_id) || Number(payload?.player_id);
+    if (Number.isFinite(pid) && pid > 0) {
+      const tid = Number(playerTeamMap.get(pid));
+      if (Number.isFinite(tid) && tid > 0) return tid;
+    }
+    const side = String(e.team_side || '').trim();
+    if (side === 'home') return homeId;
+    if (side === 'away') return awayId;
+    return null;
+  };
+
   for (const m of seasonMatches || []) {
     const events = evByMatch.get(Number(m.id)) || [];
     const tallied = tallyOfficialMatchEventScores(events, m.home_team_id, m.away_team_id);
@@ -5050,32 +5349,91 @@ async function computeOfficialGroupSeasonStatsCore(
     );
     if (!resolvedSeason.counted) continue;
 
-    if (!scorersOnly) {
-      let hs = resolvedSeason.home;
-      let as = resolvedSeason.away;
-      if (hs == null && (tallied.hasRigEvents || tallied.hasPreEvents)) hs = 0;
-      if (as == null && (tallied.hasRigEvents || tallied.hasPreEvents)) as = 0;
-      if (Number.isFinite(hs) && Number.isFinite(as)) {
-        const outcome = resolveOfficialMatchOutcome({
-          regHome: hs,
-          regAway: as,
-          preHome: tallied.homePreShootout,
-          preAway: tallied.awayPreShootout,
-          rigHome: tallied.homeRig,
-          rigAway: tallied.awayRig,
-          hasRig: tallied.hasRigEvents,
-        });
-        if (outcome.home > outcome.away) {
-          winningPairs.push({ matchId: Number(m.id), teamId: Number(m.home_team_id) });
-        } else if (outcome.away > outcome.home) {
-          winningPairs.push({ matchId: Number(m.id), teamId: Number(m.away_team_id) });
-        }
+    const homeId = Number(m.home_team_id);
+    const awayId = Number(m.away_team_id);
+    let hs = resolvedSeason.home;
+    let as = resolvedSeason.away;
+    if (hs == null && (tallied.hasRigEvents || tallied.hasPreEvents)) hs = 0;
+    if (as == null && (tallied.hasRigEvents || tallied.hasPreEvents)) as = 0;
+
+    if (!scorersOnly && Number.isFinite(hs) && Number.isFinite(as)) {
+      const outcome = resolveOfficialMatchOutcome({
+        regHome: hs,
+        regAway: as,
+        preHome: tallied.homePreShootout,
+        preAway: tallied.awayPreShootout,
+        rigHome: tallied.homeRig,
+        rigAway: tallied.awayRig,
+        hasRig: tallied.hasRigEvents,
+      });
+      if (outcome.home > outcome.away) {
+        winningPairs.push({ matchId: Number(m.id), teamId: homeId });
+      } else if (outcome.away > outcome.home) {
+        winningPairs.push({ matchId: Number(m.id), teamId: awayId });
+      }
+
+      const kickoffMs = (() => {
+        const t = m.kickoff_at != null ? new Date(m.kickoff_at).getTime() : NaN;
+        return Number.isFinite(t) ? t : Number.POSITIVE_INFINITY;
+      })();
+      const totalGoals = hs + as;
+      const candMatch = {
+        match_id: Number(m.id),
+        kickoff_at: m.kickoff_at || null,
+        kickoffMs,
+        total: totalGoals,
+        home_team_id: homeId,
+        home_name: teamNameMap.get(homeId) || 'Casa',
+        home_logo_path: teamLogoMap.get(homeId) || null,
+        home_score: hs,
+        away_team_id: awayId,
+        away_name: teamNameMap.get(awayId) || 'Ospite',
+        away_logo_path: teamLogoMap.get(awayId) || null,
+        away_score: as,
+      };
+      if (isBetterHighestScoringMatch(candMatch, topScoringMatch)) topScoringMatch = candMatch;
+
+      const homeRow = ensureTeamHighlight(homeId);
+      const awayRow = ensureTeamHighlight(awayId);
+      const homeResult = outcome.home > outcome.away ? 'W' : (outcome.away > outcome.home ? 'L' : 'D');
+      const awayResult = outcome.away > outcome.home ? 'W' : (outcome.home > outcome.away ? 'L' : 'D');
+      if (homeRow) {
+        homeRow.played += 1;
+        homeRow.gf += hs;
+        homeRow.ga += as;
+        homeRow.results.push({ kickoffMs, matchId: Number(m.id), result: homeResult });
+      }
+      if (awayRow) {
+        awayRow.played += 1;
+        awayRow.gf += as;
+        awayRow.ga += hs;
+        awayRow.results.push({ kickoffMs, matchId: Number(m.id), result: awayResult });
       }
     }
 
     for (const e of events) {
       const payload = safeJsonParse(e.payload_json) || {};
       const pid = Number(e.player_id) || Number(payload?.player_id);
+
+      if (!scorersOnly) {
+        const evType = String(e.event_type || '');
+        if (evType === 'yellow_card' || evType === 'red_card' || evType === 'penalty_goal' || evType === 'penalty_missed') {
+          const eventTeamId = resolveEventTeamId(e, payload, homeId, awayId);
+          if (evType === 'yellow_card' || evType === 'red_card') {
+            const cardRow = ensureTeamHighlight(eventTeamId);
+            if (cardRow) {
+              if (evType === 'yellow_card') cardRow.yellow += 1;
+              else cardRow.red += 1;
+            }
+          } else {
+            const taker = ensureTeamHighlight(eventTeamId);
+            if (taker) taker.penFor += 1;
+            const againstId = eventTeamId === homeId ? awayId : (eventTeamId === awayId ? homeId : null);
+            const againstRow = ensureTeamHighlight(againstId);
+            if (againstRow) againstRow.penAgainst += 1;
+          }
+        }
+      }
 
       if (e.event_type === 'yellow_card' || e.event_type === 'red_card') {
         if (!scorersOnly) {
@@ -5196,7 +5554,21 @@ async function computeOfficialGroupSeasonStatsCore(
     penalty_saved,
     match_wins,
     edition_wins: [],
-    ...(skipMatchWins && !scorersOnly ? { winning_pairs: winningPairs } : {}),
+    team_highlights: scorersOnly
+      ? emptyOfficialGroupTeamHighlights()
+      : pickOfficialGroupTeamHighlightsFromRaw({
+        teams: [...teamHighlightMap.values()],
+        topMatch: topScoringMatch,
+      }),
+    ...(skipMatchWins && !scorersOnly
+      ? {
+        winning_pairs: winningPairs,
+        team_highlights_raw: {
+          teams: [...teamHighlightMap.values()],
+          topMatch: topScoringMatch,
+        },
+      }
+      : {}),
   };
 }
 
@@ -5666,6 +6038,7 @@ router.get('/matches/groups/:groupId/season-stats', authenticateToken, async (re
       penalty_saved: stats.penalty_saved,
       match_wins: stats.match_wins,
       edition_wins: stats.edition_wins,
+      team_highlights: stats.team_highlights || emptyOfficialGroupTeamHighlights(),
     });
   } catch (err) {
     if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
