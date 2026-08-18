@@ -393,10 +393,18 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
   const [statsScorers, setStatsScorers] = useState([]);
   const [statsAssistmen, setStatsAssistmen] = useState([]);
   const [statsPresences, setStatsPresences] = useState([]);
+  const [statsPenaltyGoals, setStatsPenaltyGoals] = useState([]);
+  const [statsPenaltySaved, setStatsPenaltySaved] = useState([]);
+  const [statsMatchWins, setStatsMatchWins] = useState([]);
+  const [statsEditionWins, setStatsEditionWins] = useState([]);
   const [statsLeaderboardExpanded, setStatsLeaderboardExpanded] = useState({
     scorers: false,
     assistmen: false,
     presences: false,
+    penalty_goals: false,
+    penalty_saved: false,
+    match_wins: false,
+    edition_wins: false,
   });
   const [statsPickerOpen, setStatsPickerOpen] = useState(false);
   const [outcomesOpponentsExpanded, setOutcomesOpponentsExpanded] = useState(false);
@@ -614,6 +622,10 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
         setStatsScorers(Array.isArray(res?.data?.scorers) ? res.data.scorers : []);
         setStatsAssistmen(Array.isArray(res?.data?.assistmen) ? res.data.assistmen : []);
         setStatsPresences(Array.isArray(res?.data?.presences) ? res.data.presences : []);
+        setStatsPenaltyGoals(Array.isArray(res?.data?.penalty_goals) ? res.data.penalty_goals : []);
+        setStatsPenaltySaved(Array.isArray(res?.data?.penalty_saved) ? res.data.penalty_saved : []);
+        setStatsMatchWins(Array.isArray(res?.data?.match_wins) ? res.data.match_wins : []);
+        setStatsEditionWins(Array.isArray(res?.data?.edition_wins) ? res.data.edition_wins : []);
         setStatsSeasonLeagueId(res?.data?.selected_league_id != null ? Number(res.data.selected_league_id) : null);
         setSelectedStatsYear((prev) => {
           if (yearOverride != null) {
@@ -672,7 +684,15 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
   }, [loadTeamTrophies]);
 
   useEffect(() => {
-    setStatsLeaderboardExpanded({ scorers: false, assistmen: false, presences: false });
+    setStatsLeaderboardExpanded({
+      scorers: false,
+      assistmen: false,
+      presences: false,
+      penalty_goals: false,
+      penalty_saved: false,
+      match_wins: false,
+      edition_wins: false,
+    });
   }, [selectedStatsYear]);
 
   useEffect(() => {
@@ -1639,6 +1659,44 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
                     'presences'
                   )}
                 </View>
+                <Text style={styles.statsSectionTitle}>Rigori</Text>
+                <View style={styles.statsLeaderboardBlock}>
+                  <Text style={styles.statsLeaderboardTitle}>Rigori segnati</Text>
+                  {renderStatsLeaderboardTable(
+                    statsPenaltyGoals,
+                    'Segn.',
+                    'Nessun rigore segnato disponibile.',
+                    'penalty_goals'
+                  )}
+                </View>
+                <View style={styles.statsLeaderboardBlock}>
+                  <Text style={styles.statsLeaderboardTitle}>Rigori parati</Text>
+                  {renderStatsLeaderboardTable(
+                    statsPenaltySaved,
+                    'Parati',
+                    'Nessun rigore parato disponibile.',
+                    'penalty_saved'
+                  )}
+                </View>
+                <Text style={[styles.statsSectionTitle, styles.statsSectionTitleSpaced]}>Vincitori</Text>
+                <View style={styles.statsLeaderboardBlock}>
+                  <Text style={styles.statsLeaderboardTitle}>Partite vinte</Text>
+                  {renderStatsLeaderboardTable(
+                    statsMatchWins,
+                    'Vinte',
+                    'Nessuna partita vinta disponibile.',
+                    'match_wins'
+                  )}
+                </View>
+                <View style={styles.statsLeaderboardBlock}>
+                  <Text style={styles.statsLeaderboardTitle}>Edizioni vinte</Text>
+                  {renderStatsLeaderboardTable(
+                    statsEditionWins,
+                    'Coppe',
+                    'Nessuna coppa vinta disponibile.',
+                    'edition_wins'
+                  )}
+                </View>
               </ScrollView>
             )}
           </View>
@@ -2340,6 +2398,16 @@ const styles = StyleSheet.create({
   },
   statsLeaderboardBlock: { marginBottom: 18 },
   statsLeaderboardTitle: { fontSize: 15, fontWeight: '800', color: '#1e293b', marginBottom: 8 },
+  statsSectionTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#64748b',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    marginBottom: 10,
+    marginTop: 4,
+  },
+  statsSectionTitleSpaced: { marginTop: 6 },
   statsBlockSubtitle: {
     fontSize: 12,
     fontWeight: '500',
@@ -2461,7 +2529,7 @@ const styles = StyleSheet.create({
   statsTablePlayerCol: { flex: 1, minWidth: 0, paddingRight: 2, flexShrink: 1 },
   statsTablePlayerName: { fontSize: 13, fontWeight: '600', color: '#1f2937' },
   statsTablePlayerTeam: { fontSize: 10, color: '#64748b', marginTop: 1 },
-  statsTableValue: { width: 44, minWidth: 44, textAlign: 'right', flexShrink: 0, fontWeight: '700' },
+  statsTableValue: { width: 52, minWidth: 52, textAlign: 'right', flexShrink: 0, fontWeight: '700' },
   statsTableExpandBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 10, borderBottomWidth: 0 },
   statsTableExpandText: { fontSize: 13, fontWeight: '700', color: '#111827' },
   placeholderTitle: { fontSize: 17, fontWeight: '800', color: '#222', marginBottom: 6 },

@@ -590,6 +590,7 @@ export const matchesService = {
           ? { mode: 'absolute' }
           : (referenceYear != null ? { reference_year: referenceYear } : {})),
       },
+      timeout: referenceYear === 'absolute' ? 60000 : 15000,
     }),
   getOfficialTeamOpponentRecords: (teamId, competitionId, referenceYear = null) =>
     api.get(`matches/teams/${teamId}/opponent-records`, {

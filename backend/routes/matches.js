@@ -568,6 +568,15 @@ const EMPTY_TEAM_SEASON_OUTCOMES = {
   draws_pct: 0,
   losses_pct: 0,
 };
+const EMPTY_TEAM_SEASON_BOARDS = {
+  scorers: [],
+  assistmen: [],
+  presences: [],
+  penalty_goals: [],
+  penalty_saved: [],
+  match_wins: [],
+  edition_wins: [],
+};
 
 async function sendExpoMessages(messages) {
   if (!Array.isArray(messages) || messages.length <= 0) return { sent: 0, invalidated: 0, errors: 0 };
@@ -3528,6 +3537,14 @@ async function fetchOfficialTeamPresencesWithVoteRanking(seasonTeamRows, opts = 
   );
 }
 
+async function finalizeOfficialTeamLeaderboard(rows, isAbsoluteMode, competitionId) {
+  const list = Array.isArray(rows) ? rows : [];
+  if (isAbsoluteMode && Number(competitionId) > 0) {
+    return mergeAbsoluteStatsByCluster(list, Number(competitionId));
+  }
+  return annotateDuplicateLeaderboardPlayerNames(list);
+}
+
 /** Vittorie partita: presenza (voto/S.V.) sulla squadra vincitrice, via link giornata. */
 async function fetchOfficialGroupMatchWinLeaderboard(winningPairs, seasonTeamRows) {
   const pairs = (winningPairs || [])
@@ -3593,9 +3610,13 @@ async function fetchOfficialGroupMatchWinLeaderboard(winningPairs, seasonTeamRow
  * Coppe vinte (finale campionato, stage 3): squadra vincitrice + almeno una presenza in edizione.
  * Esclude i trofei del vino (stage 6).
  */
-async function fetchOfficialGroupEditionWinLeaderboard(competitionId, leagueIds) {
+async function fetchOfficialGroupEditionWinLeaderboard(competitionId, leagueIds, options = {}) {
   const lids = [...new Set((leagueIds || []).map(Number).filter((id) => Number.isFinite(id) && id > 0))];
   if (!lids.length) return [];
+
+  const restrictSet = Array.isArray(options.restrictTeamIds) && options.restrictTeamIds.length
+    ? new Set(options.restrictTeamIds.map(Number).filter((id) => Number.isFinite(id) && id > 0))
+    : null;
 
   const finals = await fetchHallFinalMatchesByLeagueStage(competitionId, lids, [HALL_CAMPIONATO_FINAL_STAGE_ID]);
   const winnerPairs = [];
@@ -3603,16 +3624,23 @@ async function fetchOfficialGroupEditionWinLeaderboard(competitionId, leagueIds)
     const champMatches = finals.get(`${lid}:${HALL_CAMPIONATO_FINAL_STAGE_ID}`) || [];
     const winner = determineKnockoutMatchWinner(champMatches[0] || null);
     const tid = Number(winner?.team_id);
-    if (Number.isFinite(tid) && tid > 0) winnerPairs.push([lid, tid]);
+    if (!Number.isFinite(tid) || tid <= 0) continue;
+    if (restrictSet && !restrictSet.has(tid)) continue;
+    winnerPairs.push([lid, tid]);
   }
   if (!winnerPairs.length) return [];
 
   const winnerTeamIds = [...new Set(winnerPairs.map(([, tid]) => tid))];
-  const phTeams = winnerTeamIds.map(() => '?').join(', ');
-  const seasonTeamRows = await query(
-    `SELECT id, league_id, name FROM teams WHERE id IN (${phTeams}) ORDER BY id ASC`,
-    winnerTeamIds
-  );
+  let seasonTeamRows = Array.isArray(options.seasonTeamRows) ? options.seasonTeamRows : null;
+  if (Array.isArray(seasonTeamRows) && seasonTeamRows.length) {
+    seasonTeamRows = seasonTeamRows.filter((r) => winnerTeamIds.includes(Number(r.id)));
+  } else {
+    const phTeams = winnerTeamIds.map(() => '?').join(', ');
+    seasonTeamRows = await query(
+      `SELECT id, league_id, name FROM teams WHERE id IN (${phTeams}) ORDER BY id ASC`,
+      winnerTeamIds
+    );
+  }
   const { scopeTriplets } = await buildOfficialFranchiseScope(seasonTeamRows);
   if (!scopeTriplets.length) return [];
 
@@ -3692,7 +3720,14 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
     if (!teamName) {
       const fb = await query(`SELECT name FROM teams WHERE id = ? LIMIT 1`, [teamId]);
       if (!fb[0]) return res.status(404).json({ message: 'Squadra non trovata' });
-      return res.json({ team: { id: teamId, name: String(fb[0].name || '').trim() }, available_years: [], selected_year: null, general: { ...EMPTY_TEAM_SEASON_GENERAL }, outcomes: { ...EMPTY_TEAM_SEASON_OUTCOMES }, scorers: [], assistmen: [], presences: [] });
+      return res.json({
+        team: { id: teamId, name: String(fb[0].name || '').trim() },
+        available_years: [],
+        selected_year: null,
+        general: { ...EMPTY_TEAM_SEASON_GENERAL },
+        outcomes: { ...EMPTY_TEAM_SEASON_OUTCOMES },
+        ...EMPTY_TEAM_SEASON_BOARDS,
+      });
     }
 
     const availableYears = Array.from(
@@ -3740,9 +3775,7 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
         selected_year: selectedYear,
         general: { ...EMPTY_TEAM_SEASON_GENERAL },
         outcomes: { ...EMPTY_TEAM_SEASON_OUTCOMES },
-        scorers: [],
-        assistmen: [],
-        presences: [],
+        ...EMPTY_TEAM_SEASON_BOARDS,
       });
     }
 
@@ -3779,15 +3812,15 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
         selected_year: selectedYear,
         general: { ...EMPTY_TEAM_SEASON_GENERAL },
         outcomes: { ...EMPTY_TEAM_SEASON_OUTCOMES },
-        scorers: [],
-        assistmen: [],
-        presences: [],
+        ...EMPTY_TEAM_SEASON_BOARDS,
       });
     }
 
-    const presencesPromise = fetchOfficialTeamPresencesWithVoteRanking(seasonTeamRows, {
-      isAbsoluteMode,
-      competitionId,
+    const voteBoardsPromise = fetchOfficialGroupVoteLeaderboards(seasonTeamRows)
+      .catch(() => ({ presences: [], penalty_saved: [] }));
+    const editionWinsPromise = fetchOfficialGroupEditionWinLeaderboard(competitionId, targetLeagueIds, {
+      restrictTeamIds: seasonTeamIds,
+      seasonTeamRows,
     }).catch(() => []);
 
     const matchIds = (seasonMatches || []).map((m) => Number(m.id)).filter((n) => Number.isFinite(n) && n > 0);
@@ -3860,6 +3893,8 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
     let heaviestDefeatRecord = null;
     const scorersMap = new Map();
     const assistsMap = new Map();
+    const penaltyGoalsMap = new Map();
+    const winningPairs = [];
     const teamLeagueMap = new Map(
       (seasonTeamRows || []).map((r) => [Number(r.id), Number(r.league_id)])
     );
@@ -3923,7 +3958,10 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
           const pn =
             (Number.isFinite(pid) && pid > 0 ? String(playerNameMap.get(pid) || '').trim() : '') ||
             String(payload?.player_name || '').trim();
-          if (scorerMine && pn) bumpTeamStat(scorersMap, pid, pn);
+          if (scorerMine && pn) {
+            bumpTeamStat(scorersMap, pid, pn);
+            if (e.event_type === 'penalty_goal') bumpTeamStat(penaltyGoalsMap, pid, pn);
+          }
           const an =
             (Number.isFinite(aid) && aid > 0 ? String(playerNameMap.get(aid) || '').trim() : '') ||
             String(payload?.assist_player_name || payload?.assist_name || '').trim();
@@ -3966,6 +4004,10 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
       };
       if (outcomeGf > outcomeGa) {
         wins += 1;
+        winningPairs.push({
+          matchId: Number(m.id),
+          teamId: isHome ? Number(m.home_team_id) : Number(m.away_team_id),
+        });
         const candidate = { ...recordBase, margin: gf - ga, goalsFor: gf };
         if (isBetterOfficialMatchMarginRecord(candidate, biggestWinRecord)) biggestWinRecord = candidate;
       } else if (outcomeGf === outcomeGa) {
@@ -3989,19 +4031,23 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
         }))
         .sort((a, b) => (b.value - a.value) || a.name.localeCompare(b.name, 'it'));
 
-    const presences = await presencesPromise;
+    const [voteBoards, matchWinsRaw, editionWinsRaw] = await Promise.all([
+      voteBoardsPromise,
+      fetchOfficialGroupMatchWinLeaderboard(winningPairs, seasonTeamRows).catch(() => []),
+      editionWinsPromise,
+    ]);
     const selectedLeagueId =
       targetLeagueIds.length === 1 ? Number(targetLeagueIds[0]) : null;
 
-    let scorers = listFromMap(scorersMap);
-    let assistmen = listFromMap(assistsMap);
-    if (isAbsoluteMode && Number(competitionId) > 0) {
-      scorers = await mergeAbsoluteStatsByCluster(scorers, competitionId);
-      assistmen = await mergeAbsoluteStatsByCluster(assistmen, competitionId);
-    } else {
-      scorers = await annotateDuplicateLeaderboardPlayerNames(scorers);
-      assistmen = await annotateDuplicateLeaderboardPlayerNames(assistmen);
-    }
+    const [scorers, assistmen, presences, penalty_goals, penalty_saved, match_wins, edition_wins] = await Promise.all([
+      finalizeOfficialTeamLeaderboard(listFromMap(scorersMap), isAbsoluteMode, competitionId),
+      finalizeOfficialTeamLeaderboard(listFromMap(assistsMap), isAbsoluteMode, competitionId),
+      finalizeOfficialTeamLeaderboard(voteBoards?.presences, isAbsoluteMode, competitionId),
+      finalizeOfficialTeamLeaderboard(listFromMap(penaltyGoalsMap), isAbsoluteMode, competitionId),
+      finalizeOfficialTeamLeaderboard(voteBoards?.penalty_saved, isAbsoluteMode, competitionId),
+      finalizeOfficialTeamLeaderboard(matchWinsRaw, isAbsoluteMode, competitionId),
+      finalizeOfficialTeamLeaderboard(editionWinsRaw, isAbsoluteMode, competitionId),
+    ]);
 
     return res.json({
       team: { id: teamId, name: teamName },
@@ -4031,7 +4077,11 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
       },
       scorers,
       assistmen,
-      presences: Array.isArray(presences) ? presences : [],
+      presences,
+      penalty_goals,
+      penalty_saved,
+      match_wins,
+      edition_wins,
     });
   } catch (err) {
     if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
