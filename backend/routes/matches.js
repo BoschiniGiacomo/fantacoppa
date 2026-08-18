@@ -525,12 +525,15 @@ function buildOfficialTeamMatchRecord({
   kickoffAt,
   homeLogoPath,
   awayLogoPath,
+  id,
 }) {
   const hs = Number(homeScore);
   const as = Number(awayScore);
   const homeLp = normalizeTeamLogoPathForApi(homeLogoPath);
   const awayLp = normalizeTeamLogoPathForApi(awayLogoPath);
+  const matchId = Number(id);
   return {
+    match_id: Number.isFinite(matchId) && matchId > 0 ? matchId : null,
     home_team: String(homeName || '').trim() || '—',
     away_team: String(awayName || '').trim() || '—',
     home_score: Number.isFinite(hs) ? hs : 0,
@@ -555,10 +558,17 @@ const EMPTY_TEAM_SEASON_GENERAL = {
   played: 0,
   goals: 0,
   goals_conceded: 0,
+  goals_avg: 0,
+  goals_conceded_avg: 0,
   yellow_cards: 0,
   red_cards: 0,
+  penalties_for: 0,
+  penalties_against: 0,
   biggest_win: null,
   heaviest_defeat: null,
+  longest_win_streak: null,
+  longest_loss_streak: null,
+  highest_scoring_match: null,
 };
 const EMPTY_TEAM_SEASON_OUTCOMES = {
   wins: 0,
@@ -4166,8 +4176,12 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
     let losses = 0;
     let yellowCards = 0;
     let redCards = 0;
+    let penaltiesFor = 0;
+    let penaltiesAgainst = 0;
     let biggestWinRecord = null;
     let heaviestDefeatRecord = null;
+    let highestScoringRecord = null;
+    const streakResults = [];
     const scorersMap = new Map();
     const assistsMap = new Map();
     const penaltyGoalsMap = new Map();
@@ -4219,6 +4233,11 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
           (Number.isFinite(evTeamId) && evTeamId > 0)
             ? seasonTeamIds.includes(evTeamId)
             : ((isHome && side === 'home') || (isAway && side === 'away'));
+        const evType = String(e.event_type || '');
+        if (evType === 'penalty_goal' || evType === 'penalty_missed') {
+          if (mine) penaltiesFor += 1;
+          else penaltiesAgainst += 1;
+        }
         if (!mine) continue;
         if (e.event_type === 'yellow_card') yellowCards += 1;
         if (e.event_type === 'red_card') redCards += 1;
@@ -4294,9 +4313,29 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
         const candidate = { ...recordBase, margin: ga - gf, goalsFor: ga };
         if (isBetterOfficialMatchMarginRecord(candidate, heaviestDefeatRecord)) heaviestDefeatRecord = candidate;
       }
+      streakResults.push({
+        kickoffMs,
+        kickoff_at: m.kickoff_at || null,
+        matchId: Number(m.id),
+        result: outcomeGf > outcomeGa ? 'W' : (outcomeGf === outcomeGa ? 'D' : 'L'),
+      });
+      const topCand = { ...recordBase, total: hs + as, match_id: Number(m.id) };
+      if (isBetterHighestScoringMatch(topCand, highestScoringRecord)) highestScoringRecord = topCand;
     }
 
     const pct = (x) => (played > 0 ? Math.round((x / played) * 1000) / 10 : 0);
+    const sortedStreaks = sortTeamHighlightResults(streakResults);
+    const winStreak = longestResultStreak(sortedStreaks, 'W');
+    const lossStreak = longestResultStreak(sortedStreaks, 'L');
+    const packStreak = (streak) => (
+      streak && Number(streak.length) > 0
+        ? {
+          value: Number(streak.length) || 0,
+          started_at: streak.started_at || null,
+          ended_at: streak.ended_at || null,
+        }
+        : null
+    );
     const listFromMap = (mp) =>
       Array.from(mp.values())
         .map(({ name, value, player_id, league_id, team_name }) => ({
@@ -4335,13 +4374,22 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
         played,
         goals,
         goals_conceded: goalsConceded,
+        goals_avg: played > 0 ? roundTeamStatAvg(goals / played) : 0,
+        goals_conceded_avg: played > 0 ? roundTeamStatAvg(goalsConceded / played) : 0,
         yellow_cards: yellowCards,
         red_cards: redCards,
+        penalties_for: penaltiesFor,
+        penalties_against: penaltiesAgainst,
         biggest_win: biggestWinRecord
           ? buildOfficialTeamMatchRecord(biggestWinRecord)
           : null,
         heaviest_defeat: heaviestDefeatRecord
           ? buildOfficialTeamMatchRecord(heaviestDefeatRecord)
+          : null,
+        longest_win_streak: packStreak(winStreak),
+        longest_loss_streak: packStreak(lossStreak),
+        highest_scoring_match: highestScoringRecord && Number(highestScoringRecord.total) > 0
+          ? buildOfficialTeamMatchRecord(highestScoringRecord)
           : null,
       },
       outcomes: {

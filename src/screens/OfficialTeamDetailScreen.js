@@ -245,7 +245,30 @@ const DEFAULT_JERSEY_COLOR = '#a5b4fc';
 const ROLE_ORDER = { P: 0, D: 1, C: 2, A: 3 };
 const ABSOLUTE_STATS_KEY = 'absolute';
 
-function renderOfficialMatchRecord(record, styles) {
+function formatStatsAvg(n) {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return '0,00';
+  return v.toFixed(2).replace('.', ',');
+}
+
+function formatStatsDate(value) {
+  const d = parseAppDate(value);
+  if (!d) return '';
+  const dd = `${d.getDate()}`.padStart(2, '0');
+  const mm = `${d.getMonth() + 1}`.padStart(2, '0');
+  return `${dd}/${mm}/${d.getFullYear()}`;
+}
+
+function formatStatsStreakRange(startedAt, endedAt) {
+  const start = formatStatsDate(startedAt);
+  const end = formatStatsDate(endedAt);
+  if (!start && !end) return '';
+  if (start && end && start === end) return start;
+  if (start && end) return `${start} – ${end}`;
+  return start || end;
+}
+
+function renderOfficialMatchRecord(record, styles, onPress) {
   if (!record || typeof record !== 'object') {
     return (
       <View style={styles.statsRecordValue}>
@@ -256,6 +279,8 @@ function renderOfficialMatchRecord(record, styles) {
   const hs = Number(record.home_score);
   const as = Number(record.away_score);
   const date = String(record.date || '').trim();
+  const homeName = String(record.home_team || '').trim();
+  const awayName = String(record.away_team || '').trim();
   if (!Number.isFinite(hs) || !Number.isFinite(as)) {
     return (
       <View style={styles.statsRecordValue}>
@@ -263,8 +288,8 @@ function renderOfficialMatchRecord(record, styles) {
       </View>
     );
   }
-  return (
-    <View style={styles.statsRecordValue}>
+  const content = (
+    <>
       <View style={styles.statsRecordScoreRow}>
         <TeamLogoImage
           logoUrl={record.home_team_logo_url}
@@ -284,9 +309,22 @@ function renderOfficialMatchRecord(record, styles) {
           fallbackIconSize={14}
         />
       </View>
+      {homeName && awayName ? (
+        <Text style={styles.statsRecordNames} numberOfLines={1}>
+          {homeName} vs {awayName}
+        </Text>
+      ) : null}
       {date ? <Text style={styles.statsRecordDate}>{date}</Text> : null}
-    </View>
+    </>
   );
+  if (typeof onPress === 'function') {
+    return (
+      <TouchableOpacity onPress={onPress} activeOpacity={0.75} style={styles.statsRecordValue}>
+        {content}
+      </TouchableOpacity>
+    );
+  }
+  return <View style={styles.statsRecordValue}>{content}</View>;
 }
 
 function isValidJerseyHex(s) {
@@ -384,10 +422,17 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
     played: 0,
     goals: 0,
     goals_conceded: 0,
+    goals_avg: 0,
+    goals_conceded_avg: 0,
     yellow_cards: 0,
     red_cards: 0,
+    penalties_for: 0,
+    penalties_against: 0,
     biggest_win: null,
     heaviest_defeat: null,
+    longest_win_streak: null,
+    longest_loss_streak: null,
+    highest_scoring_match: null,
   });
   const [statsOutcomes, setStatsOutcomes] = useState({ wins: 0, draws: 0, losses: 0, wins_pct: 0, draws_pct: 0, losses_pct: 0 });
   const [statsScorers, setStatsScorers] = useState([]);
@@ -613,10 +658,17 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
           played: 0,
           goals: 0,
           goals_conceded: 0,
+          goals_avg: 0,
+          goals_conceded_avg: 0,
           yellow_cards: 0,
           red_cards: 0,
+          penalties_for: 0,
+          penalties_against: 0,
           biggest_win: null,
           heaviest_defeat: null,
+          longest_win_streak: null,
+          longest_loss_streak: null,
+          highest_scoring_match: null,
         });
         setStatsOutcomes(res?.data?.outcomes || { wins: 0, draws: 0, losses: 0, wins_pct: 0, draws_pct: 0, losses_pct: 0 });
         setStatsScorers(Array.isArray(res?.data?.scorers) ? res.data.scorers : []);
@@ -1469,11 +1521,21 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
                   </View>
                   <View style={styles.statsValueRow}>
                     <Text style={styles.statsLabel}>Goal fatti</Text>
-                    <Text style={styles.statsValue}>{Number(statsGeneral.goals || 0)}</Text>
+                    <Text style={styles.statsValue}>
+                      {Number(statsGeneral.goals || 0)}
+                      {Number(statsGeneral.played || 0) > 0
+                        ? ` (${formatStatsAvg(statsGeneral.goals_avg)}/p)`
+                        : ''}
+                    </Text>
                   </View>
                   <View style={styles.statsValueRow}>
                     <Text style={styles.statsLabel}>Goal subiti</Text>
-                    <Text style={styles.statsValue}>{Number(statsGeneral.goals_conceded || 0)}</Text>
+                    <Text style={styles.statsValue}>
+                      {Number(statsGeneral.goals_conceded || 0)}
+                      {Number(statsGeneral.played || 0) > 0
+                        ? ` (${formatStatsAvg(statsGeneral.goals_conceded_avg)}/p)`
+                        : ''}
+                    </Text>
                   </View>
                   <View style={styles.statsValueRow}>
                     <Text style={styles.statsLabel}>Cartellini gialli/rossi</Text>
@@ -1481,17 +1543,106 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
                       {Number(statsGeneral.yellow_cards || 0)} / {Number(statsGeneral.red_cards || 0)}
                     </Text>
                   </View>
+                  <View style={styles.statsValueRow}>
+                    <Text style={styles.statsLabel}>Rigori a favore</Text>
+                    <Text style={styles.statsValue}>{Number(statsGeneral.penalties_for || 0)}</Text>
+                  </View>
+                  <View style={styles.statsValueRow}>
+                    <Text style={styles.statsLabel}>Rigori a sfavore</Text>
+                    <Text style={styles.statsValue}>{Number(statsGeneral.penalties_against || 0)}</Text>
+                  </View>
+                  <View style={styles.statsRecordRow}>
+                    <Text style={styles.statsRecordLabel} numberOfLines={2}>
+                      Striscia vittorie
+                    </Text>
+                    <View style={styles.statsRecordValue}>
+                      <Text style={styles.statsRecordEmpty}>
+                        {Number(statsGeneral.longest_win_streak?.value || 0) > 0
+                          ? Number(statsGeneral.longest_win_streak.value)
+                          : '-'}
+                      </Text>
+                      {Number(statsGeneral.longest_win_streak?.value || 0) > 0
+                        && formatStatsStreakRange(
+                          statsGeneral.longest_win_streak.started_at,
+                          statsGeneral.longest_win_streak.ended_at
+                        ) ? (
+                          <Text style={styles.statsRecordDate}>
+                            {formatStatsStreakRange(
+                              statsGeneral.longest_win_streak.started_at,
+                              statsGeneral.longest_win_streak.ended_at
+                            )}
+                          </Text>
+                        ) : null}
+                    </View>
+                  </View>
+                  <View style={styles.statsRecordRow}>
+                    <Text style={styles.statsRecordLabel} numberOfLines={2}>
+                      Striscia sconfitte
+                    </Text>
+                    <View style={styles.statsRecordValue}>
+                      <Text style={styles.statsRecordEmpty}>
+                        {Number(statsGeneral.longest_loss_streak?.value || 0) > 0
+                          ? Number(statsGeneral.longest_loss_streak.value)
+                          : '-'}
+                      </Text>
+                      {Number(statsGeneral.longest_loss_streak?.value || 0) > 0
+                        && formatStatsStreakRange(
+                          statsGeneral.longest_loss_streak.started_at,
+                          statsGeneral.longest_loss_streak.ended_at
+                        ) ? (
+                          <Text style={styles.statsRecordDate}>
+                            {formatStatsStreakRange(
+                              statsGeneral.longest_loss_streak.started_at,
+                              statsGeneral.longest_loss_streak.ended_at
+                            )}
+                          </Text>
+                        ) : null}
+                    </View>
+                  </View>
                   <View style={styles.statsRecordRow}>
                     <Text style={styles.statsRecordLabel} numberOfLines={1}>
                       Vittoria più larga
                     </Text>
-                    {renderOfficialMatchRecord(statsGeneral.biggest_win, styles)}
+                    {renderOfficialMatchRecord(
+                      statsGeneral.biggest_win,
+                      styles,
+                      Number(statsGeneral.biggest_win?.match_id) > 0
+                        ? () => navigation.navigate('MatchDetail', {
+                          matchId: Number(statsGeneral.biggest_win.match_id),
+                          from: 'official-team-stats',
+                        })
+                        : null
+                    )}
                   </View>
                   <View style={styles.statsRecordRow}>
                     <Text style={styles.statsRecordLabel} numberOfLines={1}>
                       Sconfitta più pesante
                     </Text>
-                    {renderOfficialMatchRecord(statsGeneral.heaviest_defeat, styles)}
+                    {renderOfficialMatchRecord(
+                      statsGeneral.heaviest_defeat,
+                      styles,
+                      Number(statsGeneral.heaviest_defeat?.match_id) > 0
+                        ? () => navigation.navigate('MatchDetail', {
+                          matchId: Number(statsGeneral.heaviest_defeat.match_id),
+                          from: 'official-team-stats',
+                        })
+                        : null
+                    )}
+                  </View>
+                  <View style={styles.statsRecordRow}>
+                    <Text style={styles.statsRecordLabel} numberOfLines={2}>
+                      Partita con più gol
+                    </Text>
+                    {renderOfficialMatchRecord(
+                      statsGeneral.highest_scoring_match,
+                      styles,
+                      Number(statsGeneral.highest_scoring_match?.match_id) > 0
+                        ? () => navigation.navigate('MatchDetail', {
+                          matchId: Number(statsGeneral.highest_scoring_match.match_id),
+                          from: 'official-team-stats',
+                        })
+                        : null
+                    )}
                   </View>
                 </View>
 
@@ -2504,6 +2655,15 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 2,
     alignSelf: 'stretch',
+  },
+  statsRecordNames: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#64748b',
+    textAlign: 'center',
+    marginTop: 2,
+    maxWidth: 160,
+    alignSelf: 'center',
   },
   statsTableWrap: {
     width: '100%',
