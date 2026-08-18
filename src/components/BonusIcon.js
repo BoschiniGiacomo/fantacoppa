@@ -11,6 +11,13 @@ const BONUS_ICONS = {
     color: '#222',
     badge: { icon: 'checkmark-circle', lib: 'ion', color: '#198754' },
   },
+  /** Partita con più gol: pallone con freccia su, come la serie negativa ma verso l'alto. */
+  most_goals: {
+    icon: 'soccer',
+    lib: 'mci',
+    color: '#222',
+    badge: { icon: 'arrow-up-circle', lib: 'ion', color: '#16a34a' },
+  },
   assist: {
     icon: 'shoe-cleat',
     lib: 'mci',

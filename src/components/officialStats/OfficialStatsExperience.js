@@ -823,7 +823,7 @@ function MiniStat({ icon, color, value, label, bonusType }) {
   );
 }
 
-function MatchRecordCell({ icon, color, record, onPress, label, showDivider }) {
+function MatchRecordCell({ icon, pack, color, bonusType, record, onPress, label, showDivider }) {
   const hasScore = record && Number.isFinite(Number(record.home_score)) && Number.isFinite(Number(record.away_score));
   const homeName = String(record?.home_team || record?.home_team_name || '').trim();
   const awayName = String(record?.away_team || record?.away_team_name || '').trim();
@@ -832,7 +832,11 @@ function MatchRecordCell({ icon, color, record, onPress, label, showDivider }) {
     <View style={[styles.goalsKpiCell, showDivider && styles.goalsKpiCellDivider]}>
       <View style={styles.recordHead}>
         <View style={styles.goalsKpiBadge}>
-          <Ionicons name={icon} size={16} color={color} />
+          {bonusType ? (
+            <BonusIcon type={bonusType} size={16} />
+          ) : (
+            <IconGlyph pack={pack} name={icon} size={16} color={color} />
+          )}
         </View>
         <Text style={styles.recordTitle}>{label}</Text>
       </View>
@@ -998,9 +1002,8 @@ function TeamGeneral({ general, outcomes, onPressMatch }) {
       </Animated.View>
       <Animated.View entering={FadeInDown.delay(120).duration(280)} style={styles.streakPanel}>
         <MatchRecordCell
-          label="Più gol"
-          icon="flash"
-          color="#d97706"
+          label="Partita con più gol"
+          bonusType="most_goals"
           record={general?.highest_scoring_match}
           onPress={Number(general?.highest_scoring_match?.match_id) > 0
             ? () => onPressMatch?.(Number(general.highest_scoring_match.match_id))
