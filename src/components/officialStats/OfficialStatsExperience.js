@@ -408,18 +408,9 @@ function LeaderboardList({
               onPress={() => onPressPlayer?.(row)}
             >
               <RankBadge rank={rank} />
-              <View style={styles.lbPhotoWrap}>
-                {row?.photo_path ? (
-                  <PlayerPhotoImage photoPath={row.photo_path} style={styles.lbPhoto} />
-                ) : (
-                  <View style={[styles.lbPhotoFallback, { backgroundColor: `${board.accent}22` }]}>
-                    <Text style={[styles.lbInitials, { color: board.accent }]}>{playerInitials(playerName)}</Text>
-                  </View>
-                )}
-              </View>
               <View style={styles.lbMain}>
                 <Text style={styles.lbName} numberOfLines={1}>{playerName}</Text>
-                {includeTeam && teamName ? <Text style={styles.lbTeam} numberOfLines={1}>{teamName}</Text> : null}
+                {teamName ? <Text style={styles.lbTeam} numberOfLines={1}>{teamName}</Text> : null}
               </View>
               <Text style={styles.lbValue}>{value}</Text>
             </TouchableOpacity>
@@ -1802,16 +1793,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#f8fafc',
   },
   rankBadgeText: { fontSize: 11, fontWeight: '800', color: '#64748b' },
-  lbPhotoWrap: { width: 36, height: 36, borderRadius: 18, overflow: 'hidden' },
-  lbPhoto: { width: 36, height: 36, borderRadius: 18 },
-  lbPhotoFallback: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  lbInitials: { fontSize: 11, fontWeight: '800' },
   lbMain: { flex: 1, minWidth: 0 },
   lbName: { fontSize: 14, fontWeight: '700', color: '#0f172a' },
   lbTeam: { marginTop: 1, fontSize: 11, fontWeight: '500', color: '#94a3b8' },
