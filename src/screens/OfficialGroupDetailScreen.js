@@ -341,12 +341,20 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
   const [statsPresences, setStatsPresences] = useState([]);
   const [statsYellowCards, setStatsYellowCards] = useState([]);
   const [statsRedCards, setStatsRedCards] = useState([]);
+  const [statsPenaltyGoals, setStatsPenaltyGoals] = useState([]);
+  const [statsPenaltySaved, setStatsPenaltySaved] = useState([]);
+  const [statsMatchWins, setStatsMatchWins] = useState([]);
+  const [statsEditionWins, setStatsEditionWins] = useState([]);
   const [statsLeaderboardExpanded, setStatsLeaderboardExpanded] = useState({
     scorers: false,
     assistmen: false,
     presences: false,
     yellow_cards: false,
     red_cards: false,
+    penalty_goals: false,
+    penalty_saved: false,
+    match_wins: false,
+    edition_wins: false,
   });
   const [statsPickerOpen, setStatsPickerOpen] = useState(false);
   const [hallLoading, setHallLoading] = useState(false);
@@ -490,6 +498,10 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
         setStatsPresences(Array.isArray(res?.data?.presences) ? res.data.presences : []);
         setStatsYellowCards(Array.isArray(res?.data?.yellow_cards) ? res.data.yellow_cards : []);
         setStatsRedCards(Array.isArray(res?.data?.red_cards) ? res.data.red_cards : []);
+        setStatsPenaltyGoals(Array.isArray(res?.data?.penalty_goals) ? res.data.penalty_goals : []);
+        setStatsPenaltySaved(Array.isArray(res?.data?.penalty_saved) ? res.data.penalty_saved : []);
+        setStatsMatchWins(Array.isArray(res?.data?.match_wins) ? res.data.match_wins : []);
+        setStatsEditionWins(Array.isArray(res?.data?.edition_wins) ? res.data.edition_wins : []);
         setSelectedStatsYear((prev) => {
           if (yearOverride != null) {
             if (yearOverride === ABSOLUTE_STATS_KEY) return ABSOLUTE_STATS_KEY;
@@ -580,6 +592,10 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
       presences: false,
       yellow_cards: false,
       red_cards: false,
+      penalty_goals: false,
+      penalty_saved: false,
+      match_wins: false,
+      edition_wins: false,
     });
   }, [selectedStatsYear]);
 
@@ -1186,6 +1202,44 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
                     'red_cards'
                   )}
                 </View>
+                <Text style={styles.statsSectionTitle}>Rigori</Text>
+                <View style={styles.statsBlock}>
+                  <Text style={styles.statsBlockTitle}>Rigori segnati</Text>
+                  {renderStatsLeaderboardTable(
+                    statsPenaltyGoals,
+                    'Segn.',
+                    'Nessun rigore segnato disponibile.',
+                    'penalty_goals'
+                  )}
+                </View>
+                <View style={styles.statsBlock}>
+                  <Text style={styles.statsBlockTitle}>Rigori parati</Text>
+                  {renderStatsLeaderboardTable(
+                    statsPenaltySaved,
+                    'Parati',
+                    'Nessun rigore parato disponibile.',
+                    'penalty_saved'
+                  )}
+                </View>
+                <Text style={[styles.statsSectionTitle, styles.statsSectionTitleSpaced]}>Vincitori</Text>
+                <View style={styles.statsBlock}>
+                  <Text style={styles.statsBlockTitle}>Partite vinte</Text>
+                  {renderStatsLeaderboardTable(
+                    statsMatchWins,
+                    'Vinte',
+                    'Nessuna partita vinta disponibile.',
+                    'match_wins'
+                  )}
+                </View>
+                <View style={styles.statsBlock}>
+                  <Text style={styles.statsBlockTitle}>Edizioni vinte</Text>
+                  {renderStatsLeaderboardTable(
+                    statsEditionWins,
+                    'Coppe',
+                    'Nessuna coppa vinta disponibile.',
+                    'edition_wins'
+                  )}
+                </View>
               </ScrollView>
             )}
           </View>
@@ -1692,6 +1746,16 @@ const styles = StyleSheet.create({
   statsListContent: { paddingBottom: 12 },
   statsBlock: { marginBottom: 18 },
   statsBlockTitle: { fontSize: 15, fontWeight: '800', color: '#1e293b', marginBottom: 8 },
+  statsSectionTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#64748b',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    marginBottom: 10,
+    marginTop: 4,
+  },
+  statsSectionTitleSpaced: { marginTop: 6 },
   statsTableWrap: {
     width: '100%',
     borderWidth: 1,
@@ -1716,7 +1780,7 @@ const styles = StyleSheet.create({
   statsTablePlayerCol: { flex: 1, minWidth: 0, paddingRight: 2, flexShrink: 1 },
   statsTablePlayerName: { fontSize: 13, fontWeight: '600', color: '#1f2937' },
   statsTablePlayerTeam: { fontSize: 10, color: '#64748b', marginTop: 1 },
-  statsTableValue: { width: 44, minWidth: 44, textAlign: 'right', flexShrink: 0, fontWeight: '700' },
+  statsTableValue: { width: 52, minWidth: 52, textAlign: 'right', flexShrink: 0, fontWeight: '700' },
   statsTableExpandBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 10, borderBottomWidth: 0 },
   statsTableExpandText: { fontSize: 13, fontWeight: '700', color: '#111827' },
   hallScrollContent: { paddingBottom: 4 },

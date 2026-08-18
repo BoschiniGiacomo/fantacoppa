@@ -26,6 +26,7 @@ const {
   scheduleOfficialGroupAbsoluteStatsRefreshForMatch,
 } = require('../utils/officialGroupAbsoluteStatsRefresh');
 const { createShortTtlCache } = require('../utils/shortTtlCache');
+const { SQL_WHERE_PRESENCE_VOTE } = require('../utils/voteRating');
 const {
   ensureOfficialMatchPredictionSchema,
   loadOfficialMatchPrediction,
@@ -3385,17 +3386,45 @@ async function mergeAbsolutePresencesByCluster(perPlayer, officialGroupId) {
   return mergeAbsoluteStatsByCluster(perPlayer, officialGroupId);
 }
 
-/**
- * Presenze con voto = voto reale o S.V. (-0.25); medie solo su voto reale (vedi playerStats).
- */
-async function fetchOfficialTeamPresencesWithVoteRanking(seasonTeamRows, opts = {}) {
+const HALL_CAMPIONATO_FINAL_STAGE_ID = 3;
+const HALL_WINE_TROPHY_STAGE_ID = 6;
+
+function emptyOfficialGroupSeasonStats() {
+  return {
+    scorers: [],
+    assistmen: [],
+    presences: [],
+    yellow_cards: [],
+    red_cards: [],
+    penalty_goals: [],
+    penalty_saved: [],
+    match_wins: [],
+    edition_wins: [],
+  };
+}
+
+function mapOfficialLeaderboardAggRows(rows, valueKey) {
+  return (rows || [])
+    .map((r) => ({
+      player_id: Number(r.player_id) > 0 ? Number(r.player_id) : null,
+      name: String(r.player_name || r.name || '').trim() || 'Giocatore',
+      team_name: r.team_name != null ? String(r.team_name).trim() : null,
+      league_id: Number(r.league_id) > 0 ? Number(r.league_id) : null,
+      value: Number(r[valueKey] || 0),
+    }))
+    .filter((r) => Number.isFinite(r.value) && r.value > 0);
+}
+
+async function buildOfficialFranchiseScope(seasonTeamRows) {
   const franchiseRows = (seasonTeamRows || [])
     .map((r) => ({
       canonLeagueId: Number(r.league_id),
       teamTableId: Number(r.id),
     }))
     .filter((r) => Number.isFinite(r.canonLeagueId) && r.canonLeagueId > 0 && Number.isFinite(r.teamTableId) && r.teamTableId > 0);
-  if (!franchiseRows.length) return [];
+  if (!franchiseRows.length) {
+    return { scopeTriplets: [] };
+  }
 
   const uniqueCanonIds = [...new Set(franchiseRows.map((fr) => fr.canonLeagueId))];
   const ratingLeaguesByCanon = new Map();
@@ -3409,14 +3438,17 @@ async function fetchOfficialTeamPresencesWithVoteRanking(seasonTeamRows, opts = 
   for (const fr of franchiseRows) {
     const ratingLeagueIds = ratingLeaguesByCanon.get(fr.canonLeagueId) || [];
     for (const rlid of ratingLeagueIds) {
-      scopeTriplets.push([fr.canonLeagueId, fr.teamTableId, rlid]);
+      if (Number(rlid) > 0) scopeTriplets.push([fr.canonLeagueId, fr.teamTableId, Number(rlid)]);
     }
   }
+  return { scopeTriplets };
+}
+
+async function fetchOfficialGroupVoteAggRows(seasonTeamRows) {
+  const { scopeTriplets } = await buildOfficialFranchiseScope(seasonTeamRows);
   if (!scopeTriplets.length) return [];
 
   const phScope = scopeTriplets.map(() => '(?, ?, ?)').join(', ');
-  const flatScope = scopeTriplets.flat();
-
   const sql = `
     WITH franchise_scope AS (
       SELECT
@@ -3426,21 +3458,24 @@ async function fetchOfficialTeamPresencesWithVoteRanking(seasonTeamRows, opts = 
       FROM (VALUES ${phScope}) AS v(canon_league_id, team_table_id, rating_league_id)
     ),
     rated AS (
-      SELECT DISTINCT
+      SELECT
         pr.player_id,
         pr.giornata,
-        fs.canon_league_id
+        fs.canon_league_id,
+        MAX(COALESCE(pr.penalty_saved, 0))::int AS penalty_saved
       FROM player_ratings pr
       INNER JOIN franchise_scope fs ON pr.league_id = fs.rating_league_id
       INNER JOIN players p ON p.id = pr.player_id AND p.team_id = fs.team_table_id
-      WHERE (pr.rating > 0 OR ABS(pr.rating + 0.25) < 0.001)
+      WHERE ${SQL_WHERE_PRESENCE_VOTE}
+      GROUP BY pr.player_id, pr.giornata, fs.canon_league_id
     )
     SELECT
       p.id AS player_id,
       TRIM(CONCAT(COALESCE(p.first_name, ''), ' ', COALESCE(p.last_name, ''))) AS player_name,
       t.name AS team_name,
       MAX(rated.canon_league_id)::int AS league_id,
-      COUNT(DISTINCT (rated.canon_league_id, rated.giornata))::int AS presenze
+      COUNT(DISTINCT (rated.canon_league_id, rated.giornata))::int AS presenze,
+      SUM(rated.penalty_saved)::int AS penalty_saved
     FROM rated
     INNER JOIN players p ON p.id = rated.player_id
     INNER JOIN teams t ON t.id = p.team_id
@@ -3448,17 +3483,33 @@ async function fetchOfficialTeamPresencesWithVoteRanking(seasonTeamRows, opts = 
     HAVING COUNT(DISTINCT (rated.canon_league_id, rated.giornata)) > 0
     ORDER BY presenze DESC, player_name ASC`;
 
-  const rows = await query(sql, flatScope);
+  return query(sql, scopeTriplets.flat());
+}
 
-  const perPlayer = (rows || [])
-    .map((r) => ({
-      player_id: Number(r.player_id),
-      name: String(r.player_name || '').trim() || 'Giocatore',
-      team_name: r.team_name != null ? String(r.team_name).trim() : null,
-      league_id: Number(r.league_id) > 0 ? Number(r.league_id) : null,
-      value: Number(r.presenze || 0),
-    }))
-    .filter((r) => r.value > 0);
+async function fetchOfficialGroupVoteLeaderboards(seasonTeamRows) {
+  const rows = await fetchOfficialGroupVoteAggRows(seasonTeamRows);
+  return {
+    presences: mapOfficialLeaderboardAggRows(rows, 'presenze'),
+    penalty_saved: mapOfficialLeaderboardAggRows(rows, 'penalty_saved'),
+  };
+}
+
+async function fetchOfficialGroupVoteLeaderboardsForLeague(leagueId) {
+  const lid = Number(leagueId);
+  if (!Number.isFinite(lid) || lid <= 0) return { presences: [], penalty_saved: [] };
+  const seasonTeamRows = await query(
+    `SELECT id, league_id, name FROM teams WHERE league_id = ? ORDER BY id ASC`,
+    [lid]
+  );
+  return fetchOfficialGroupVoteLeaderboards(seasonTeamRows).catch(() => ({ presences: [], penalty_saved: [] }));
+}
+
+/**
+ * Presenze con voto = voto reale o S.V. (-0.25); medie solo su voto reale (vedi playerStats).
+ */
+async function fetchOfficialTeamPresencesWithVoteRanking(seasonTeamRows, opts = {}) {
+  const voteBoards = await fetchOfficialGroupVoteLeaderboards(seasonTeamRows).catch(() => ({ presences: [] }));
+  const perPlayer = Array.isArray(voteBoards.presences) ? voteBoards.presences : [];
 
   if (opts.isAbsoluteMode && Number(opts.competitionId) > 0) {
     return mergeAbsolutePresencesByCluster(perPlayer, Number(opts.competitionId));
@@ -3475,6 +3526,134 @@ async function fetchOfficialTeamPresencesWithVoteRanking(seasonTeamRows, opts = 
       }))
       .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name, 'it')),
   );
+}
+
+/** Vittorie partita: presenza (voto/S.V.) sulla squadra vincitrice, via link giornata. */
+async function fetchOfficialGroupMatchWinLeaderboard(winningPairs, seasonTeamRows) {
+  const pairs = (winningPairs || [])
+    .map((p) => [Number(p.matchId), Number(p.teamId)])
+    .filter(([mid, tid]) => Number.isFinite(mid) && mid > 0 && Number.isFinite(tid) && tid > 0);
+  if (!pairs.length) return [];
+
+  const winnerTeamIds = new Set(pairs.map(([, tid]) => tid));
+  const { scopeTriplets } = await buildOfficialFranchiseScope(
+    (seasonTeamRows || []).filter((r) => winnerTeamIds.has(Number(r.id)))
+  );
+  if (!scopeTriplets.length) return [];
+
+  const phWinners = pairs.map(() => '(?, ?)').join(', ');
+  const phScope = scopeTriplets.map(() => '(?, ?, ?)').join(', ');
+  const sql = `
+    WITH winners AS (
+      SELECT v.match_id::int AS match_id, v.team_id::int AS team_id
+      FROM (VALUES ${phWinners}) AS v(match_id, team_id)
+    ),
+    franchise_scope AS (
+      SELECT
+        v.canon_league_id::int AS canon_league_id,
+        v.team_table_id::int AS team_table_id,
+        v.rating_league_id::int AS rating_league_id
+      FROM (VALUES ${phScope}) AS v(canon_league_id, team_table_id, rating_league_id)
+    ),
+    linked AS (
+      SELECT DISTINCT
+        l.official_match_id,
+        l.team_id,
+        l.giornata,
+        fs.rating_league_id,
+        fs.canon_league_id
+      FROM official_match_matchday_links l
+      INNER JOIN winners w ON w.match_id = l.official_match_id AND w.team_id = l.team_id
+      INNER JOIN franchise_scope fs
+        ON fs.team_table_id = l.team_id
+       AND (fs.canon_league_id = l.league_id OR fs.rating_league_id = l.league_id)
+    )
+    SELECT
+      p.id AS player_id,
+      TRIM(CONCAT(COALESCE(p.first_name, ''), ' ', COALESCE(p.last_name, ''))) AS player_name,
+      t.name AS team_name,
+      MAX(linked.canon_league_id)::int AS league_id,
+      COUNT(DISTINCT linked.official_match_id)::int AS wins
+    FROM linked
+    INNER JOIN player_ratings pr
+      ON pr.league_id = linked.rating_league_id
+     AND pr.giornata = linked.giornata
+    INNER JOIN players p ON p.id = pr.player_id AND p.team_id = linked.team_id
+    INNER JOIN teams t ON t.id = p.team_id
+    WHERE ${SQL_WHERE_PRESENCE_VOTE}
+    GROUP BY p.id, p.first_name, p.last_name, t.name
+    HAVING COUNT(DISTINCT linked.official_match_id) > 0
+    ORDER BY wins DESC, player_name ASC`;
+
+  const rows = await query(sql, [...pairs.flat(), ...scopeTriplets.flat()]);
+  return mapOfficialLeaderboardAggRows(rows, 'wins');
+}
+
+/**
+ * Coppe vinte (finale campionato, stage 3): squadra vincitrice + almeno una presenza in edizione.
+ * Esclude i trofei del vino (stage 6).
+ */
+async function fetchOfficialGroupEditionWinLeaderboard(competitionId, leagueIds) {
+  const lids = [...new Set((leagueIds || []).map(Number).filter((id) => Number.isFinite(id) && id > 0))];
+  if (!lids.length) return [];
+
+  const finals = await fetchHallFinalMatchesByLeagueStage(competitionId, lids, [HALL_CAMPIONATO_FINAL_STAGE_ID]);
+  const winnerPairs = [];
+  for (const lid of lids) {
+    const champMatches = finals.get(`${lid}:${HALL_CAMPIONATO_FINAL_STAGE_ID}`) || [];
+    const winner = determineKnockoutMatchWinner(champMatches[0] || null);
+    const tid = Number(winner?.team_id);
+    if (Number.isFinite(tid) && tid > 0) winnerPairs.push([lid, tid]);
+  }
+  if (!winnerPairs.length) return [];
+
+  const winnerTeamIds = [...new Set(winnerPairs.map(([, tid]) => tid))];
+  const phTeams = winnerTeamIds.map(() => '?').join(', ');
+  const seasonTeamRows = await query(
+    `SELECT id, league_id, name FROM teams WHERE id IN (${phTeams}) ORDER BY id ASC`,
+    winnerTeamIds
+  );
+  const { scopeTriplets } = await buildOfficialFranchiseScope(seasonTeamRows);
+  if (!scopeTriplets.length) return [];
+
+  const phWinners = winnerPairs.map(() => '(?, ?)').join(', ');
+  const phScope = scopeTriplets.map(() => '(?, ?, ?)').join(', ');
+  const sql = `
+    WITH winners AS (
+      SELECT v.canon_league_id::int AS canon_league_id, v.team_id::int AS team_id
+      FROM (VALUES ${phWinners}) AS v(canon_league_id, team_id)
+    ),
+    franchise_scope AS (
+      SELECT
+        v.canon_league_id::int AS canon_league_id,
+        v.team_table_id::int AS team_table_id,
+        v.rating_league_id::int AS rating_league_id
+      FROM (VALUES ${phScope}) AS v(canon_league_id, team_table_id, rating_league_id)
+    ),
+    rated AS (
+      SELECT DISTINCT pr.player_id, w.canon_league_id
+      FROM winners w
+      INNER JOIN franchise_scope fs
+        ON fs.canon_league_id = w.canon_league_id AND fs.team_table_id = w.team_id
+      INNER JOIN player_ratings pr ON pr.league_id = fs.rating_league_id
+      INNER JOIN players p ON p.id = pr.player_id AND p.team_id = w.team_id
+      WHERE ${SQL_WHERE_PRESENCE_VOTE}
+    )
+    SELECT
+      p.id AS player_id,
+      TRIM(CONCAT(COALESCE(p.first_name, ''), ' ', COALESCE(p.last_name, ''))) AS player_name,
+      t.name AS team_name,
+      MAX(rated.canon_league_id)::int AS league_id,
+      COUNT(DISTINCT rated.canon_league_id)::int AS titles
+    FROM rated
+    INNER JOIN players p ON p.id = rated.player_id
+    INNER JOIN teams t ON t.id = p.team_id
+    GROUP BY p.id, p.first_name, p.last_name, t.name
+    HAVING COUNT(DISTINCT rated.canon_league_id) > 0
+    ORDER BY titles DESC, player_name ASC`;
+
+  const rows = await query(sql, [...winnerPairs.flat(), ...scopeTriplets.flat()]);
+  return mapOfficialLeaderboardAggRows(rows, 'titles');
 }
 
 // GET /matches/teams/:teamId/season-stats?competition_id=xx&reference_year=yyyy
@@ -4154,9 +4333,6 @@ async function listOfficialGroupSeasonLeagues(competitionId) {
   );
 }
 
-const HALL_CAMPIONATO_FINAL_STAGE_ID = 3;
-const HALL_WINE_TROPHY_STAGE_ID = 6;
-
 function compareByGoalDiffThenScored(a, b) {
   if ((b.gd || 0) !== (a.gd || 0)) return (b.gd || 0) - (a.gd || 0);
   return (b.gf || 0) - (a.gf || 0);
@@ -4261,14 +4437,22 @@ function buildHallMatchFromRow(row, evRows) {
   };
 }
 
-/** Carica in batch le finali albo d'oro (stage 3 e 6) per tutte le leghe del gruppo. */
-async function fetchHallFinalMatchesByLeagueStage(competitionId, leagueIds) {
+/** Carica in batch le finali albo d'oro (stage 3 e 6, o un sottoinsieme) per tutte le leghe del gruppo. */
+async function fetchHallFinalMatchesByLeagueStage(competitionId, leagueIds, stageIds) {
   const compId = Number(competitionId);
   const lids = [...new Set((leagueIds || []).map(Number).filter((id) => Number.isFinite(id) && id > 0))];
+  const stages = [...new Set(
+    (Array.isArray(stageIds) && stageIds.length
+      ? stageIds
+      : [HALL_CAMPIONATO_FINAL_STAGE_ID, HALL_WINE_TROPHY_STAGE_ID]
+    ).map(Number).filter((id) => Number.isFinite(id) && id > 0)
+  )];
+  const stageSet = new Set(stages);
   const out = new Map();
-  if (!compId || !lids.length) return out;
+  if (!compId || !lids.length || !stages.length) return out;
 
   const ph = lids.map(() => '?').join(', ');
+  const phStages = stages.map(() => '?').join(', ');
   const rows = await query(
     `
     SELECT
@@ -4288,7 +4472,7 @@ async function fetchHallFinalMatchesByLeagueStage(competitionId, leagueIds) {
     LEFT JOIN teams ht ON ht.id = m.home_team_id
     LEFT JOIN teams at ON at.id = m.away_team_id
     WHERE m.competition_id = ?
-      AND NULLIF(to_jsonb(m)->>'match_stage_id','')::int IN (?, ?)
+      AND NULLIF(to_jsonb(m)->>'match_stage_id','')::int IN (${phStages})
       AND (
         m.league_id IN (${ph})
         OR (
@@ -4299,14 +4483,14 @@ async function fetchHallFinalMatchesByLeagueStage(competitionId, leagueIds) {
       )
     ORDER BY canon_league_id ASC, stage_id ASC, m.kickoff_at DESC NULLS LAST, m.id DESC
     `,
-    [compId, HALL_CAMPIONATO_FINAL_STAGE_ID, HALL_WINE_TROPHY_STAGE_ID, ...lids, ...lids, ...lids]
+    [compId, ...stages, ...lids, ...lids, ...lids]
   );
 
   const grouped = new Map();
   for (const row of rows || []) {
     const lid = Number(row.canon_league_id);
     const sid = Number(row.stage_id);
-    if (!lids.includes(lid) || (sid !== HALL_CAMPIONATO_FINAL_STAGE_ID && sid !== HALL_WINE_TROPHY_STAGE_ID)) continue;
+    if (!lids.includes(lid) || !stageSet.has(sid)) continue;
     const key = `${lid}:${sid}`;
     if (!grouped.has(key)) grouped.set(key, []);
     grouped.get(key).push(row);
@@ -4527,7 +4711,7 @@ const ABSOLUTE_GROUP_STATS_CACHE = new Map();
 const ABSOLUTE_GROUP_STATS_TTL_MS = 10 * 60 * 1000;
 
 function absoluteGroupStatsCacheKey(compId, mode) {
-  return `${compId}:${mode}`;
+  return `${compId}:${mode}:v3`;
 }
 
 function resolveAbsoluteStatsMode(options = {}) {
@@ -4542,7 +4726,7 @@ async function computeOfficialGroupSeasonStats(competitionId, targetLeagueIds, i
   const compId = Number(competitionId);
   const leagueIds = [...new Set((targetLeagueIds || []).map(Number).filter((id) => Number.isFinite(id) && id > 0))];
   if (!leagueIds.length) {
-    return { scorers: [], assistmen: [], presences: [], yellow_cards: [], red_cards: [] };
+    return emptyOfficialGroupSeasonStats();
   }
 
   if (isAbsoluteMode && leagueIds.length > 1) {
@@ -4554,24 +4738,42 @@ async function computeOfficialGroupSeasonStats(competitionId, targetLeagueIds, i
       return cached.data;
     }
 
+    const editionPromise = scorersOnly
+      ? Promise.resolve([])
+      : fetchOfficialGroupEditionWinLeaderboard(compId, leagueIds).catch(() => []);
+    const phLeagueIds = leagueIds.map(() => '?').join(', ');
+    const allTeamsPromise = scorersOnly
+      ? Promise.resolve([])
+      : query(
+        `SELECT id, league_id, name FROM teams WHERE league_id IN (${phLeagueIds}) ORDER BY id ASC`,
+        leagueIds
+      ).catch(() => []);
+
     const poolSize = Math.min(6, Math.max(3, leagueIds.length));
-    const parts = await mapInPool(leagueIds, poolSize, async (lid) => {
-      const [goalsPart, presences] = await Promise.all([
-        computeOfficialGroupSeasonStatsCore(compId, [lid], false, {
-          keepPlayerIds: true,
-          skipPresences: true,
-          scorersOnly,
-        }),
-        fetchOfficialGroupPresencesForLeague(lid),
-      ]);
-      return {
-        scorers: goalsPart.scorers,
-        assistmen: scorersOnly ? [] : goalsPart.assistmen,
-        yellow_cards: scorersOnly ? [] : goalsPart.yellow_cards,
-        red_cards: scorersOnly ? [] : goalsPart.red_cards,
-        presences,
-      };
-    });
+    const [parts, allSeasonTeams] = await Promise.all([
+      mapInPool(leagueIds, poolSize, async (lid) => {
+        const [goalsPart, votePart] = await Promise.all([
+          computeOfficialGroupSeasonStatsCore(compId, [lid], false, {
+            keepPlayerIds: true,
+            skipPresences: true,
+            skipMatchWins: true,
+            scorersOnly,
+          }),
+          fetchOfficialGroupVoteLeaderboardsForLeague(lid),
+        ]);
+        return {
+          scorers: goalsPart.scorers,
+          assistmen: scorersOnly ? [] : goalsPart.assistmen,
+          yellow_cards: scorersOnly ? [] : goalsPart.yellow_cards,
+          red_cards: scorersOnly ? [] : goalsPart.red_cards,
+          penalty_goals: scorersOnly ? [] : goalsPart.penalty_goals,
+          winning_pairs: scorersOnly ? [] : (Array.isArray(goalsPart.winning_pairs) ? goalsPart.winning_pairs : []),
+          presences: votePart.presences,
+          penalty_saved: scorersOnly ? [] : votePart.penalty_saved,
+        };
+      }),
+      allTeamsPromise,
+    ]);
     const scorersRaw = parts.flatMap((p) => (Array.isArray(p.scorers) ? p.scorers : []));
     const presRaw = parts.flatMap((p) => (Array.isArray(p.presences) ? p.presences : []));
     const scorers = await mergeAbsoluteStatsByCluster(scorersRaw, compId);
@@ -4579,15 +4781,47 @@ async function computeOfficialGroupSeasonStats(competitionId, targetLeagueIds, i
 
     let result;
     if (scorersOnly) {
-      result = { scorers, assistmen: [], presences, yellow_cards: [], red_cards: [] };
+      result = {
+        ...emptyOfficialGroupSeasonStats(),
+        scorers,
+        presences,
+      };
     } else {
       const assistRaw = parts.flatMap((p) => (Array.isArray(p.assistmen) ? p.assistmen : []));
       const yellowRaw = parts.flatMap((p) => (Array.isArray(p.yellow_cards) ? p.yellow_cards : []));
       const redRaw = parts.flatMap((p) => (Array.isArray(p.red_cards) ? p.red_cards : []));
-      const assistmen = await mergeAbsoluteStatsByCluster(assistRaw, compId);
-      const yellow_cards = await mergeAbsoluteStatsByCluster(yellowRaw, compId);
-      const red_cards = await mergeAbsoluteStatsByCluster(redRaw, compId);
-      result = { scorers, assistmen, presences, yellow_cards, red_cards };
+      const penaltyGoalsRaw = parts.flatMap((p) => (Array.isArray(p.penalty_goals) ? p.penalty_goals : []));
+      const penaltySavedRaw = parts.flatMap((p) => (Array.isArray(p.penalty_saved) ? p.penalty_saved : []));
+      const winningPairs = parts.flatMap((p) => (Array.isArray(p.winning_pairs) ? p.winning_pairs : []));
+      const matchWinsRawPromise = fetchOfficialGroupMatchWinLeaderboard(winningPairs, allSeasonTeams).catch(() => []);
+      const [
+        assistmen,
+        yellow_cards,
+        red_cards,
+        penalty_goals,
+        penalty_saved,
+        match_wins,
+        edition_wins,
+      ] = await Promise.all([
+        mergeAbsoluteStatsByCluster(assistRaw, compId),
+        mergeAbsoluteStatsByCluster(yellowRaw, compId),
+        mergeAbsoluteStatsByCluster(redRaw, compId),
+        mergeAbsoluteStatsByCluster(penaltyGoalsRaw, compId),
+        mergeAbsoluteStatsByCluster(penaltySavedRaw, compId),
+        matchWinsRawPromise.then((rows) => mergeAbsoluteStatsByCluster(rows, compId)),
+        mergeAbsoluteStatsByCluster(await editionPromise, compId),
+      ]);
+      result = {
+        scorers,
+        assistmen,
+        presences,
+        yellow_cards,
+        red_cards,
+        penalty_goals,
+        penalty_saved,
+        match_wins,
+        edition_wins,
+      };
     }
 
     ABSOLUTE_GROUP_STATS_CACHE.set(cacheKey, {
@@ -4597,18 +4831,25 @@ async function computeOfficialGroupSeasonStats(competitionId, targetLeagueIds, i
     return result;
   }
 
-  return computeOfficialGroupSeasonStatsCore(compId, leagueIds, isAbsoluteMode, { keepPlayerIds: true });
+  const [core, editionWins] = await Promise.all([
+    computeOfficialGroupSeasonStatsCore(compId, leagueIds, isAbsoluteMode, { keepPlayerIds: true }),
+    fetchOfficialGroupEditionWinLeaderboard(compId, leagueIds).catch(() => []),
+  ]);
+  const edition_wins = isAbsoluteMode
+    ? await mergeAbsoluteStatsByCluster(editionWins, compId)
+    : await annotateDuplicateLeaderboardPlayerNames(editionWins);
+  return { ...core, edition_wins };
 }
 
 async function computeOfficialGroupSeasonStatsCore(
   competitionId,
   leagueIds,
   isAbsoluteMode,
-  { keepPlayerIds = false, skipPresences = false, scorersOnly = false } = {}
+  { keepPlayerIds = false, skipPresences = false, skipMatchWins = false, scorersOnly = false } = {}
 ) {
   const compId = Number(competitionId);
   if (!leagueIds.length) {
-    return { scorers: [], assistmen: [], presences: [], yellow_cards: [], red_cards: [] };
+    return emptyOfficialGroupSeasonStats();
   }
 
   const phLeagueIds = leagueIds.map(() => '?').join(', ');
@@ -4631,6 +4872,7 @@ async function computeOfficialGroupSeasonStatsCore(
   const seasonTeamIds = Array.from(
     new Set((seasonTeamRows || []).map((r) => Number(r.id)).filter((id) => Number.isFinite(id) && id > 0))
   );
+  const seasonTeamIdSet = new Set(seasonTeamIds);
   const teamNameMap = new Map(
     (seasonTeamRows || []).map((r) => [Number(r.id), String(r.name || '').trim()]).filter(([id, name]) => id > 0 && name)
   );
@@ -4638,16 +4880,23 @@ async function computeOfficialGroupSeasonStatsCore(
     (seasonTeamRows || []).map((r) => [Number(r.id), Number(r.league_id)]).filter(([id, lid]) => id > 0 && Number.isFinite(lid) && lid > 0)
   );
   if (!seasonTeamIds.length) {
-    return { scorers: [], assistmen: [], presences: [], yellow_cards: [], red_cards: [] };
+    return emptyOfficialGroupSeasonStats();
   }
 
-  const presencesPromise = skipPresences
-    ? Promise.resolve([])
-    : fetchOfficialTeamPresencesWithVoteRanking(seasonTeamRows, {
-      isAbsoluteMode: isAbsoluteMode && !keepPlayerIds,
-      competitionId: compId,
-      keepPlayerIds,
-    }).catch(() => []);
+  const voteAggPromise = skipPresences
+    ? Promise.resolve({ presences: [], penalty_saved: [] })
+    : fetchOfficialGroupVoteLeaderboards(seasonTeamRows)
+      .then(async (boards) => {
+        if (isAbsoluteMode && !keepPlayerIds) {
+          const [presences, penalty_saved] = await Promise.all([
+            mergeAbsolutePresencesByCluster(boards.presences, compId),
+            mergeAbsoluteStatsByCluster(boards.penalty_saved, compId),
+          ]);
+          return { presences, penalty_saved };
+        }
+        return boards;
+      })
+      .catch(() => ({ presences: [], penalty_saved: [] }));
 
   const matchIds = (seasonMatches || []).map((m) => Number(m.id)).filter((n) => Number.isFinite(n) && n > 0);
   const seasonEndedMatchIds = await fetchMatchEndedIds(matchIds);
@@ -4705,6 +4954,8 @@ async function computeOfficialGroupSeasonStatsCore(
   const assistsMap = new Map();
   const yellowCardsMap = new Map();
   const redCardsMap = new Map();
+  const penaltyGoalsMap = new Map();
+  const winningPairs = [];
   let orphanLeaderboardSeq = 0;
 
   const bumpLeaderboard = (map, key, name, teamName, playerId = null) => {
@@ -4741,12 +4992,36 @@ async function computeOfficialGroupSeasonStatsCore(
 
   for (const m of seasonMatches || []) {
     const events = evByMatch.get(Number(m.id)) || [];
+    const tallied = tallyOfficialMatchEventScores(events, m.home_team_id, m.away_team_id);
     const resolvedSeason = resolveOfficialMatchResultForStandings(
       m,
-      { has: events.some((e) => isRegularGoalEventType(e.event_type) || e.event_type === 'own_goal'), home: 0, away: 0 },
+      { has: tallied.hasGoalEvents, home: tallied.homeGoals, away: tallied.awayGoals },
       seasonEndedMatchIds.has(Number(m.id))
     );
     if (!resolvedSeason.counted) continue;
+
+    if (!scorersOnly) {
+      let hs = resolvedSeason.home;
+      let as = resolvedSeason.away;
+      if (hs == null && (tallied.hasRigEvents || tallied.hasPreEvents)) hs = 0;
+      if (as == null && (tallied.hasRigEvents || tallied.hasPreEvents)) as = 0;
+      if (Number.isFinite(hs) && Number.isFinite(as)) {
+        const outcome = resolveOfficialMatchOutcome({
+          regHome: hs,
+          regAway: as,
+          preHome: tallied.homePreShootout,
+          preAway: tallied.awayPreShootout,
+          rigHome: tallied.homeRig,
+          rigAway: tallied.awayRig,
+          hasRig: tallied.hasRigEvents,
+        });
+        if (outcome.home > outcome.away) {
+          winningPairs.push({ matchId: Number(m.id), teamId: Number(m.home_team_id) });
+        } else if (outcome.away > outcome.home) {
+          winningPairs.push({ matchId: Number(m.id), teamId: Number(m.away_team_id) });
+        }
+      }
+    }
 
     for (const e of events) {
       const payload = safeJsonParse(e.payload_json) || {};
@@ -4758,8 +5033,8 @@ async function computeOfficialGroupSeasonStatsCore(
             (Number.isFinite(pid) && pid > 0 ? String(playerNameMap.get(pid) || '').trim() : '') ||
             String(payload?.player_name || '').trim();
           const cardOnLeagueTeam =
-            (Number.isFinite(pid) && pid > 0 && seasonTeamIds.includes(Number(playerTeamMap.get(pid)))) ||
-            seasonTeamIds.includes(Number(e.team_id) || Number(payload?.team_id));
+            (Number.isFinite(pid) && pid > 0 && seasonTeamIdSet.has(Number(playerTeamMap.get(pid)))) ||
+            seasonTeamIdSet.has(Number(e.team_id) || Number(payload?.team_id));
           if (cardOnLeagueTeam && pn) {
             const cardTeamId =
               Number.isFinite(pid) && pid > 0 ? playerTeamMap.get(pid) : Number(e.team_id) || Number(payload?.team_id);
@@ -4783,8 +5058,8 @@ async function computeOfficialGroupSeasonStatsCore(
         (Number.isFinite(pid) && pid > 0 ? String(playerNameMap.get(pid) || '').trim() : '') ||
         String(payload?.player_name || '').trim();
       const scorerOnLeagueTeam =
-        (Number.isFinite(pid) && pid > 0 && seasonTeamIds.includes(Number(playerTeamMap.get(pid)))) ||
-        seasonTeamIds.includes(Number(e.team_id) || Number(payload?.team_id));
+        (Number.isFinite(pid) && pid > 0 && seasonTeamIdSet.has(Number(playerTeamMap.get(pid)))) ||
+        seasonTeamIdSet.has(Number(e.team_id) || Number(payload?.team_id));
       if (scorerOnLeagueTeam && pn) {
         const scorerTeamId =
           Number.isFinite(pid) && pid > 0 ? playerTeamMap.get(pid) : Number(e.team_id) || Number(payload?.team_id);
@@ -4795,14 +5070,23 @@ async function computeOfficialGroupSeasonStatsCore(
           resolveTeamName(scorerTeamId),
           pid
         );
+        if (!scorersOnly && e.event_type === 'penalty_goal') {
+          bumpLeaderboard(
+            penaltyGoalsMap,
+            leaderboardKey(pid, pn, scorerTeamId),
+            pn,
+            resolveTeamName(scorerTeamId),
+            pid
+          );
+        }
       }
       if (!scorersOnly) {
         const an =
           (Number.isFinite(aid) && aid > 0 ? String(playerNameMap.get(aid) || '').trim() : '') ||
           String(payload?.assist_player_name || payload?.assist_name || '').trim();
         const assistOnLeagueTeam =
-          (Number.isFinite(aid) && aid > 0 && seasonTeamIds.includes(Number(playerTeamMap.get(aid)))) ||
-          seasonTeamIds.includes(Number(e.team_id) || Number(payload?.team_id));
+          (Number.isFinite(aid) && aid > 0 && seasonTeamIdSet.has(Number(playerTeamMap.get(aid)))) ||
+          seasonTeamIdSet.has(Number(e.team_id) || Number(payload?.team_id));
         if (assistOnLeagueTeam && an) {
           const assistTeamId =
             Number.isFinite(aid) && aid > 0 ? playerTeamMap.get(aid) : Number(e.team_id) || Number(payload?.team_id);
@@ -4837,20 +5121,32 @@ async function computeOfficialGroupSeasonStatsCore(
       })
       .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name, 'it'));
 
-  const presences = await presencesPromise;
-  const [scorers, assistmen, yellow_cards, red_cards, presenceRows] = await Promise.all([
-    annotateDuplicateLeaderboardPlayerNames(listFromMap(scorersMap)),
-    annotateDuplicateLeaderboardPlayerNames(listFromMap(assistsMap)),
-    annotateDuplicateLeaderboardPlayerNames(listFromMap(yellowCardsMap)),
-    annotateDuplicateLeaderboardPlayerNames(listFromMap(redCardsMap)),
-    annotateDuplicateLeaderboardPlayerNames(Array.isArray(presences) ? presences : []),
-  ]);
+  const matchWinsPromise = (scorersOnly || skipMatchWins)
+    ? Promise.resolve([])
+    : fetchOfficialGroupMatchWinLeaderboard(winningPairs, seasonTeamRows).catch(() => []);
+  const [voteAgg, matchWinsRaw] = await Promise.all([voteAggPromise, matchWinsPromise]);
+  const [scorers, assistmen, yellow_cards, red_cards, presenceRows, penalty_goals, penalty_saved, match_wins] =
+    await Promise.all([
+      annotateDuplicateLeaderboardPlayerNames(listFromMap(scorersMap)),
+      annotateDuplicateLeaderboardPlayerNames(listFromMap(assistsMap)),
+      annotateDuplicateLeaderboardPlayerNames(listFromMap(yellowCardsMap)),
+      annotateDuplicateLeaderboardPlayerNames(listFromMap(redCardsMap)),
+      annotateDuplicateLeaderboardPlayerNames(Array.isArray(voteAgg?.presences) ? voteAgg.presences : []),
+      annotateDuplicateLeaderboardPlayerNames(listFromMap(penaltyGoalsMap)),
+      annotateDuplicateLeaderboardPlayerNames(Array.isArray(voteAgg?.penalty_saved) ? voteAgg.penalty_saved : []),
+      annotateDuplicateLeaderboardPlayerNames(Array.isArray(matchWinsRaw) ? matchWinsRaw : []),
+    ]);
   return {
     scorers,
     assistmen,
     presences: presenceRows,
     yellow_cards,
     red_cards,
+    penalty_goals,
+    penalty_saved,
+    match_wins,
+    edition_wins: [],
+    ...(skipMatchWins && !scorersOnly ? { winning_pairs: winningPairs } : {}),
   };
 }
 
@@ -5316,6 +5612,10 @@ router.get('/matches/groups/:groupId/season-stats', authenticateToken, async (re
       presences: stats.presences,
       yellow_cards: stats.yellow_cards,
       red_cards: stats.red_cards,
+      penalty_goals: stats.penalty_goals,
+      penalty_saved: stats.penalty_saved,
+      match_wins: stats.match_wins,
+      edition_wins: stats.edition_wins,
     });
   } catch (err) {
     if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
