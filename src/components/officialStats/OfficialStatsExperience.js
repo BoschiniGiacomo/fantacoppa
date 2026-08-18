@@ -742,29 +742,26 @@ function PlayedPitchHero({ value, delay = 0 }) {
   );
 }
 
-function KpiTile({ icon, pack, color, bg, value, hint, delay, bonusType, valueColor }) {
+function GoalsKpiCell({ bonusType, icon, pack, color, value, label, valueColor, showDivider }) {
   return (
-    <Animated.View
-      entering={FadeInDown.delay(delay).duration(280)}
-      style={[styles.kpiTile, { backgroundColor: bg }]}
-    >
-      <View style={[styles.kpiIcon, { backgroundColor: '#fff' }]}>
-        {bonusType ? (
-          <BonusIcon type={bonusType} size={17} />
-        ) : (
-          <IconGlyph pack={pack} name={icon} size={15} color={color} />
-        )}
+    <View style={[styles.goalsKpiCell, showDivider && styles.goalsKpiCellDivider]}>
+      <View style={styles.goalsKpiHead}>
+        <View style={styles.goalsKpiBadge}>
+          {bonusType ? (
+            <BonusIcon type={bonusType} size={16} />
+          ) : (
+            <IconGlyph pack={pack} name={icon} size={15} color={color} />
+          )}
+        </View>
+        <Text style={styles.goalsKpiLabel} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>{label}</Text>
       </View>
-      <View style={styles.kpiBody}>
-        <Text
-          style={[styles.kpiValue, valueColor ? { color: valueColor } : null]}
-          numberOfLines={1}
-        >
-          {value}
-        </Text>
-        {hint ? <Text style={styles.kpiHint} numberOfLines={1}>{hint}</Text> : null}
-      </View>
-    </Animated.View>
+      <Text
+        style={[styles.goalsKpiValue, valueColor ? { color: valueColor } : null]}
+        numberOfLines={1}
+      >
+        {value}
+      </Text>
+    </View>
   );
 }
 
@@ -849,33 +846,27 @@ function TeamGeneral({ general, outcomes, onPressMatch }) {
     <View>
       <View style={styles.kpiStack}>
         <PlayedPitchHero value={played} delay={0} />
-        <View style={styles.kpiGoalsRow}>
-          <KpiTile
+        <Animated.View entering={FadeInDown.delay(40).duration(280)} style={styles.goalsKpiPanel}>
+          <GoalsKpiCell
             bonusType="goal"
-            color="#15803d"
-            bg="#ecfdf3"
             value={String(gf)}
-            hint="Gol fatti"
-            delay={40}
+            label="Gol fatti"
+            showDivider
           />
-          <KpiTile
+          <GoalsKpiCell
             bonusType="goals_conceded"
-            color="#b91c1c"
-            bg="#fef2f2"
             value={String(ga)}
-            hint="Gol subiti"
-            delay={80}
+            label="Gol subiti"
+            showDivider
           />
-          <KpiTile
+          <GoalsKpiCell
             icon="swap-vertical"
             color={diffColor}
-            bg="#f0fdfa"
             value={`${diff >= 0 ? '+' : ''}${diff}`}
             valueColor={diffColor}
-            hint="Differenza"
-            delay={120}
+            label="Differenza"
           />
-        </View>
+        </Animated.View>
       </View>
 
       <View style={styles.miniRow}>
@@ -1357,7 +1348,63 @@ const styles = StyleSheet.create({
   hlScore: { fontSize: 20, fontWeight: '800', color: '#111827', letterSpacing: -0.4 },
   hlScoreSub: { fontSize: 10, fontWeight: '800', marginTop: 1 },
   kpiStack: { gap: 8 },
-  kpiGoalsRow: { flexDirection: 'row', gap: 8 },
+  goalsKpiPanel: {
+    flexDirection: 'row',
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#e8edf3',
+    overflow: 'hidden',
+    minHeight: 84,
+  },
+  goalsKpiCell: {
+    flex: 1,
+    minWidth: 0,
+    paddingHorizontal: 8,
+    paddingVertical: 14,
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 10,
+  },
+  goalsKpiCellDivider: {
+    borderRightWidth: StyleSheet.hairlineWidth,
+    borderRightColor: '#e2e8f0',
+  },
+  goalsKpiHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    width: '100%',
+  },
+  goalsKpiBadge: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#eef2f7',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'visible',
+    flexShrink: 0,
+  },
+  goalsKpiLabel: {
+    flexShrink: 1,
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#475569',
+    lineHeight: 14,
+  },
+  goalsKpiValue: {
+    fontSize: 28,
+    fontWeight: '800',
+    color: '#0f172a',
+    letterSpacing: -0.8,
+    lineHeight: 32,
+    textAlign: 'center',
+    width: '100%',
+  },
   pitchHero: {
     borderRadius: 16,
     backgroundColor: '#14532d',
@@ -1403,26 +1450,6 @@ const styles = StyleSheet.create({
     letterSpacing: -1,
     lineHeight: 44,
   },
-  kpiTile: {
-    flex: 1,
-    minWidth: 0,
-    borderRadius: 14,
-    paddingHorizontal: 8,
-    paddingVertical: 12,
-    alignItems: 'center',
-  },
-  kpiIcon: {
-    width: 28,
-    height: 28,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 8,
-    overflow: 'visible',
-  },
-  kpiBody: { minWidth: 0, alignItems: 'center' },
-  kpiValue: { fontSize: 20, fontWeight: '800', color: '#0f172a', letterSpacing: -0.4, textAlign: 'center' },
-  kpiHint: { marginTop: 2, fontSize: 10, fontWeight: '800', color: '#64748b', textTransform: 'uppercase', textAlign: 'center' },
   miniRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
