@@ -408,7 +408,6 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
 
   useEffect(() => {
     if (activeTab !== 'season') return;
-    setSeasonPickerOpen(false);
     void loadSeasonStandings();
   }, [activeTab, loadSeasonStandings]);
 

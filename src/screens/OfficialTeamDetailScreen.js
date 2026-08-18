@@ -457,7 +457,6 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
 
   useEffect(() => {
     if (activeTab !== 'season') return;
-    setSeasonPickerOpen(false);
     void loadSeasonStandings();
   }, [activeTab, loadSeasonStandings]);
 
@@ -520,7 +519,6 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
     ) {
       return;
     }
-    setTeamPickerOpen(false);
     void loadTeamSeasonSquad();
   }, [activeTab, loadTeamSeasonSquad, teamId, competitionId, route?.params?.initialTab, route?.params?.initialSeasonYear]);
 
