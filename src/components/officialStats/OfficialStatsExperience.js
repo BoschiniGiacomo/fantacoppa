@@ -166,13 +166,15 @@ function RankBadge({ rank }) {
 
 const PERIOD_MENU_MAX_HEIGHT = 220;
 
-function PeriodSelector({ years, selectedYear, onSelectYear }) {
+function PeriodSelector({ years, selectedYear, onSelectYear, showAbsolute = true, style }) {
   const [open, setOpen] = useState(false);
   const [menuLayout, setMenuLayout] = useState(null);
   const anchorRef = useRef(null);
   const yearList = Array.isArray(years) ? years : [];
-  const isAbsolute = selectedYear === ABSOLUTE_STATS_KEY;
-  const selectedYearLabel = !isAbsolute && selectedYear != null ? String(selectedYear) : String(yearList[0] || 'Anno');
+  const isAbsolute = showAbsolute && selectedYear === ABSOLUTE_STATS_KEY;
+  const selectedYearLabel = !isAbsolute && selectedYear != null
+    ? String(selectedYear)
+    : (showAbsolute ? String(yearList[0] || 'Anno') : 'Seleziona anno');
 
   useEffect(() => {
     setOpen(false);
@@ -206,16 +208,20 @@ function PeriodSelector({ years, selectedYear, onSelectYear }) {
   };
 
   return (
-    <View ref={anchorRef} style={styles.periodWrap} collapsable={false}>
+    <View ref={anchorRef} style={[styles.periodWrap, style]} collapsable={false}>
       <View style={styles.periodControl}>
-        <TouchableOpacity
-          style={[styles.periodSeg, isAbsolute && styles.periodSegActive]}
-          onPress={() => onSelectYear?.(ABSOLUTE_STATS_KEY)}
-          activeOpacity={0.8}
-        >
-          <Text style={[styles.periodSegText, isAbsolute && styles.periodSegTextActive]}>Assolute</Text>
-        </TouchableOpacity>
-        <View style={styles.periodDivider} />
+        {showAbsolute ? (
+          <>
+            <TouchableOpacity
+              style={[styles.periodSeg, isAbsolute && styles.periodSegActive]}
+              onPress={() => onSelectYear?.(ABSOLUTE_STATS_KEY)}
+              activeOpacity={0.8}
+            >
+              <Text style={[styles.periodSegText, isAbsolute && styles.periodSegTextActive]}>Assolute</Text>
+            </TouchableOpacity>
+            <View style={styles.periodDivider} />
+          </>
+        ) : null}
         <TouchableOpacity
           style={[styles.periodSeg, styles.periodSegYear, !isAbsolute && styles.periodSegActive]}
           onPress={openYearMenu}
@@ -289,6 +295,8 @@ function PeriodSelector({ years, selectedYear, onSelectYear }) {
     </View>
   );
 }
+
+export { PeriodSelector as StatsPeriodSelector };
 
 function StatsSearchBar({ value, onChange, placeholder }) {
   return (

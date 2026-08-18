@@ -4,8 +4,6 @@ import {
   Animated,
   BackHandler,
   Image,
-  Modal,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -35,6 +33,7 @@ import OfficialStatsExperience, {
   ABSOLUTE_STATS_KEY,
   TEAM_STATS_BOARDS,
   mapOfficialStatsBoards,
+  StatsPeriodSelector,
 } from '../components/officialStats/OfficialStatsExperience';
 
 function TeamLogo({ logoUrl, logoPath, style, fallbackStyle, fallbackIconSize = 56 }) {
@@ -49,8 +48,6 @@ function TeamLogo({ logoUrl, logoPath, style, fallbackStyle, fallbackIconSize = 
   );
 }
 
-const SEASON_YEAR_PICKER_MAX_HEIGHT = 180;
-
 const OFFICIAL_TEAM_TABS = ['matches', 'season', 'stats', 'team', 'trophies'];
 
 function resolveRouteInitialTab(params) {
@@ -61,74 +58,6 @@ function resolveRouteInitialTab(params) {
 function resolveRouteInitialSeasonYear(params) {
   const year = Number(params?.initialSeasonYear);
   return Number.isFinite(year) && year > 0 ? Math.trunc(year) : null;
-}
-
-function SeasonYearPickerMenu({ open, onClose, anchorRef, options, onSelectOption }) {
-  const [layout, setLayout] = useState(null);
-
-  useEffect(() => {
-    if (!open) {
-      setLayout(null);
-      return undefined;
-    }
-    let cancelled = false;
-    const measureAnchor = () => {
-      if (!anchorRef?.current) return;
-      anchorRef.current.measureInWindow((x, y, width, height) => {
-        if (cancelled) return;
-        setLayout({
-          left: x,
-          top: y + height + 2,
-          width: Math.max(width, 120),
-        });
-      });
-    };
-    measureAnchor();
-    const retryTimer = setTimeout(measureAnchor, 64);
-    return () => {
-      cancelled = true;
-      clearTimeout(retryTimer);
-    };
-  }, [open, anchorRef, options.length]);
-
-  if (!open || !layout) return null;
-
-  return (
-    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
-      <View style={styles.seasonPickerModalRoot}>
-        <Pressable style={styles.seasonPickerModalBackdrop} onPress={onClose} accessibilityRole="button" accessibilityLabel="Chiudi selezione anno" />
-        <View
-          style={[
-            styles.seasonPickerDropdownModal,
-            { top: layout.top, left: layout.left, width: layout.width },
-          ]}
-        >
-          <ScrollView
-            style={styles.seasonPickerDropdownScroll}
-            contentContainerStyle={styles.seasonPickerDropdownScrollContent}
-            showsVerticalScrollIndicator
-            keyboardShouldPersistTaps="handled"
-            bounces={false}
-            overScrollMode="always"
-            nestedScrollEnabled
-          >
-            {options.map((item) => (
-              <TouchableOpacity
-                key={item.key}
-                style={[styles.seasonPickerItem, item.active && styles.seasonPickerItemActive]}
-                onPress={() => onSelectOption(item)}
-                activeOpacity={0.8}
-              >
-                <Text style={[styles.seasonPickerItemText, item.active && styles.seasonPickerItemTextActive]}>
-                  {item.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
-      </View>
-    </Modal>
-  );
 }
 
 function formatFavoriteCount(raw) {
@@ -363,7 +292,6 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
   const [seasonStandings, setSeasonStandings] = useState([]);
   const [seasonStandingsGroups, setSeasonStandingsGroups] = useState(null);
   const [seasonKnockout, setSeasonKnockout] = useState(EMPTY_OFFICIAL_KNOCKOUT);
-  const [seasonPickerOpen, setSeasonPickerOpen] = useState(false);
   const [teamSeasonLoading, setTeamSeasonLoading] = useState(false);
   const [teamSeasonYears, setTeamSeasonYears] = useState([]);
   const [selectedTeamSeasonYear, setSelectedTeamSeasonYear] = useState(null);
@@ -371,7 +299,6 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
   const [teamSeasonJerseyColor, setTeamSeasonJerseyColor] = useState(DEFAULT_JERSEY_COLOR);
   const [teamSeasonLeagueId, setTeamSeasonLeagueId] = useState(null);
   const [statsSeasonLeagueId, setStatsSeasonLeagueId] = useState(null);
-  const [teamPickerOpen, setTeamPickerOpen] = useState(false);
   const [statsLoading, setStatsLoading] = useState(false);
   const [statsYears, setStatsYears] = useState([]);
   const [selectedStatsYear, setSelectedStatsYear] = useState(ABSOLUTE_STATS_KEY);
@@ -448,8 +375,6 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
   const selectedTeamSeasonYearRef = useRef(null);
   const selectedStatsYearRef = useRef(ABSOLUTE_STATS_KEY);
   const appliedInitialRouteKeyRef = useRef('');
-  const seasonPickerAnchorRef = useRef(null);
-  const teamPickerAnchorRef = useRef(null);
 
   const load = useCallback(async (showLoading = false) => {
     if (!teamId || !competitionId) {
@@ -810,16 +735,6 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
     });
     return list;
   }, [outcomesOpponents, outcomesOpponentsSort]);
-  const seasonYearOptions = useMemo(
-    () =>
-      (Array.isArray(seasonYears) ? seasonYears : []).map((y) => ({
-        key: `season-year-${y}`,
-        label: String(y),
-        value: Number(y),
-        active: Number(selectedSeasonYear) === Number(y),
-      })),
-    [seasonYears, selectedSeasonYear]
-  );
   const statsBoards = useMemo(
     () => mapOfficialStatsBoards(TEAM_STATS_BOARDS, {
       scorers: statsScorers,
@@ -839,16 +754,6 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
       statsMatchWins,
       statsEditionWins,
     ]
-  );
-  const teamYearOptions = useMemo(
-    () =>
-      (Array.isArray(teamSeasonYears) ? teamSeasonYears : []).map((y) => ({
-        key: `team-season-year-${y}`,
-        label: String(y),
-        value: Number(y),
-        active: Number(selectedTeamSeasonYear) === Number(y),
-      })),
-    [teamSeasonYears, selectedTeamSeasonYear]
   );
   const lastStartedIndex = useMemo(() => {
     if (!Array.isArray(teamMatches) || teamMatches.length === 0) return -1;
@@ -1448,30 +1353,17 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
           >
             <HeroListSpacer height={overlayPad} />
             <View style={[styles.card, styles.seasonCard]}>
-              <View ref={seasonPickerAnchorRef} style={styles.seasonPickerWrap} collapsable={false}>
-              <TouchableOpacity
-                style={styles.seasonPickerBtn}
-                onPress={() => setSeasonPickerOpen((v) => !v)}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.seasonPickerBtnText}>
-                  {selectedSeasonYear != null ? String(selectedSeasonYear) : 'Seleziona anno'}
-                </Text>
-                <Ionicons name={seasonPickerOpen ? 'chevron-up' : 'chevron-down'} size={16} color="#475569" />
-              </TouchableOpacity>
-              <SeasonYearPickerMenu
-                open={seasonPickerOpen}
-                onClose={() => setSeasonPickerOpen(false)}
-                anchorRef={seasonPickerAnchorRef}
-                options={seasonYearOptions}
-                onSelectOption={(item) => {
-                  setSeasonPickerOpen(false);
-                  setSelectedSeasonYear(item.value);
-                  selectedSeasonYearRef.current = item.value;
-                  void loadSeasonStandings(item.value);
+              <StatsPeriodSelector
+                years={seasonYears}
+                selectedYear={selectedSeasonYear}
+                showAbsolute={false}
+                style={styles.seasonPickerWrap}
+                onSelectYear={(year) => {
+                  setSelectedSeasonYear(year);
+                  selectedSeasonYearRef.current = year;
+                  void loadSeasonStandings(year);
                 }}
               />
-            </View>
             {seasonLoading ? (
               <View style={styles.matchesLoadingBox}>
                 <ActivityIndicator color="#667eea" />
@@ -1771,30 +1663,17 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
               {...tabScrollHeroProps}
             >
               <HeroListSpacer height={overlayPad} />
-              <View ref={teamPickerAnchorRef} style={styles.seasonPickerWrap} collapsable={false}>
-              <TouchableOpacity
-                style={styles.seasonPickerBtn}
-                onPress={() => setTeamPickerOpen((v) => !v)}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.seasonPickerBtnText}>
-                  {selectedTeamSeasonYear != null ? String(selectedTeamSeasonYear) : 'Seleziona anno'}
-                </Text>
-                <Ionicons name={teamPickerOpen ? 'chevron-up' : 'chevron-down'} size={16} color="#475569" />
-              </TouchableOpacity>
-              <SeasonYearPickerMenu
-                open={teamPickerOpen}
-                onClose={() => setTeamPickerOpen(false)}
-                anchorRef={teamPickerAnchorRef}
-                options={teamYearOptions}
-                onSelectOption={(item) => {
-                  setTeamPickerOpen(false);
-                  setSelectedTeamSeasonYear(item.value);
-                  selectedTeamSeasonYearRef.current = item.value;
-                  void loadTeamSeasonSquad(item.value);
+              <StatsPeriodSelector
+                years={teamSeasonYears}
+                selectedYear={selectedTeamSeasonYear}
+                showAbsolute={false}
+                style={styles.seasonPickerWrap}
+                onSelectYear={(year) => {
+                  setSelectedTeamSeasonYear(year);
+                  selectedTeamSeasonYearRef.current = year;
+                  void loadTeamSeasonSquad(year);
                 }}
               />
-            </View>
 
             {teamSeasonLoading ? (
               <View style={styles.matchesLoadingBox}>
@@ -2103,63 +1982,7 @@ const styles = StyleSheet.create({
   matchMetaTextWrap: { minWidth: 92, alignItems: 'center', justifyContent: 'center' },
   matchMetaText: { fontSize: 12, fontWeight: '700', color: '#475569', textAlign: 'center', lineHeight: 16 },
   matchMetaShootoutText: { marginTop: 4, fontSize: 12, fontWeight: '900', color: '#0f172a', textAlign: 'center', letterSpacing: 0.4 },
-  seasonPickerWrap: {
-    marginBottom: 10,
-    position: 'relative',
-  },
-  seasonPickerBtn: {
-    height: 38,
-    borderWidth: 1,
-    borderColor: '#dbe3ef',
-    borderRadius: 10,
-    backgroundColor: '#fff',
-    paddingHorizontal: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  seasonPickerBtnText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#334155',
-  },
-  seasonPickerModalRoot: {
-    flex: 1,
-  },
-  seasonPickerModalBackdrop: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  seasonPickerDropdownModal: {
-    position: 'absolute',
-    height: SEASON_YEAR_PICKER_MAX_HEIGHT,
-    borderWidth: 1,
-    borderColor: '#dbe3ef',
-    borderRadius: 10,
-    backgroundColor: '#fff',
-    overflow: 'hidden',
-    elevation: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-  },
-  seasonPickerDropdownScroll: {
-    height: SEASON_YEAR_PICKER_MAX_HEIGHT,
-  },
-  seasonPickerDropdownScrollContent: {
-    paddingBottom: 4,
-  },
-  seasonPickerItem: {
-    paddingHorizontal: 8,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
-  },
-  seasonPickerItemActive: {
-    backgroundColor: '#eef2ff',
-  },
-  seasonPickerItemText: { fontSize: 14, fontWeight: '600', color: '#334155' },
-  seasonPickerItemTextActive: { color: '#4f46e5', fontWeight: '700' },
+  seasonPickerWrap: { marginBottom: 10 },
   seasonTableWrap: {
     marginTop: 2,
     borderWidth: 1,
