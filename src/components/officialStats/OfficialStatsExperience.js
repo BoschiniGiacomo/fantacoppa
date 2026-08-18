@@ -511,12 +511,23 @@ function TeaserStrip({ boards, onSelect, showTeamName = true }) {
                 </View>
                 <View style={styles.teaserHero}>
                   <View style={styles.teaserPhotoWrap}>
-                    <PlayerAvatar
-                      photoPath={top.photo_path}
-                      name={playerName}
-                      accent={board.accent}
-                      size={56}
-                    />
+                    {String(top.photo_path || '').trim() ? (
+                      <View style={styles.teaserPhotoBleed} pointerEvents="none">
+                        <PlayerAvatar
+                          photoPath={top.photo_path}
+                          name={playerName}
+                          accent={board.accent}
+                          size={72}
+                        />
+                      </View>
+                    ) : (
+                      <PlayerAvatar
+                        photoPath={top.photo_path}
+                        name={playerName}
+                        accent={board.accent}
+                        size={56}
+                      />
+                    )}
                   </View>
                   <Text style={[styles.teaserValue, { color: board.accent }]}>{value}</Text>
                 </View>
@@ -1091,6 +1102,58 @@ export function mapOfficialStatsBoards(defs, dataByKey) {
   }));
 }
 
+function leaderboardBaseNameKey(name) {
+  return String(name || '')
+    .replace(/\s*\('\d{2}\)\s*$/u, '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+function sharePhotosAcrossBoards(boards) {
+  const list = Array.isArray(boards) ? boards : [];
+  const photoByPlayerId = new Map();
+  const photoByCluster = new Map();
+  const photosByName = new Map();
+  const remember = (row) => {
+    const photo = String(row?.photo_path || '').trim();
+    if (!photo) return;
+    const pid = Number(row.player_id);
+    if (pid > 0) photoByPlayerId.set(pid, photo);
+    const cid = Number(row.cluster_id);
+    if (cid > 0) photoByCluster.set(cid, photo);
+    const nameKey = leaderboardBaseNameKey(row.name);
+    if (!nameKey) return;
+    const seen = photosByName.get(nameKey) || new Set();
+    seen.add(photo);
+    photosByName.set(nameKey, seen);
+  };
+  for (const board of list) {
+    for (const row of Array.isArray(board.items) ? board.items : []) remember(row);
+  }
+  return list.map((board) => {
+    const items = Array.isArray(board.items) ? board.items : [];
+    let changed = false;
+    const nextItems = items.map((row) => {
+      const existing = String(row?.photo_path || '').trim();
+      if (existing) return row;
+      const pid = Number(row.player_id);
+      const cid = Number(row.cluster_id);
+      const namePhotos = photosByName.get(leaderboardBaseNameKey(row.name));
+      const photo =
+        (pid > 0 ? photoByPlayerId.get(pid) : '')
+        || (cid > 0 ? photoByCluster.get(cid) : '')
+        || (namePhotos && namePhotos.size === 1 ? [...namePhotos][0] : '')
+        || '';
+      if (!photo) return row;
+      changed = true;
+      return { ...row, photo_path: photo };
+    });
+    return changed ? { ...board, items: nextItems } : board;
+  });
+}
+
 export default function OfficialStatsExperience({
   loading = false,
   years = [],
@@ -1126,10 +1189,11 @@ export default function OfficialStatsExperience({
 
   const normalizedQuery = normalizeQuery(query);
   const searching = normalizedQuery.length > 0;
-  const activeBoard = boards.find((b) => b.key === selectedBoard) || boards[0];
+  const displayBoards = useMemo(() => sharePhotosAcrossBoards(boards), [boards]);
+  const activeBoard = displayBoards.find((b) => b.key === selectedBoard) || displayBoards[0];
   const searchHits = useMemo(() => {
     if (!searching) return [];
-    return boards
+    return displayBoards
       .map((board) => ({
         board,
         items: (Array.isArray(board.items) ? board.items : []).filter((row) =>
@@ -1137,7 +1201,7 @@ export default function OfficialStatsExperience({
         ),
       }))
       .filter((hit) => hit.items.length > 0);
-  }, [boards, normalizedQuery, searching, searchIncludesTeam]);
+  }, [displayBoards, normalizedQuery, searching, searchIncludesTeam]);
 
   return (
     <View style={styles.root}>
@@ -1154,7 +1218,7 @@ export default function OfficialStatsExperience({
           />
           {!searching ? (
             <CategoryChips
-              boards={boards}
+              boards={displayBoards}
               selectedKey={activeBoard?.key}
               onSelect={(key) => {
                 setSelectedBoard(key);
@@ -1200,7 +1264,7 @@ export default function OfficialStatsExperience({
               />
               {!searching ? (
                 <CategoryChips
-                  boards={boards}
+                  boards={displayBoards}
                   selectedKey={activeBoard?.key}
                   onSelect={(key) => {
                     setSelectedBoard(key);
@@ -1267,7 +1331,7 @@ export default function OfficialStatsExperience({
                   <Text style={styles.playersSectionTitle}>Giocatori</Text>
                 </View>
                 <TeaserStrip
-                  boards={boards}
+                  boards={displayBoards}
                   showTeamName={searchIncludesTeam}
                   onSelect={(key) => {
                     setSelectedBoard(key);
@@ -1694,6 +1758,14 @@ const styles = StyleSheet.create({
   teaserPhotoWrap: {
     width: 56,
     height: 56,
+    overflow: 'visible',
+  },
+  teaserPhotoBleed: {
+    position: 'absolute',
+    width: 72,
+    height: 72,
+    left: -8,
+    top: -8,
   },
   teaserName: { fontSize: 13, fontWeight: '800', color: '#0f172a' },
   teaserTeam: { marginTop: 2, fontSize: 10, fontWeight: '600', color: '#94a3b8' },

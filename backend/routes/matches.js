@@ -1962,11 +1962,14 @@ function annotateDuplicateSearchPlayerNames(players) {
  * Come la ricerca: in una classifica stats, se 2+ righe hanno stesso nome,
  * aggiunge ('98) solo al label. Le righe restano separate (identità = cluster_id/player_id).
  */
-async function attachLeaderboardPlayerPhotos(rows) {
+async function attachLeaderboardPlayerPhotos(rows, officialGroupId = 0) {
   const list = Array.isArray(rows) ? rows : [];
   if (!list.length) return list;
   const ids = [...new Set(list.map((row) => Number(row.player_id)).filter((id) => id > 0))];
-  if (!ids.length) return list;
+  const clusterIds = new Set(
+    list.map((row) => Number(row.cluster_id)).filter((id) => id > 0)
+  );
+  if (!ids.length && !clusterIds.size) return list;
 
   const photoById = new Map();
   const BATCH = 400;
@@ -1985,17 +1988,116 @@ async function attachLeaderboardPlayerPhotos(rows) {
       if (pid > 0 && path) photoById.set(pid, path);
     }
   }
-  if (!photoById.size) return list;
+
+  const photoByCluster = new Map();
+  const playerToCluster = new Map();
+  const gid = Number(officialGroupId);
+  if (gid > 0 && ids.length) {
+    const mapped = await mapPlayerIdsToApprovedClusters(gid, ids);
+    for (const [pid, cid] of mapped) {
+      playerToCluster.set(pid, cid);
+      if (cid > 0) clusterIds.add(cid);
+    }
+  }
+  if (clusterIds.size) {
+    const clusterList = [...clusterIds];
+    const ph = clusterList.map(() => '?').join(', ');
+    const memberRows = await query(
+      `SELECT pcm.cluster_id,
+              pcm.player_id,
+              NULLIF(BTRIM(COALESCE(p.photo_path, '')), '') AS photo_path
+       FROM player_cluster_members pcm
+       INNER JOIN player_clusters pc
+         ON pc.id = pcm.cluster_id AND pc.status = 'approved'
+       INNER JOIN players p ON p.id = pcm.player_id
+       WHERE pcm.cluster_id IN (${ph})`,
+      clusterList,
+    );
+    for (const row of memberRows || []) {
+      const path = String(row.photo_path || '').trim();
+      const cid = Number(row.cluster_id);
+      const pid = Number(row.player_id);
+      if (path) {
+        if (cid > 0 && !photoByCluster.has(cid)) photoByCluster.set(cid, path);
+        if (pid > 0 && !photoById.has(pid)) photoById.set(pid, path);
+      }
+    }
+  }
+
+  if (!photoById.size && !photoByCluster.size && !playerToCluster.size) return list;
 
   return list.map((row) => {
-    if (String(row.photo_path || '').trim()) return row;
-    const path = photoById.get(Number(row.player_id));
-    return path ? { ...row, photo_path: path } : row;
+    const pid = Number(row.player_id);
+    const mappedCid = pid > 0 ? Number(playerToCluster.get(pid) || 0) : 0;
+    const cid = Number(row.cluster_id) > 0 ? Number(row.cluster_id) : mappedCid;
+    const existing = String(row.photo_path || '').trim();
+    const path = existing
+      || (pid > 0 ? photoById.get(pid) : '')
+      || (cid > 0 ? photoByCluster.get(cid) : '')
+      || '';
+    if ((!path || path === existing) && (!cid || Number(row.cluster_id) === cid)) return row;
+    const next = { ...row };
+    if (cid > 0) next.cluster_id = cid;
+    if (path) next.photo_path = path;
+    return next;
   });
 }
 
-async function annotateDuplicateLeaderboardPlayerNames(rows) {
-  const list = await attachLeaderboardPlayerPhotos(rows);
+function sharePhotosAcrossLeaderboardLists(lists) {
+  const packs = Array.isArray(lists) ? lists : [];
+  const photoByPlayerId = new Map();
+  const photoByCluster = new Map();
+  const photosByName = new Map();
+  const remember = (row) => {
+    const photo = String(row?.photo_path || '').trim();
+    if (!photo) return;
+    const pid = Number(row.player_id);
+    if (pid > 0) photoByPlayerId.set(pid, photo);
+    const cid = Number(row.cluster_id);
+    if (cid > 0) photoByCluster.set(cid, photo);
+    const nameKey = leaderboardBaseNameKey(row.name);
+    if (!nameKey) return;
+    const seen = photosByName.get(nameKey) || new Set();
+    seen.add(photo);
+    photosByName.set(nameKey, seen);
+  };
+  for (const list of packs) {
+    for (const row of Array.isArray(list) ? list : []) remember(row);
+  }
+  return packs.map((list) => {
+    if (!Array.isArray(list)) return list;
+    return list.map((row) => {
+      if (String(row?.photo_path || '').trim()) return row;
+      const pid = Number(row.player_id);
+      const cid = Number(row.cluster_id);
+      const namePhotos = photosByName.get(leaderboardBaseNameKey(row.name));
+      const photo =
+        (pid > 0 ? photoByPlayerId.get(pid) : null)
+        || (cid > 0 ? photoByCluster.get(cid) : null)
+        || (namePhotos && namePhotos.size === 1 ? [...namePhotos][0] : null)
+        || '';
+      return photo ? { ...row, photo_path: photo } : row;
+    });
+  });
+}
+
+function applySharedPhotosToStatsPack(pack) {
+  if (!pack || typeof pack !== 'object') return pack;
+  const keys = [
+    'scorers', 'assistmen', 'presences', 'yellow_cards', 'red_cards',
+    'penalty_goals', 'penalty_saved', 'match_wins', 'edition_wins',
+  ];
+  const lists = keys.map((key) => (Array.isArray(pack[key]) ? pack[key] : []));
+  const shared = sharePhotosAcrossLeaderboardLists(lists);
+  const out = { ...pack };
+  keys.forEach((key, idx) => {
+    if (Array.isArray(pack[key])) out[key] = shared[idx];
+  });
+  return out;
+}
+
+async function annotateDuplicateLeaderboardPlayerNames(rows, officialGroupId = 0) {
+  const list = await attachLeaderboardPlayerPhotos(rows, officialGroupId);
   if (list.length < 2) return list;
 
   const counts = new Map();
@@ -3345,6 +3447,7 @@ async function mergeAbsoluteStatsByCluster(perPlayer, officialGroupId) {
       entries
         .map(mapEntryIds)
         .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name, 'it')),
+      groupId,
     );
   }
 
@@ -3354,6 +3457,7 @@ async function mergeAbsoluteStatsByCluster(perPlayer, officialGroupId) {
       entries
         .map(mapEntryIds)
         .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name, 'it')),
+      groupId,
     );
   }
 
@@ -3430,6 +3534,7 @@ async function mergeAbsoluteStatsByCluster(perPlayer, officialGroupId) {
         cluster_id: b.cluster_id || null,
       }))
       .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name, 'it')),
+    groupId,
   );
 }
 
@@ -3853,6 +3958,7 @@ async function fetchOfficialTeamPresencesWithVoteRanking(seasonTeamRows, opts = 
         league_id: Number(league_id) > 0 ? Number(league_id) : null,
       }))
       .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name, 'it')),
+    Number(opts.competitionId) || 0,
   );
 }
 
@@ -3861,7 +3967,7 @@ async function finalizeOfficialTeamLeaderboard(rows, isAbsoluteMode, competition
   if (isAbsoluteMode && Number(competitionId) > 0) {
     return mergeAbsoluteStatsByCluster(list, Number(competitionId));
   }
-  return annotateDuplicateLeaderboardPlayerNames(list);
+  return annotateDuplicateLeaderboardPlayerNames(list, Number(competitionId));
 }
 
 /** Vittorie partita: presenza (voto/S.V.) sulla squadra vincitrice, via link giornata. */
@@ -4387,15 +4493,33 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
     const selectedLeagueId =
       targetLeagueIds.length === 1 ? Number(targetLeagueIds[0]) : null;
 
-    const [scorers, assistmen, presences, penalty_goals, penalty_saved, match_wins, edition_wins] = await Promise.all([
-      finalizeOfficialTeamLeaderboard(listFromMap(scorersMap), isAbsoluteMode, competitionId),
-      finalizeOfficialTeamLeaderboard(listFromMap(assistsMap), isAbsoluteMode, competitionId),
-      finalizeOfficialTeamLeaderboard(voteBoards?.presences, isAbsoluteMode, competitionId),
-      finalizeOfficialTeamLeaderboard(listFromMap(penaltyGoalsMap), isAbsoluteMode, competitionId),
-      finalizeOfficialTeamLeaderboard(voteBoards?.penalty_saved, isAbsoluteMode, competitionId),
-      finalizeOfficialTeamLeaderboard(matchWinsRaw, isAbsoluteMode, competitionId),
-      finalizeOfficialTeamLeaderboard(editionWinsRaw, isAbsoluteMode, competitionId),
-    ]);
+    const [scorersRaw, assistmenRaw, presencesRaw, penaltyGoalsRaw, penaltySavedRaw, matchWinsDone, editionWinsDone] =
+      await Promise.all([
+        finalizeOfficialTeamLeaderboard(listFromMap(scorersMap), isAbsoluteMode, competitionId),
+        finalizeOfficialTeamLeaderboard(listFromMap(assistsMap), isAbsoluteMode, competitionId),
+        finalizeOfficialTeamLeaderboard(voteBoards?.presences, isAbsoluteMode, competitionId),
+        finalizeOfficialTeamLeaderboard(listFromMap(penaltyGoalsMap), isAbsoluteMode, competitionId),
+        finalizeOfficialTeamLeaderboard(voteBoards?.penalty_saved, isAbsoluteMode, competitionId),
+        finalizeOfficialTeamLeaderboard(matchWinsRaw, isAbsoluteMode, competitionId),
+        finalizeOfficialTeamLeaderboard(editionWinsRaw, isAbsoluteMode, competitionId),
+      ]);
+    const {
+      scorers,
+      assistmen,
+      presences,
+      penalty_goals,
+      penalty_saved,
+      match_wins,
+      edition_wins,
+    } = applySharedPhotosToStatsPack({
+      scorers: scorersRaw,
+      assistmen: assistmenRaw,
+      presences: presencesRaw,
+      penalty_goals: penaltyGoalsRaw,
+      penalty_saved: penaltySavedRaw,
+      match_wins: matchWinsDone,
+      edition_wins: editionWinsDone,
+    });
 
     return res.json({
       team: { id: teamId, name: teamName },
@@ -5118,7 +5242,7 @@ const ABSOLUTE_GROUP_STATS_CACHE = new Map();
 const ABSOLUTE_GROUP_STATS_TTL_MS = 10 * 60 * 1000;
 
 function absoluteGroupStatsCacheKey(compId, mode) {
-  return `${compId}:${mode}:v5`;
+  return `${compId}:${mode}:v6`;
 }
 
 function resolveAbsoluteStatsMode(options = {}) {
@@ -5189,11 +5313,11 @@ async function computeOfficialGroupSeasonStats(competitionId, targetLeagueIds, i
 
     let result;
     if (scorersOnly) {
-      result = {
+      result = applySharedPhotosToStatsPack({
         ...emptyOfficialGroupSeasonStats(),
         scorers,
         presences,
-      };
+      });
     } else {
       const assistRaw = parts.flatMap((p) => (Array.isArray(p.assistmen) ? p.assistmen : []));
       const yellowRaw = parts.flatMap((p) => (Array.isArray(p.yellow_cards) ? p.yellow_cards : []));
@@ -5219,7 +5343,7 @@ async function computeOfficialGroupSeasonStats(competitionId, targetLeagueIds, i
         matchWinsRawPromise.then((rows) => mergeAbsoluteStatsByCluster(rows, compId)),
         mergeAbsoluteStatsByCluster(await editionPromise, compId),
       ]);
-      result = {
+      result = applySharedPhotosToStatsPack({
         scorers,
         assistmen,
         presences,
@@ -5232,7 +5356,7 @@ async function computeOfficialGroupSeasonStats(competitionId, targetLeagueIds, i
         team_highlights: pickOfficialGroupTeamHighlightsFromRaw(
           mergeOfficialGroupTeamHighlightRaws(parts.map((p) => p.team_highlights_raw))
         ),
-      };
+      });
     }
 
     ABSOLUTE_GROUP_STATS_CACHE.set(cacheKey, {
@@ -5248,8 +5372,8 @@ async function computeOfficialGroupSeasonStats(competitionId, targetLeagueIds, i
   ]);
   const edition_wins = isAbsoluteMode
     ? await mergeAbsoluteStatsByCluster(editionWins, compId)
-    : await annotateDuplicateLeaderboardPlayerNames(editionWins);
-  return { ...core, edition_wins };
+    : await annotateDuplicateLeaderboardPlayerNames(editionWins, compId);
+  return applySharedPhotosToStatsPack({ ...core, edition_wins });
 }
 
 async function computeOfficialGroupSeasonStatsCore(
@@ -5641,16 +5765,16 @@ async function computeOfficialGroupSeasonStatsCore(
   const [voteAgg, matchWinsRaw] = await Promise.all([voteAggPromise, matchWinsPromise]);
   const [scorers, assistmen, yellow_cards, red_cards, presenceRows, penalty_goals, penalty_saved, match_wins] =
     await Promise.all([
-      annotateDuplicateLeaderboardPlayerNames(listFromMap(scorersMap)),
-      annotateDuplicateLeaderboardPlayerNames(listFromMap(assistsMap)),
-      annotateDuplicateLeaderboardPlayerNames(listFromMap(yellowCardsMap)),
-      annotateDuplicateLeaderboardPlayerNames(listFromMap(redCardsMap)),
-      annotateDuplicateLeaderboardPlayerNames(Array.isArray(voteAgg?.presences) ? voteAgg.presences : []),
-      annotateDuplicateLeaderboardPlayerNames(listFromMap(penaltyGoalsMap)),
-      annotateDuplicateLeaderboardPlayerNames(Array.isArray(voteAgg?.penalty_saved) ? voteAgg.penalty_saved : []),
-      annotateDuplicateLeaderboardPlayerNames(Array.isArray(matchWinsRaw) ? matchWinsRaw : []),
+      annotateDuplicateLeaderboardPlayerNames(listFromMap(scorersMap), compId),
+      annotateDuplicateLeaderboardPlayerNames(listFromMap(assistsMap), compId),
+      annotateDuplicateLeaderboardPlayerNames(listFromMap(yellowCardsMap), compId),
+      annotateDuplicateLeaderboardPlayerNames(listFromMap(redCardsMap), compId),
+      annotateDuplicateLeaderboardPlayerNames(Array.isArray(voteAgg?.presences) ? voteAgg.presences : [], compId),
+      annotateDuplicateLeaderboardPlayerNames(listFromMap(penaltyGoalsMap), compId),
+      annotateDuplicateLeaderboardPlayerNames(Array.isArray(voteAgg?.penalty_saved) ? voteAgg.penalty_saved : [], compId),
+      annotateDuplicateLeaderboardPlayerNames(Array.isArray(matchWinsRaw) ? matchWinsRaw : [], compId),
     ]);
-  return {
+  return applySharedPhotosToStatsPack({
     scorers,
     assistmen,
     presences: presenceRows,
@@ -5675,7 +5799,7 @@ async function computeOfficialGroupSeasonStatsCore(
         },
       }
       : {}),
-  };
+  });
 }
 
 // GET /matches/groups/:groupId/detail — dettaglio gruppo ufficiale
