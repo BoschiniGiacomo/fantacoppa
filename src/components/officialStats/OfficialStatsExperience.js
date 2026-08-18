@@ -783,6 +783,32 @@ function GoalsKpiCell({ bonusType, icon, pack, color, value, label, valueColor, 
   );
 }
 
+function StreakCell({ icon, color, value, valueColor, label, detail, showDivider }) {
+  return (
+    <View style={[styles.goalsKpiCell, showDivider && styles.goalsKpiCellDivider]}>
+      <View style={styles.goalsKpiHead}>
+        <View style={styles.goalsKpiBadge}>
+          <Ionicons name={icon} size={15} color={color} />
+        </View>
+        <Text style={styles.goalsKpiLabel} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
+          {label}
+        </Text>
+      </View>
+      <View style={styles.streakValueBlock}>
+        <Text
+          style={[styles.goalsKpiValue, valueColor ? { color: valueColor } : null]}
+          numberOfLines={1}
+        >
+          {value}
+        </Text>
+        <Text style={styles.streakDetail} numberOfLines={1}>
+          {detail || ' '}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
 function MiniStat({ icon, color, value, label, bonusType }) {
   return (
     <View style={styles.miniStat}>
@@ -916,28 +942,29 @@ function TeamGeneral({ general, outcomes, onPressMatch }) {
         </View>
       </View>
 
-      <View style={styles.streakRow}>
-        <View style={[styles.streakCard, { backgroundColor: '#fffbeb' }]}>
-          <Ionicons name="flame" size={16} color="#d97706" />
-          <Text style={styles.streakValue}>{winStreak > 0 ? winStreak : '-'}</Text>
-          <Text style={styles.miniStatLabel}>Vittorie di fila</Text>
-          {winStreak > 0 ? (
-            <Text style={styles.streakDetail} numberOfLines={2}>
-              {formatStreakRange(general?.longest_win_streak?.started_at, general?.longest_win_streak?.ended_at)}
-            </Text>
-          ) : null}
-        </View>
-        <View style={[styles.streakCard, { backgroundColor: '#f8fafc' }]}>
-          <Ionicons name="trending-down" size={16} color="#64748b" />
-          <Text style={styles.streakValue}>{lossStreak > 0 ? lossStreak : '-'}</Text>
-          <Text style={styles.miniStatLabel}>Sconfitte di fila</Text>
-          {lossStreak > 0 ? (
-            <Text style={styles.streakDetail} numberOfLines={2}>
-              {formatStreakRange(general?.longest_loss_streak?.started_at, general?.longest_loss_streak?.ended_at)}
-            </Text>
-          ) : null}
-        </View>
-      </View>
+      <Animated.View entering={FadeInDown.delay(80).duration(280)} style={styles.streakPanel}>
+        <StreakCell
+          icon="flame"
+          color="#16a34a"
+          value={winStreak > 0 ? String(winStreak) : '–'}
+          valueColor={winStreak > 0 ? '#16a34a' : '#94a3b8'}
+          label="Vittorie di fila"
+          detail={winStreak > 0
+            ? formatStreakRange(general?.longest_win_streak?.started_at, general?.longest_win_streak?.ended_at)
+            : null}
+          showDivider
+        />
+        <StreakCell
+          icon="trending-down"
+          color="#b91c1c"
+          value={lossStreak > 0 ? String(lossStreak) : '–'}
+          valueColor={lossStreak > 0 ? '#b91c1c' : '#94a3b8'}
+          label="Sconfitte di fila"
+          detail={lossStreak > 0
+            ? formatStreakRange(general?.longest_loss_streak?.started_at, general?.longest_loss_streak?.ended_at)
+            : null}
+        />
+      </Animated.View>
 
       <View style={styles.recordsGrid}>
         <MatchRecordCard
@@ -1498,17 +1525,28 @@ const styles = StyleSheet.create({
   wdlSeg: { height: '100%' },
   wdlLegend: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 },
   wdlLeg: { fontSize: 11, fontWeight: '700', color: '#64748b' },
-  streakRow: { flexDirection: 'row', gap: 8, marginTop: 8 },
-  streakCard: {
-    flex: 1,
-    borderRadius: 14,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    alignItems: 'flex-start',
-    gap: 4,
+  streakPanel: {
+    flexDirection: 'row',
+    marginTop: 8,
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#e8edf3',
+    overflow: 'hidden',
+    minHeight: 84,
   },
-  streakValue: { fontSize: 22, fontWeight: '800', color: '#0f172a' },
-  streakDetail: { fontSize: 10, fontWeight: '600', color: '#94a3b8' },
+  streakValueBlock: {
+    width: '100%',
+    alignItems: 'center',
+  },
+  streakDetail: {
+    marginTop: 2,
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#94a3b8',
+    textAlign: 'center',
+    minHeight: 13,
+  },
   recordsGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 8, marginTop: 8 },
   recordCard: {
     width: '48.6%',
