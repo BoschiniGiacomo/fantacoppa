@@ -103,16 +103,18 @@ function MatchPredictionPanel({
   homeBorderColor,
   awayBorderColor,
   busy,
+  votingLocked = false,
   onVote,
   onClear,
 }) {
   const myChoice = prediction?.my_choice || null;
-  const revealed = !!myChoice;
+  const revealed = !!myChoice || votingLocked;
   const total = Number(prediction?.total) || 0;
   const percents = prediction?.percents || { home: 0, draw: 0, away: 0 };
   const flex = predictionFlexWeights(percents, revealed);
   const homeSoft = softenPredictionBorderColor(homeBorderColor);
   const awaySoft = softenPredictionBorderColor(awayBorderColor);
+  const interactionDisabled = busy || votingLocked;
 
   const segmentBorder = (choice) => {
     if (choice === 'home') return homeSoft;
@@ -136,19 +138,19 @@ function MatchPredictionPanel({
             borderWidth: selected ? 1.5 : 1,
           },
         ]}
-        activeOpacity={0.75}
-        disabled={busy}
+        activeOpacity={votingLocked ? 1 : 0.75}
+        disabled={interactionDisabled}
         onPress={() => {
-          if (myChoice === choice) return;
+          if (votingLocked || myChoice === choice) return;
           onVote?.(choice);
         }}
       >
         {content}
-        {selected ? (
+        {selected && !votingLocked ? (
           <TouchableOpacity
             style={styles.predictionClearBtn}
             hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
-            disabled={busy}
+            disabled={interactionDisabled}
             onPress={() => onClear?.()}
             accessibilityRole="button"
             accessibilityLabel="Rimuovi pronostico"
@@ -2257,7 +2259,7 @@ export default function MatchDetailScreen({ navigation, route }) {
 
   const votePrediction = useCallback(
     async (choice) => {
-      if (!matchId || predictionBusy) return;
+      if (!matchId || predictionBusy || matchHasStarted) return;
       try {
         setPredictionBusy(true);
         const res = await matchesService.setMatchPrediction(matchId, choice);
@@ -2269,11 +2271,11 @@ export default function MatchDetailScreen({ navigation, route }) {
         setPredictionBusy(false);
       }
     },
-    [applyPredictionUpdate, matchId, predictionBusy]
+    [applyPredictionUpdate, matchHasStarted, matchId, predictionBusy]
   );
 
   const clearPrediction = useCallback(async () => {
-    if (!matchId || predictionBusy) return;
+    if (!matchId || predictionBusy || matchHasStarted) return;
     try {
       setPredictionBusy(true);
       const res = await matchesService.clearMatchPrediction(matchId);
@@ -2284,7 +2286,7 @@ export default function MatchDetailScreen({ navigation, route }) {
     } finally {
       setPredictionBusy(false);
     }
-  }, [applyPredictionUpdate, matchId, predictionBusy]);
+  }, [applyPredictionUpdate, matchHasStarted, matchId, predictionBusy]);
 
   const openPlayerStatsFromLineup = (p, displayName, leagueIdRaw) => {
     const pid = p?.id != null ? Number(p.id) : 0;
@@ -3282,6 +3284,7 @@ export default function MatchDetailScreen({ navigation, route }) {
             homeBorderColor={homeKitBaseHex}
             awayBorderColor={awayKitBaseHex}
             busy={predictionBusy}
+            votingLocked={matchHasStarted}
             onVote={votePrediction}
             onClear={clearPrediction}
           />

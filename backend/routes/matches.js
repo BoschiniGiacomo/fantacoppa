@@ -6234,7 +6234,7 @@ router.post('/matches/:matchId/prediction', authenticateToken, async (req, res) 
     const prediction = await setOfficialMatchPrediction(matchId, userId, choice);
     return res.json({ ok: true, prediction });
   } catch (err) {
-    if (err?.status === 400 || err?.status === 404) {
+    if (err?.status === 400 || err?.status === 404 || err?.status === 409) {
       return res.status(err.status).json({ message: err.message });
     }
     if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
@@ -6251,7 +6251,7 @@ router.delete('/matches/:matchId/prediction', authenticateToken, async (req, res
     const prediction = await clearOfficialMatchPrediction(matchId, userId);
     return res.json({ ok: true, prediction });
   } catch (err) {
-    if (err?.status === 400 || err?.status === 404) {
+    if (err?.status === 400 || err?.status === 404 || err?.status === 409) {
       return res.status(err.status).json({ message: err.message });
     }
     if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);

@@ -102,6 +102,24 @@ async function loadOfficialMatchPrediction(matchId, userId) {
   return shapePrediction(countRows?.[0], myRows?.[0]?.choice ?? null);
 }
 
+async function assertOfficialMatchPredictionOpen(matchId) {
+  const mid = Number(matchId);
+  if (!(mid > 0)) {
+    const err = new Error('Partita non trovata');
+    err.status = 404;
+    throw err;
+  }
+  const started = await query(
+    `SELECT 1 FROM official_match_events WHERE match_id = ? AND event_type = 'match_start' LIMIT 1`,
+    [mid]
+  );
+  if (started?.[0]) {
+    const err = new Error('Il pronostico è chiuso: la partita è già iniziata');
+    err.status = 409;
+    throw err;
+  }
+}
+
 async function setOfficialMatchPrediction(matchId, userId, choiceRaw) {
   await ensureOfficialMatchPredictionSchema();
   const mid = Number(matchId);
@@ -119,6 +137,8 @@ async function setOfficialMatchPrediction(matchId, userId, choiceRaw) {
     err.status = 404;
     throw err;
   }
+
+  await assertOfficialMatchPredictionOpen(mid);
 
   await query(
     `
@@ -143,6 +163,8 @@ async function clearOfficialMatchPrediction(matchId, userId) {
     err.status = 400;
     throw err;
   }
+
+  await assertOfficialMatchPredictionOpen(mid);
 
   await query(
     `DELETE FROM official_match_predictions WHERE match_id = ? AND user_id = ?`,
