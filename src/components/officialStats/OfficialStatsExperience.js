@@ -1,6 +1,8 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Modal,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -129,56 +131,129 @@ function RankBadge({ rank }) {
   );
 }
 
-function YearChipBar({ years, selectedYear, onSelectYear }) {
-  const chips = useMemo(() => {
-    const list = [{ key: ABSOLUTE_STATS_KEY, label: 'Assolute', value: ABSOLUTE_STATS_KEY }];
-    (Array.isArray(years) ? years : []).forEach((y) => {
-      list.push({ key: `y-${y}`, label: String(y), value: Number(y) });
-    });
-    return list;
-  }, [years]);
+const PERIOD_MENU_MAX_HEIGHT = 220;
+
+function PeriodSelector({ years, selectedYear, onSelectYear }) {
+  const [open, setOpen] = useState(false);
+  const [menuLayout, setMenuLayout] = useState(null);
+  const anchorRef = useRef(null);
+  const yearList = Array.isArray(years) ? years : [];
+  const isAbsolute = selectedYear === ABSOLUTE_STATS_KEY;
+  const selectedYearLabel = !isAbsolute && selectedYear != null ? String(selectedYear) : String(yearList[0] || 'Anno');
+
+  useEffect(() => {
+    setOpen(false);
+    setMenuLayout(null);
+  }, [selectedYear]);
+
+  useEffect(() => {
+    if (!open) {
+      setMenuLayout(null);
+      return undefined;
+    }
+    let cancelled = false;
+    const measure = () => {
+      if (!anchorRef.current) return;
+      anchorRef.current.measureInWindow((x, y, width, height) => {
+        if (cancelled) return;
+        setMenuLayout({ left: x, top: y + height + 4, width });
+      });
+    };
+    measure();
+    const retry = setTimeout(measure, 64);
+    return () => {
+      cancelled = true;
+      clearTimeout(retry);
+    };
+  }, [open, yearList.length]);
+
+  const openYearMenu = () => {
+    if (yearList.length === 0) return;
+    setOpen((v) => !v);
+  };
 
   return (
-    <ScrollView
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      style={styles.hScroll}
-      contentContainerStyle={styles.chipRow}
-      keyboardShouldPersistTaps="handled"
-    >
-      {chips.map((chip) => {
-        const active =
-          chip.value === ABSOLUTE_STATS_KEY
-            ? selectedYear === ABSOLUTE_STATS_KEY
-            : selectedYear !== ABSOLUTE_STATS_KEY && Number(selectedYear) === Number(chip.value);
-        const absolute = chip.value === ABSOLUTE_STATS_KEY;
-        return (
-          <TouchableOpacity
-            key={chip.key}
-            style={[
-              styles.yearChip,
-              absolute && styles.yearChipAbsolute,
-              active && (absolute ? styles.yearChipAbsoluteActive : styles.yearChipActive),
-            ]}
-            onPress={() => onSelectYear?.(chip.value)}
-            activeOpacity={0.8}
-          >
-            {absolute ? (
-              <Ionicons name="sparkles" size={13} color={active ? '#fff' : '#b45309'} />
-            ) : null}
-            <Text
+    <View ref={anchorRef} style={styles.periodWrap} collapsable={false}>
+      <View style={styles.periodControl}>
+        <TouchableOpacity
+          style={[styles.periodSeg, isAbsolute && styles.periodSegActive]}
+          onPress={() => onSelectYear?.(ABSOLUTE_STATS_KEY)}
+          activeOpacity={0.8}
+        >
+          <Text style={[styles.periodSegText, isAbsolute && styles.periodSegTextActive]}>Assolute</Text>
+        </TouchableOpacity>
+        <View style={styles.periodDivider} />
+        <TouchableOpacity
+          style={[styles.periodSeg, styles.periodSegYear, !isAbsolute && styles.periodSegActive]}
+          onPress={openYearMenu}
+          activeOpacity={0.8}
+          disabled={yearList.length === 0}
+        >
+          <Text style={[styles.periodSegText, !isAbsolute && styles.periodSegTextActive]}>
+            {selectedYearLabel}
+          </Text>
+          {yearList.length > 0 ? (
+            <Ionicons
+              name={open ? 'chevron-up' : 'chevron-down'}
+              size={14}
+              color={!isAbsolute ? '#4f46e5' : '#64748b'}
+            />
+          ) : null}
+        </TouchableOpacity>
+      </View>
+
+      <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
+        <View style={styles.periodMenuRoot}>
+          <Pressable
+            style={styles.periodMenuBackdrop}
+            onPress={() => setOpen(false)}
+            accessibilityRole="button"
+            accessibilityLabel="Chiudi selezione anno"
+          />
+          {menuLayout ? (
+            <View
               style={[
-                styles.yearChipText,
-                absolute && styles.yearChipAbsoluteText,
-                active && styles.yearChipTextActive,
+                styles.periodMenu,
+                { top: menuLayout.top, left: menuLayout.left, width: menuLayout.width },
               ]}
             >
-              {chip.label}
-            </Text>
-          </TouchableOpacity>
-        );
-      })}
-    </ScrollView>
+              <ScrollView
+                style={styles.periodMenuScroll}
+                contentContainerStyle={styles.periodMenuScrollContent}
+                showsVerticalScrollIndicator
+                keyboardShouldPersistTaps="handled"
+                bounces={false}
+                nestedScrollEnabled
+              >
+                {yearList.map((y, idx) => {
+                  const active = !isAbsolute && Number(selectedYear) === Number(y);
+                  return (
+                    <TouchableOpacity
+                      key={`period-year-${y}`}
+                      style={[
+                        styles.periodMenuItem,
+                        idx === yearList.length - 1 && styles.periodMenuItemLast,
+                        active && styles.periodMenuItemActive,
+                      ]}
+                      onPress={() => {
+                        setOpen(false);
+                        onSelectYear?.(Number(y));
+                      }}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={[styles.periodMenuItemText, active && styles.periodMenuItemTextActive]}>
+                        {String(y)}
+                      </Text>
+                      {active ? <Ionicons name="checkmark" size={16} color="#4f46e5" /> : null}
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          ) : null}
+        </View>
+      </Modal>
+    </View>
   );
 }
 
@@ -871,7 +946,7 @@ export default function OfficialStatsExperience({
 
   return (
     <View style={styles.root}>
-      <YearChipBar years={years} selectedYear={selectedYear} onSelectYear={onSelectYear} />
+      <PeriodSelector years={years} selectedYear={selectedYear} onSelectYear={onSelectYear} />
       <StatsSearchBar
         value={query}
         onChange={(text) => {
@@ -987,23 +1062,61 @@ const styles = StyleSheet.create({
   hScroll: { flexGrow: 0 },
   catScroll: { flexGrow: 0, marginBottom: 6 },
   chipRow: { gap: 8, paddingRight: 4, paddingBottom: 2 },
-  yearChip: {
+  periodWrap: { marginBottom: 2, position: 'relative' },
+  periodControl: {
+    height: 38,
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    borderWidth: 1,
+    borderColor: '#dbe3ef',
+    borderRadius: 10,
+    backgroundColor: '#fff',
+    overflow: 'hidden',
+  },
+  periodSeg: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 999,
-    backgroundColor: '#f1f5f9',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
+    justifyContent: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
   },
-  yearChipActive: { backgroundColor: '#667eea', borderColor: '#667eea' },
-  yearChipAbsolute: { backgroundColor: '#fffbeb', borderColor: '#fde68a' },
-  yearChipAbsoluteActive: { backgroundColor: '#d97706', borderColor: '#d97706' },
-  yearChipText: { fontSize: 13, fontWeight: '700', color: '#475569' },
-  yearChipAbsoluteText: { color: '#b45309' },
-  yearChipTextActive: { color: '#fff' },
+  periodSegYear: { justifyContent: 'center' },
+  periodSegActive: { backgroundColor: '#eef2ff' },
+  periodSegText: { fontSize: 14, fontWeight: '700', color: '#64748b' },
+  periodSegTextActive: { color: '#4f46e5' },
+  periodDivider: { width: StyleSheet.hairlineWidth, backgroundColor: '#dbe3ef' },
+  periodMenuRoot: { flex: 1 },
+  periodMenuBackdrop: { ...StyleSheet.absoluteFillObject },
+  periodMenu: {
+    position: 'absolute',
+    maxHeight: PERIOD_MENU_MAX_HEIGHT,
+    borderWidth: 1,
+    borderColor: '#dbe3ef',
+    borderRadius: 10,
+    backgroundColor: '#fff',
+    overflow: 'hidden',
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+  },
+  periodMenuScroll: { maxHeight: PERIOD_MENU_MAX_HEIGHT },
+  periodMenuScrollContent: { paddingVertical: 4 },
+  periodMenuItem: {
+    minHeight: 40,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#f1f5f9',
+  },
+  periodMenuItemLast: { borderBottomWidth: 0 },
+  periodMenuItemActive: { backgroundColor: '#eef2ff' },
+  periodMenuItemText: { fontSize: 14, fontWeight: '600', color: '#334155' },
+  periodMenuItemTextActive: { color: '#4f46e5', fontWeight: '700' },
   searchWrap: {
     flexDirection: 'row',
     alignItems: 'center',
