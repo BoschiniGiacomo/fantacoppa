@@ -3442,15 +3442,33 @@ function packOfficialTeamHighlight(row, extra) {
   };
 }
 
+function resultKickoffAt(r) {
+  if (r?.kickoff_at) return r.kickoff_at;
+  const ms = Number(r?.kickoffMs);
+  if (Number.isFinite(ms) && ms > 0 && ms < Number.POSITIVE_INFINITY) {
+    return new Date(ms).toISOString();
+  }
+  return null;
+}
+
 function longestResultStreak(results, code) {
-  let best = 0;
+  let best = { length: 0, started_at: null, ended_at: null };
   let cur = 0;
+  let curStart = null;
   for (const r of results || []) {
     if (r?.result === code) {
       cur += 1;
-      if (cur > best) best = cur;
+      if (cur === 1) curStart = r;
+      if (cur > best.length) {
+        best = {
+          length: cur,
+          started_at: resultKickoffAt(curStart),
+          ended_at: resultKickoffAt(r),
+        };
+      }
     } else {
       cur = 0;
+      curStart = null;
     }
   }
   return best;
@@ -3515,9 +3533,9 @@ function pickOfficialGroupTeamHighlightsFromRaw(raw) {
   let bestDefense = null;
   let bestDefenseAvg = Infinity;
   let bestWin = null;
-  let bestWinStreak = 0;
+  let bestWinStreak = { length: 0, started_at: null, ended_at: null };
   let bestLoss = null;
-  let bestLossStreak = 0;
+  let bestLossStreak = { length: 0, started_at: null, ended_at: null };
   let bestPenFor = null;
   let bestPenAgainst = null;
   let bestYellow = null;
@@ -3556,14 +3574,14 @@ function pickOfficialGroupTeamHighlightsFromRaw(raw) {
         bestDefenseAvg = defenseAvg;
       }
     }
-    if (winStreak > bestWinStreak || (winStreak === bestWinStreak && bestWin && nameCmp(bestWin) < 0) || (winStreak > 0 && !bestWin)) {
-      if (winStreak > 0) {
+    if (winStreak.length > bestWinStreak.length || (winStreak.length === bestWinStreak.length && bestWin && nameCmp(bestWin) < 0) || (winStreak.length > 0 && !bestWin)) {
+      if (winStreak.length > 0) {
         bestWin = t;
         bestWinStreak = winStreak;
       }
     }
-    if (lossStreak > bestLossStreak || (lossStreak === bestLossStreak && bestLoss && nameCmp(bestLoss) < 0) || (lossStreak > 0 && !bestLoss)) {
-      if (lossStreak > 0) {
+    if (lossStreak.length > bestLossStreak.length || (lossStreak.length === bestLossStreak.length && bestLoss && nameCmp(bestLoss) < 0) || (lossStreak.length > 0 && !bestLoss)) {
+      if (lossStreak.length > 0) {
         bestLoss = t;
         bestLossStreak = lossStreak;
       }
@@ -3596,11 +3614,19 @@ function pickOfficialGroupTeamHighlightsFromRaw(raw) {
       played: Number(bestDefense.played) || 0,
     });
   }
-  if (bestWin && bestWinStreak > 0) {
-    out.longest_win_streak = packOfficialTeamHighlight(bestWin, { value: bestWinStreak });
+  if (bestWin && bestWinStreak.length > 0) {
+    out.longest_win_streak = packOfficialTeamHighlight(bestWin, {
+      value: bestWinStreak.length,
+      started_at: bestWinStreak.started_at || null,
+      ended_at: bestWinStreak.ended_at || null,
+    });
   }
-  if (bestLoss && bestLossStreak > 0) {
-    out.longest_loss_streak = packOfficialTeamHighlight(bestLoss, { value: bestLossStreak });
+  if (bestLoss && bestLossStreak.length > 0) {
+    out.longest_loss_streak = packOfficialTeamHighlight(bestLoss, {
+      value: bestLossStreak.length,
+      started_at: bestLossStreak.started_at || null,
+      ended_at: bestLossStreak.ended_at || null,
+    });
   }
   if (bestPenFor) {
     out.most_penalties_for = packOfficialTeamHighlight(bestPenFor, { value: Number(bestPenFor.penFor) || 0 });
@@ -5012,7 +5038,7 @@ const ABSOLUTE_GROUP_STATS_CACHE = new Map();
 const ABSOLUTE_GROUP_STATS_TTL_MS = 10 * 60 * 1000;
 
 function absoluteGroupStatsCacheKey(compId, mode) {
-  return `${compId}:${mode}:v4`;
+  return `${compId}:${mode}:v5`;
 }
 
 function resolveAbsoluteStatsMode(options = {}) {
@@ -5401,13 +5427,13 @@ async function computeOfficialGroupSeasonStatsCore(
         homeRow.played += 1;
         homeRow.gf += hs;
         homeRow.ga += as;
-        homeRow.results.push({ kickoffMs, matchId: Number(m.id), result: homeResult });
+        homeRow.results.push({ kickoffMs, kickoff_at: m.kickoff_at || null, matchId: Number(m.id), result: homeResult });
       }
       if (awayRow) {
         awayRow.played += 1;
         awayRow.gf += as;
         awayRow.ga += hs;
-        awayRow.results.push({ kickoffMs, matchId: Number(m.id), result: awayResult });
+        awayRow.results.push({ kickoffMs, kickoff_at: m.kickoff_at || null, matchId: Number(m.id), result: awayResult });
       }
     }
 

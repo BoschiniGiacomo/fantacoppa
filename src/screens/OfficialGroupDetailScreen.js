@@ -43,6 +43,15 @@ function formatHighlightDate(value) {
   return d.toLocaleDateString('it-IT', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
+function formatStreakRange(startedAt, endedAt) {
+  const start = formatHighlightDate(startedAt);
+  const end = formatHighlightDate(endedAt);
+  if (!start && !end) return '';
+  if (start && end && start === end) return start;
+  if (start && end) return `${start} – ${end}`;
+  return start || end;
+}
+
 function formatStatAvg(n) {
   const v = Number(n);
   if (!Number.isFinite(v)) return '0,00';
@@ -754,7 +763,7 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
         logoPath: attack.team_logo_path,
         value: formatStatAvg(attack.avg),
         unit: 'gol/partita',
-        detail: `${Number(attack.goals || 0)} gol in ${Number(attack.played || 0)} part.`,
+        detail: `${Number(attack.goals || 0)} gol in ${Number(attack.played || 0)} partite`,
       });
     }
     if (defense) {
@@ -770,7 +779,7 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
         logoPath: defense.team_logo_path,
         value: formatStatAvg(defense.avg),
         unit: 'gol/partita',
-        detail: `${Number(defense.goals_conceded || 0)} subiti in ${Number(defense.played || 0)} part.`,
+        detail: `${Number(defense.goals_conceded || 0)} subiti in ${Number(defense.played || 0)} partite`,
       });
     }
     if (winStreak) {
@@ -786,6 +795,7 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
         logoPath: winStreak.team_logo_path,
         value: String(Number(winStreak.value || 0)),
         unit: Number(winStreak.value) === 1 ? 'partita' : 'partite',
+        detail: formatStreakRange(winStreak.started_at, winStreak.ended_at),
       });
     }
     if (lossStreak) {
@@ -801,6 +811,7 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
         logoPath: lossStreak.team_logo_path,
         value: String(Number(lossStreak.value || 0)),
         unit: Number(lossStreak.value) === 1 ? 'partita' : 'partite',
+        detail: formatStreakRange(lossStreak.started_at, lossStreak.ended_at),
       });
     }
     if (penFor) {
