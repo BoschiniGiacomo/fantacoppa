@@ -627,7 +627,7 @@ function GroupHighlights({ highlights, onPressTeam, onPressMatch }) {
       logoUrl: h.most_penalties_for.team_logo_url,
       logoPath: h.most_penalties_for.team_logo_path,
       value: String(Number(h.most_penalties_for.value || 0)),
-      label: 'Rigori +',
+      label: 'Rigori\na favore',
     });
   }
   if (h.most_penalties_against) {
@@ -642,7 +642,7 @@ function GroupHighlights({ highlights, onPressTeam, onPressMatch }) {
       logoUrl: h.most_penalties_against.team_logo_url,
       logoPath: h.most_penalties_against.team_logo_path,
       value: String(Number(h.most_penalties_against.value || 0)),
-      label: 'Rigori −',
+      label: 'Rigori\na sfavore',
     });
   }
   if (h.most_yellow_cards) {
@@ -872,8 +872,8 @@ function TeamGeneral({ general, outcomes, onPressMatch }) {
       <View style={styles.miniRow}>
         <MiniStat bonusType="yellow_card" value={Number(general?.yellow_cards || 0)} label="Gialli" />
         <MiniStat bonusType="red_card" value={Number(general?.red_cards || 0)} label="Rossi" />
-        <MiniStat bonusType="penalty_goal" value={Number(general?.penalties_for || 0)} label="Rigori +" />
-        <MiniStat bonusType="penalty_missed" value={Number(general?.penalties_against || 0)} label="Rigori −" />
+        <MiniStat bonusType="penalty_goal" value={Number(general?.penalties_for || 0)} label={"Rigori\na favore"} />
+        <MiniStat bonusType="penalty_missed" value={Number(general?.penalties_against || 0)} label={"Rigori\na sfavore"} />
       </View>
 
       <View style={styles.wdlCard}>
@@ -1463,7 +1463,7 @@ const styles = StyleSheet.create({
   },
   miniStat: { flex: 1, alignItems: 'center', gap: 4 },
   miniStatValue: { fontSize: 14, fontWeight: '800', color: '#0f172a' },
-  miniStatLabel: { fontSize: 9, fontWeight: '800', color: '#94a3b8', textTransform: 'uppercase' },
+  miniStatLabel: { fontSize: 9, fontWeight: '800', color: '#94a3b8', textTransform: 'uppercase', textAlign: 'center', lineHeight: 12 },
   wdlCard: {
     marginTop: 8,
     backgroundColor: '#fff',
