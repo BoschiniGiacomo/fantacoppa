@@ -84,25 +84,30 @@ function playerInitials(name) {
 
 function PlayerAvatar({ photoPath, name, accent, size = 56 }) {
   const radius = Math.round(size / 2);
-  if (photoPath) {
+  const path = String(photoPath || '').trim();
+  const fallbackStyle = {
+    width: size,
+    height: size,
+    borderRadius: radius,
+    backgroundColor: `${accent || '#667eea'}18`,
+    alignItems: 'center',
+    justifyContent: 'center',
+  };
+  if (path) {
     return (
       <PlayerPhotoImage
-        photoPath={photoPath}
+        photoPath={path}
         style={{ width: size, height: size, borderRadius: radius }}
+        resizeMode="cover"
+        fallbackStyle={fallbackStyle}
+        fallbackIcon="person-outline"
+        fallbackIconSize={Math.round(size * 0.42)}
+        fallbackColor={accent || '#667eea'}
       />
     );
   }
   return (
-    <View
-      style={{
-        width: size,
-        height: size,
-        borderRadius: radius,
-        backgroundColor: `${accent || '#667eea'}18`,
-        alignItems: 'center',
-        justifyContent: 'center',
-      }}
-    >
+    <View style={fallbackStyle}>
       <Text style={{ fontSize: Math.round(size * 0.32), fontWeight: '800', color: accent || '#667eea' }}>
         {playerInitials(name)}
       </Text>
@@ -446,7 +451,7 @@ function LeaderboardList({
               </View>
               <View style={styles.lbMain}>
                 <Text style={styles.lbName} numberOfLines={1}>{playerName}</Text>
-                {teamName ? <Text style={styles.lbTeam} numberOfLines={1}>{teamName}</Text> : null}
+                {includeTeam && teamName ? <Text style={styles.lbTeam} numberOfLines={1}>{teamName}</Text> : null}
                 <StatShareBar ratio={value / leaderValue} color={board.accent} />
               </View>
               <Text style={[styles.lbValue, { color: board.accent }]}>{value}</Text>
@@ -466,7 +471,7 @@ function LeaderboardList({
   );
 }
 
-function TeaserStrip({ boards, onSelect }) {
+function TeaserStrip({ boards, onSelect, showTeamName = true }) {
   const teasers = boards
     .map((board) => {
       const top = Array.isArray(board.items) && board.items[0] ? board.items[0] : null;
@@ -476,7 +481,6 @@ function TeaserStrip({ boards, onSelect }) {
   if (teasers.length === 0) return null;
   return (
     <View style={styles.teaserBlock}>
-      <Text style={styles.teaserEyebrow}>In evidenza</Text>
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -513,18 +517,13 @@ function TeaserStrip({ boards, onSelect }) {
                       accent={board.accent}
                       size={56}
                     />
-                    <View style={styles.teaserRankDot}>
-                      <Text style={styles.teaserRankText}>1</Text>
-                    </View>
                   </View>
                   <Text style={[styles.teaserValue, { color: board.accent }]}>{value}</Text>
                 </View>
                 <Text style={styles.teaserName} numberOfLines={1}>{playerName}</Text>
-                {teamName ? (
+                {showTeamName && teamName ? (
                   <Text style={styles.teaserTeam} numberOfLines={1}>{teamName}</Text>
-                ) : (
-                  <Text style={styles.teaserTeam}> </Text>
-                )}
+                ) : null}
               </TouchableOpacity>
             </Animated.View>
           );
@@ -1072,7 +1071,7 @@ function TeamGeneral({ general, outcomes, onPressMatch }) {
 export const GROUP_STATS_BOARDS = [
   { key: 'scorers', label: 'Marcatori', shortLabel: 'Gol', pack: 'mci', icon: 'soccer', accent: '#15803d', empty: 'Nessun marcatore disponibile.' },
   { key: 'assistmen', label: 'Assistman', shortLabel: 'Assist', pack: 'mci', icon: 'shoe-cleat', accent: '#1d4ed8', empty: 'Nessun assist disponibile.' },
-  { key: 'presences', label: 'Presenze', shortLabel: 'Pres.', pack: 'ion', icon: 'people', accent: '#667eea', empty: 'Nessuna presenza con voto nel periodo selezionato.' },
+  { key: 'presences', label: 'Presenze', shortLabel: 'Presenze', pack: 'ion', icon: 'people', accent: '#667eea', empty: 'Nessuna presenza con voto nel periodo selezionato.' },
   { key: 'yellow_cards', label: 'Cartellini gialli', shortLabel: 'Gialli', pack: 'ion', icon: 'square', accent: '#ca8a04', bonusType: 'yellow_card', empty: 'Nessun cartellino giallo disponibile.' },
   { key: 'red_cards', label: 'Cartellini rossi', shortLabel: 'Rossi', pack: 'ion', icon: 'square', accent: '#dc2626', bonusType: 'red_card', empty: 'Nessun cartellino rosso disponibile.' },
   { key: 'penalty_goals', label: 'Rigori segnati', shortLabel: 'Rigori', pack: 'ion', icon: 'disc', accent: '#2563eb', bonusType: 'penalty_goal', keepIconOnWhite: true, empty: 'Nessun rigore segnato disponibile.' },
@@ -1269,6 +1268,7 @@ export default function OfficialStatsExperience({
                 </View>
                 <TeaserStrip
                   boards={boards}
+                  showTeamName={searchIncludesTeam}
                   onSelect={(key) => {
                     setSelectedBoard(key);
                     setExpanded(false);
@@ -1289,6 +1289,7 @@ export default function OfficialStatsExperience({
                       onToggleExpand={() => setExpanded((v) => !v)}
                       onPressPlayer={onPressPlayer}
                       query=""
+                      includeTeam={searchIncludesTeam}
                       animKey={`${selectedYear}-${activeBoard.key}`}
                     />
                   </View>
@@ -1654,14 +1655,6 @@ const styles = StyleSheet.create({
   recordNames: { marginTop: 4, fontSize: 10, fontWeight: '600', color: '#64748b', textAlign: 'center' },
   recordDate: { marginTop: 2, fontSize: 10, fontWeight: '600', color: '#94a3b8', textAlign: 'center', minHeight: 13 },
   teaserBlock: { marginBottom: 14 },
-  teaserEyebrow: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#94a3b8',
-    letterSpacing: 0.7,
-    textTransform: 'uppercase',
-    marginBottom: 8,
-  },
   teaserRow: { gap: 10, paddingRight: 4 },
   teaserCard: {
     width: 148,
@@ -1701,24 +1694,6 @@ const styles = StyleSheet.create({
   teaserPhotoWrap: {
     width: 56,
     height: 56,
-  },
-  teaserRankDot: {
-    position: 'absolute',
-    right: -2,
-    bottom: -2,
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: '#d97706',
-    borderWidth: 2,
-    borderColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  teaserRankText: {
-    fontSize: 9,
-    fontWeight: '800',
-    color: '#fff',
   },
   teaserName: { fontSize: 13, fontWeight: '800', color: '#0f172a' },
   teaserTeam: { marginTop: 2, fontSize: 10, fontWeight: '600', color: '#94a3b8' },

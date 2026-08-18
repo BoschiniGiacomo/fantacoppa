@@ -1962,8 +1962,40 @@ function annotateDuplicateSearchPlayerNames(players) {
  * Come la ricerca: in una classifica stats, se 2+ righe hanno stesso nome,
  * aggiunge ('98) solo al label. Le righe restano separate (identità = cluster_id/player_id).
  */
-async function annotateDuplicateLeaderboardPlayerNames(rows) {
+async function attachLeaderboardPlayerPhotos(rows) {
   const list = Array.isArray(rows) ? rows : [];
+  if (!list.length) return list;
+  const ids = [...new Set(list.map((row) => Number(row.player_id)).filter((id) => id > 0))];
+  if (!ids.length) return list;
+
+  const photoById = new Map();
+  const BATCH = 400;
+  for (let i = 0; i < ids.length; i += BATCH) {
+    const batch = ids.slice(i, i + BATCH);
+    const ph = batch.map(() => '?').join(', ');
+    const photoRows = await query(
+      `SELECT id, NULLIF(BTRIM(COALESCE(photo_path, '')), '') AS photo_path
+       FROM players
+       WHERE id IN (${ph})`,
+      batch,
+    );
+    for (const row of photoRows || []) {
+      const pid = Number(row.id);
+      const path = String(row.photo_path || '').trim();
+      if (pid > 0 && path) photoById.set(pid, path);
+    }
+  }
+  if (!photoById.size) return list;
+
+  return list.map((row) => {
+    if (String(row.photo_path || '').trim()) return row;
+    const path = photoById.get(Number(row.player_id));
+    return path ? { ...row, photo_path: path } : row;
+  });
+}
+
+async function annotateDuplicateLeaderboardPlayerNames(rows) {
+  const list = await attachLeaderboardPlayerPhotos(rows);
   if (list.length < 2) return list;
 
   const counts = new Map();
