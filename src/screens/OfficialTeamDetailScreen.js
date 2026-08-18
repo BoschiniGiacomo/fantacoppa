@@ -428,6 +428,8 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
   const programmaticScrollRef = useRef(false);
   const [heroCollapsed, setHeroCollapsed] = useState(false);
   const [overlayHeight, setOverlayHeight] = useState(OVERLAY_HEIGHT_ESTIMATE);
+  const [heroSlotHeight, setHeroSlotHeight] = useState(HERO_EXPANDED_ESTIMATE);
+  const [trophiesViewportHeight, setTrophiesViewportHeight] = useState(0);
   const matchesScrollRef = useRef(null);
   const seasonScrollRef = useRef(null);
   const trophiesScrollRef = useRef(null);
@@ -1030,6 +1032,11 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
   };
 
   const overlayPad = overlayHeight;
+  const trophiesTabsChrome = Math.max(0, overlayHeight - heroSlotHeight);
+  const trophiesBoardMinHeight = Math.max(
+    0,
+    trophiesViewportHeight - (heroCollapsed ? trophiesTabsChrome : overlayHeight)
+  );
 
   const getActiveTabScrollRef = useCallback(() => {
     if (activeTab === 'matches') return matchesScrollRef;
@@ -1040,16 +1047,20 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
     return null;
   }, [activeTab]);
 
-  const resetHeroExpanded = useCallback(() => {
-    heroDraggingRef.current = false;
-    heroSnapLockRef.current = false;
-    heroCollapsedRef.current = false;
-    dragStartCollapseRef.current = 0;
-    lastScrollYRef.current = 0;
-    setHeroCollapsed(false);
-    cancelAnimation(heroCollapseY);
-    heroCollapseY.value = 0;
-  }, [heroCollapseY]);
+  const syncActiveTabScrollToHero = useCallback(() => {
+    const collapsed = heroCollapsedRef.current;
+    const heroH = Math.max(1, heroSlotHeightRef.current);
+    const targetY = collapsed ? heroH : 0;
+    lastScrollYRef.current = targetY;
+    const node = getActiveTabScrollRef()?.current;
+    if (!node?.scrollTo) return false;
+    programmaticScrollRef.current = true;
+    node.scrollTo({ y: targetY, animated: false });
+    setTimeout(() => {
+      programmaticScrollRef.current = false;
+    }, 80);
+    return true;
+  }, [getActiveTabScrollRef]);
 
   const onTabScrollBeginDrag = useCallback((event) => {
     if (programmaticScrollRef.current) return;
@@ -1117,6 +1128,7 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
     if (h < 8 || Math.abs(h - heroSlotHeightRef.current) < 1) return;
     heroSlotHeightRef.current = h;
     heroHeightSV.value = h;
+    setHeroSlotHeight(h);
     if (heroCollapseY.value > h) heroCollapseY.value = h;
   }, [heroCollapseY, heroHeightSV]);
 
@@ -1128,8 +1140,25 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
   }, []);
 
   useEffect(() => {
-    resetHeroExpanded();
-  }, [activeTab, selectedStatsYear, selectedSeasonYear, selectedTeamSeasonYear, resetHeroExpanded]);
+    heroDraggingRef.current = false;
+    heroSnapLockRef.current = true;
+    let tries = 0;
+    let retry = null;
+    let cancelled = false;
+    const tick = () => {
+      if (cancelled) return;
+      tries += 1;
+      const ok = syncActiveTabScrollToHero();
+      if (!ok && tries < 10) {
+        retry = setTimeout(tick, 50);
+      }
+    };
+    retry = setTimeout(tick, 16);
+    return () => {
+      cancelled = true;
+      if (retry) clearTimeout(retry);
+    };
+  }, [activeTab, trophiesLoading, statsLoading, teamSeasonLoading, seasonLoading, syncActiveTabScrollToHero]);
 
   const heroOverlayStyle = useAnimatedStyle(() => {
     const h = Math.max(1, heroHeightSV.value);
@@ -1531,7 +1560,7 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
         ) : activeTab === 'trophies' ? (
           <View style={[styles.card, styles.trophiesCard]}>
             {trophiesLoading ? (
-              <View style={[styles.matchesLoadingBox, styles.trophiesLoadingBox]}>
+              <View style={[styles.matchesLoadingBox, styles.trophiesLoadingBox, { paddingTop: heroCollapsed ? trophiesTabsChrome : overlayPad }]}>
                 <ActivityIndicator color="#c9a227" />
               </View>
             ) : (
@@ -1540,14 +1569,17 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
                 style={styles.trophiesList}
                 contentContainerStyle={styles.trophiesScrollContent}
                 showsVerticalScrollIndicator={false}
+                onLayout={(e) => setTrophiesViewportHeight(e.nativeEvent.layout.height)}
                 {...tabScrollHeroProps}
               >
                 <HeroListSpacer height={overlayPad} />
-                <OfficialTeamTrophyBoard
-                  championships={teamChampionships}
-                  wineTrophies={teamWineTrophies}
-                  championshipTitle={competitionName}
-                />
+                <View style={[styles.trophiesBoardWrap, { minHeight: trophiesBoardMinHeight }]}>
+                  <OfficialTeamTrophyBoard
+                    championships={teamChampionships}
+                    wineTrophies={teamWineTrophies}
+                    championshipTitle={competitionName}
+                  />
+                </View>
               </ScrollView>
             )}
           </View>
@@ -1968,6 +2000,10 @@ const styles = StyleSheet.create({
   trophiesScrollContent: {
     paddingBottom: 12,
     flexGrow: 1,
+  },
+  trophiesBoardWrap: {
+    flexGrow: 1,
+    justifyContent: 'center',
   },
   seasonCard: {
     flex: 1,
