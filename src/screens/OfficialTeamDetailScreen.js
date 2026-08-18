@@ -16,6 +16,7 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Reanimated, {
+  cancelAnimation,
   Easing,
   Extrapolation,
   interpolate,
@@ -259,9 +260,23 @@ const HERO_EXPANDED_MIN = 170;
 const HERO_EXPANDED_MAX = 230;
 const HEADER_LOGO_SIZE = 32;
 const HERO_COLLAPSE_MS = 340;
-const HERO_COLLAPSE_Y = 52;
-const HERO_EXPAND_Y = 8;
+const HERO_FOLLOW_Y = 148;
+const HERO_SNAP_OPEN_Y = 10;
+const HERO_GESTURE_DIR_Y = 32;
 const heroCollapseEasing = Easing.bezier(0.22, 1, 0.36, 1);
+const heroSnapConfig = { duration: HERO_COLLAPSE_MS, easing: heroCollapseEasing };
+
+function clamp01(n) {
+  return Math.max(0, Math.min(1, n));
+}
+
+function shouldCollapseHero(y, startY) {
+  const dy = y - startY;
+  if (y <= HERO_SNAP_OPEN_Y) return false;
+  if (y >= HERO_FOLLOW_Y) return true;
+  if (Math.abs(dy) >= HERO_GESTURE_DIR_Y) return dy > 0;
+  return y >= HERO_FOLLOW_Y * 0.5;
+}
 
 function isValidJerseyHex(s) {
   if (s == null || typeof s !== 'string') return false;
@@ -395,7 +410,10 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
   const favoriteAnimListenerRef = React.useRef(null);
   const prevFavoriteCountRef = React.useRef(0);
   const heroCollapse = useSharedValue(0);
+  const heroLayout = useSharedValue(0);
   const heroCollapsedRef = useRef(false);
+  const heroDraggingRef = useRef(false);
+  const heroDragStartYRef = useRef(0);
   const programmaticScrollRef = useRef(false);
   const [heroCollapsed, setHeroCollapsed] = useState(false);
   const matchesScrollRef = useRef(null);
@@ -995,38 +1013,72 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
     }
   };
 
-  const setHeroCollapsedState = useCallback((collapsed) => {
-    if (heroCollapsedRef.current === collapsed) return;
+  const settleHero = useCallback((collapsed) => {
+    heroDraggingRef.current = false;
     heroCollapsedRef.current = collapsed;
     setHeroCollapsed(collapsed);
-    heroCollapse.value = withTiming(collapsed ? 1 : 0, {
-      duration: HERO_COLLAPSE_MS,
-      easing: heroCollapseEasing,
-    });
-  }, [heroCollapse]);
+    const target = collapsed ? 1 : 0;
+    cancelAnimation(heroCollapse);
+    cancelAnimation(heroLayout);
+    heroCollapse.value = withTiming(target, heroSnapConfig);
+    heroLayout.value = withTiming(target, heroSnapConfig);
+  }, [heroCollapse, heroLayout]);
+
+  const resetHeroExpanded = useCallback(() => {
+    heroDraggingRef.current = false;
+    heroCollapsedRef.current = false;
+    setHeroCollapsed(false);
+    cancelAnimation(heroCollapse);
+    cancelAnimation(heroLayout);
+    heroCollapse.value = 0;
+    heroLayout.value = 0;
+  }, [heroCollapse, heroLayout]);
+
+  const onTabScrollBeginDrag = useCallback((event) => {
+    if (programmaticScrollRef.current) return;
+    heroDraggingRef.current = true;
+    heroDragStartYRef.current = Number(event?.nativeEvent?.contentOffset?.y || 0);
+  }, []);
 
   const onTabContentScroll = useCallback((event) => {
-    if (programmaticScrollRef.current) return;
+    if (programmaticScrollRef.current || !heroDraggingRef.current) return;
     const y = Number(event?.nativeEvent?.contentOffset?.y || 0);
-    if (!heroCollapsedRef.current && y > HERO_COLLAPSE_Y) {
-      setHeroCollapsedState(true);
+    if (heroCollapsedRef.current) {
+      heroCollapse.value = 1;
       return;
     }
-    if (heroCollapsedRef.current && y <= HERO_EXPAND_Y) {
-      setHeroCollapsedState(false);
+    heroCollapse.value = clamp01(y / HERO_FOLLOW_Y);
+  }, [heroCollapse]);
+
+  const onTabScrollEndDrag = useCallback((event) => {
+    if (programmaticScrollRef.current) {
+      heroDraggingRef.current = false;
+      return;
     }
-  }, [setHeroCollapsedState]);
+    const y = Number(event?.nativeEvent?.contentOffset?.y || 0);
+    settleHero(shouldCollapseHero(y, heroDragStartYRef.current));
+  }, [settleHero]);
 
   const selectTab = useCallback((tab) => {
     setActiveTab(tab);
   }, []);
 
+  const tabScrollHeroProps = useMemo(
+    () => ({
+      onScroll: onTabContentScroll,
+      onScrollBeginDrag: onTabScrollBeginDrag,
+      onScrollEndDrag: onTabScrollEndDrag,
+      scrollEventThrottle: 16,
+    }),
+    [onTabContentScroll, onTabScrollBeginDrag, onTabScrollEndDrag]
+  );
+
   useEffect(() => {
-    setHeroCollapsedState(false);
-  }, [activeTab, selectedStatsYear, selectedSeasonYear, selectedTeamSeasonYear, setHeroCollapsedState]);
+    resetHeroExpanded();
+  }, [activeTab, selectedStatsYear, selectedSeasonYear, selectedTeamSeasonYear, resetHeroExpanded]);
 
   const heroCardStyle = useAnimatedStyle(() => {
-    const p = heroCollapse.value;
+    const p = heroLayout.value;
     return {
       minHeight: interpolate(p, [0, 0.42, 1], [HERO_EXPANDED_MIN, 108, 0], Extrapolation.CLAMP),
       maxHeight: interpolate(p, [0, 0.42, 1], [HERO_EXPANDED_MAX, 140, 0], Extrapolation.CLAMP),
@@ -1068,7 +1120,7 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
   });
 
   const tabsCollapseStyle = useAnimatedStyle(() => ({
-    marginTop: interpolate(heroCollapse.value, [0, 1], [8, 2], Extrapolation.CLAMP),
+    marginTop: interpolate(heroLayout.value, [0, 1], [8, 2], Extrapolation.CLAMP),
   }));
 
   const handleBackNavigation = useCallback(() => {
@@ -1200,8 +1252,7 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
                 onLayout={(e) => setMatchesViewportHeight(e.nativeEvent.layout.height)}
                 onContentSizeChange={(_, h) => setMatchesContentHeight(h)}
                 showsVerticalScrollIndicator={false}
-                onScroll={onTabContentScroll}
-                scrollEventThrottle={16}
+                {...tabScrollHeroProps}
               >
                 {teamMatches.length === 0 ? (
                   <Text style={styles.placeholderText}>Nessuna partita disponibile.</Text>
@@ -1281,8 +1332,7 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
             style={styles.seasonScroll}
             contentContainerStyle={[styles.seasonScrollContent, { paddingBottom: Math.max(insets.bottom, 5)}]}
             showsVerticalScrollIndicator={false}
-            onScroll={onTabContentScroll}
-            scrollEventThrottle={16}
+            {...tabScrollHeroProps}
           >
             <View style={[styles.card, styles.seasonCard]}>
               <View ref={seasonPickerAnchorRef} style={styles.seasonPickerWrap} collapsable={false}>
@@ -1424,8 +1474,7 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
                 style={styles.trophiesList}
                 contentContainerStyle={styles.trophiesScrollContent}
                 showsVerticalScrollIndicator={false}
-                onScroll={onTabContentScroll}
-                scrollEventThrottle={16}
+                {...tabScrollHeroProps}
               >
                 <OfficialTeamTrophyBoard
                   championships={teamChampionships}
@@ -1577,6 +1626,8 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
                 </View>
               )}
               onScroll={onTabContentScroll}
+              onScrollBeginDrag={onTabScrollBeginDrag}
+              onScrollEndDrag={onTabScrollEndDrag}
               onPressPlayer={openPlayerFromStatsRow}
               onPressMatch={(matchId) => navigation.navigate('MatchDetail', {
                 matchId: Number(matchId),
@@ -1622,8 +1673,7 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
                 style={styles.teamSquadList}
                 contentContainerStyle={styles.teamSquadListContent}
                 showsVerticalScrollIndicator={false}
-                onScroll={onTabContentScroll}
-                scrollEventThrottle={16}
+                {...tabScrollHeroProps}
               >
                 {sortedTeamSeasonSquad.map((p, i) => {
                   const role = String(p?.role || '').trim().toUpperCase();

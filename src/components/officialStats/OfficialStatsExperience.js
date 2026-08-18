@@ -919,6 +919,8 @@ export default function OfficialStatsExperience({
   searchPlaceholder = 'Cerca giocatore o squadra',
   searchIncludesTeam = true,
   onScroll,
+  onScrollBeginDrag,
+  onScrollEndDrag,
 }) {
   const [query, setQuery] = useState('');
   const [selectedBoard, setSelectedBoard] = useState(boards[0]?.key || 'scorers');
@@ -979,6 +981,8 @@ export default function OfficialStatsExperience({
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
           onScroll={onScroll}
+          onScrollBeginDrag={onScrollBeginDrag}
+          onScrollEndDrag={onScrollEndDrag}
           scrollEventThrottle={16}
         >
           {searching ? (
