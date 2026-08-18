@@ -618,19 +618,8 @@ function HighlightCard({ item, onPressTeam, onPressMatch, index }) {
 
 function GroupHighlights({ highlights, onPressTeam, onPressMatch }) {
   const h = highlights || {};
+  const topMatch = h.highest_scoring_match || null;
   const cards = [];
-  if (h.highest_scoring_match) {
-    cards.push({
-      key: 'top-match',
-      wide: true,
-      icon: 'flash',
-      accent: '#7c3aed',
-      iconBg: '#f5f3ff',
-      match: h.highest_scoring_match,
-      label: 'Più gol',
-      detail: formatHighlightDate(h.highest_scoring_match.kickoff_at),
-    });
-  }
   if (h.best_attack) {
     cards.push({
       key: 'attack',
@@ -661,113 +650,108 @@ function GroupHighlights({ highlights, onPressTeam, onPressMatch }) {
       detail: `${Number(h.best_defense.goals_conceded || 0)} subiti · ${Number(h.best_defense.played || 0)} p`,
     });
   }
-  if (h.longest_win_streak) {
-    cards.push({
-      key: 'win-streak',
-      icon: 'flame',
-      accent: '#d97706',
-      iconBg: '#fffbeb',
-      team_id: h.longest_win_streak.team_id,
-      team_name: h.longest_win_streak.team_name,
-      logoUrl: h.longest_win_streak.team_logo_url,
-      logoPath: h.longest_win_streak.team_logo_path,
-      value: String(Number(h.longest_win_streak.value || 0)),
-      label: 'Vittorie',
-      detail: formatStreakRange(h.longest_win_streak.started_at, h.longest_win_streak.ended_at),
-    });
-  }
-  if (h.longest_loss_streak) {
-    cards.push({
-      key: 'loss-streak',
-      icon: 'trending-down',
-      accent: '#64748b',
-      iconBg: '#f8fafc',
-      team_id: h.longest_loss_streak.team_id,
-      team_name: h.longest_loss_streak.team_name,
-      logoUrl: h.longest_loss_streak.team_logo_url,
-      logoPath: h.longest_loss_streak.team_logo_path,
-      value: String(Number(h.longest_loss_streak.value || 0)),
-      label: 'Sconfitte',
-      detail: formatStreakRange(h.longest_loss_streak.started_at, h.longest_loss_streak.ended_at),
-    });
-  }
-  if (h.most_penalties_for) {
-    cards.push({
-      key: 'pen-for',
-      bonusType: 'penalty_goal',
-      icon: 'disc',
-      accent: '#2563eb',
-      iconBg: '#eff6ff',
-      team_id: h.most_penalties_for.team_id,
-      team_name: h.most_penalties_for.team_name,
-      logoUrl: h.most_penalties_for.team_logo_url,
-      logoPath: h.most_penalties_for.team_logo_path,
-      value: String(Number(h.most_penalties_for.value || 0)),
-      label: 'Rigori\na favore',
-    });
-  }
-  if (h.most_penalties_against) {
-    cards.push({
-      key: 'pen-against',
-      bonusType: 'penalty_missed',
-      icon: 'alert-circle',
-      accent: '#db2777',
-      iconBg: '#fdf2f8',
-      team_id: h.most_penalties_against.team_id,
-      team_name: h.most_penalties_against.team_name,
-      logoUrl: h.most_penalties_against.team_logo_url,
-      logoPath: h.most_penalties_against.team_logo_path,
-      value: String(Number(h.most_penalties_against.value || 0)),
-      label: 'Rigori\na sfavore',
-    });
-  }
-  if (h.most_yellow_cards) {
-    cards.push({
-      key: 'yellow',
-      bonusType: 'yellow_card',
-      icon: 'square',
-      accent: '#ca8a04',
-      iconBg: '#fefce8',
-      team_id: h.most_yellow_cards.team_id,
-      team_name: h.most_yellow_cards.team_name,
-      logoUrl: h.most_yellow_cards.team_logo_url,
-      logoPath: h.most_yellow_cards.team_logo_path,
-      value: String(Number(h.most_yellow_cards.value || 0)),
-      label: 'Gialli',
-    });
-  }
-  if (h.most_red_cards) {
-    cards.push({
-      key: 'red',
-      bonusType: 'red_card',
-      icon: 'square',
-      accent: '#dc2626',
-      iconBg: '#fef2f2',
-      team_id: h.most_red_cards.team_id,
-      team_name: h.most_red_cards.team_name,
-      logoUrl: h.most_red_cards.team_logo_url,
-      logoPath: h.most_red_cards.team_logo_path,
-      value: String(Number(h.most_red_cards.value || 0)),
-      label: 'Rossi',
-    });
-  }
-  if (cards.length === 0) {
+  const winStreak = h.longest_win_streak || null;
+  const lossStreak = h.longest_loss_streak || null;
+  const hasStreaks = !!(winStreak || lossStreak);
+  const miniDefs = [
+    { key: 'yellow', bonusType: 'yellow_card', label: 'Gialli', src: h.most_yellow_cards },
+    { key: 'red', bonusType: 'red_card', label: 'Rossi', src: h.most_red_cards },
+    { key: 'pen-for', bonusType: 'penalty_goal', label: 'Rigori\na favore', src: h.most_penalties_for },
+    { key: 'pen-against', bonusType: 'penalty_missed', label: 'Rigori\na sfavore', src: h.most_penalties_against },
+  ];
+  const hasMini = miniDefs.some((item) => item.src);
+  if (!topMatch && cards.length === 0 && !hasMini && !hasStreaks) {
     return <Text style={styles.emptyText}>Nessuna statistica di squadra disponibile.</Text>;
   }
+  const matchId = Number(topMatch?.match_id);
   return (
     <View>
       <Text style={styles.sectionEyebrow}>Squadre</Text>
-      <View style={styles.hlGrid}>
-      {cards.map((card, idx) => (
-        <HighlightCard
-          key={card.key}
-          item={card}
-          index={idx}
-          onPressTeam={onPressTeam}
-          onPressMatch={onPressMatch}
-        />
-      ))}
-      </View>
+      {topMatch ? (
+        <Animated.View
+          entering={FadeInDown.duration(280)}
+          style={[styles.streakPanel, styles.groupTopMatchPanel]}
+        >
+          <MatchRecordCell
+            label="Partita con più gol"
+            bonusType="most_goals"
+            record={topMatch}
+            onPress={matchId > 0 ? () => onPressMatch?.(matchId) : null}
+          />
+        </Animated.View>
+      ) : null}
+      {hasStreaks ? (
+        <Animated.View
+          entering={FadeInDown.delay(40).duration(280)}
+          style={[styles.streakPanel, !topMatch && { marginTop: 0 }]}
+        >
+          <StreakCell
+            icon="flame"
+            color="#16a34a"
+            value={winStreak && Number(winStreak.value || 0) > 0 ? String(Number(winStreak.value)) : '–'}
+            valueColor={winStreak && Number(winStreak.value || 0) > 0 ? '#16a34a' : '#94a3b8'}
+            label="Vittorie di fila"
+            detail={winStreak && Number(winStreak.value || 0) > 0
+              ? formatStreakRange(winStreak.started_at, winStreak.ended_at)
+              : null}
+            teamName={winStreak?.team_name}
+            logoUrl={winStreak?.team_logo_url}
+            logoPath={winStreak?.team_logo_path}
+            onPress={Number(winStreak?.team_id) > 0
+              ? () => onPressTeam?.(Number(winStreak.team_id), winStreak.team_name)
+              : null}
+            showDivider
+          />
+          <StreakCell
+            icon="trending-down"
+            color="#b91c1c"
+            value={lossStreak && Number(lossStreak.value || 0) > 0 ? String(Number(lossStreak.value)) : '–'}
+            valueColor={lossStreak && Number(lossStreak.value || 0) > 0 ? '#b91c1c' : '#94a3b8'}
+            label="Sconfitte di fila"
+            detail={lossStreak && Number(lossStreak.value || 0) > 0
+              ? formatStreakRange(lossStreak.started_at, lossStreak.ended_at)
+              : null}
+            teamName={lossStreak?.team_name}
+            logoUrl={lossStreak?.team_logo_url}
+            logoPath={lossStreak?.team_logo_path}
+            onPress={Number(lossStreak?.team_id) > 0
+              ? () => onPressTeam?.(Number(lossStreak.team_id), lossStreak.team_name)
+              : null}
+          />
+        </Animated.View>
+      ) : null}
+      {cards.length > 0 ? (
+        <View style={styles.hlGrid}>
+          {cards.map((card, idx) => (
+            <HighlightCard
+              key={card.key}
+              item={card}
+              index={idx}
+              onPressTeam={onPressTeam}
+              onPressMatch={onPressMatch}
+            />
+          ))}
+        </View>
+      ) : null}
+      {hasMini ? (
+        <View style={styles.miniRow}>
+          {miniDefs.map((item) => {
+            const teamId = Number(item.src?.team_id);
+            return (
+              <MiniStat
+                key={item.key}
+                bonusType={item.bonusType}
+                value={item.src ? Number(item.src.value || 0) : '–'}
+                label={item.label}
+                teamName={item.src?.team_name}
+                logoUrl={item.src?.team_logo_url}
+                logoPath={item.src?.team_logo_path}
+                onPress={teamId > 0 ? () => onPressTeam?.(teamId, item.src?.team_name) : null}
+              />
+            );
+          })}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -841,8 +825,21 @@ function GoalsKpiCell({ bonusType, icon, pack, color, value, label, valueColor, 
   );
 }
 
-function StreakCell({ icon, color, value, valueColor, label, detail, showDivider }) {
-  return (
+function StreakCell({
+  icon,
+  color,
+  value,
+  valueColor,
+  label,
+  detail,
+  showDivider,
+  teamName,
+  logoUrl,
+  logoPath,
+  onPress,
+}) {
+  const name = String(teamName || '').trim();
+  const inner = (
     <View style={[styles.goalsKpiCell, showDivider && styles.goalsKpiCellDivider]}>
       <View style={styles.goalsKpiHead}>
         <View style={styles.goalsKpiBadge}>
@@ -859,25 +856,66 @@ function StreakCell({ icon, color, value, valueColor, label, detail, showDivider
         >
           {value}
         </Text>
+        {name ? (
+          <View style={styles.streakTeam}>
+            <TeamLogoImage
+              logoUrl={logoUrl}
+              logoPath={logoPath}
+              style={styles.miniStatLogo}
+              fallbackStyle={styles.miniStatLogoFallback}
+              fallbackIconSize={9}
+            />
+            <Text style={styles.streakTeamName} numberOfLines={1}>{name}</Text>
+          </View>
+        ) : null}
         <Text style={styles.streakDetail} numberOfLines={1}>
           {detail || ' '}
         </Text>
       </View>
     </View>
   );
+  if (!onPress) {
+    return <View style={styles.recordCellHit}>{inner}</View>;
+  }
+  return (
+    <TouchableOpacity style={styles.recordCellHit} activeOpacity={0.78} onPress={onPress}>
+      {inner}
+    </TouchableOpacity>
+  );
 }
 
-function MiniStat({ icon, color, value, label, bonusType }) {
-  return (
-    <View style={styles.miniStat}>
+function MiniStat({ icon, color, value, label, bonusType, teamName, logoUrl, logoPath, onPress }) {
+  const name = String(teamName || '').trim();
+  const content = (
+    <>
       {bonusType ? (
         <BonusIcon type={bonusType} size={15} />
       ) : (
         <Ionicons name={icon} size={14} color={color} />
       )}
       <Text style={styles.miniStatValue}>{value}</Text>
+      {name ? (
+        <View style={styles.miniStatTeam}>
+          <TeamLogoImage
+            logoUrl={logoUrl}
+            logoPath={logoPath}
+            style={styles.miniStatLogo}
+            fallbackStyle={styles.miniStatLogoFallback}
+            fallbackIconSize={9}
+          />
+          <Text style={styles.miniStatTeamName} numberOfLines={1}>{name}</Text>
+        </View>
+      ) : null}
       <Text style={styles.miniStatLabel}>{label}</Text>
-    </View>
+    </>
+  );
+  if (!onPress) {
+    return <View style={styles.miniStat}>{content}</View>;
+  }
+  return (
+    <TouchableOpacity style={styles.miniStat} activeOpacity={0.78} onPress={onPress}>
+      {content}
+    </TouchableOpacity>
   );
 }
 
@@ -1473,7 +1511,8 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     marginBottom: 8,
   },
-  hlGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 8 },
+  hlGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 8, marginTop: 8 },
+  groupTopMatchPanel: { marginTop: 0 },
   hlCard: {
     width: '48.6%',
     backgroundColor: '#fff',
@@ -1642,9 +1681,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 10,
   },
-  miniStat: { flex: 1, alignItems: 'center', gap: 4 },
+  miniStat: { flex: 1, alignItems: 'center', gap: 4, minWidth: 0 },
   miniStatValue: { fontSize: 14, fontWeight: '800', color: '#0f172a' },
   miniStatLabel: { fontSize: 9, fontWeight: '800', color: '#94a3b8', textTransform: 'uppercase', textAlign: 'center', lineHeight: 12 },
+  miniStatTeam: { flexDirection: 'row', alignItems: 'center', gap: 3, maxWidth: '100%', paddingHorizontal: 2 },
+  miniStatLogo: { width: 14, height: 14 },
+  miniStatLogoFallback: {
+    width: 14,
+    height: 14,
+    borderRadius: 4,
+    backgroundColor: '#eef2ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  miniStatTeamName: { flex: 1, minWidth: 0, fontSize: 9, fontWeight: '700', color: '#475569' },
   wdlCard: {
     marginTop: 8,
     backgroundColor: '#fff',
@@ -1681,6 +1731,21 @@ const styles = StyleSheet.create({
     color: '#94a3b8',
     textAlign: 'center',
     minHeight: 13,
+  },
+  streakTeam: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    marginTop: 4,
+    maxWidth: '100%',
+    paddingHorizontal: 4,
+  },
+  streakTeamName: {
+    flexShrink: 1,
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#475569',
   },
   recordCellHit: { flex: 1, minWidth: 0 },
   recordHead: {
