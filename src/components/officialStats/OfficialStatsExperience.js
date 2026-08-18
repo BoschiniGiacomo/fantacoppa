@@ -68,9 +68,17 @@ function rowMatchesQuery(row, query, includeTeam = true) {
   return hay.includes(query);
 }
 
+function stripBirthYearNameSuffix(name) {
+  return String(name || '').replace(/\s*\('\d{2}\)\s*$/u, '').trim();
+}
+
+function birthYearCardLabel(name) {
+  const match = String(name || '').match(/\('(\d{2})\)\s*$/u);
+  return match ? `${match[1]}'` : '';
+}
+
 function playerInitials(name) {
-  const parts = String(name || '')
-    .trim()
+  const parts = stripBirthYearNameSuffix(name)
     .split(/\s+/)
     .filter(Boolean);
   if (parts.length === 0) return '?';
@@ -460,6 +468,8 @@ function TeaserStrip({ boards, onSelect, showTeamName = true }) {
       >
         {teasers.map(({ board, top }, idx) => {
           const playerName = String(top.name || '-');
+          const displayName = stripBirthYearNameSuffix(playerName) || '-';
+          const yearLabel = birthYearCardLabel(playerName);
           const teamName = String(top.team_name || '').trim();
           const value = Number(top.value || 0);
           return (
@@ -486,7 +496,7 @@ function TeaserStrip({ boards, onSelect, showTeamName = true }) {
                       <View style={styles.teaserPhotoBleed} pointerEvents="none">
                         <PlayerAvatar
                           photoPath={top.photo_path}
-                          name={playerName}
+                          name={displayName}
                           accent={board.accent}
                           size={72}
                         />
@@ -494,15 +504,27 @@ function TeaserStrip({ boards, onSelect, showTeamName = true }) {
                     ) : (
                       <PlayerAvatar
                         photoPath={top.photo_path}
-                        name={playerName}
+                        name={displayName}
                         accent={board.accent}
                         size={56}
                       />
                     )}
+                    {yearLabel ? (
+                      <View style={styles.teaserYearBadge}>
+                        <Text style={styles.teaserYearBadgeText}>{yearLabel}</Text>
+                      </View>
+                    ) : null}
                   </View>
                   <Text style={[styles.teaserValue, { color: board.accent }]}>{value}</Text>
                 </View>
-                <Text style={styles.teaserName} numberOfLines={1}>{playerName}</Text>
+                <Text
+                  style={styles.teaserName}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.78}
+                >
+                  {displayName}
+                </Text>
                 {showTeamName && teamName ? (
                   <Text style={styles.teaserTeam} numberOfLines={1}>{teamName}</Text>
                 ) : null}
@@ -1697,7 +1719,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#e8edf3',
     borderRadius: 16,
-    paddingHorizontal: 12,
+    paddingHorizontal: 8,
     paddingVertical: 12,
   },
   teaserCatRow: {
@@ -1737,6 +1759,25 @@ const styles = StyleSheet.create({
     height: 72,
     left: -8,
     top: -8,
+  },
+  teaserYearBadge: {
+    position: 'absolute',
+    bottom: -2,
+    right: -2,
+    zIndex: 2,
+    minWidth: 26,
+    height: 18,
+    paddingHorizontal: 5,
+    borderRadius: 9,
+    backgroundColor: '#0f172a',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  teaserYearBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#fff',
+    letterSpacing: 0.2,
   },
   teaserName: { fontSize: 13, fontWeight: '800', color: '#0f172a' },
   teaserTeam: { marginTop: 2, fontSize: 10, fontWeight: '600', color: '#94a3b8' },
