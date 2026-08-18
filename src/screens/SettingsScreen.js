@@ -1508,7 +1508,7 @@ export default function SettingsScreen({ route, navigation }) {
                 {bonusSettings.enable_bonus_malus && (
                   <>
                     <Text style={styles.bmSectionLabel}>Bonus</Text>
-                    {renderBonusRow('goal', 'Goal segnato', 'enable_goal', 'bonus_goal', '3.0', '#4CAF50')}
+                    {renderBonusRow('goal', 'Gol segnato', 'enable_goal', 'bonus_goal', '3.0', '#4CAF50')}
                     {renderBonusRow('assist', 'Assist', 'enable_assist', 'bonus_assist', '1.0', '#4CAF50')}
                     {renderBonusRow('penalty_saved', 'Rigore parato', 'enable_penalty_saved', 'bonus_penalty_saved', '3.0', '#4CAF50')}
                     {renderBonusRow('clean_sheet', 'Clean sheet', 'enable_clean_sheet', 'bonus_clean_sheet', '1.0', '#4CAF50')}
@@ -1517,8 +1517,8 @@ export default function SettingsScreen({ route, navigation }) {
                     <Text style={[styles.bmSectionLabel, { marginTop: 12 }]}>Malus</Text>
                     {renderBonusRow('yellow_card', 'Cartellino giallo', 'enable_yellow_card', 'malus_yellow_card', '-0.5', '#e53935')}
                     {renderBonusRow('red_card', 'Cartellino rosso', 'enable_red_card', 'malus_red_card', '-1.0', '#e53935')}
-                    {renderBonusRow('goals_conceded', 'Goal subito', 'enable_goals_conceded', 'malus_goals_conceded', '-1.0', '#e53935')}
-                    {renderBonusRow('own_goal', 'Autogoal', 'enable_own_goal', 'malus_own_goal', '-2.0', '#e53935')}
+                    {renderBonusRow('goals_conceded', 'Gol subito', 'enable_goals_conceded', 'malus_goals_conceded', '-1.0', '#e53935')}
+                    {renderBonusRow('own_goal', 'Autogol', 'enable_own_goal', 'malus_own_goal', '-2.0', '#e53935')}
                     {renderBonusRow('penalty_missed', 'Rigore sbagliato', 'enable_penalty_missed', 'malus_penalty_missed', '-3.0', '#e53935')}
                     {renderBonusRow('pallone_fuori', 'Pallone fuori', 'enable_pallone_fuori', 'malus_pallone_fuori', '-0.5', '#e53935')}
                     {renderBonusRow('no_divisa', 'No divisa', 'enable_no_divisa', 'malus_no_divisa', '-1.0', '#e53935')}

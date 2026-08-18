@@ -144,7 +144,7 @@ const SQL_WALKOVER_MATCHES_CTE = `
         )
       )`;
 
-/** Conteggio gol casa/trasferta: team_side ha priorità (come computeLiveScoreFromEvents), poi team_id. */
+/** Conteggio goal casa/trasferta: team_side ha priorità (come computeLiveScoreFromEvents), poi team_id. */
 const SQL_OFFICIAL_MATCH_HOME_GOAL_POINT = `
       CASE
         WHEN e.event_type IN ('goal','penalty_goal') THEN
@@ -340,7 +340,7 @@ function teamNameFromSide(teamSide, homeTeamName, awayTeamName) {
   return '';
 }
 
-/** Titolo + corpo push (goal / autogol / fine partita come richiesto). */
+/** Titolo + corpo push (gol / autogol / fine partita come richiesto). */
 function buildMatchEventPushContent({
   eventType,
   homeTeamName,
@@ -364,18 +364,18 @@ function buildMatchEventPushContent({
     return { title, body: `${matchLabel}${scoreStr}`.trimEnd() };
   }
   if (isRegularGoalEventType(eventType)) {
-    const title = sideTeam ? `GOAL ${sideTeam}` : 'GOAL';
+    const title = sideTeam ? `GOL ${sideTeam}` : 'GOL';
     const rigSuffix = eventType === 'penalty_goal' ? ' (rig.)' : '';
     const body = playerFmt
-      ? `goal di ${playerFmt}${rigSuffix} ${matchLabel}${scoreStr}`.trimEnd()
-      : `goal${rigSuffix} ${matchLabel}${scoreStr}`.trimEnd();
+      ? `gol di ${playerFmt}${rigSuffix} ${matchLabel}${scoreStr}`.trimEnd()
+      : `gol${rigSuffix} ${matchLabel}${scoreStr}`.trimEnd();
     return { title, body };
   }
   if (eventType === 'own_goal') {
-    const title = sideTeam ? `AUTOGOAL ${sideTeam}` : 'AUTOGOAL';
+    const title = sideTeam ? `AUTOGOL ${sideTeam}` : 'AUTOGOL';
     const body = playerFmt
-      ? `Autogoal di ${playerFmt} ${matchLabel}${scoreStr}`.trimEnd()
-      : `Autogoal ${matchLabel}${scoreStr}`.trimEnd();
+      ? `Autogol di ${playerFmt} ${matchLabel}${scoreStr}`.trimEnd()
+      : `Autogol ${matchLabel}${scoreStr}`.trimEnd();
     return { title, body };
   }
   return null;
@@ -959,16 +959,16 @@ function buildEventPayloadForDb(body) {
 
 function buildEventTitleForDb(eventType, teamSide, payload) {
   const pn = payload && payload.player_name ? String(payload.player_name).trim() : '';
-  if (eventType === 'goal') return pn ? `Goal - ${pn}` : 'Goal';
+  if (eventType === 'goal') return pn ? `Gol - ${pn}` : 'Gol';
   if (eventType === 'penalty_goal') return pn ? `Rigore segnato - ${pn}` : 'Rigore segnato';
   if (eventType === 'own_goal') return pn ? `Autogol - ${pn}` : 'Autogol';
   if (eventType === 'yellow_card') return pn ? `Ammonizione - ${pn}` : 'Ammonizione';
   if (eventType === 'red_card') return pn ? `Espulsione - ${pn}` : 'Espulsione';
   if (eventType === 'penalty_missed') return pn ? `Rigore sbagliato - ${pn}` : 'Rigore sbagliato';
   if (eventType === 'shootout_goal') return pn ? `Rigore segnato - ${pn}` : 'Rigore segnato';
-  if (eventType === 'shootout_missed') return pn ? `Rigore no goal - ${pn}` : 'Rigore no goal';
+  if (eventType === 'shootout_missed') return pn ? `Rigore no gol - ${pn}` : 'Rigore no gol';
   if (eventType === 'pre_shootout_goal') return pn ? `Shootout segnato - ${pn}` : 'Shootout segnato';
-  if (eventType === 'pre_shootout_missed') return pn ? `Shootout no goal - ${pn}` : 'Shootout no goal';
+  if (eventType === 'pre_shootout_missed') return pn ? `Shootout no gol - ${pn}` : 'Shootout no gol';
   if (eventType === 'pre_shootout_start') return 'Inizio shootout';
   if (eventType === 'pre_shootout_end') return 'Fine shootout';
   if (eventType === 'match_start') return 'Inizio partita';

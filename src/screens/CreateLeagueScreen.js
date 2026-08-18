@@ -1132,10 +1132,10 @@ export default function CreateLeagueScreen({ navigation }) {
           {/* ===== SEZIONE BONUS ===== */}
           <Text style={styles.bmSectionTitle}>Bonus</Text>
 
-          {/* Goal segnato */}
+          {/* Gol segnato */}
           <View style={styles.bmRowFull}>
             <View style={styles.bmRowIcon}><BonusIcon type="goal" size={20} /></View>
-            <Text style={styles.bmRowLabel} numberOfLines={1}>Goal segnato</Text>
+            <Text style={styles.bmRowLabel} numberOfLines={1}>Gol segnato</Text>
             <Switch
               value={formData.enableGoal}
               onValueChange={(value) => setFormData({ ...formData, enableGoal: value })}
@@ -1326,10 +1326,10 @@ export default function CreateLeagueScreen({ navigation }) {
             />
           </View>
 
-          {/* Goal subito */}
+          {/* Gol subito */}
           <View style={styles.bmRowFull}>
             <View style={styles.bmRowIcon}><BonusIcon type="goals_conceded" size={20} /></View>
-            <Text style={styles.bmRowLabel} numberOfLines={1}>Goal subito</Text>
+            <Text style={styles.bmRowLabel} numberOfLines={1}>Gol subito</Text>
             <Switch
               value={formData.enableGoalsConceded}
               onValueChange={(value) => setFormData({ ...formData, enableGoalsConceded: value })}
@@ -1354,10 +1354,10 @@ export default function CreateLeagueScreen({ navigation }) {
             />
           </View>
 
-          {/* Autogoal */}
+          {/* Autogol */}
           <View style={styles.bmRowFull}>
             <View style={styles.bmRowIcon}><BonusIcon type="own_goal" size={20} /></View>
-            <Text style={styles.bmRowLabel} numberOfLines={1}>Autogoal</Text>
+            <Text style={styles.bmRowLabel} numberOfLines={1}>Autogol</Text>
             <Switch
               value={formData.enableOwnGoal}
               onValueChange={(value) => setFormData({ ...formData, enableOwnGoal: value })}

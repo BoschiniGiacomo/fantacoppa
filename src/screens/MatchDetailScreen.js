@@ -1205,16 +1205,16 @@ function isLiveEventOpenableForPlayer(ev) {
   return resolveLiveEventPlayerId(ev) != null;
 }
 const LIVE_EVENT_TYPE_LABELS = {
-  goal: 'Goal',
+  goal: 'Gol',
   penalty_goal: 'Rigore segnato',
   own_goal: 'Autogol',
   yellow_card: 'Giallo',
   red_card: 'Rosso',
   penalty_missed: 'Rigore sbagliato',
   shootout_goal: 'Rigore segnato',
-  shootout_missed: 'Rigore no goal',
+  shootout_missed: 'Rigore no gol',
   pre_shootout_goal: 'Shootout segnato',
-  pre_shootout_missed: 'Shootout no goal',
+  pre_shootout_missed: 'Shootout no gol',
   pre_shootout_start: 'Inizio shootout',
   pre_shootout_end: 'Fine shootout',
   match_start: 'Inizio partita',
@@ -1236,7 +1236,7 @@ function liveEventTypeLabel(eventType, match, events) {
 }
 
 const EVENT_WIZARD_TYPES = [
-  { id: 'goal', label: 'Goal', bonusType: 'goal' },
+  { id: 'goal', label: 'Gol', bonusType: 'goal' },
   { id: 'penalty_goal', label: 'Rigore segnato', bonusType: 'penalty_goal' },
   { id: 'own_goal', label: 'Autogol', bonusType: 'own_goal' },
   { id: 'yellow_card', label: 'Ammonizione', bonusType: 'yellow_card' },
@@ -3579,7 +3579,7 @@ export default function MatchDetailScreen({ navigation, route }) {
                       ? computePreShootoutScoreThroughEvent(liveEvents, ev)
                       : null;
                   const shootoutSubtext = isPenaltySeriesKickEventType(ev.event_type)
-                    ? `${(ev.event_type === 'shootout_goal' || ev.event_type === 'pre_shootout_goal') ? 'Goal' : 'Sbagliato'} (${shootoutScore.home}-${shootoutScore.away})`
+                    ? `${(ev.event_type === 'shootout_goal' || ev.event_type === 'pre_shootout_goal') ? 'Gol' : 'Sbagliato'} (${shootoutScore.home}-${shootoutScore.away})`
                     : '';
                   const playerName = ev?.payload?.player_name || (isPenaltySeriesKickEventType(ev.event_type) ? 'Tiratore non scelto' : '-');
                   const assistPlayerName =
@@ -4281,7 +4281,7 @@ export default function MatchDetailScreen({ navigation, route }) {
                       ) : null}
                       {shootoutWizardStep === 3 ? (
                         <>
-                          <Text style={styles.editorLabel}>3) Goal o No goal</Text>
+                          <Text style={styles.editorLabel}>3) Gol o No gol</Text>
                           <View style={styles.shootoutActionsRow}>
                             <TouchableOpacity
                               style={[
@@ -4296,7 +4296,7 @@ export default function MatchDetailScreen({ navigation, route }) {
                               }}
                             >
                               <BonusIcon type="goal" size={26} />
-                              <Text style={styles.shootoutActionText}>Goal</Text>
+                              <Text style={styles.shootoutActionText}>Gol</Text>
                             </TouchableOpacity>
                             <TouchableOpacity
                               style={[
@@ -4312,7 +4312,7 @@ export default function MatchDetailScreen({ navigation, route }) {
                               }}
                             >
                               <BonusIcon type="goals_conceded" size={26} />
-                              <Text style={styles.shootoutActionText}>No goal</Text>
+                              <Text style={styles.shootoutActionText}>No gol</Text>
                             </TouchableOpacity>
                           </View>
                         </>
@@ -4331,8 +4331,8 @@ export default function MatchDetailScreen({ navigation, route }) {
                               <Text style={styles.eventSummaryKey}>Esito</Text>
                               <Text style={styles.eventSummaryVal}>
                                 {(editorModalTab === 'preShootout' ? shootoutEventType === 'pre_shootout_goal' : shootoutEventType === 'shootout_goal')
-                                  ? 'Goal'
-                                  : 'No goal'}
+                                  ? 'Gol'
+                                  : 'No gol'}
                               </Text>
                             </View>
                             <View style={styles.eventSummaryRow}>
@@ -4399,7 +4399,7 @@ export default function MatchDetailScreen({ navigation, route }) {
                                       <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                                         <View style={styles.rowChips}>
                                           {[
-                                            { id: 'goal', label: 'Goal' },
+                                            { id: 'goal', label: 'Gol' },
                                             { id: 'penalty_goal', label: 'Rigore segnato' },
                                             { id: 'own_goal', label: 'Autogol' },
                                             { id: 'yellow_card', label: 'Giallo' },
@@ -4524,7 +4524,7 @@ export default function MatchDetailScreen({ navigation, route }) {
                                           }
                                         >
                                           <Ionicons name="checkmark-circle" size={26} color="#198754" />
-                                          <Text style={styles.shootoutActionText}>Goal</Text>
+                                          <Text style={styles.shootoutActionText}>Gol</Text>
                                         </TouchableOpacity>
                                         <TouchableOpacity
                                           style={[
@@ -4540,7 +4540,7 @@ export default function MatchDetailScreen({ navigation, route }) {
                                           }
                                         >
                                           <Ionicons name="close-circle" size={26} color="#e53935" />
-                                          <Text style={styles.shootoutActionText}>No goal</Text>
+                                          <Text style={styles.shootoutActionText}>No gol</Text>
                                         </TouchableOpacity>
                                       </View>
                                     </>
@@ -4646,7 +4646,7 @@ export default function MatchDetailScreen({ navigation, route }) {
                         <>
                           <Text style={styles.editorLabel}>
                             {eventType === 'own_goal'
-                              ? "2) Scegli squadra che si e fatta autogoal"
+                              ? "2) Scegli squadra che si e fatta autogol"
                               : '2) Scegli squadra'}
                           </Text>
                           <View style={styles.eventTeamRow}>

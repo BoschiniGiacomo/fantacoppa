@@ -884,7 +884,7 @@ export default function PlayerStatsScreen({ route, navigation }) {
                   <Text style={styles.tileValue}>
                     {formatOverviewAbsoluteRank(absoluteRanks?.goals_rank)}
                   </Text>
-                  <Text style={styles.tileLabel}>Goal</Text>
+                  <Text style={styles.tileLabel}>Gol</Text>
                 </>
               )}
             />
@@ -1061,7 +1061,7 @@ export default function PlayerStatsScreen({ route, navigation }) {
             <ProductionStatCell
               type="goals_conceded"
               value={formatRate(s.goals_conceded_per_game)}
-              label="Goal subiti"
+              label="Gol subiti"
             />
           </View>
         </View>
@@ -1276,7 +1276,7 @@ export default function PlayerStatsScreen({ route, navigation }) {
     const v = (val) => (typeof val === 'number' ? val : (parseFloat(val) || 0));
 
     const baseTotals = [
-      { key: 'goal', value: v(totals.total_goals), label: 'Goal' },
+      { key: 'goal', value: v(totals.total_goals), label: 'Gol' },
       { key: 'assist', value: v(totals.total_assists), label: 'Assist' },
       { key: 'briso', value: v(totals.total_briso), label: 'MVP' },
       { key: 'yellow_card', value: v(totals.total_yellow_cards), label: 'Gialli' },
@@ -1287,7 +1287,7 @@ export default function PlayerStatsScreen({ route, navigation }) {
     const goalkeeperTotals = isRecentClusterGoalkeeper ? [
       { key: 'clean_sheet', value: v(totals.total_clean_sheets), label: 'Clean sheet' },
       { key: 'penalty_saved', value: v(totals.total_penalty_saved), label: 'Rig. parati' },
-      { key: 'goals_conceded', value: v(totals.total_goals_conceded), label: 'Goal subiti' },
+      { key: 'goals_conceded', value: v(totals.total_goals_conceded), label: 'Gol subiti' },
     ] : [];
     const totalsItems = [...baseTotals, ...goalkeeperTotals];
 
