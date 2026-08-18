@@ -823,26 +823,23 @@ function MiniStat({ icon, color, value, label, bonusType }) {
   );
 }
 
-function MatchRecordCard({ icon, accent, record, onPress, wide, label }) {
+function MatchRecordCell({ icon, color, record, onPress, label, showDivider }) {
   const hasScore = record && Number.isFinite(Number(record.home_score)) && Number.isFinite(Number(record.away_score));
   const homeName = String(record?.home_team || record?.home_team_name || '').trim();
   const awayName = String(record?.away_team || record?.away_team_name || '').trim();
   const date = String(record?.date || '').trim() || formatHighlightDate(record?.kickoff_at);
-  return (
-    <TouchableOpacity
-      style={[styles.recordCard, wide && styles.recordCardWide]}
-      activeOpacity={onPress ? 0.78 : 1}
-      disabled={!onPress}
-      onPress={onPress}
-    >
-      <View style={[styles.recordIcon, { backgroundColor: `${accent}18` }]}>
-        <Ionicons name={icon} size={14} color={accent} />
+  const inner = (
+    <View style={[styles.goalsKpiCell, showDivider && styles.goalsKpiCellDivider]}>
+      <View style={styles.recordHead}>
+        <View style={styles.goalsKpiBadge}>
+          <Ionicons name={icon} size={16} color={color} />
+        </View>
+        <Text style={styles.recordTitle}>{label}</Text>
       </View>
-      {label ? <Text style={styles.hlLabel}>{label}</Text> : null}
       {!hasScore ? (
-        <Text style={styles.recordEmpty}>-</Text>
+        <Text style={[styles.goalsKpiValue, { color: '#94a3b8' }]}>–</Text>
       ) : (
-        <>
+        <View style={styles.streakValueBlock}>
           <View style={styles.recordScoreRow}>
             <TeamLogoImage
               logoUrl={record.home_team_logo_url}
@@ -851,7 +848,9 @@ function MatchRecordCard({ icon, accent, record, onPress, wide, label }) {
               fallbackStyle={styles.recordLogoFallback}
               fallbackIconSize={12}
             />
-            <Text style={styles.recordScore}>{Number(record.home_score)}-{Number(record.away_score)}</Text>
+            <Text style={styles.recordScore}>
+              {Number(record.home_score)}-{Number(record.away_score)}
+            </Text>
             <TeamLogoImage
               logoUrl={record.away_team_logo_url}
               logoPath={record.away_team_logo_path}
@@ -862,10 +861,20 @@ function MatchRecordCard({ icon, accent, record, onPress, wide, label }) {
           </View>
           {homeName && awayName ? (
             <Text style={styles.recordNames} numberOfLines={1}>{homeName} vs {awayName}</Text>
-          ) : null}
-          {date ? <Text style={styles.recordDate}>{date}</Text> : null}
-        </>
+          ) : (
+            <Text style={styles.recordNames}> </Text>
+          )}
+          <Text style={styles.recordDate} numberOfLines={1}>{date || ' '}</Text>
+        </View>
       )}
+    </View>
+  );
+  if (!onPress) {
+    return <View style={styles.recordCellHit}>{inner}</View>;
+  }
+  return (
+    <TouchableOpacity style={styles.recordCellHit} activeOpacity={0.78} onPress={onPress}>
+      {inner}
     </TouchableOpacity>
   );
 }
@@ -966,36 +975,38 @@ function TeamGeneral({ general, outcomes, onPressMatch }) {
         />
       </Animated.View>
 
-      <View style={styles.recordsGrid}>
-        <MatchRecordCard
-          label="Più larga"
-          icon="trophy"
-          accent="#15803d"
+      <Animated.View entering={FadeInDown.delay(100).duration(280)} style={styles.streakPanel}>
+        <MatchRecordCell
+          label={"Vittoria\npiù larga"}
+          icon="arrow-up-circle"
+          color="#16a34a"
           record={general?.biggest_win}
           onPress={Number(general?.biggest_win?.match_id) > 0
             ? () => onPressMatch?.(Number(general.biggest_win.match_id))
             : null}
+          showDivider
         />
-        <MatchRecordCard
-          label="Più pesante"
-          icon="sad-outline"
-          accent="#b91c1c"
+        <MatchRecordCell
+          label={"Sconfitta\npiù pesante"}
+          icon="arrow-down-circle"
+          color="#b91c1c"
           record={general?.heaviest_defeat}
           onPress={Number(general?.heaviest_defeat?.match_id) > 0
             ? () => onPressMatch?.(Number(general.heaviest_defeat.match_id))
             : null}
         />
-        <MatchRecordCard
-          wide
+      </Animated.View>
+      <Animated.View entering={FadeInDown.delay(120).duration(280)} style={styles.streakPanel}>
+        <MatchRecordCell
           label="Più gol"
           icon="flash"
-          accent="#7c3aed"
+          color="#d97706"
           record={general?.highest_scoring_match}
           onPress={Number(general?.highest_scoring_match?.match_id) > 0
             ? () => onPressMatch?.(Number(general.highest_scoring_match.match_id))
             : null}
         />
-      </View>
+      </Animated.View>
     </View>
   );
 }
@@ -1547,40 +1558,35 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     minHeight: 13,
   },
-  recordsGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 8, marginTop: 8 },
-  recordCard: {
-    width: '48.6%',
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#ececec',
-    borderRadius: 14,
-    paddingHorizontal: 10,
-    paddingVertical: 10,
-    minHeight: 92,
+  recordCellHit: { flex: 1, minWidth: 0 },
+  recordHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    width: '100%',
   },
-  recordCardWide: { width: '100%' },
-  recordIcon: {
+  recordTitle: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#475569',
+    textAlign: 'center',
+    lineHeight: 14,
+  },
+  recordScoreRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  recordLogo: { width: 24, height: 24 },
+  recordLogoFallback: {
     width: 24,
     height: 24,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 8,
-  },
-  recordEmpty: { fontSize: 16, fontWeight: '800', color: '#94a3b8' },
-  recordScoreRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
-  recordLogo: { width: 22, height: 22 },
-  recordLogoFallback: {
-    width: 22,
-    height: 22,
-    borderRadius: 5,
-    backgroundColor: '#eef2ff',
+    borderRadius: 6,
+    backgroundColor: '#f1f5f9',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  recordScore: { fontSize: 16, fontWeight: '800', color: '#0f172a' },
+  recordScore: { fontSize: 22, fontWeight: '800', color: '#0f172a', letterSpacing: -0.5 },
   recordNames: { marginTop: 4, fontSize: 10, fontWeight: '600', color: '#64748b', textAlign: 'center' },
-  recordDate: { marginTop: 2, fontSize: 10, fontWeight: '600', color: '#94a3b8', textAlign: 'center' },
+  recordDate: { marginTop: 2, fontSize: 10, fontWeight: '600', color: '#94a3b8', textAlign: 'center', minHeight: 13 },
   teaserBlock: { marginBottom: 14 },
   teaserRow: { gap: 8, paddingRight: 4 },
   teaserCard: {
