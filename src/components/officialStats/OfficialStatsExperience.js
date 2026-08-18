@@ -60,9 +60,11 @@ function normalizeQuery(value) {
     .replace(/[\u0300-\u036f]/g, '');
 }
 
-function rowMatchesQuery(row, query) {
+function rowMatchesQuery(row, query, includeTeam = true) {
   if (!query) return true;
-  const hay = normalizeQuery(`${row?.name || ''} ${row?.team_name || ''}`);
+  const hay = includeTeam
+    ? normalizeQuery(`${row?.name || ''} ${row?.team_name || ''}`)
+    : normalizeQuery(row?.name || '');
   return hay.includes(query);
 }
 
@@ -253,10 +255,11 @@ function LeaderboardList({
   onToggleExpand,
   onPressPlayer,
   query,
+  includeTeam = true,
   animKey,
 }) {
   const list = Array.isArray(board.items) ? board.items : [];
-  const filtered = query ? list.filter((row) => rowMatchesQuery(row, query)) : list;
+  const filtered = query ? list.filter((row) => rowMatchesQuery(row, query, includeTeam)) : list;
   if (filtered.length === 0) {
     return <Text style={styles.emptyText}>{query ? 'Nessun risultato per la ricerca.' : board.empty}</Text>;
   }
@@ -838,6 +841,8 @@ export default function OfficialStatsExperience({
   onPressPlayer,
   onPressTeam,
   onPressMatch,
+  searchPlaceholder = 'Cerca giocatore o squadra',
+  searchIncludesTeam = true,
 }) {
   const [query, setQuery] = useState('');
   const [selectedBoard, setSelectedBoard] = useState(boards[0]?.key || 'scorers');
@@ -857,10 +862,12 @@ export default function OfficialStatsExperience({
     return boards
       .map((board) => ({
         board,
-        items: (Array.isArray(board.items) ? board.items : []).filter((row) => rowMatchesQuery(row, normalizedQuery)),
+        items: (Array.isArray(board.items) ? board.items : []).filter((row) =>
+          rowMatchesQuery(row, normalizedQuery, searchIncludesTeam)
+        ),
       }))
       .filter((hit) => hit.items.length > 0);
-  }, [boards, normalizedQuery, searching]);
+  }, [boards, normalizedQuery, searching, searchIncludesTeam]);
 
   return (
     <View style={styles.root}>
@@ -871,7 +878,7 @@ export default function OfficialStatsExperience({
           setQuery(text);
           setExpanded(false);
         }}
-        placeholder="Cerca giocatore o squadra"
+        placeholder={searchPlaceholder}
       />
       {!searching ? (
         <CategoryChips
@@ -919,6 +926,7 @@ export default function OfficialStatsExperience({
                     onToggleExpand={() => {}}
                     onPressPlayer={onPressPlayer}
                     query={normalizedQuery}
+                    includeTeam={searchIncludesTeam}
                     animKey={`${selectedYear}-search-${hit.board.key}`}
                   />
                 </Animated.View>

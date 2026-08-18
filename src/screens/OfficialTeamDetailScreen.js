@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
@@ -1317,6 +1317,8 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
               boards={statsBoards}
               general={statsGeneral}
               outcomes={statsOutcomes}
+              searchPlaceholder="Cerca giocatore"
+              searchIncludesTeam={false}
               extraAfterOverview={(
                 <View style={styles.outcomesExploreWrap}>
                   {outcomesOpponentsExpanded ? (
