@@ -1562,12 +1562,12 @@ const styles = StyleSheet.create({
   recordHead: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 8,
     width: '100%',
   },
   recordTitle: {
-    flex: 1,
-    minWidth: 0,
+    flexShrink: 1,
     fontSize: 11,
     fontWeight: '700',
     color: '#475569',
