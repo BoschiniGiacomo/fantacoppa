@@ -19,12 +19,14 @@ import { TeamLogoImage, OfficialGroupLogoImage } from '../components/StableCache
 import { EMPTY_OFFICIAL_KNOCKOUT, hasOfficialKnockoutBracket } from '../utils/knockoutBracket';
 import OfficialKnockoutBracket from '../components/OfficialKnockoutBracket';
 import { parseAppDate } from '../utils/dateTime';
-import { buildCompetitionRanks, formatCompetitionRank } from '../utils/standingsRanking';
 import { matchDisplayScoreParts } from '../utils/matchDisplayScore';
+import OfficialStatsExperience, {
+  ABSOLUTE_STATS_KEY,
+  GROUP_STATS_BOARDS,
+  mapOfficialStatsBoards,
+} from '../components/officialStats/OfficialStatsExperience';
 
 const SEASON_YEAR_PICKER_MAX_HEIGHT = 180;
-const ABSOLUTE_STATS_KEY = 'absolute';
-const STATS_LEADERBOARD_PREVIEW = 10;
 const EMPTY_TEAM_HIGHLIGHTS = {
   best_attack: null,
   best_defense: null,
@@ -37,26 +39,6 @@ const EMPTY_TEAM_HIGHLIGHTS = {
   most_red_cards: null,
 };
 
-function formatHighlightDate(value) {
-  const d = parseAppDate(value);
-  if (!d) return '';
-  return d.toLocaleDateString('it-IT', { day: '2-digit', month: 'short', year: 'numeric' });
-}
-
-function formatStreakRange(startedAt, endedAt) {
-  const start = formatHighlightDate(startedAt);
-  const end = formatHighlightDate(endedAt);
-  if (!start && !end) return '';
-  if (start && end && start === end) return start;
-  if (start && end) return `${start} – ${end}`;
-  return start || end;
-}
-
-function formatStatAvg(n) {
-  const v = Number(n);
-  if (!Number.isFinite(v)) return '0,00';
-  return v.toFixed(2).replace('.', ',');
-}
 const HALL_WINNERS_PREVIEW = 5;
 const MATCH_LIST_ROW_HEIGHT = 127;
 const MATCH_LIST_YEAR_HEIGHT = 34;
@@ -378,18 +360,6 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
   const [statsMatchWins, setStatsMatchWins] = useState([]);
   const [statsEditionWins, setStatsEditionWins] = useState([]);
   const [statsTeamHighlights, setStatsTeamHighlights] = useState(EMPTY_TEAM_HIGHLIGHTS);
-  const [statsLeaderboardExpanded, setStatsLeaderboardExpanded] = useState({
-    scorers: false,
-    assistmen: false,
-    presences: false,
-    yellow_cards: false,
-    red_cards: false,
-    penalty_goals: false,
-    penalty_saved: false,
-    match_wins: false,
-    edition_wins: false,
-  });
-  const [statsPickerOpen, setStatsPickerOpen] = useState(false);
   const [hallLoading, setHallLoading] = useState(false);
   const [hallRanking, setHallRanking] = useState([]);
   const [hallWinnersByYear, setHallWinnersByYear] = useState([]);
@@ -407,7 +377,6 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
   const initialMatchesScrollDoneRef = useRef(false);
   const pendingScrollIndexRef = useRef(null);
   const seasonPickerAnchorRef = useRef(null);
-  const statsPickerAnchorRef = useRef(null);
 
   const load = useCallback(async (showLoading = false) => {
     if (!competitionId) {
@@ -563,7 +532,6 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
 
   useEffect(() => {
     if (activeTab !== 'stats') return;
-    setStatsPickerOpen(false);
     void loadGroupSeasonStats();
   }, [activeTab, loadGroupSeasonStats]);
 
@@ -620,336 +588,6 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
     if (activeTab !== 'hall') return;
     void loadHallOfFame();
   }, [activeTab, loadHallOfFame]);
-
-  useEffect(() => {
-    setStatsLeaderboardExpanded({
-      scorers: false,
-      assistmen: false,
-      presences: false,
-      yellow_cards: false,
-      red_cards: false,
-      penalty_goals: false,
-      penalty_saved: false,
-      match_wins: false,
-      edition_wins: false,
-    });
-  }, [selectedStatsYear]);
-
-  const toggleStatsLeaderboard = (tableKey) => {
-    setStatsLeaderboardExpanded((prev) => ({ ...prev, [tableKey]: !prev[tableKey] }));
-  };
-
-  const renderTeamHighlightCard = (item) => {
-    if (!item) return null;
-    const accent = item.accent || '#667eea';
-    const teamId = Number(item.team_id);
-    const canOpenTeam = teamId > 0;
-    return (
-      <TouchableOpacity
-        key={item.key}
-        style={[styles.teamHlCard, item.wide && styles.teamHlCardWide]}
-        activeOpacity={canOpenTeam || item.onPress ? 0.75 : 1}
-        disabled={!canOpenTeam && !item.onPress}
-        onPress={() => {
-          if (item.onPress) {
-            item.onPress();
-            return;
-          }
-          if (canOpenTeam) openOfficialTeamDetail(teamId, item.team_name);
-        }}
-      >
-        <View style={styles.teamHlCardHead}>
-          <View style={[styles.teamHlIconWrap, { backgroundColor: item.iconBg || '#eef2ff' }]}>
-            <Ionicons name={item.icon} size={15} color={accent} />
-          </View>
-          <Text style={styles.teamHlLabel} numberOfLines={2}>{item.label}</Text>
-        </View>
-        {item.match ? (
-          <View style={styles.teamHlMatchBody}>
-            <View style={styles.teamHlMatchTeams}>
-              <View style={styles.teamHlMatchSide}>
-                <TeamRowLogo
-                  logoUrl={item.match.home_team_logo_url}
-                  logoPath={item.match.home_team_logo_path}
-                  style={styles.teamHlLogoLg}
-                  fallbackStyle={styles.teamHlLogoLgFallback}
-                  fallbackIconSize={18}
-                />
-                <Text style={styles.teamHlMatchName} numberOfLines={2}>{item.match.home_team_name}</Text>
-              </View>
-              <View style={styles.teamHlScoreBox}>
-                <Text style={styles.teamHlScoreText}>
-                  {Number(item.match.home_score || 0)}-{Number(item.match.away_score || 0)}
-                </Text>
-                <Text style={styles.teamHlScoreSub}>{Number(item.match.total_goals || 0)} gol</Text>
-              </View>
-              <View style={styles.teamHlMatchSide}>
-                <TeamRowLogo
-                  logoUrl={item.match.away_team_logo_url}
-                  logoPath={item.match.away_team_logo_path}
-                  style={styles.teamHlLogoLg}
-                  fallbackStyle={styles.teamHlLogoLgFallback}
-                  fallbackIconSize={18}
-                />
-                <Text style={styles.teamHlMatchName} numberOfLines={2}>{item.match.away_team_name}</Text>
-              </View>
-            </View>
-            {item.detail ? <Text style={styles.teamHlDetailCenter}>{item.detail}</Text> : null}
-          </View>
-        ) : (
-          <View style={styles.teamHlTeamBody}>
-            <TeamRowLogo
-              logoUrl={item.logoUrl}
-              logoPath={item.logoPath}
-              style={styles.teamHlLogo}
-              fallbackStyle={styles.teamHlLogoFallback}
-              fallbackIconSize={16}
-            />
-            <View style={styles.teamHlTeamText}>
-              <Text style={styles.teamHlTeamName} numberOfLines={1}>{item.team_name}</Text>
-              <Text style={styles.teamHlValue}>{item.value}</Text>
-              {item.unit ? <Text style={styles.teamHlUnit}>{item.unit}</Text> : null}
-              {item.detail ? <Text style={styles.teamHlDetail} numberOfLines={2}>{item.detail}</Text> : null}
-            </View>
-          </View>
-        )}
-      </TouchableOpacity>
-    );
-  };
-
-  const renderTeamHighlights = () => {
-    const h = statsTeamHighlights || EMPTY_TEAM_HIGHLIGHTS;
-    const attack = h.best_attack;
-    const defense = h.best_defense;
-    const winStreak = h.longest_win_streak;
-    const lossStreak = h.longest_loss_streak;
-    const topMatch = h.highest_scoring_match;
-    const penFor = h.most_penalties_for;
-    const penAgainst = h.most_penalties_against;
-    const yellow = h.most_yellow_cards;
-    const red = h.most_red_cards;
-    const hasAny = !!(attack || defense || winStreak || lossStreak || topMatch || penFor || penAgainst || yellow || red);
-    const cards = [];
-    if (topMatch) {
-      cards.push({
-        key: 'top-match',
-        wide: true,
-        icon: 'flash',
-        accent: '#7c3aed',
-        iconBg: '#f5f3ff',
-        label: 'Partita con più gol',
-        match: topMatch,
-        detail: formatHighlightDate(topMatch.kickoff_at),
-        onPress: Number(topMatch.match_id) > 0
-          ? () => navigation.navigate('MatchDetail', {
-            matchId: Number(topMatch.match_id),
-            from: 'official-group',
-            competitionId,
-            groupName,
-          })
-          : null,
-      });
-    }
-    if (attack) {
-      cards.push({
-        key: 'attack',
-        icon: 'football',
-        accent: '#667eea',
-        iconBg: '#eef2ff',
-        label: 'Miglior attacco',
-        team_id: attack.team_id,
-        team_name: attack.team_name,
-        logoUrl: attack.team_logo_url,
-        logoPath: attack.team_logo_path,
-        value: formatStatAvg(attack.avg),
-        unit: 'gol/partita',
-        detail: `${Number(attack.goals || 0)} gol in ${Number(attack.played || 0)} partite`,
-      });
-    }
-    if (defense) {
-      cards.push({
-        key: 'defense',
-        icon: 'shield',
-        accent: '#0d9488',
-        iconBg: '#f0fdfa',
-        label: 'Miglior difesa',
-        team_id: defense.team_id,
-        team_name: defense.team_name,
-        logoUrl: defense.team_logo_url,
-        logoPath: defense.team_logo_path,
-        value: formatStatAvg(defense.avg),
-        unit: 'gol/partita',
-        detail: `${Number(defense.goals_conceded || 0)} subiti in ${Number(defense.played || 0)} partite`,
-      });
-    }
-    if (winStreak) {
-      cards.push({
-        key: 'win-streak',
-        icon: 'flame',
-        accent: '#d97706',
-        iconBg: '#fffbeb',
-        label: 'Striscia vittorie',
-        team_id: winStreak.team_id,
-        team_name: winStreak.team_name,
-        logoUrl: winStreak.team_logo_url,
-        logoPath: winStreak.team_logo_path,
-        value: String(Number(winStreak.value || 0)),
-        unit: Number(winStreak.value) === 1 ? 'partita' : 'partite',
-        detail: formatStreakRange(winStreak.started_at, winStreak.ended_at),
-      });
-    }
-    if (lossStreak) {
-      cards.push({
-        key: 'loss-streak',
-        icon: 'trending-down',
-        accent: '#64748b',
-        iconBg: '#f8fafc',
-        label: 'Striscia sconfitte',
-        team_id: lossStreak.team_id,
-        team_name: lossStreak.team_name,
-        logoUrl: lossStreak.team_logo_url,
-        logoPath: lossStreak.team_logo_path,
-        value: String(Number(lossStreak.value || 0)),
-        unit: Number(lossStreak.value) === 1 ? 'partita' : 'partite',
-        detail: formatStreakRange(lossStreak.started_at, lossStreak.ended_at),
-      });
-    }
-    if (penFor) {
-      cards.push({
-        key: 'pen-for',
-        icon: 'disc',
-        accent: '#2563eb',
-        iconBg: '#eff6ff',
-        label: 'Rigori a favore',
-        team_id: penFor.team_id,
-        team_name: penFor.team_name,
-        logoUrl: penFor.team_logo_url,
-        logoPath: penFor.team_logo_path,
-        value: String(Number(penFor.value || 0)),
-        unit: 'rigori',
-      });
-    }
-    if (penAgainst) {
-      cards.push({
-        key: 'pen-against',
-        icon: 'alert-circle',
-        accent: '#db2777',
-        iconBg: '#fdf2f8',
-        label: 'Rigori a sfavore',
-        team_id: penAgainst.team_id,
-        team_name: penAgainst.team_name,
-        logoUrl: penAgainst.team_logo_url,
-        logoPath: penAgainst.team_logo_path,
-        value: String(Number(penAgainst.value || 0)),
-        unit: 'rigori',
-      });
-    }
-    if (yellow) {
-      cards.push({
-        key: 'yellow',
-        icon: 'square',
-        accent: '#ca8a04',
-        iconBg: '#fefce8',
-        label: 'Cartellini gialli',
-        team_id: yellow.team_id,
-        team_name: yellow.team_name,
-        logoUrl: yellow.team_logo_url,
-        logoPath: yellow.team_logo_path,
-        value: String(Number(yellow.value || 0)),
-        unit: 'gialli',
-      });
-    }
-    if (red) {
-      cards.push({
-        key: 'red',
-        icon: 'square',
-        accent: '#dc2626',
-        iconBg: '#fef2f2',
-        label: 'Cartellini rossi',
-        team_id: red.team_id,
-        team_name: red.team_name,
-        logoUrl: red.team_logo_url,
-        logoPath: red.team_logo_path,
-        value: String(Number(red.value || 0)),
-        unit: 'rossi',
-      });
-    }
-    return (
-      <>
-        <Text style={styles.statsSectionTitle}>Squadre</Text>
-        {hasAny ? (
-          <View style={[styles.teamHlGrid, styles.statsBlock]}>
-            {cards.map(renderTeamHighlightCard)}
-          </View>
-        ) : (
-          <Text style={[styles.placeholderText, styles.statsBlock]}>Nessuna statistica di squadra disponibile.</Text>
-        )}
-      </>
-    );
-  };
-
-  const renderStatsLeaderboardTable = (items, valueLabel, emptyText, tableKey) => {
-    const list = Array.isArray(items) ? items : [];
-    if (list.length === 0) {
-      return <Text style={styles.placeholderText}>{emptyText}</Text>;
-    }
-    const canExpand = list.length > STATS_LEADERBOARD_PREVIEW;
-    const expanded = !!statsLeaderboardExpanded[tableKey];
-    const visible = !canExpand || expanded ? list : list.slice(0, STATS_LEADERBOARD_PREVIEW);
-    const ranks = buildCompetitionRanks(list);
-    return (
-      <View style={styles.statsTableWrap}>
-        <View style={[styles.statsTableRow, styles.statsTableHeaderRow]}>
-          <Text style={[styles.statsTableCell, styles.statsTablePos, styles.statsTableHeaderCell]}>Pos.</Text>
-          <Text style={[styles.statsTableCell, styles.statsTablePlayer, styles.statsTableHeaderCell]}>Giocatore</Text>
-          <Text style={[styles.statsTableCell, styles.statsTableValue, styles.statsTableHeaderCell]} numberOfLines={1}>
-            {valueLabel}
-          </Text>
-        </View>
-        {visible.map((s, i) => {
-          const playerName = String(s?.name || '-');
-          const teamName = String(s?.team_name || '').trim();
-          const playerId = Number(s?.player_id);
-          const clusterId = Number(s?.cluster_id);
-          const leagueId = Number(s?.league_id);
-          const canOpenPlayer = playerId > 0 && leagueId > 0;
-          const rowKey = clusterId > 0
-            ? `${tableKey}-c-${clusterId}`
-            : (playerId > 0 ? `${tableKey}-p-${playerId}` : `${tableKey}-${playerName}-${i}`);
-          return (
-            <TouchableOpacity
-              key={rowKey}
-              style={styles.statsTableRow}
-              activeOpacity={canOpenPlayer ? 0.7 : 1}
-              disabled={!canOpenPlayer}
-              onPress={() => openPlayerFromStatsRow(s)}
-            >
-              <Text style={[styles.statsTableCell, styles.statsTablePos]}>{formatCompetitionRank(ranks[i])}</Text>
-              <View style={styles.statsTablePlayerCol}>
-                <Text style={styles.statsTablePlayerName} numberOfLines={1} ellipsizeMode="tail">
-                  {playerName}
-                </Text>
-                {teamName ? (
-                  <Text style={styles.statsTablePlayerTeam} numberOfLines={2} ellipsizeMode="tail">
-                    {teamName}
-                  </Text>
-                ) : null}
-              </View>
-              <Text style={[styles.statsTableCell, styles.statsTableValue]}>{Number(s?.value || 0)}</Text>
-            </TouchableOpacity>
-          );
-        })}
-        {canExpand ? (
-          <TouchableOpacity style={styles.statsTableExpandBtn} onPress={() => toggleStatsLeaderboard(tableKey)} activeOpacity={0.7}>
-            <Text style={styles.statsTableExpandText}>
-              {expanded ? 'Mostra meno' : `Mostra tutti (${list.length})`}
-            </Text>
-            <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={16} color="#111827" />
-          </TouchableOpacity>
-        ) : null}
-      </View>
-    );
-  };
 
   const group = data?.group || {};
   const groupName = group.name || route?.params?.groupName || '-';
@@ -1032,25 +670,30 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
     [seasonYears, selectedSeasonYear]
   );
 
-  const statsYearOptions = useMemo(() => {
-    const opts = [
-      {
-        key: 'stats-season-absolute',
-        label: 'Assolute',
-        value: ABSOLUTE_STATS_KEY,
-        active: selectedStatsYear === ABSOLUTE_STATS_KEY,
-      },
-    ];
-    (Array.isArray(statsYears) ? statsYears : []).forEach((y) => {
-      opts.push({
-        key: `stats-season-year-${y}`,
-        label: String(y),
-        value: Number(y),
-        active: selectedStatsYear !== ABSOLUTE_STATS_KEY && Number(selectedStatsYear) === Number(y),
-      });
-    });
-    return opts;
-  }, [statsYears, selectedStatsYear]);
+  const statsBoards = useMemo(
+    () => mapOfficialStatsBoards(GROUP_STATS_BOARDS, {
+      scorers: statsScorers,
+      assistmen: statsAssistmen,
+      presences: statsPresences,
+      yellow_cards: statsYellowCards,
+      red_cards: statsRedCards,
+      penalty_goals: statsPenaltyGoals,
+      penalty_saved: statsPenaltySaved,
+      match_wins: statsMatchWins,
+      edition_wins: statsEditionWins,
+    }),
+    [
+      statsScorers,
+      statsAssistmen,
+      statsPresences,
+      statsYellowCards,
+      statsRedCards,
+      statsPenaltyGoals,
+      statsPenaltySaved,
+      statsMatchWins,
+      statsEditionWins,
+    ]
+  );
 
   const matchListData = useMemo(() => buildMatchListItems(groupMatches), [groupMatches]);
   const matchListLayouts = useMemo(() => computeMatchListLayouts(matchListData), [matchListData]);
@@ -1425,110 +1068,26 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
           </ScrollView>
         ) : activeTab === 'stats' ? (
           <View style={[styles.card, styles.teamCard, styles.statsCard]}>
-            <View ref={statsPickerAnchorRef} style={styles.seasonPickerWrap} collapsable={false}>
-              <TouchableOpacity style={styles.seasonPickerBtn} onPress={() => setStatsPickerOpen((v) => !v)} activeOpacity={0.8}>
-                <Text style={styles.seasonPickerBtnText}>
-                  {selectedStatsYear === ABSOLUTE_STATS_KEY
-                    ? 'Assolute'
-                    : (selectedStatsYear != null ? String(selectedStatsYear) : 'Seleziona anno')}
-                </Text>
-                <Ionicons name={statsPickerOpen ? 'chevron-up' : 'chevron-down'} size={16} color="#475569" />
-              </TouchableOpacity>
-              <SeasonYearPickerMenu
-                open={statsPickerOpen}
-                onClose={() => setStatsPickerOpen(false)}
-                anchorRef={statsPickerAnchorRef}
-                options={statsYearOptions}
-                onSelectOption={(item) => {
-                  setStatsPickerOpen(false);
-                  setSelectedStatsYear(item.value);
-                  void loadGroupSeasonStats(item.value);
-                }}
-              />
-            </View>
-            {statsLoading ? (
-              <View style={styles.matchesLoadingBox}>
-                <ActivityIndicator color="#667eea" />
-              </View>
-            ) : (
-              <ScrollView style={styles.teamSquadList} contentContainerStyle={styles.statsListContent} showsVerticalScrollIndicator={false}>
-                {renderTeamHighlights()}
-                <Text style={styles.statsSectionTitle}>Giocatori</Text>
-                <View style={styles.statsBlock}>
-                  <Text style={styles.statsBlockTitle}>Marcatori</Text>
-                  {renderStatsLeaderboardTable(statsScorers, 'Gol', 'Nessun marcatore disponibile.', 'scorers')}
-                </View>
-                <View style={styles.statsBlock}>
-                  <Text style={styles.statsBlockTitle}>Assistman</Text>
-                  {renderStatsLeaderboardTable(statsAssistmen, 'Ass.', 'Nessun assist disponibile.', 'assistmen')}
-                </View>
-                <View style={styles.statsBlock}>
-                  <Text style={styles.statsBlockTitle}>Presenze</Text>
-                  {renderStatsLeaderboardTable(
-                    statsPresences,
-                    'Pres.',
-                    'Nessuna presenza con voto nel periodo selezionato.',
-                    'presences'
-                  )}
-                </View>
-                <View style={styles.statsBlock}>
-                  <Text style={styles.statsBlockTitle}>Cartellini gialli</Text>
-                  {renderStatsLeaderboardTable(
-                    statsYellowCards,
-                    'Gialli',
-                    'Nessun cartellino giallo disponibile.',
-                    'yellow_cards'
-                  )}
-                </View>
-                <View style={styles.statsBlock}>
-                  <Text style={styles.statsBlockTitle}>Cartellini rossi</Text>
-                  {renderStatsLeaderboardTable(
-                    statsRedCards,
-                    'Rossi',
-                    'Nessun cartellino rosso disponibile.',
-                    'red_cards'
-                  )}
-                </View>
-                <Text style={styles.statsSectionTitle}>Rigori</Text>
-                <View style={styles.statsBlock}>
-                  <Text style={styles.statsBlockTitle}>Rigori segnati</Text>
-                  {renderStatsLeaderboardTable(
-                    statsPenaltyGoals,
-                    'Segn.',
-                    'Nessun rigore segnato disponibile.',
-                    'penalty_goals'
-                  )}
-                </View>
-                <View style={styles.statsBlock}>
-                  <Text style={styles.statsBlockTitle}>Rigori parati</Text>
-                  {renderStatsLeaderboardTable(
-                    statsPenaltySaved,
-                    'Parati',
-                    'Nessun rigore parato disponibile.',
-                    'penalty_saved'
-                  )}
-                </View>
-                <Text style={[styles.statsSectionTitle, styles.statsSectionTitleSpaced]}>Vincitori</Text>
-                <View style={styles.statsBlock}>
-                  <Text style={styles.statsBlockTitle}>Partite vinte</Text>
-                  {renderStatsLeaderboardTable(
-                    statsMatchWins,
-                    'Vinte',
-                    'Nessuna partita vinta disponibile.',
-                    'match_wins'
-                  )}
-                </View>
-                <View style={styles.statsBlock}>
-                  <Text style={styles.statsBlockTitle}>Edizioni vinte</Text>
-                  {renderStatsLeaderboardTable(
-                    statsEditionWins,
-                    'Coppe',
-                    'Nessuna coppa vinta disponibile.',
-                    'edition_wins'
-                  )}
-                </View>
-              </ScrollView>
-            )}
+            <OfficialStatsExperience
+              loading={statsLoading}
+              years={statsYears}
+              selectedYear={selectedStatsYear}
+              onSelectYear={(value) => {
+                setSelectedStatsYear(value);
+                selectedStatsYearRef.current = value;
+                void loadGroupSeasonStats(value);
+              }}
+              boards={statsBoards}
+              teamHighlights={statsTeamHighlights}
+              onPressPlayer={openPlayerFromStatsRow}
+              onPressTeam={openOfficialTeamDetail}
+              onPressMatch={(matchId) => navigation.navigate('MatchDetail', {
+                matchId: Number(matchId),
+                from: 'official-group',
+                competitionId,
+                groupName,
+              })}
+            />
           </View>
         ) : (
           <View style={[styles.teamCard, styles.hallCard]}>
