@@ -82,6 +82,34 @@ function playerInitials(name) {
   return `${parts[0][0] || ''}${parts[parts.length - 1][0] || ''}`.toUpperCase();
 }
 
+function PlayerAvatar({ photoPath, name, accent, size = 56 }) {
+  const radius = Math.round(size / 2);
+  if (photoPath) {
+    return (
+      <PlayerPhotoImage
+        photoPath={photoPath}
+        style={{ width: size, height: size, borderRadius: radius }}
+      />
+    );
+  }
+  return (
+    <View
+      style={{
+        width: size,
+        height: size,
+        borderRadius: radius,
+        backgroundColor: `${accent || '#667eea'}18`,
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      <Text style={{ fontSize: Math.round(size * 0.32), fontWeight: '800', color: accent || '#667eea' }}>
+        {playerInitials(name)}
+      </Text>
+    </View>
+  );
+}
+
 function IconGlyph({ pack = 'ion', name, size = 16, color }) {
   if (pack === 'mci') {
     return <MaterialCommunityIcons name={name} size={size} color={color} />;
@@ -448,32 +476,59 @@ function TeaserStrip({ boards, onSelect }) {
   if (teasers.length === 0) return null;
   return (
     <View style={styles.teaserBlock}>
-      <Text style={styles.sectionEyebrow}>In evidenza</Text>
+      <Text style={styles.teaserEyebrow}>In evidenza</Text>
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.teaserRow}
         keyboardShouldPersistTaps="handled"
       >
-        {teasers.map(({ board, top }, idx) => (
-          <Animated.View
-            key={`teaser-${board.key}`}
-            entering={FadeInDown.delay(idx * 35).duration(260)}
-          >
-            <TouchableOpacity
-              style={styles.teaserCard}
-              onPress={() => onSelect(board.key)}
-              activeOpacity={0.8}
+        {teasers.map(({ board, top }, idx) => {
+          const playerName = String(top.name || '-');
+          const teamName = String(top.team_name || '').trim();
+          const value = Number(top.value || 0);
+          return (
+            <Animated.View
+              key={`teaser-${board.key}`}
+              entering={FadeInDown.delay(idx * 35).duration(260)}
             >
-              <View style={[styles.teaserIcon, { backgroundColor: `${board.accent}18` }]}>
-                <BoardGlyph board={board} size={15} color={board.accent} />
-              </View>
-              <Text style={styles.teaserLabel} numberOfLines={1}>{board.shortLabel || board.label}</Text>
-              <Text style={styles.teaserName} numberOfLines={1}>{String(top.name || '-')}</Text>
-              <Text style={[styles.teaserValue, { color: board.accent }]}>{Number(top.value || 0)}</Text>
-            </TouchableOpacity>
-          </Animated.View>
-        ))}
+              <TouchableOpacity
+                style={styles.teaserCard}
+                onPress={() => onSelect(board.key)}
+                activeOpacity={0.82}
+              >
+                <View style={styles.teaserCatRow}>
+                  <View style={[styles.teaserCatBadge, { backgroundColor: `${board.accent}18` }]}>
+                    <BoardGlyph board={board} size={13} color={board.accent} />
+                  </View>
+                  <Text style={styles.teaserLabel} numberOfLines={1}>
+                    {board.shortLabel || board.label}
+                  </Text>
+                </View>
+                <View style={styles.teaserHero}>
+                  <View style={styles.teaserPhotoWrap}>
+                    <PlayerAvatar
+                      photoPath={top.photo_path}
+                      name={playerName}
+                      accent={board.accent}
+                      size={56}
+                    />
+                    <View style={styles.teaserRankDot}>
+                      <Text style={styles.teaserRankText}>1</Text>
+                    </View>
+                  </View>
+                  <Text style={[styles.teaserValue, { color: board.accent }]}>{value}</Text>
+                </View>
+                <Text style={styles.teaserName} numberOfLines={1}>{playerName}</Text>
+                {teamName ? (
+                  <Text style={styles.teaserTeam} numberOfLines={1}>{teamName}</Text>
+                ) : (
+                  <Text style={styles.teaserTeam}> </Text>
+                )}
+              </TouchableOpacity>
+            </Animated.View>
+          );
+        })}
       </ScrollView>
     </View>
   );
@@ -1207,30 +1262,38 @@ export default function OfficialStatsExperience({
                 </View>
               ) : null}
 
-              <Text style={styles.sectionEyebrow}>Giocatori</Text>
-              <TeaserStrip boards={boards} onSelect={(key) => {
-                setSelectedBoard(key);
-                setExpanded(false);
-              }} />
-
-              {activeBoard ? (
-                <View>
-                  <View style={styles.boardHead}>
-                    <View style={[styles.boardIcon, { backgroundColor: `${activeBoard.accent}18` }]}>
-                      <BoardGlyph board={activeBoard} size={16} color={activeBoard.accent} />
-                    </View>
-                    <Text style={styles.boardTitle}>{activeBoard.label}</Text>
-                  </View>
-                  <LeaderboardList
-                    board={activeBoard}
-                    expanded={expanded}
-                    onToggleExpand={() => setExpanded((v) => !v)}
-                    onPressPlayer={onPressPlayer}
-                    query=""
-                    animKey={`${selectedYear}-${activeBoard.key}`}
-                  />
+              <View style={styles.playersSection}>
+                <View style={styles.playersSectionHead}>
+                  <Text style={styles.playersSectionKicker}>Classifiche</Text>
+                  <Text style={styles.playersSectionTitle}>Giocatori</Text>
                 </View>
-              ) : null}
+                <TeaserStrip
+                  boards={boards}
+                  onSelect={(key) => {
+                    setSelectedBoard(key);
+                    setExpanded(false);
+                  }}
+                />
+
+                {activeBoard ? (
+                  <View>
+                    <View style={styles.boardHead}>
+                      <View style={[styles.boardIcon, { backgroundColor: `${activeBoard.accent}18` }]}>
+                        <BoardGlyph board={activeBoard} size={16} color={activeBoard.accent} />
+                      </View>
+                      <Text style={styles.boardTitle}>{activeBoard.label}</Text>
+                    </View>
+                    <LeaderboardList
+                      board={activeBoard}
+                      expanded={expanded}
+                      onToggleExpand={() => setExpanded((v) => !v)}
+                      onPressPlayer={onPressPlayer}
+                      query=""
+                      animKey={`${selectedYear}-${activeBoard.key}`}
+                    />
+                  </View>
+                ) : null}
+              </View>
             </>
           )}
         </ScrollView>
@@ -1591,27 +1654,96 @@ const styles = StyleSheet.create({
   recordNames: { marginTop: 4, fontSize: 10, fontWeight: '600', color: '#64748b', textAlign: 'center' },
   recordDate: { marginTop: 2, fontSize: 10, fontWeight: '600', color: '#94a3b8', textAlign: 'center', minHeight: 13 },
   teaserBlock: { marginBottom: 14 },
-  teaserRow: { gap: 8, paddingRight: 4 },
-  teaserCard: {
-    width: 118,
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#ececec',
-    borderRadius: 14,
-    paddingHorizontal: 10,
-    paddingVertical: 10,
-  },
-  teaserIcon: {
-    width: 26,
-    height: 26,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
+  teaserEyebrow: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#94a3b8',
+    letterSpacing: 0.7,
+    textTransform: 'uppercase',
     marginBottom: 8,
   },
-  teaserLabel: { fontSize: 10, fontWeight: '800', color: '#94a3b8', textTransform: 'uppercase' },
-  teaserName: { marginTop: 2, fontSize: 12, fontWeight: '700', color: '#1e293b' },
-  teaserValue: { marginTop: 2, fontSize: 18, fontWeight: '800' },
+  teaserRow: { gap: 10, paddingRight: 4 },
+  teaserCard: {
+    width: 148,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#e8edf3',
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+  },
+  teaserCatRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 10,
+  },
+  teaserCatBadge: {
+    width: 22,
+    height: 22,
+    borderRadius: 7,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  teaserLabel: {
+    flex: 1,
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#64748b',
+    textTransform: 'uppercase',
+  },
+  teaserHero: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  teaserPhotoWrap: {
+    width: 56,
+    height: 56,
+  },
+  teaserRankDot: {
+    position: 'absolute',
+    right: -2,
+    bottom: -2,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: '#d97706',
+    borderWidth: 2,
+    borderColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  teaserRankText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#fff',
+  },
+  teaserName: { fontSize: 13, fontWeight: '800', color: '#0f172a' },
+  teaserTeam: { marginTop: 2, fontSize: 10, fontWeight: '600', color: '#94a3b8' },
+  teaserValue: { fontSize: 26, fontWeight: '800', letterSpacing: -0.6 },
+  playersSection: {
+    marginTop: 4,
+    paddingTop: 18,
+    borderTopWidth: 1,
+    borderTopColor: '#e8edf3',
+  },
+  playersSectionHead: { marginBottom: 12 },
+  playersSectionKicker: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#94a3b8',
+    letterSpacing: 0.7,
+    textTransform: 'uppercase',
+    marginBottom: 2,
+  },
+  playersSectionTitle: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#0f172a',
+    letterSpacing: -0.5,
+  },
   boardHead: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
   boardIcon: {
     width: 28,
