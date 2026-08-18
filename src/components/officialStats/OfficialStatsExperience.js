@@ -12,13 +12,9 @@ import {
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import Animated, {
-  Easing,
   FadeIn,
   FadeInDown,
   LinearTransition,
-  useAnimatedStyle,
-  useSharedValue,
-  withTiming,
 } from 'react-native-reanimated';
 import Svg, { Circle, Line } from 'react-native-svg';
 import { PlayerPhotoImage, TeamLogoImage } from '../StableCachedImage';
@@ -30,9 +26,9 @@ export const ABSOLUTE_STATS_KEY = 'absolute';
 export const STATS_LEADERBOARD_PREVIEW = 5;
 
 const MEDAL = {
-  1: { bg: '#fef3c7', fg: '#b45309', icon: 'medal' },
-  2: { bg: '#e2e8f0', fg: '#475569', icon: 'medal' },
-  3: { bg: '#ffedd5', fg: '#c2410c', icon: 'medal' },
+  1: { bg: '#fef3c7', fg: '#b45309' },
+  2: { bg: '#e2e8f0', fg: '#475569' },
+  3: { bg: '#ffedd5', fg: '#c2410c' },
 };
 
 function formatStatAvg(n) {
@@ -146,46 +142,19 @@ function BoardGlyph({ board, size = 15, color, framed = false }) {
   );
 }
 
-function StatShareBar({ ratio, color }) {
-  const progress = useSharedValue(0);
-  const trackW = useSharedValue(0);
-
-  useEffect(() => {
-    progress.value = 0;
-    progress.value = withTiming(Math.min(1, Math.max(0, Number(ratio) || 0)), {
-      duration: 480,
-      easing: Easing.out(Easing.cubic),
-    });
-  }, [ratio, progress]);
-
-  const fillStyle = useAnimatedStyle(() => ({
-    width: trackW.value * progress.value,
-  }));
-
-  return (
-    <View
-      style={styles.shareTrack}
-      onLayout={(e) => {
-        trackW.value = e.nativeEvent.layout.width;
-      }}
-    >
-      <Animated.View style={[styles.shareFill, { backgroundColor: color }, fillStyle]} />
-    </View>
-  );
-}
-
 function RankBadge({ rank }) {
   const medal = MEDAL[rank];
+  const label = formatCompetitionRank(rank);
   if (medal) {
     return (
       <View style={[styles.rankBadge, { backgroundColor: medal.bg }]}>
-        <Ionicons name={medal.icon} size={13} color={medal.fg} />
+        <Text style={[styles.rankBadgeText, { color: medal.fg }]}>{label}</Text>
       </View>
     );
   }
   return (
     <View style={styles.rankBadgePlain}>
-      <Text style={styles.rankBadgeText}>{formatCompetitionRank(rank)}</Text>
+      <Text style={styles.rankBadgeText}>{label}</Text>
     </View>
   );
 }
@@ -409,7 +378,6 @@ function LeaderboardList({
       : (Number(row?.player_id) > 0 ? `p-${row.player_id}` : `n-${row?.name}-${idx}`);
     indexByIdentity.set(id, idx);
   });
-  const leaderValue = Math.max(1, Number(list[0]?.value || 0));
 
   return (
     <Animated.View layout={LinearTransition.duration(220)} style={styles.boardCard}>
@@ -425,7 +393,7 @@ function LeaderboardList({
         const rank = ranks[sourceIndex] || sourceIndex + 1;
         const value = Number(row?.value || 0);
         const canOpen = playerId > 0;
-        const medal = MEDAL[rank];
+        const isLast = i === visible.length - 1 && !canExpand;
         return (
           <Animated.View
             key={`${animKey}-${identity}`}
@@ -434,7 +402,7 @@ function LeaderboardList({
               : undefined}
           >
             <TouchableOpacity
-              style={[styles.lbRow, medal && { backgroundColor: medal.bg }]}
+              style={[styles.lbRow, isLast && styles.lbRowLast]}
               activeOpacity={canOpen ? 0.72 : 1}
               disabled={!canOpen}
               onPress={() => onPressPlayer?.(row)}
@@ -452,9 +420,8 @@ function LeaderboardList({
               <View style={styles.lbMain}>
                 <Text style={styles.lbName} numberOfLines={1}>{playerName}</Text>
                 {includeTeam && teamName ? <Text style={styles.lbTeam} numberOfLines={1}>{teamName}</Text> : null}
-                <StatShareBar ratio={value / leaderValue} color={board.accent} />
               </View>
-              <Text style={[styles.lbValue, { color: board.accent }]}>{value}</Text>
+              <Text style={styles.lbValue}>{value}</Text>
             </TouchableOpacity>
           </Animated.View>
         );
@@ -464,7 +431,7 @@ function LeaderboardList({
           <Text style={styles.expandText}>
             {expanded ? 'Mostra meno' : `Altri ${filtered.length - STATS_LEADERBOARD_PREVIEW}`}
           </Text>
-          <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={16} color="#667eea" />
+          <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={16} color="#0f172a" />
         </TouchableOpacity>
       ) : null}
     </Animated.View>
@@ -1812,56 +1779,49 @@ const styles = StyleSheet.create({
   lbRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 8,
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#f1f5f9',
+    borderBottomColor: '#eef2f7',
   },
+  lbRowLast: { borderBottomWidth: 0 },
   rankBadge: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
   rankBadgePlain: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#f8fafc',
   },
   rankBadgeText: { fontSize: 11, fontWeight: '800', color: '#64748b' },
-  lbPhotoWrap: { width: 32, height: 32, borderRadius: 16, overflow: 'hidden' },
-  lbPhoto: { width: 32, height: 32, borderRadius: 16 },
+  lbPhotoWrap: { width: 36, height: 36, borderRadius: 18, overflow: 'hidden' },
+  lbPhoto: { width: 36, height: 36, borderRadius: 18 },
   lbPhotoFallback: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  lbInitials: { fontSize: 10, fontWeight: '800' },
+  lbInitials: { fontSize: 11, fontWeight: '800' },
   lbMain: { flex: 1, minWidth: 0 },
-  lbName: { fontSize: 13, fontWeight: '700', color: '#0f172a' },
-  lbTeam: { fontSize: 10, color: '#64748b', marginTop: 1, marginBottom: 4 },
-  lbValue: { fontSize: 16, fontWeight: '800', minWidth: 28, textAlign: 'right' },
-  shareTrack: {
-    height: 5,
-    borderRadius: 999,
-    backgroundColor: '#eef2ff',
-    overflow: 'hidden',
-    marginTop: 4,
-  },
-  shareFill: { height: '100%', borderRadius: 999 },
+  lbName: { fontSize: 14, fontWeight: '700', color: '#0f172a' },
+  lbTeam: { marginTop: 1, fontSize: 11, fontWeight: '500', color: '#94a3b8' },
+  lbValue: { fontSize: 16, fontWeight: '800', color: '#0f172a', minWidth: 28, textAlign: 'right' },
   expandBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 4,
-    paddingVertical: 10,
+    paddingVertical: 12,
   },
-  expandText: { fontSize: 13, fontWeight: '800', color: '#667eea' },
+  expandText: { fontSize: 13, fontWeight: '700', color: '#0f172a' },
 });
