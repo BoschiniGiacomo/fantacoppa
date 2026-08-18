@@ -145,16 +145,21 @@ function BoardGlyph({ board, size = 15, color, framed = false }) {
 function RankBadge({ rank }) {
   const medal = MEDAL[rank];
   const label = formatCompetitionRank(rank);
-  if (medal) {
-    return (
-      <View style={[styles.rankBadge, { backgroundColor: medal.bg }]}>
-        <Text style={[styles.rankBadgeText, { color: medal.fg }]}>{label}</Text>
-      </View>
-    );
-  }
+  const wide = String(label).length > 3;
   return (
-    <View style={styles.rankBadgePlain}>
-      <Text style={styles.rankBadgeText}>{label}</Text>
+    <View
+      style={[
+        styles.rankBadge,
+        wide ? styles.rankBadgeWide : styles.rankBadgeCircle,
+        medal ? { backgroundColor: medal.bg } : styles.rankBadgePlain,
+      ]}
+    >
+      <Text
+        style={[styles.rankBadgeText, medal && { color: medal.fg }]}
+        numberOfLines={1}
+      >
+        {label}
+      </Text>
     </View>
   );
 }
@@ -1298,7 +1303,7 @@ export default function OfficialStatsExperience({
                 />
 
                 {activeBoard ? (
-                  <View>
+                  <View style={styles.boardBlock}>
                     <View style={styles.boardHead}>
                       <View style={[styles.boardIcon, { backgroundColor: `${activeBoard.accent}18` }]}>
                         <BoardGlyph board={activeBoard} size={16} color={activeBoard.accent} />
@@ -1676,7 +1681,7 @@ const styles = StyleSheet.create({
   recordScore: { fontSize: 22, fontWeight: '800', color: '#0f172a', letterSpacing: -0.5 },
   recordNames: { marginTop: 4, fontSize: 10, fontWeight: '600', color: '#64748b', textAlign: 'center' },
   recordDate: { marginTop: 2, fontSize: 10, fontWeight: '600', color: '#94a3b8', textAlign: 'center', minHeight: 13 },
-  teaserBlock: { marginBottom: 14 },
+  teaserBlock: { marginBottom: 0 },
   teaserRow: { gap: 10, paddingRight: 4 },
   teaserCard: {
     width: 148,
@@ -1749,6 +1754,12 @@ const styles = StyleSheet.create({
     color: '#0f172a',
     letterSpacing: -0.5,
   },
+  boardBlock: {
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#e8edf3',
+  },
   boardHead: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
   boardIcon: {
     width: 28,
@@ -1778,21 +1789,26 @@ const styles = StyleSheet.create({
   },
   lbRowLast: { borderBottomWidth: 0 },
   rankBadge: {
-    width: 24,
     height: 24,
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
+    flexShrink: 0,
+  },
+  rankBadgeCircle: { width: 24 },
+  rankBadgeWide: {
+    minWidth: 36,
+    paddingHorizontal: 6,
   },
   rankBadgePlain: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
     backgroundColor: '#f8fafc',
   },
-  rankBadgeText: { fontSize: 11, fontWeight: '800', color: '#64748b' },
+  rankBadgeText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#64748b',
+    fontVariant: ['tabular-nums'],
+  },
   lbMain: { flex: 1, minWidth: 0 },
   lbName: { fontSize: 14, fontWeight: '700', color: '#0f172a' },
   lbTeam: { marginTop: 1, fontSize: 11, fontWeight: '500', color: '#94a3b8' },
