@@ -16,10 +16,13 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Reanimated, {
+  cancelAnimation,
+  Easing,
   Extrapolation,
   interpolate,
   useAnimatedStyle,
   useSharedValue,
+  withTiming,
 } from 'react-native-reanimated';
 import { matchesService } from '../services/api';
 import { TeamLogoImage } from '../components/StableCachedImage';
@@ -253,20 +256,27 @@ function SeasonKnockoutLogoAdapter({ logoUrl, logoPath }) {
 const ROLE_COLORS = { P: '#0d6efd', D: '#198754', C: '#e6a800', A: '#dc3545' };
 const DEFAULT_JERSEY_COLOR = '#a5b4fc';
 const ROLE_ORDER = { P: 0, D: 1, C: 2, A: 3 };
-const HERO_EXPANDED_MIN = 170;
 const HEADER_LOGO_SIZE = 32;
-const HERO_COLLAPSE_MS = 340;
-const HERO_SNAP_OPEN_Y = 10;
-const HERO_GESTURE_DIR_Y = 32;
-const TABS_HEIGHT_FALLBACK = 46;
+const HERO_EXPANDED_ESTIMATE = 214;
+const OVERLAY_HEIGHT_ESTIMATE = 280;
+const HERO_SNAP_MS = 280;
+const HERO_SNAP_OPEN_Y = 8;
+const HERO_GESTURE_DIR_Y = 22;
+const heroSnapConfig = {
+  duration: HERO_SNAP_MS,
+  easing: Easing.bezier(0.22, 1, 0.36, 1),
+};
 
-function shouldCollapseHero(y, startY, heroHeight) {
+function clamp(n, min, max) {
+  return Math.max(min, Math.min(max, n));
+}
+
+function shouldCollapseHero(collapseY, collapseDy, heroHeight) {
   const h = Math.max(1, Number(heroHeight) || 0);
-  const dy = y - startY;
-  if (y <= HERO_SNAP_OPEN_Y) return false;
-  if (y >= h) return true;
-  if (Math.abs(dy) >= HERO_GESTURE_DIR_Y) return dy > 0;
-  return y >= h * 0.5;
+  if (collapseY <= HERO_SNAP_OPEN_Y) return false;
+  if (collapseY >= h - HERO_SNAP_OPEN_Y) return true;
+  if (Math.abs(collapseDy) >= HERO_GESTURE_DIR_Y) return collapseDy > 0;
+  return collapseY >= h * 0.48;
 }
 
 function HeroListSpacer({ height }) {
@@ -405,17 +415,19 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
   const favoriteAnim = React.useRef(new Animated.Value(0)).current;
   const favoriteAnimListenerRef = React.useRef(null);
   const prevFavoriteCountRef = React.useRef(0);
-  const heroScrollY = useSharedValue(0);
-  const heroHeightSV = useSharedValue(HERO_EXPANDED_MIN);
+  const heroCollapseY = useSharedValue(0);
+  const heroHeightSV = useSharedValue(HERO_EXPANDED_ESTIMATE);
   const heroCollapsedRef = useRef(false);
   const heroDraggingRef = useRef(false);
-  const heroDragStartYRef = useRef(0);
+  const heroSnapLockRef = useRef(false);
   const lastScrollYRef = useRef(0);
-  const heroSlotHeightRef = useRef(HERO_EXPANDED_MIN);
+  const dragStartYRef = useRef(0);
+  const dragStartCollapseRef = useRef(0);
+  const heroSlotHeightRef = useRef(HERO_EXPANDED_ESTIMATE);
+  const overlayHeightRef = useRef(OVERLAY_HEIGHT_ESTIMATE);
   const programmaticScrollRef = useRef(false);
   const [heroCollapsed, setHeroCollapsed] = useState(false);
-  const [heroSlotHeight, setHeroSlotHeight] = useState(HERO_EXPANDED_MIN);
-  const [tabsHeight, setTabsHeight] = useState(TABS_HEIGHT_FALLBACK);
+  const [overlayHeight, setOverlayHeight] = useState(OVERLAY_HEIGHT_ESTIMATE);
   const matchesScrollRef = useRef(null);
   const seasonScrollRef = useRef(null);
   const trophiesScrollRef = useRef(null);
@@ -1017,7 +1029,7 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
     }
   };
 
-  const overlayPad = heroSlotHeight + tabsHeight;
+  const overlayPad = overlayHeight;
 
   const getActiveTabScrollRef = useCallback(() => {
     if (activeTab === 'matches') return matchesScrollRef;
@@ -1030,49 +1042,61 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
 
   const resetHeroExpanded = useCallback(() => {
     heroDraggingRef.current = false;
+    heroSnapLockRef.current = false;
     heroCollapsedRef.current = false;
+    dragStartCollapseRef.current = 0;
     lastScrollYRef.current = 0;
     setHeroCollapsed(false);
-    heroScrollY.value = 0;
-  }, [heroScrollY]);
+    cancelAnimation(heroCollapseY);
+    heroCollapseY.value = 0;
+  }, [heroCollapseY]);
 
   const onTabScrollBeginDrag = useCallback((event) => {
     if (programmaticScrollRef.current) return;
+    heroSnapLockRef.current = false;
     heroDraggingRef.current = true;
-    heroDragStartYRef.current = Number(event?.nativeEvent?.contentOffset?.y || 0);
-  }, []);
+    const y = Math.max(0, Number(event?.nativeEvent?.contentOffset?.y || 0));
+    lastScrollYRef.current = y;
+    dragStartYRef.current = y;
+    dragStartCollapseRef.current = heroCollapseY.value;
+  }, [heroCollapseY]);
 
   const onTabContentScroll = useCallback((event) => {
     const y = Math.max(0, Number(event?.nativeEvent?.contentOffset?.y || 0));
+    const dy = y - lastScrollYRef.current;
     lastScrollYRef.current = y;
-    heroScrollY.value = y;
-  }, [heroScrollY]);
+    if (programmaticScrollRef.current || heroSnapLockRef.current || !heroDraggingRef.current) return;
+    const h = Math.max(1, heroSlotHeightRef.current);
+    heroCollapseY.value = clamp(heroCollapseY.value + dy, 0, h);
+  }, [heroCollapseY]);
 
   const onTabScrollEndDrag = useCallback((event) => {
     if (programmaticScrollRef.current) {
       heroDraggingRef.current = false;
       return;
     }
+    heroDraggingRef.current = false;
     const y = Math.max(0, Number(event?.nativeEvent?.contentOffset?.y || 0));
     lastScrollYRef.current = y;
-    const heroH = heroSlotHeightRef.current;
-    const collapsed = shouldCollapseHero(y, heroDragStartYRef.current, heroH);
-    heroDraggingRef.current = false;
+    const heroH = Math.max(1, heroSlotHeightRef.current);
+    const collapseY = heroCollapseY.value;
+    const collapseDy = collapseY - dragStartCollapseRef.current;
+    const collapsed = shouldCollapseHero(collapseY, collapseDy, heroH);
     heroCollapsedRef.current = collapsed;
     setHeroCollapsed(collapsed);
+    heroSnapLockRef.current = true;
+    cancelAnimation(heroCollapseY);
+    heroCollapseY.value = withTiming(collapsed ? heroH : 0, heroSnapConfig);
 
-    if (collapsed && y >= heroH - 2) return;
-    if (!collapsed && y <= 2) return;
-    if (collapsed && y > heroH + 4) return;
-
+    if (y > heroH + 16) return;
     const node = getActiveTabScrollRef()?.current;
     if (!node?.scrollTo) return;
     programmaticScrollRef.current = true;
     node.scrollTo({ y: collapsed ? heroH : 0, animated: true });
     setTimeout(() => {
       programmaticScrollRef.current = false;
-    }, HERO_COLLAPSE_MS + 80);
-  }, [getActiveTabScrollRef]);
+    }, HERO_SNAP_MS + 80);
+  }, [getActiveTabScrollRef, heroCollapseY]);
 
   const selectTab = useCallback((tab) => {
     setActiveTab(tab);
@@ -1089,18 +1113,19 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
   );
 
   const onHeroSlotLayout = useCallback((event) => {
-    const h = Math.round(event?.nativeEvent?.layout?.height || 0);
+    const h = Math.ceil(event?.nativeEvent?.layout?.height || 0);
     if (h < 8 || Math.abs(h - heroSlotHeightRef.current) < 1) return;
     heroSlotHeightRef.current = h;
     heroHeightSV.value = h;
-    setHeroSlotHeight(h);
-  }, [heroHeightSV]);
+    if (heroCollapseY.value > h) heroCollapseY.value = h;
+  }, [heroCollapseY, heroHeightSV]);
 
-  const onTabsSlotLayout = useCallback((event) => {
-    const h = Math.round(event?.nativeEvent?.layout?.height || 0);
-    if (h < 8 || Math.abs(h - tabsHeight) < 1) return;
-    setTabsHeight(h);
-  }, [tabsHeight]);
+  const onOverlayLayout = useCallback((event) => {
+    const h = Math.ceil(event?.nativeEvent?.layout?.height || 0);
+    if (h < 8 || Math.abs(h - overlayHeightRef.current) < 1) return;
+    overlayHeightRef.current = h;
+    setOverlayHeight(h);
+  }, []);
 
   useEffect(() => {
     resetHeroExpanded();
@@ -1108,42 +1133,41 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
 
   const heroOverlayStyle = useAnimatedStyle(() => {
     const h = Math.max(1, heroHeightSV.value);
-    const y = Math.max(0, heroScrollY.value);
+    const y = Math.max(0, Math.min(heroCollapseY.value, h));
     return {
-      transform: [{ translateY: -Math.min(y, h) }],
+      transform: [{ translateY: -y }],
     };
   });
 
   const heroLogoStyle = useAnimatedStyle(() => {
     const h = Math.max(1, heroHeightSV.value);
-    const p = Math.min(1, Math.max(0, heroScrollY.value / h));
+    const p = Math.max(0, Math.min(1, heroCollapseY.value / h));
     return {
-      opacity: interpolate(p, [0, 0.62, 0.9], [1, 1, 0], Extrapolation.CLAMP),
+      opacity: interpolate(p, [0, 0.58, 0.88], [1, 1, 0], Extrapolation.CLAMP),
       transform: [
-        { translateY: interpolate(p, [0, 1], [0, -18], Extrapolation.CLAMP) },
-        { scale: interpolate(p, [0, 1], [1, 0.42], Extrapolation.CLAMP) },
+        { translateY: interpolate(p, [0, 1], [0, -10], Extrapolation.CLAMP) },
+        { scale: interpolate(p, [0, 1], [1, 0.44], Extrapolation.CLAMP) },
       ],
     };
   });
 
   const heroMetaStyle = useAnimatedStyle(() => {
     const h = Math.max(1, heroHeightSV.value);
-    const p = Math.min(1, Math.max(0, heroScrollY.value / h));
+    const p = Math.max(0, Math.min(1, heroCollapseY.value / h));
     return {
-      opacity: interpolate(p, [0, 0.28], [1, 0], Extrapolation.CLAMP),
+      opacity: interpolate(p, [0, 0.32], [1, 0], Extrapolation.CLAMP),
       transform: [
-        { translateY: interpolate(p, [0, 0.28], [0, -8], Extrapolation.CLAMP) },
-        { scale: interpolate(p, [0, 0.28], [1, 0.98], Extrapolation.CLAMP) },
+        { translateY: interpolate(p, [0, 0.32], [0, -6], Extrapolation.CLAMP) },
       ],
     };
   });
 
   const headerLogoStyle = useAnimatedStyle(() => {
     const h = Math.max(1, heroHeightSV.value);
-    const p = Math.min(1, Math.max(0, heroScrollY.value / h));
+    const p = Math.max(0, Math.min(1, heroCollapseY.value / h));
     return {
-      opacity: interpolate(p, [0.38, 0.82], [0, 1], Extrapolation.CLAMP),
-      transform: [{ scale: interpolate(p, [0.38, 1], [0.64, 1], Extrapolation.CLAMP) }],
+      opacity: interpolate(p, [0.42, 0.84], [0, 1], Extrapolation.CLAMP),
+      transform: [{ scale: interpolate(p, [0.42, 1], [0.72, 1], Extrapolation.CLAMP) }],
     };
   });
 
@@ -1180,17 +1204,21 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
     if (!anchorLayout) return;
     const spaceFromAnchorToBottom = Math.max(0, matchesContentHeight - anchorLayout.y);
     programmaticScrollRef.current = true;
-    const visibleTop = heroSlotHeightRef.current + tabsHeight;
+    const visibleTop = overlayHeightRef.current;
+    let nextY = 0;
     if (spaceFromAnchorToBottom < matchesViewportHeight) {
       matchesScrollRef.current.scrollToEnd({ animated: false });
+      nextY = Math.max(0, matchesContentHeight - matchesViewportHeight);
     } else {
-      matchesScrollRef.current.scrollTo({ y: Math.max(0, anchorLayout.y - visibleTop), animated: false });
+      nextY = Math.max(0, anchorLayout.y - visibleTop);
+      matchesScrollRef.current.scrollTo({ y: nextY, animated: false });
     }
+    lastScrollYRef.current = nextY;
     initialScrollDoneRef.current = true;
     setTimeout(() => {
       programmaticScrollRef.current = false;
-    }, 120);
-  }, [activeTab, matchesViewportHeight, matchesContentHeight, matchesTick, teamMatches, lastStartedIndex, tabsHeight]);
+    }, 280);
+  }, [activeTab, matchesViewportHeight, matchesContentHeight, matchesTick, teamMatches, lastStartedIndex]);
 
   if (loading) {
     return (
@@ -1227,11 +1255,16 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
       </View>
 
       <View style={styles.body}>
-        <Reanimated.View style={[styles.heroOverlay, heroOverlayStyle]}>
+        <Reanimated.View
+          style={[styles.heroOverlay, heroOverlayStyle]}
+          onLayout={onOverlayLayout}
+          collapsable={false}
+        >
           <View
             style={styles.heroCard}
             onLayout={onHeroSlotLayout}
             pointerEvents={heroCollapsed ? 'none' : 'box-none'}
+            collapsable={false}
           >
             <Reanimated.View style={heroLogoStyle}>
               <TeamLogo logoUrl={team.logo_url} logoPath={team.logo_path} />
@@ -1250,7 +1283,7 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
             </Reanimated.View>
           </View>
 
-          <View style={styles.tabsWrap} onLayout={onTabsSlotLayout}>
+          <View style={styles.tabsWrap}>
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
@@ -1837,8 +1870,8 @@ const styles = StyleSheet.create({
   tabsWrap: {
     backgroundColor: '#f5f5f5',
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: '#e2e8f0',
-    paddingTop: 6,
+    borderTopColor: '#e8edf4',
+    paddingTop: 4,
     paddingBottom: 2,
   },
   heroCard: {
@@ -1850,10 +1883,9 @@ const styles = StyleSheet.create({
     borderColor: '#ececec',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingTop: 2,
-    paddingBottom: 12,
+    paddingTop: 0,
+    paddingBottom: 10,
     paddingHorizontal: 16,
-    minHeight: 170,
     position: 'relative',
   },
   logo: {
