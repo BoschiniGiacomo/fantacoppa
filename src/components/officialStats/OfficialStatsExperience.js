@@ -921,6 +921,8 @@ export default function OfficialStatsExperience({
   onScroll,
   onScrollBeginDrag,
   onScrollEndDrag,
+  scrollRef,
+  contentInsetTop = 0,
 }) {
   const [query, setQuery] = useState('');
   const [selectedBoard, setSelectedBoard] = useState(boards[0]?.key || 'scorers');
@@ -949,32 +951,37 @@ export default function OfficialStatsExperience({
 
   return (
     <View style={styles.root}>
-      <PeriodSelector years={years} selectedYear={selectedYear} onSelectYear={onSelectYear} />
-      <StatsSearchBar
-        value={query}
-        onChange={(text) => {
-          setQuery(text);
-          setExpanded(false);
-        }}
-        placeholder={searchPlaceholder}
-      />
-      {!searching ? (
-        <CategoryChips
-          boards={boards}
-          selectedKey={activeBoard?.key}
-          onSelect={(key) => {
-            setSelectedBoard(key);
-            setExpanded(false);
-          }}
-        />
-      ) : null}
+      {contentInsetTop > 0 ? null : (
+        <>
+          <PeriodSelector years={years} selectedYear={selectedYear} onSelectYear={onSelectYear} />
+          <StatsSearchBar
+            value={query}
+            onChange={(text) => {
+              setQuery(text);
+              setExpanded(false);
+            }}
+            placeholder={searchPlaceholder}
+          />
+          {!searching ? (
+            <CategoryChips
+              boards={boards}
+              selectedKey={activeBoard?.key}
+              onSelect={(key) => {
+                setSelectedBoard(key);
+                setExpanded(false);
+              }}
+            />
+          ) : null}
+        </>
+      )}
 
-      {loading ? (
+      {loading && contentInsetTop <= 0 ? (
         <View style={styles.loadingBox}>
           <ActivityIndicator color="#667eea" />
         </View>
       ) : (
         <ScrollView
+          ref={scrollRef}
           style={styles.scroll}
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
@@ -985,7 +992,35 @@ export default function OfficialStatsExperience({
           onScrollEndDrag={onScrollEndDrag}
           scrollEventThrottle={16}
         >
-          {searching ? (
+          {contentInsetTop > 0 ? <View style={{ height: contentInsetTop }} pointerEvents="none" /> : null}
+          {contentInsetTop > 0 ? (
+            <>
+              <PeriodSelector years={years} selectedYear={selectedYear} onSelectYear={onSelectYear} />
+              <StatsSearchBar
+                value={query}
+                onChange={(text) => {
+                  setQuery(text);
+                  setExpanded(false);
+                }}
+                placeholder={searchPlaceholder}
+              />
+              {!searching ? (
+                <CategoryChips
+                  boards={boards}
+                  selectedKey={activeBoard?.key}
+                  onSelect={(key) => {
+                    setSelectedBoard(key);
+                    setExpanded(false);
+                  }}
+                />
+              ) : null}
+            </>
+          ) : null}
+          {loading ? (
+            <View style={styles.loadingBox}>
+              <ActivityIndicator color="#667eea" />
+            </View>
+          ) : searching ? (
             searchHits.length === 0 ? (
               <Text style={styles.emptyText}>Nessun giocatore trovato.</Text>
             ) : (
