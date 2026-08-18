@@ -15,6 +15,14 @@ import {
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Reanimated, {
+  Easing,
+  Extrapolation,
+  interpolate,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 import { matchesService } from '../services/api';
 import { TeamLogoImage } from '../components/StableCachedImage';
 import { EMPTY_OFFICIAL_KNOCKOUT, hasOfficialKnockoutBracket } from '../utils/knockoutBracket';
@@ -28,14 +36,14 @@ import OfficialStatsExperience, {
   mapOfficialStatsBoards,
 } from '../components/officialStats/OfficialStatsExperience';
 
-function TeamLogo({ logoUrl, logoPath }) {
+function TeamLogo({ logoUrl, logoPath, style, fallbackStyle, fallbackIconSize = 56 }) {
   return (
     <TeamLogoImage
       logoUrl={logoUrl}
       logoPath={logoPath}
-      style={styles.logo}
-      fallbackStyle={styles.logoFallback}
-      fallbackIconSize={56}
+      style={style || styles.logo}
+      fallbackStyle={fallbackStyle || styles.logoFallback}
+      fallbackIconSize={fallbackIconSize}
     />
   );
 }
@@ -247,6 +255,13 @@ function SeasonKnockoutLogoAdapter({ logoUrl, logoPath }) {
 const ROLE_COLORS = { P: '#0d6efd', D: '#198754', C: '#e6a800', A: '#dc3545' };
 const DEFAULT_JERSEY_COLOR = '#a5b4fc';
 const ROLE_ORDER = { P: 0, D: 1, C: 2, A: 3 };
+const HERO_EXPANDED_MIN = 170;
+const HERO_EXPANDED_MAX = 230;
+const HEADER_LOGO_SIZE = 32;
+const HERO_COLLAPSE_MS = 340;
+const HERO_COLLAPSE_Y = 52;
+const HERO_EXPAND_Y = 8;
+const heroCollapseEasing = Easing.bezier(0.22, 1, 0.36, 1);
 
 function isValidJerseyHex(s) {
   if (s == null || typeof s !== 'string') return false;
@@ -379,6 +394,10 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
   const favoriteAnim = React.useRef(new Animated.Value(0)).current;
   const favoriteAnimListenerRef = React.useRef(null);
   const prevFavoriteCountRef = React.useRef(0);
+  const heroCollapse = useSharedValue(0);
+  const heroCollapsedRef = useRef(false);
+  const programmaticScrollRef = useRef(false);
+  const [heroCollapsed, setHeroCollapsed] = useState(false);
   const matchesScrollRef = useRef(null);
   const [matchesViewportHeight, setMatchesViewportHeight] = useState(0);
   const [matchesContentHeight, setMatchesContentHeight] = useState(0);
@@ -976,6 +995,82 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
     }
   };
 
+  const setHeroCollapsedState = useCallback((collapsed) => {
+    if (heroCollapsedRef.current === collapsed) return;
+    heroCollapsedRef.current = collapsed;
+    setHeroCollapsed(collapsed);
+    heroCollapse.value = withTiming(collapsed ? 1 : 0, {
+      duration: HERO_COLLAPSE_MS,
+      easing: heroCollapseEasing,
+    });
+  }, [heroCollapse]);
+
+  const onTabContentScroll = useCallback((event) => {
+    if (programmaticScrollRef.current) return;
+    const y = Number(event?.nativeEvent?.contentOffset?.y || 0);
+    if (!heroCollapsedRef.current && y > HERO_COLLAPSE_Y) {
+      setHeroCollapsedState(true);
+      return;
+    }
+    if (heroCollapsedRef.current && y <= HERO_EXPAND_Y) {
+      setHeroCollapsedState(false);
+    }
+  }, [setHeroCollapsedState]);
+
+  const selectTab = useCallback((tab) => {
+    setActiveTab(tab);
+  }, []);
+
+  useEffect(() => {
+    setHeroCollapsedState(false);
+  }, [activeTab, selectedStatsYear, selectedSeasonYear, selectedTeamSeasonYear, setHeroCollapsedState]);
+
+  const heroCardStyle = useAnimatedStyle(() => {
+    const p = heroCollapse.value;
+    return {
+      minHeight: interpolate(p, [0, 0.42, 1], [HERO_EXPANDED_MIN, 108, 0], Extrapolation.CLAMP),
+      maxHeight: interpolate(p, [0, 0.42, 1], [HERO_EXPANDED_MAX, 140, 0], Extrapolation.CLAMP),
+      paddingVertical: interpolate(p, [0, 0.55, 1], [12, 6, 0], Extrapolation.CLAMP),
+      marginTop: interpolate(p, [0, 1], [12, 0], Extrapolation.CLAMP),
+      borderTopWidth: interpolate(p, [0, 0.88], [1, 0], Extrapolation.CLAMP),
+      borderBottomWidth: interpolate(p, [0, 0.88], [1, 0], Extrapolation.CLAMP),
+    };
+  });
+
+  const heroLogoStyle = useAnimatedStyle(() => {
+    const p = heroCollapse.value;
+    return {
+      opacity: interpolate(p, [0, 0.58, 0.86], [1, 1, 0], Extrapolation.CLAMP),
+      transform: [
+        { translateY: interpolate(p, [0, 1], [0, -82], Extrapolation.CLAMP) },
+        { scale: interpolate(p, [0, 1], [1, 0.34], Extrapolation.CLAMP) },
+      ],
+    };
+  });
+
+  const heroMetaStyle = useAnimatedStyle(() => {
+    const p = heroCollapse.value;
+    return {
+      opacity: interpolate(p, [0, 0.26], [1, 0], Extrapolation.CLAMP),
+      transform: [
+        { translateY: interpolate(p, [0, 0.26], [0, -8], Extrapolation.CLAMP) },
+        { scale: interpolate(p, [0, 0.26], [1, 0.98], Extrapolation.CLAMP) },
+      ],
+    };
+  });
+
+  const headerLogoStyle = useAnimatedStyle(() => {
+    const p = heroCollapse.value;
+    return {
+      opacity: interpolate(p, [0.36, 0.78], [0, 1], Extrapolation.CLAMP),
+      transform: [{ scale: interpolate(p, [0.36, 1], [0.64, 1], Extrapolation.CLAMP) }],
+    };
+  });
+
+  const tabsCollapseStyle = useAnimatedStyle(() => ({
+    marginTop: interpolate(heroCollapse.value, [0, 1], [8, 2], Extrapolation.CLAMP),
+  }));
+
   const handleBackNavigation = useCallback(() => {
     const state = navigation.getState();
     const prevRoute = state?.routes?.[Math.max(0, (state?.index || 0) - 1)]?.name;
@@ -1008,12 +1103,16 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
     const anchorLayout = itemLayoutsRef.current[lastStartedIndex];
     if (!anchorLayout) return;
     const spaceFromAnchorToBottom = Math.max(0, matchesContentHeight - anchorLayout.y);
+    programmaticScrollRef.current = true;
     if (spaceFromAnchorToBottom < matchesViewportHeight) {
       matchesScrollRef.current.scrollToEnd({ animated: false });
     } else {
       matchesScrollRef.current.scrollTo({ y: Math.max(0, anchorLayout.y), animated: false });
     }
     initialScrollDoneRef.current = true;
+    setTimeout(() => {
+      programmaticScrollRef.current = false;
+    }, 120);
   }, [activeTab, matchesViewportHeight, matchesContentHeight, matchesTick, teamMatches, lastStartedIndex]);
 
   if (loading) {
@@ -1027,37 +1126,64 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
   return (
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: Math.max(insets.top + 6, 12) }]}>
-        <TouchableOpacity style={styles.iconBtn} onPress={handleBackNavigation}>
-          <Ionicons name="arrow-back" size={20} color="#333" />
-        </TouchableOpacity>
-        <View style={styles.headerRight}>
+        <View style={[styles.headerSide, styles.headerSideLeft]}>
+          <TouchableOpacity style={styles.iconBtn} onPress={handleBackNavigation}>
+            <Ionicons name="arrow-back" size={20} color="#333" />
+          </TouchableOpacity>
+        </View>
+        <Reanimated.View style={[styles.headerCenter, headerLogoStyle]} pointerEvents="none">
+          <View style={styles.headerLogoWell}>
+            <TeamLogo
+              logoUrl={team.logo_url}
+              logoPath={team.logo_path}
+              style={styles.headerLogo}
+              fallbackStyle={styles.headerLogoFallback}
+              fallbackIconSize={16}
+            />
+          </View>
+        </Reanimated.View>
+        <View style={[styles.headerSide, styles.headerSideRight]}>
           <TouchableOpacity style={styles.iconBtn} onPress={onToggleNotifications}>
             <Ionicons name={Number(notifications.enabled) === 1 ? 'notifications' : 'notifications-outline'} size={20} color="#667eea" />
           </TouchableOpacity>
         </View>
       </View>
 
-      <View style={styles.heroCard}>
-        <TeamLogo logoUrl={team.logo_url} logoPath={team.logo_path} />
-        <Text style={styles.teamName} numberOfLines={2}>
-          {teamName}
-        </Text>
-        <TouchableOpacity style={styles.heroFavoriteCount} activeOpacity={0.75} onPress={onToggleFavorite}>
-          <Ionicons name={Number(favorites.team) === 1 ? 'star' : 'star-outline'} size={30} color="#334155" />
-          <View style={styles.heroFavoriteTextCol}>
-            <Text style={styles.heroFavoriteCountText}>{favoriteCountText}</Text>
-            <Text style={styles.heroFavoriteLabel}>Supporters</Text>
-          </View>
-        </TouchableOpacity>
-      </View>
+      <Reanimated.View
+        style={[styles.heroCard, heroCardStyle]}
+        pointerEvents={heroCollapsed ? 'none' : 'box-none'}
+      >
+        <Reanimated.View style={heroLogoStyle}>
+          <TeamLogo logoUrl={team.logo_url} logoPath={team.logo_path} />
+        </Reanimated.View>
+        <Reanimated.View style={[styles.heroMeta, heroMetaStyle]}>
+          <Text style={styles.teamName} numberOfLines={2}>
+            {teamName}
+          </Text>
+          <TouchableOpacity style={styles.heroFavoriteCount} activeOpacity={0.75} onPress={onToggleFavorite}>
+            <Ionicons name={Number(favorites.team) === 1 ? 'star' : 'star-outline'} size={30} color="#334155" />
+            <View style={styles.heroFavoriteTextCol}>
+              <Text style={styles.heroFavoriteCountText}>{favoriteCountText}</Text>
+              <Text style={styles.heroFavoriteLabel}>Supporters</Text>
+            </View>
+          </TouchableOpacity>
+        </Reanimated.View>
+      </Reanimated.View>
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabsScroll} contentContainerStyle={styles.tabsScrollContent}>
-        <TouchableOpacity style={[styles.tabBtn, activeTab === 'matches' && styles.tabBtnActive]} onPress={() => setActiveTab('matches')}><Text style={[styles.tabText, activeTab === 'matches' && styles.tabTextActive]}>Partite</Text></TouchableOpacity>
-        <TouchableOpacity style={[styles.tabBtn, activeTab === 'season' && styles.tabBtnActive]} onPress={() => setActiveTab('season')}><Text style={[styles.tabText, activeTab === 'season' && styles.tabTextActive]}>Stagione</Text></TouchableOpacity>
-        <TouchableOpacity style={[styles.tabBtn, activeTab === 'stats' && styles.tabBtnActive]} onPress={() => setActiveTab('stats')}><Text style={[styles.tabText, activeTab === 'stats' && styles.tabTextActive]}>Statistiche</Text></TouchableOpacity>
-        <TouchableOpacity style={[styles.tabBtn, activeTab === 'team' && styles.tabBtnActive]} onPress={() => setActiveTab('team')}><Text style={[styles.tabText, activeTab === 'team' && styles.tabTextActive]}>Squadra</Text></TouchableOpacity>
-        <TouchableOpacity style={[styles.tabBtn, activeTab === 'trophies' && styles.tabBtnActive]} onPress={() => setActiveTab('trophies')}><Text style={[styles.tabText, activeTab === 'trophies' && styles.tabTextActive]}>Trofei</Text></TouchableOpacity>
-      </ScrollView>
+      <Reanimated.View style={tabsCollapseStyle}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.tabsScroll}
+          contentContainerStyle={styles.tabsScrollContent}
+        >
+          <TouchableOpacity style={[styles.tabBtn, activeTab === 'matches' && styles.tabBtnActive]} onPress={() => selectTab('matches')}><Text style={[styles.tabText, activeTab === 'matches' && styles.tabTextActive]}>Partite</Text></TouchableOpacity>
+          <TouchableOpacity style={[styles.tabBtn, activeTab === 'season' && styles.tabBtnActive]} onPress={() => selectTab('season')}><Text style={[styles.tabText, activeTab === 'season' && styles.tabTextActive]}>Stagione</Text></TouchableOpacity>
+          <TouchableOpacity style={[styles.tabBtn, activeTab === 'stats' && styles.tabBtnActive]} onPress={() => selectTab('stats')}><Text style={[styles.tabText, activeTab === 'stats' && styles.tabTextActive]}>Statistiche</Text></TouchableOpacity>
+          <TouchableOpacity style={[styles.tabBtn, activeTab === 'team' && styles.tabBtnActive]} onPress={() => selectTab('team')}><Text style={[styles.tabText, activeTab === 'team' && styles.tabTextActive]}>Squadra</Text></TouchableOpacity>
+          <TouchableOpacity style={[styles.tabBtn, activeTab === 'trophies' && styles.tabBtnActive]} onPress={() => selectTab('trophies')}><Text style={[styles.tabText, activeTab === 'trophies' && styles.tabTextActive]}>Trofei</Text></TouchableOpacity>
+        </ScrollView>
+      </Reanimated.View>
 
       <View style={styles.content}>
         {activeTab === 'matches' ? (
@@ -1074,6 +1200,8 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
                 onLayout={(e) => setMatchesViewportHeight(e.nativeEvent.layout.height)}
                 onContentSizeChange={(_, h) => setMatchesContentHeight(h)}
                 showsVerticalScrollIndicator={false}
+                onScroll={onTabContentScroll}
+                scrollEventThrottle={16}
               >
                 {teamMatches.length === 0 ? (
                   <Text style={styles.placeholderText}>Nessuna partita disponibile.</Text>
@@ -1153,6 +1281,8 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
             style={styles.seasonScroll}
             contentContainerStyle={[styles.seasonScrollContent, { paddingBottom: Math.max(insets.bottom, 5)}]}
             showsVerticalScrollIndicator={false}
+            onScroll={onTabContentScroll}
+            scrollEventThrottle={16}
           >
             <View style={[styles.card, styles.seasonCard]}>
               <View ref={seasonPickerAnchorRef} style={styles.seasonPickerWrap} collapsable={false}>
@@ -1294,6 +1424,8 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
                 style={styles.trophiesList}
                 contentContainerStyle={styles.trophiesScrollContent}
                 showsVerticalScrollIndicator={false}
+                onScroll={onTabContentScroll}
+                scrollEventThrottle={16}
               >
                 <OfficialTeamTrophyBoard
                   championships={teamChampionships}
@@ -1444,6 +1576,7 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
                   </TouchableOpacity>
                 </View>
               )}
+              onScroll={onTabContentScroll}
               onPressPlayer={openPlayerFromStatsRow}
               onPressMatch={(matchId) => navigation.navigate('MatchDetail', {
                 matchId: Number(matchId),
@@ -1489,6 +1622,8 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
                 style={styles.teamSquadList}
                 contentContainerStyle={styles.teamSquadListContent}
                 showsVerticalScrollIndicator={false}
+                onScroll={onTabContentScroll}
+                scrollEventThrottle={16}
               >
                 {sortedTeamSeasonSquad.map((p, i) => {
                   const role = String(p?.role || '').trim().toUpperCase();
@@ -1559,8 +1694,35 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    zIndex: 4,
   },
-  headerRight: { flexDirection: 'row', alignItems: 'center' },
+  headerSide: {
+    width: 42,
+    justifyContent: 'center',
+  },
+  headerSideLeft: { alignItems: 'flex-start' },
+  headerSideRight: { alignItems: 'flex-end' },
+  headerCenter: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerLogoWell: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerLogo: {
+    width: HEADER_LOGO_SIZE,
+    height: HEADER_LOGO_SIZE,
+  },
+  headerLogoFallback: {
+    width: HEADER_LOGO_SIZE,
+    height: HEADER_LOGO_SIZE,
+    borderRadius: 8,
+    backgroundColor: '#eef2ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   iconBtn: {
     width: 34,
     height: 34,
@@ -1570,7 +1732,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     justifyContent: 'center',
     alignItems: 'center',
-    marginLeft: 8,
   },
   heroCard: {
     marginTop: 12,
@@ -1585,6 +1746,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     minHeight: 170,
     position: 'relative',
+    overflow: 'hidden',
   },
   logo: {
     width: 92,
@@ -1599,6 +1761,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   teamName: { marginTop: 10, fontSize: 21, fontWeight: '800', color: '#222', textAlign: 'center' },
+  heroMeta: { width: '100%', alignItems: 'center' },
   heroFavoriteCount: {
     marginTop: 14,
     flexDirection: 'row',
@@ -1610,7 +1773,7 @@ const styles = StyleSheet.create({
   heroFavoriteTextCol: { justifyContent: 'center' },
   heroFavoriteCountText: { fontSize: 22, lineHeight: 24, fontWeight: '800', color: '#0f172a' },
   heroFavoriteLabel: { fontSize: 10, lineHeight: 12, fontWeight: '600', color: '#64748b' },
-  tabsScroll: { marginTop: 8, maxHeight: 46 },
+  tabsScroll: { maxHeight: 46 },
   tabsScrollContent: { paddingHorizontal: 12, paddingBottom: 4, gap: 8, alignItems: 'center' },
   tabBtn: {
     backgroundColor: '#fff',
