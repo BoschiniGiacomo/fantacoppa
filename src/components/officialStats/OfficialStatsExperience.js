@@ -1132,8 +1132,10 @@ export default function OfficialStatsExperience({
   onScrollViewLayout,
 }) {
   const internalScrollRef = useRef(null);
-  const playersSectionYRef = useRef(0);
-  const boardBlockYRef = useRef(0);
+  const smoothScrollRafRef = useRef(null);
+  const scrollYRef = useRef(0);
+  const contentHeightRef = useRef(0);
+  const viewportHeightRef = useRef(0);
   const [query, setQuery] = useState('');
   const [selectedBoard, setSelectedBoard] = useState(boards[0]?.key || 'scorers');
   const [expanded, setExpanded] = useState(false);
@@ -1149,16 +1151,48 @@ export default function OfficialStatsExperience({
     }
   }, [scrollRef]);
 
+  const stopSmoothScroll = useCallback(() => {
+    if (smoothScrollRafRef.current != null) {
+      cancelAnimationFrame(smoothScrollRafRef.current);
+      smoothScrollRafRef.current = null;
+    }
+  }, []);
+
   const scrollToLeaderboard = useCallback((animated = true) => {
     const node = internalScrollRef.current;
     if (!node?.scrollTo) return;
-    const anchorY = boardBlockYRef.current > 0 ? boardBlockYRef.current : playersSectionYRef.current;
-    const overlayCompensation = contentInsetTop > 0
-      ? Math.max(172, Math.round(contentInsetTop * 0.78))
-      : 42;
-    const targetY = Math.max(0, Math.floor(anchorY + overlayCompensation));
-    node.scrollTo({ y: targetY, animated });
-  }, [contentInsetTop]);
+    const maxY = Math.max(0, contentHeightRef.current - viewportHeightRef.current);
+    if (!(maxY > 0)) {
+      if (node.scrollToEnd) node.scrollToEnd({ animated });
+      return;
+    }
+    if (!animated) {
+      stopSmoothScroll();
+      node.scrollTo({ y: maxY, animated: false });
+      scrollYRef.current = maxY;
+      return;
+    }
+    stopSmoothScroll();
+    const startY = Math.max(0, Math.min(scrollYRef.current, maxY));
+    const delta = maxY - startY;
+    if (delta <= 1) return;
+    const duration = 780;
+    const t0 = Date.now();
+    const easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);
+    const tick = () => {
+      const elapsed = Date.now() - t0;
+      const p = Math.max(0, Math.min(1, elapsed / duration));
+      const y = startY + delta * easeOutCubic(p);
+      node.scrollTo({ y, animated: false });
+      scrollYRef.current = y;
+      if (p < 1) {
+        smoothScrollRafRef.current = requestAnimationFrame(tick);
+      } else {
+        smoothScrollRafRef.current = null;
+      }
+    };
+    smoothScrollRafRef.current = requestAnimationFrame(tick);
+  }, [stopSmoothScroll]);
 
   const selectBoardAndScroll = useCallback((key, shouldScroll = true) => {
     setSelectedBoard(key);
@@ -1166,9 +1200,6 @@ export default function OfficialStatsExperience({
     if (!shouldScroll) return;
     requestAnimationFrame(() => {
       scrollToLeaderboard(true);
-      setTimeout(() => scrollToLeaderboard(false), 120);
-      setTimeout(() => scrollToLeaderboard(false), 260);
-      setTimeout(() => scrollToLeaderboard(false), 420);
     });
   }, [scrollToLeaderboard]);
 
@@ -1177,6 +1208,31 @@ export default function OfficialStatsExperience({
     setExpanded(false);
     setSelectedBoard(boards[0]?.key || 'scorers');
   }, [selectedYear]);
+
+  useEffect(() => () => stopSmoothScroll(), [stopSmoothScroll]);
+
+  const handleScrollViewLayout = useCallback((event) => {
+    viewportHeightRef.current = Math.max(0, Number(event?.nativeEvent?.layout?.height || 0));
+    onScrollViewLayout?.(event);
+  }, [onScrollViewLayout]);
+
+  const handleContentSizeChange = useCallback((_, h) => {
+    contentHeightRef.current = Math.max(0, Number(h || 0));
+  }, []);
+
+  const handleScroll = useCallback((event) => {
+    scrollYRef.current = Math.max(0, Number(event?.nativeEvent?.contentOffset?.y || 0));
+    onScroll?.(event);
+  }, [onScroll]);
+
+  const handleScrollBeginDrag = useCallback((event) => {
+    stopSmoothScroll();
+    onScrollBeginDrag?.(event);
+  }, [onScrollBeginDrag, stopSmoothScroll]);
+
+  const handleScrollEndDrag = useCallback((event) => {
+    onScrollEndDrag?.(event);
+  }, [onScrollEndDrag]);
 
   const normalizedQuery = normalizeQuery(query);
   const searching = normalizedQuery.length > 0;
@@ -1232,10 +1288,11 @@ export default function OfficialStatsExperience({
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
-          onLayout={onScrollViewLayout}
-          onScroll={onScroll}
-          onScrollBeginDrag={onScrollBeginDrag}
-          onScrollEndDrag={onScrollEndDrag}
+          onLayout={handleScrollViewLayout}
+          onContentSizeChange={handleContentSizeChange}
+          onScroll={handleScroll}
+          onScrollBeginDrag={handleScrollBeginDrag}
+          onScrollEndDrag={handleScrollEndDrag}
           scrollEventThrottle={16}
         >
           {contentInsetTop > 0 ? <View style={{ height: contentInsetTop }} pointerEvents="none" /> : null}
@@ -1310,12 +1367,7 @@ export default function OfficialStatsExperience({
                 </View>
               ) : null}
 
-              <View
-                style={styles.playersSection}
-                onLayout={(event) => {
-                  playersSectionYRef.current = Number(event?.nativeEvent?.layout?.y || 0);
-                }}
-              >
+              <View style={styles.playersSection}>
                 <View style={styles.playersSectionHead}>
                   <Text style={styles.playersSectionKicker}>Classifiche</Text>
                   <Text style={styles.playersSectionTitle}>Giocatori</Text>
@@ -1327,12 +1379,7 @@ export default function OfficialStatsExperience({
                 />
 
                 {activeBoard ? (
-                  <View
-                    style={styles.boardBlock}
-                    onLayout={(event) => {
-                      boardBlockYRef.current = Number(event?.nativeEvent?.layout?.y || 0);
-                    }}
-                  >
+                  <View style={styles.boardBlock}>
                     <View style={styles.boardHead}>
                       <View style={[styles.boardIcon, { backgroundColor: `${activeBoard.accent}18` }]}>
                         <BoardGlyph board={activeBoard} size={16} color={activeBoard.accent} />
