@@ -1153,9 +1153,12 @@ export default function OfficialStatsExperience({
     const node = internalScrollRef.current;
     if (!node?.scrollTo) return;
     const anchorY = boardBlockYRef.current > 0 ? boardBlockYRef.current : playersSectionYRef.current;
-    const targetY = Math.max(0, Math.floor(anchorY - 8));
+    const overlayCompensation = contentInsetTop > 0
+      ? Math.max(96, Math.round(contentInsetTop * 0.42))
+      : 16;
+    const targetY = Math.max(0, Math.floor(anchorY + overlayCompensation));
     node.scrollTo({ y: targetY, animated });
-  }, []);
+  }, [contentInsetTop]);
 
   const selectBoardAndScroll = useCallback((key, shouldScroll = true) => {
     setSelectedBoard(key);
@@ -1163,7 +1166,8 @@ export default function OfficialStatsExperience({
     if (!shouldScroll) return;
     requestAnimationFrame(() => {
       scrollToLeaderboard(true);
-      setTimeout(() => scrollToLeaderboard(false), 130);
+      setTimeout(() => scrollToLeaderboard(false), 120);
+      setTimeout(() => scrollToLeaderboard(false), 260);
     });
   }, [scrollToLeaderboard]);
 
