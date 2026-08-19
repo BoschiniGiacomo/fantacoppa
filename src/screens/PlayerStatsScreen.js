@@ -1326,6 +1326,9 @@ export default function PlayerStatsScreen({ route, navigation }) {
                             fallbackIconSize={14}
                           />
                         </View>
+                        <Text style={styles.favouriteMatchTeamsText} numberOfLines={1}>
+                          {String(match?.home_team_name || 'Casa')} - {String(match?.away_team_name || 'Trasferta')}
+                        </Text>
                         <View style={styles.favouriteMatchMeta}>
                           <Text style={styles.favouriteMatchDate}>{formatOpponentMatchDate(match?.kickoff_at)}</Text>
                           <Text style={styles.favouriteMatchValue}>
@@ -2146,18 +2149,18 @@ const styles = StyleSheet.create({
     color: '#334155',
   },
   favouriteDetailsWrap: {
-    marginTop: -2,
+    marginTop: 2,
     marginBottom: 8,
-    marginLeft: 34,
-    borderRadius: 10,
+    marginLeft: 0,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: '#e2e8f0',
     overflow: 'hidden',
-    backgroundColor: '#f8fafc',
+    backgroundColor: '#ffffff',
   },
   favouriteMatchRow: {
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
   },
   favouriteMatchRowBorder: {
     borderBottomWidth: StyleSheet.hairlineWidth,
@@ -2167,29 +2170,36 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
+    gap: 8,
   },
   favouriteMatchLogo: {
-    width: 20,
-    height: 20,
+    width: 24,
+    height: 24,
   },
   favouriteMatchLogoFallback: {
-    width: 20,
-    height: 20,
-    borderRadius: 5,
+    width: 24,
+    height: 24,
+    borderRadius: 6,
     backgroundColor: '#eef2ff',
     alignItems: 'center',
     justifyContent: 'center',
   },
   favouriteMatchScore: {
-    fontSize: 13,
+    fontSize: 15,
     fontWeight: '800',
     color: '#0f172a',
-    minWidth: 54,
+    minWidth: 62,
+    textAlign: 'center',
+  },
+  favouriteMatchTeamsText: {
+    marginTop: 4,
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#64748b',
     textAlign: 'center',
   },
   favouriteMatchMeta: {
-    marginTop: 4,
+    marginTop: 6,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',

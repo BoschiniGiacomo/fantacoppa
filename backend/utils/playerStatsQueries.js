@@ -471,6 +471,57 @@ async function fetchFavouriteOpponent(playerIds, leagueIds, playerRole) {
          FROM linked
          ORDER BY player_id, league_id, giornata, official_match_id ASC
        ),
+       event_scores AS (
+         SELECT
+           e.match_id,
+           SUM(
+             CASE
+               WHEN e.event_type IN ('goal', 'penalty_goal') THEN
+                 CASE
+                   WHEN LOWER(TRIM(COALESCE(e.team_side, ''))) = 'home' THEN 1
+                   WHEN LOWER(TRIM(COALESCE(e.team_side, ''))) = 'away' THEN 0
+                   WHEN e.team_id = om.home_team_id THEN 1
+                   WHEN e.team_id = om.away_team_id THEN 0
+                   ELSE 0
+                 END
+               WHEN e.event_type = 'own_goal' THEN
+                 CASE
+                   WHEN LOWER(TRIM(COALESCE(e.team_side, ''))) = 'home' THEN 0
+                   WHEN LOWER(TRIM(COALESCE(e.team_side, ''))) = 'away' THEN 1
+                   WHEN e.team_id = om.home_team_id THEN 0
+                   WHEN e.team_id = om.away_team_id THEN 1
+                   ELSE 0
+                 END
+               ELSE 0
+             END
+           )::int AS home_score,
+           SUM(
+             CASE
+               WHEN e.event_type IN ('goal', 'penalty_goal') THEN
+                 CASE
+                   WHEN LOWER(TRIM(COALESCE(e.team_side, ''))) = 'home' THEN 0
+                   WHEN LOWER(TRIM(COALESCE(e.team_side, ''))) = 'away' THEN 1
+                   WHEN e.team_id = om.home_team_id THEN 0
+                   WHEN e.team_id = om.away_team_id THEN 1
+                   ELSE 0
+                 END
+               WHEN e.event_type = 'own_goal' THEN
+                 CASE
+                   WHEN LOWER(TRIM(COALESCE(e.team_side, ''))) = 'home' THEN 1
+                   WHEN LOWER(TRIM(COALESCE(e.team_side, ''))) = 'away' THEN 0
+                   WHEN e.team_id = om.home_team_id THEN 1
+                   WHEN e.team_id = om.away_team_id THEN 0
+                   ELSE 0
+                 END
+               ELSE 0
+             END
+           )::int AS away_score
+         FROM official_match_events e
+         INNER JOIN official_matches om ON om.id = e.match_id
+         WHERE e.match_id IN (SELECT DISTINCT official_match_id FROM deduped WHERE official_match_id IS NOT NULL)
+           AND e.event_type IN ('goal', 'penalty_goal', 'own_goal')
+         GROUP BY e.match_id
+       ),
       with_opponent AS (
          SELECT
            deduped.official_match_id,
@@ -493,12 +544,13 @@ async function fetchFavouriteOpponent(playerIds, leagueIds, playerRole) {
              NULLIF(TRIM(COALESCE(NULLIF(to_jsonb(at)->>'logo_path', ''), NULLIF(at.logo_path, ''))), ''),
              ''
            ) AS away_team_logo_path,
-           m.home_score,
-           m.away_score
+           COALESCE(es.home_score, m.home_score) AS home_score,
+           COALESCE(es.away_score, m.away_score) AS away_score
          FROM deduped
          INNER JOIN official_matches m ON m.id = deduped.official_match_id
          LEFT JOIN teams ht ON ht.id = m.home_team_id
          LEFT JOIN teams at ON at.id = m.away_team_id
+         LEFT JOIN event_scores es ON es.match_id = m.id
        ),
        filtered AS (
          SELECT
