@@ -537,119 +537,12 @@ function TeaserStrip({ boards, onSelect, showTeamName = true }) {
   );
 }
 
-function HighlightCard({ item, onPressTeam, onPressMatch, index }) {
-  if (!item) return null;
-  const teamId = Number(item.team_id);
-  const matchId = Number(item.match?.match_id);
-  const canOpen = (item.match && matchId > 0) || teamId > 0;
-  return (
-    <Animated.View
-      entering={FadeInDown.delay(Math.min(index, 7) * 40).duration(280)}
-      style={[styles.hlCard, item.wide && styles.hlCardWide]}
-    >
-      <TouchableOpacity
-        style={styles.hlCardInner}
-        activeOpacity={canOpen ? 0.78 : 1}
-        disabled={!canOpen}
-        onPress={() => {
-          if (item.match && matchId > 0) onPressMatch?.(matchId);
-          else if (teamId > 0) onPressTeam?.(teamId, item.team_name);
-        }}
-      >
-        <View style={[styles.hlIcon, { backgroundColor: item.iconBg }]}>
-          {item.bonusType ? (
-            <BonusIcon type={item.bonusType} size={15} />
-          ) : (
-            <Ionicons name={item.icon} size={15} color={item.accent} />
-          )}
-        </View>
-        {item.label ? <Text style={styles.hlLabel}>{item.label}</Text> : null}
-        {item.match ? (
-          <View style={styles.hlMatch}>
-            <View style={styles.hlMatchSide}>
-              <TeamLogoImage
-                logoUrl={item.match.home_team_logo_url}
-                logoPath={item.match.home_team_logo_path}
-                style={styles.hlLogoLg}
-                fallbackStyle={styles.hlLogoLgFallback}
-                fallbackIconSize={16}
-              />
-              <Text style={styles.hlMatchName} numberOfLines={1}>{item.match.home_team_name}</Text>
-            </View>
-            <View style={styles.hlScoreBox}>
-              <Text style={styles.hlScore}>
-                {Number(item.match.home_score || 0)}-{Number(item.match.away_score || 0)}
-              </Text>
-              <Text style={[styles.hlScoreSub, { color: item.accent }]}>
-                {Number(item.match.total_goals || 0)} gol
-              </Text>
-            </View>
-            <View style={styles.hlMatchSide}>
-              <TeamLogoImage
-                logoUrl={item.match.away_team_logo_url}
-                logoPath={item.match.away_team_logo_path}
-                style={styles.hlLogoLg}
-                fallbackStyle={styles.hlLogoLgFallback}
-                fallbackIconSize={16}
-              />
-              <Text style={styles.hlMatchName} numberOfLines={1}>{item.match.away_team_name}</Text>
-            </View>
-          </View>
-        ) : (
-          <View style={styles.hlTeam}>
-            <TeamLogoImage
-              logoUrl={item.logoUrl}
-              logoPath={item.logoPath}
-              style={styles.hlLogo}
-              fallbackStyle={styles.hlLogoFallback}
-              fallbackIconSize={14}
-            />
-            <View style={styles.hlTeamText}>
-              <Text style={styles.hlTeamName} numberOfLines={1}>{item.team_name}</Text>
-              <Text style={styles.hlValue}>{item.value}</Text>
-            </View>
-          </View>
-        )}
-        {item.detail ? <Text style={styles.hlDetail} numberOfLines={1}>{item.detail}</Text> : null}
-      </TouchableOpacity>
-    </Animated.View>
-  );
-}
-
 function GroupHighlights({ highlights, onPressTeam, onPressMatch }) {
   const h = highlights || {};
   const topMatch = h.highest_scoring_match || null;
-  const cards = [];
-  if (h.best_attack) {
-    cards.push({
-      key: 'attack',
-      icon: 'football',
-      accent: '#667eea',
-      iconBg: '#eef2ff',
-      team_id: h.best_attack.team_id,
-      team_name: h.best_attack.team_name,
-      logoUrl: h.best_attack.team_logo_url,
-      logoPath: h.best_attack.team_logo_path,
-      value: formatStatAvg(h.best_attack.avg),
-      label: 'Attacco',
-      detail: `${Number(h.best_attack.goals || 0)} gol · ${Number(h.best_attack.played || 0)} p`,
-    });
-  }
-  if (h.best_defense) {
-    cards.push({
-      key: 'defense',
-      icon: 'shield',
-      accent: '#0d9488',
-      iconBg: '#f0fdfa',
-      team_id: h.best_defense.team_id,
-      team_name: h.best_defense.team_name,
-      logoUrl: h.best_defense.team_logo_url,
-      logoPath: h.best_defense.team_logo_path,
-      value: formatStatAvg(h.best_defense.avg),
-      label: 'Difesa',
-      detail: `${Number(h.best_defense.goals_conceded || 0)} subiti · ${Number(h.best_defense.played || 0)} p`,
-    });
-  }
+  const attack = h.best_attack || null;
+  const defense = h.best_defense || null;
+  const hasAttackDefense = !!(attack || defense);
   const winStreak = h.longest_win_streak || null;
   const lossStreak = h.longest_loss_streak || null;
   const hasStreaks = !!(winStreak || lossStreak);
@@ -660,7 +553,7 @@ function GroupHighlights({ highlights, onPressTeam, onPressMatch }) {
     { key: 'pen-against', bonusType: 'penalty_missed', label: 'Rigori\na sfavore', src: h.most_penalties_against },
   ];
   const hasMini = miniDefs.some((item) => item.src);
-  if (!topMatch && cards.length === 0 && !hasMini && !hasStreaks) {
+  if (!topMatch && !hasAttackDefense && !hasMini && !hasStreaks) {
     return <Text style={styles.emptyText}>Nessuna statistica di squadra disponibile.</Text>;
   }
   const matchId = Number(topMatch?.match_id);
@@ -680,10 +573,48 @@ function GroupHighlights({ highlights, onPressTeam, onPressMatch }) {
           />
         </Animated.View>
       ) : null}
+      {hasAttackDefense ? (
+        <Animated.View
+          entering={FadeInDown.delay(20).duration(280)}
+          style={[styles.streakPanel, !topMatch && { marginTop: 0 }]}
+        >
+          <StreakCell
+            bonusType="goal"
+            value={attack ? formatStatAvg(attack.avg) : '–'}
+            valueColor={attack ? '#0f172a' : '#94a3b8'}
+            label="Attacco"
+            detail={attack
+              ? `${Number(attack.goals || 0)} gol · ${Number(attack.played || 0)} p`
+              : null}
+            teamName={attack?.team_name}
+            logoUrl={attack?.team_logo_url}
+            logoPath={attack?.team_logo_path}
+            onPress={Number(attack?.team_id) > 0
+              ? () => onPressTeam?.(Number(attack.team_id), attack.team_name)
+              : null}
+            showDivider
+          />
+          <StreakCell
+            bonusType="goals_conceded"
+            value={defense ? formatStatAvg(defense.avg) : '–'}
+            valueColor={defense ? '#0f172a' : '#94a3b8'}
+            label="Difesa"
+            detail={defense
+              ? `${Number(defense.goals_conceded || 0)} subiti · ${Number(defense.played || 0)} p`
+              : null}
+            teamName={defense?.team_name}
+            logoUrl={defense?.team_logo_url}
+            logoPath={defense?.team_logo_path}
+            onPress={Number(defense?.team_id) > 0
+              ? () => onPressTeam?.(Number(defense.team_id), defense.team_name)
+              : null}
+          />
+        </Animated.View>
+      ) : null}
       {hasStreaks ? (
         <Animated.View
           entering={FadeInDown.delay(40).duration(280)}
-          style={[styles.streakPanel, !topMatch && { marginTop: 0 }]}
+          style={[styles.streakPanel, !topMatch && !hasAttackDefense && { marginTop: 0 }]}
         >
           <StreakCell
             icon="flame"
@@ -719,19 +650,6 @@ function GroupHighlights({ highlights, onPressTeam, onPressMatch }) {
               : null}
           />
         </Animated.View>
-      ) : null}
-      {cards.length > 0 ? (
-        <View style={styles.hlGrid}>
-          {cards.map((card, idx) => (
-            <HighlightCard
-              key={card.key}
-              item={card}
-              index={idx}
-              onPressTeam={onPressTeam}
-              onPressMatch={onPressMatch}
-            />
-          ))}
-        </View>
       ) : null}
       {hasMini ? (
         <View style={styles.miniRow}>
@@ -828,6 +746,7 @@ function GoalsKpiCell({ bonusType, icon, pack, color, value, label, valueColor, 
 function StreakCell({
   icon,
   color,
+  bonusType,
   value,
   valueColor,
   label,
@@ -843,7 +762,11 @@ function StreakCell({
     <View style={[styles.goalsKpiCell, showDivider && styles.goalsKpiCellDivider]}>
       <View style={styles.goalsKpiHead}>
         <View style={styles.goalsKpiBadge}>
-          <Ionicons name={icon} size={15} color={color} />
+          {bonusType ? (
+            <BonusIcon type={bonusType} size={16} />
+          ) : (
+            <Ionicons name={icon} size={15} color={color} />
+          )}
         </View>
         <Text style={styles.goalsKpiLabel} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
           {label}
@@ -1511,62 +1434,7 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     marginBottom: 8,
   },
-  hlGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 8, marginTop: 8 },
   groupTopMatchPanel: { marginTop: 0 },
-  hlCard: {
-    width: '48.6%',
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#ececec',
-    borderRadius: 14,
-  },
-  hlCardWide: { width: '100%' },
-  hlCardInner: { paddingHorizontal: 10, paddingVertical: 10 },
-  hlIcon: {
-    width: 26,
-    height: 26,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 6,
-  },
-  hlLabel: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: '#94a3b8',
-    letterSpacing: 0.4,
-    textTransform: 'uppercase',
-    marginBottom: 6,
-  },
-  hlTeam: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  hlLogo: { width: 34, height: 34 },
-  hlLogoFallback: {
-    width: 34,
-    height: 34,
-    borderRadius: 8,
-    backgroundColor: '#eef2ff',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  hlLogoLg: { width: 36, height: 36 },
-  hlLogoLgFallback: {
-    width: 36,
-    height: 36,
-    borderRadius: 8,
-    backgroundColor: '#eef2ff',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  hlTeamText: { flex: 1, minWidth: 0 },
-  hlTeamName: { fontSize: 12, fontWeight: '700', color: '#1e293b' },
-  hlValue: { fontSize: 20, fontWeight: '800', color: '#111827', letterSpacing: -0.3 },
-  hlDetail: { marginTop: 6, fontSize: 10, fontWeight: '600', color: '#94a3b8' },
-  hlMatch: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
-  hlMatchSide: { flex: 1, minWidth: 0, alignItems: 'center', gap: 4 },
-  hlMatchName: { fontSize: 11, fontWeight: '700', color: '#1e293b', textAlign: 'center' },
-  hlScoreBox: { minWidth: 64, alignItems: 'center' },
-  hlScore: { fontSize: 20, fontWeight: '800', color: '#111827', letterSpacing: -0.4 },
-  hlScoreSub: { fontSize: 10, fontWeight: '800', marginTop: 1 },
   kpiStack: { gap: 8 },
   goalsKpiPanel: {
     flexDirection: 'row',
