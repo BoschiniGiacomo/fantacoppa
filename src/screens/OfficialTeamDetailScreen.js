@@ -195,6 +195,9 @@ const heroSnapConfig = {
   duration: HERO_SNAP_MS,
   easing: Easing.bezier(0.22, 1, 0.36, 1),
 };
+const TEAM_STATS_CACHE = new Map();
+const TEAM_STATS_INFLIGHT = new Map();
+const TEAM_STATS_CACHE_TTL_MS = 2 * 60 * 1000;
 
 function clamp(n, min, max) {
   return Math.max(min, Math.min(max, n));
@@ -211,6 +214,14 @@ function shouldCollapseHero(collapseY, collapseDy, heroHeight) {
 function HeroListSpacer({ height }) {
   if (!(height > 0)) return null;
   return <View style={{ height }} pointerEvents="none" />;
+}
+
+function teamStatsCacheKey(teamId, competitionId, targetYear) {
+  const y =
+    targetYear === ABSOLUTE_STATS_KEY || String(targetYear || '').toLowerCase() === ABSOLUTE_STATS_KEY
+      ? ABSOLUTE_STATS_KEY
+      : Number(targetYear);
+  return `${Number(teamId) || 0}:${Number(competitionId) || 0}:${Number.isFinite(y) ? y : String(y || 'null')}`;
 }
 
 function isValidJerseyHex(s) {
@@ -532,18 +543,15 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
         rawYear === ABSOLUTE_STATS_KEY || String(rawYear || '').toLowerCase() === ABSOLUTE_STATS_KEY
           ? ABSOLUTE_STATS_KEY
           : rawYear;
-      try {
-        setStatsLoading(true);
-        const res = await matchesService.getOfficialTeamSeasonStats(teamId, competitionId, targetYear);
-        if (seq !== statsLoadSeqRef.current) return;
-        const years = Array.isArray(res?.data?.available_years) ? res.data.available_years : [];
-        const rawBackendSelected = res?.data?.selected_year;
+      const applyStatsPayload = (payload) => {
+        const years = Array.isArray(payload?.available_years) ? payload.available_years : [];
+        const rawBackendSelected = payload?.selected_year;
         const backendSelected =
           String(rawBackendSelected || '').trim().toLowerCase() === ABSOLUTE_STATS_KEY
             ? ABSOLUTE_STATS_KEY
             : (rawBackendSelected != null ? Number(rawBackendSelected) : null);
         setStatsYears(years);
-        setStatsGeneral(res?.data?.general || {
+        setStatsGeneral(payload?.general || {
           played: 0,
           goals: 0,
           goals_conceded: 0,
@@ -559,27 +567,51 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
           longest_loss_streak: null,
           highest_scoring_match: null,
         });
-        setStatsOutcomes(res?.data?.outcomes || { wins: 0, draws: 0, losses: 0, wins_pct: 0, draws_pct: 0, losses_pct: 0 });
-        setStatsScorers(Array.isArray(res?.data?.scorers) ? res.data.scorers : []);
-        setStatsAssistmen(Array.isArray(res?.data?.assistmen) ? res.data.assistmen : []);
-        setStatsPresences(Array.isArray(res?.data?.presences) ? res.data.presences : []);
-        setStatsPenaltyGoals(Array.isArray(res?.data?.penalty_goals) ? res.data.penalty_goals : []);
-        setStatsPenaltySaved(Array.isArray(res?.data?.penalty_saved) ? res.data.penalty_saved : []);
-        setStatsMatchWins(Array.isArray(res?.data?.match_wins) ? res.data.match_wins : []);
-        setStatsEditionWins(Array.isArray(res?.data?.edition_wins) ? res.data.edition_wins : []);
-        setStatsSeasonLeagueId(res?.data?.selected_league_id != null ? Number(res.data.selected_league_id) : null);
+        setStatsOutcomes(payload?.outcomes || { wins: 0, draws: 0, losses: 0, wins_pct: 0, draws_pct: 0, losses_pct: 0 });
+        setStatsScorers(Array.isArray(payload?.scorers) ? payload.scorers : []);
+        setStatsAssistmen(Array.isArray(payload?.assistmen) ? payload.assistmen : []);
+        setStatsPresences(Array.isArray(payload?.presences) ? payload.presences : []);
+        setStatsPenaltyGoals(Array.isArray(payload?.penalty_goals) ? payload.penalty_goals : []);
+        setStatsPenaltySaved(Array.isArray(payload?.penalty_saved) ? payload.penalty_saved : []);
+        setStatsMatchWins(Array.isArray(payload?.match_wins) ? payload.match_wins : []);
+        setStatsEditionWins(Array.isArray(payload?.edition_wins) ? payload.edition_wins : []);
+        setStatsSeasonLeagueId(payload?.selected_league_id != null ? Number(payload.selected_league_id) : null);
         setSelectedStatsYear((prev) => {
           if (yearOverride != null) {
             if (yearOverride === ABSOLUTE_STATS_KEY) return ABSOLUTE_STATS_KEY;
             if (Number.isFinite(Number(yearOverride))) return Number(yearOverride);
           }
-          // Default tab Statistiche: resta su Assolute
           if (prev === ABSOLUTE_STATS_KEY || prev == null) return ABSOLUTE_STATS_KEY;
           if (backendSelected === ABSOLUTE_STATS_KEY) return ABSOLUTE_STATS_KEY;
           if (backendSelected == null || !Number.isFinite(backendSelected)) return prev;
           return prev === backendSelected ? prev : backendSelected;
         });
+      };
+      const cacheKey = teamStatsCacheKey(teamId, competitionId, targetYear);
+      const cached = TEAM_STATS_CACHE.get(cacheKey);
+      if (cached && cached.expiresAt > Date.now()) {
+        applyStatsPayload(cached.payload);
+        return;
+      }
+      try {
+        if (cached?.payload) applyStatsPayload(cached.payload);
+        setStatsLoading(true);
+        let request = TEAM_STATS_INFLIGHT.get(cacheKey);
+        if (!request) {
+          request = matchesService.getOfficialTeamSeasonStats(teamId, competitionId, targetYear);
+          TEAM_STATS_INFLIGHT.set(cacheKey, request);
+        }
+        const res = await request;
+        if (TEAM_STATS_INFLIGHT.get(cacheKey) === request) TEAM_STATS_INFLIGHT.delete(cacheKey);
+        if (seq !== statsLoadSeqRef.current) return;
+        const payload = res?.data || {};
+        TEAM_STATS_CACHE.set(cacheKey, {
+          payload,
+          expiresAt: Date.now() + TEAM_STATS_CACHE_TTL_MS,
+        });
+        applyStatsPayload(payload);
       } catch (err) {
+        TEAM_STATS_INFLIGHT.delete(cacheKey);
         if (seq !== statsLoadSeqRef.current) return;
         console.error('Error loading team season stats:', err);
       } finally {

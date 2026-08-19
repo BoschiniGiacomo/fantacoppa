@@ -4109,6 +4109,13 @@ async function fetchOfficialGroupEditionWinLeaderboard(competitionId, leagueIds,
   return mapOfficialLeaderboardAggRows(rows, 'titles');
 }
 
+const ABSOLUTE_TEAM_STATS_CACHE = new Map();
+const ABSOLUTE_TEAM_STATS_TTL_MS = 10 * 60 * 1000;
+
+function absoluteTeamStatsCacheKey(competitionId, teamId) {
+  return `${Number(competitionId) || 0}:${Number(teamId) || 0}:absolute:v1`;
+}
+
 // GET /matches/teams/:teamId/season-stats?competition_id=xx&reference_year=yyyy
 // Statistiche squadra per anno: generale, W/D/L con %, marcatori, assistman e presenze (giornate con voto).
 router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req, res) => {
@@ -4127,6 +4134,13 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
     if (!competitionId || competitionId <= 0) return res.status(400).json({ message: 'competition_id non valido' });
     if (requestedYear != null && !Number.isFinite(requestedYear)) {
       return res.status(400).json({ message: 'reference_year non valido' });
+    }
+    if (isAbsoluteMode) {
+      const cacheKey = absoluteTeamStatsCacheKey(competitionId, teamId);
+      const cached = ABSOLUTE_TEAM_STATS_CACHE.get(cacheKey);
+      if (cached && cached.expiresAt > Date.now()) {
+        return res.json(cached.payload);
+      }
     }
 
     const seasonLeagues = await query(
@@ -4521,7 +4535,7 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
       edition_wins: editionWinsDone,
     });
 
-    return res.json({
+    const responsePayload = {
       team: { id: teamId, name: teamName },
       available_years: availableYears,
       selected_year: selectedYear,
@@ -4563,7 +4577,14 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
       penalty_saved,
       match_wins,
       edition_wins,
-    });
+    };
+    if (isAbsoluteMode) {
+      ABSOLUTE_TEAM_STATS_CACHE.set(absoluteTeamStatsCacheKey(competitionId, teamId), {
+        payload: responsePayload,
+        expiresAt: Date.now() + ABSOLUTE_TEAM_STATS_TTL_MS,
+      });
+    }
+    return res.json(responsePayload);
   } catch (err) {
     if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
     return res.status(500).json({ message: 'Errore caricamento statistiche stagione squadra', error: err.message });
