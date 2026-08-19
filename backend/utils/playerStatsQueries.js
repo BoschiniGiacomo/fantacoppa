@@ -471,27 +471,67 @@ async function fetchFavouriteOpponent(playerIds, leagueIds, playerRole) {
          FROM linked
          ORDER BY player_id, league_id, giornata, official_match_id ASC
        ),
-       with_opponent AS (
+      with_opponent AS (
          SELECT
+           deduped.official_match_id,
            CASE
              WHEN m.home_team_id = deduped.linked_team_id THEN m.away_team_id
              WHEN m.away_team_id = deduped.linked_team_id THEN m.home_team_id
              ELSE NULL
            END AS opponent_team_id,
-           ${statSql} AS stat_value
+           ${statSql} AS stat_value,
+           m.kickoff_at,
+           m.home_team_id,
+           m.away_team_id,
+           COALESCE(ht.name, '') AS home_team_name,
+           COALESCE(at.name, '') AS away_team_name,
+           COALESCE(
+             NULLIF(TRIM(COALESCE(NULLIF(to_jsonb(ht)->>'logo_path', ''), NULLIF(ht.logo_path, ''))), ''),
+             ''
+           ) AS home_team_logo_path,
+           COALESCE(
+             NULLIF(TRIM(COALESCE(NULLIF(to_jsonb(at)->>'logo_path', ''), NULLIF(at.logo_path, ''))), ''),
+             ''
+           ) AS away_team_logo_path,
+           m.home_score,
+           m.away_score
          FROM deduped
          INNER JOIN official_matches m ON m.id = deduped.official_match_id
+         LEFT JOIN teams ht ON ht.id = m.home_team_id
+         LEFT JOIN teams at ON at.id = m.away_team_id
        ),
        filtered AS (
-         SELECT opponent_team_id, stat_value
+         SELECT
+           official_match_id,
+           opponent_team_id,
+           stat_value,
+           kickoff_at,
+           home_team_id,
+           away_team_id,
+           home_team_name,
+           away_team_name,
+           home_team_logo_path,
+           away_team_logo_path,
+           home_score,
+           away_score
          FROM with_opponent
          WHERE opponent_team_id IS NOT NULL
            AND stat_value > 0
        ),
-       by_opponent AS (
+       joined AS (
          SELECT
+           f.official_match_id,
            f.opponent_team_id,
-           SUM(f.stat_value)::int AS value,
+           f.stat_value,
+           f.kickoff_at,
+           f.home_team_id,
+           f.away_team_id,
+           f.home_team_name,
+           f.away_team_name,
+           f.home_team_logo_path,
+           f.away_team_logo_path,
+           f.home_score,
+           f.away_score,
            COALESCE(NULLIF(TRIM(t.name), ''), '') AS team_name,
            COALESCE(
              NULLIF(TRIM(COALESCE(NULLIF(to_jsonb(t)->>'logo_path', ''), NULLIF(t.logo_path, ''))), ''),
@@ -500,34 +540,84 @@ async function fetchFavouriteOpponent(playerIds, leagueIds, playerRole) {
            LOWER(TRIM(COALESCE(t.name, ''))) AS team_name_norm
          FROM filtered f
          INNER JOIN teams t ON t.id = f.opponent_team_id
-         GROUP BY f.opponent_team_id, t.name, t.logo_path, to_jsonb(t)
-       ),
-       by_club AS (
-         SELECT
-           MAX(opponent_team_id) AS opponent_team_id,
-           SUM(value)::int AS value,
-           MAX(team_name) AS team_name,
-           MAX(NULLIF(team_logo_path, '')) AS team_logo_path,
-           team_name_norm
-         FROM by_opponent
-         WHERE team_name_norm <> ''
-         GROUP BY team_name_norm
        )
-       SELECT opponent_team_id, value, team_name, team_logo_path
-       FROM by_club
-       ORDER BY value DESC, team_name ASC`,
+       SELECT
+         official_match_id,
+         opponent_team_id,
+         stat_value,
+         kickoff_at,
+         home_team_id,
+         away_team_id,
+         home_team_name,
+         away_team_name,
+         home_team_logo_path,
+         away_team_logo_path,
+         home_score,
+         away_score,
+         team_name,
+         team_logo_path,
+         team_name_norm
+       FROM joined
+       WHERE team_name_norm <> ''
+       ORDER BY team_name_norm ASC, kickoff_at DESC, official_match_id DESC`,
       [...playerIds, ...leagueIds]
     );
 
-    const opponents = (rows || [])
-      .map((row) => ({
-        kind,
-        team_id: Number(row.opponent_team_id) || null,
-        team_name: String(row.team_name || '').trim() || null,
-        team_logo_path: String(row.team_logo_path || '').trim() || null,
-        value: Number(row.value || 0),
+    const groupedByClub = new Map();
+    for (const row of rows || []) {
+      const clubKey = String(row.team_name_norm || '').trim();
+      if (!clubKey) continue;
+      const statValue = Number(row.stat_value || 0);
+      if (!(statValue > 0)) continue;
+      const teamName = String(row.team_name || '').trim() || null;
+      const teamLogoPath = String(row.team_logo_path || '').trim() || null;
+      const homeScore = row.home_score != null ? Number(row.home_score) : null;
+      const awayScore = row.away_score != null ? Number(row.away_score) : null;
+      const matchDetail = {
+        match_id: Number(row.official_match_id) || null,
+        value: statValue,
+        kickoff_at: row.kickoff_at || null,
+        home_team_id: Number(row.home_team_id) || null,
+        away_team_id: Number(row.away_team_id) || null,
+        home_team_name: String(row.home_team_name || '').trim() || null,
+        away_team_name: String(row.away_team_name || '').trim() || null,
+        home_team_logo_path: String(row.home_team_logo_path || '').trim() || null,
+        away_team_logo_path: String(row.away_team_logo_path || '').trim() || null,
+        home_score: Number.isFinite(homeScore) ? homeScore : null,
+        away_score: Number.isFinite(awayScore) ? awayScore : null,
+      };
+      if (!groupedByClub.has(clubKey)) {
+        groupedByClub.set(clubKey, {
+          kind,
+          team_id: Number(row.opponent_team_id) || null,
+          team_name: teamName,
+          team_logo_path: teamLogoPath,
+          value: 0,
+          match_details: [],
+        });
+      }
+      const group = groupedByClub.get(clubKey);
+      group.value += statValue;
+      if (matchDetail.match_id) group.match_details.push(matchDetail);
+      if (!group.team_logo_path && teamLogoPath) group.team_logo_path = teamLogoPath;
+    }
+
+    const opponents = Array.from(groupedByClub.values())
+      .map((item) => ({
+        ...item,
+        match_details: (Array.isArray(item.match_details) ? item.match_details : [])
+          .sort((a, b) => {
+            const ta = a?.kickoff_at ? new Date(a.kickoff_at).getTime() : 0;
+            const tb = b?.kickoff_at ? new Date(b.kickoff_at).getTime() : 0;
+            return tb - ta;
+          }),
       }))
-      .filter((row) => Number(row.value || 0) > 0);
+      .filter((row) => Number(row.value || 0) > 0)
+      .sort((a, b) => {
+        const d = Number(b.value || 0) - Number(a.value || 0);
+        if (d !== 0) return d;
+        return String(a.team_name || '').localeCompare(String(b.team_name || ''), 'it');
+      });
 
     if (opponents.length > 0) {
       return {

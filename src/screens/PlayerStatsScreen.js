@@ -61,6 +61,13 @@ function formatRate(value) {
   return n.toFixed(2);
 }
 
+function formatOpponentMatchDate(value) {
+  if (!value) return '-';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '-';
+  return d.toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
 function resolveInitialTabs(entrySource) {
   if (entrySource === 'official') {
     return { mainTab: 'overview', scopeSubTab: 'total' };
@@ -259,6 +266,7 @@ export default function PlayerStatsScreen({ route, navigation }) {
   const [loadingAbsoluteRanks, setLoadingAbsoluteRanks] = useState(false);
   const [careerHistory, setCareerHistory] = useState(null);
   const [loadingCareer, setLoadingCareer] = useState(false);
+  const [expandedOpponentKeys, setExpandedOpponentKeys] = useState({});
   const [selectedEditionKey, setSelectedEditionKey] = useState(null);
   const [editionPickerOpen, setEditionPickerOpen] = useState(false);
   const [toastMsg, setToastMsg] = useState(null);
@@ -418,6 +426,10 @@ export default function PlayerStatsScreen({ route, navigation }) {
     if (entrySource === 'official' || !hasOfficialGroup || absoluteRanks || loadingAbsoluteRanks) return;
     void loadAbsoluteRanks();
   }, [hasOfficialGroup, entrySource, absoluteRanks, loadingAbsoluteRanks, playerId, leagueId]);
+
+  useEffect(() => {
+    setExpandedOpponentKeys({});
+  }, [activeMainTab, activeScopeSubTab, selectedEditionKey]);
 
   const applyEditionFantaData = (response, loadGen, cacheKey) => {
     if (loadGen !== statsLoadGenRef.current) return false;
@@ -771,6 +783,16 @@ export default function PlayerStatsScreen({ route, navigation }) {
         : undefined,
     });
   }, [navigation]);
+
+  const openOfficialMatchFromOpponent = useCallback((matchId) => {
+    const target = Number(matchId);
+    if (!target || target <= 0) return;
+    navigation.navigate('MatchDetail', { matchId: target, from: 'player-stats' });
+  }, [navigation]);
+
+  const toggleOpponentDetails = useCallback((key) => {
+    setExpandedOpponentKeys((prev) => ({ ...prev, [key]: !prev[key] }));
+  }, []);
 
   const formatOverviewValue = (value) => {
     if (value == null || value === '') return '–';
@@ -1230,30 +1252,91 @@ export default function PlayerStatsScreen({ route, navigation }) {
         {rankings.map((item, index) => {
           const teamName = String(item.team_name || '').trim() || '–';
           const key = `opp-${item.team_id || teamName}-${index}`;
+          const details = Array.isArray(item.match_details) ? item.match_details : [];
+          const expanded = !!expandedOpponentKeys[key];
+          const canExpand = details.length > 0;
           return (
-            <View
-              key={key}
-              style={[
-                styles.favouriteRow,
-                index < rankings.length - 1 && styles.favouriteRowBorder,
-              ]}
-            >
-              <Text style={styles.favouriteRank}>{index + 1}</Text>
-              <TeamLogoImage
-                logoPath={item.team_logo_path || undefined}
-                style={styles.favouriteLogo}
-                fallbackStyle={styles.favouriteLogoFallback}
-                fallbackIconSize={20}
-              />
-              <View style={styles.favouriteTextBlock}>
-                <Text style={styles.favouriteTeamName} numberOfLines={1}>
-                  {teamName}
+            <View key={key} style={[index < rankings.length - 1 && styles.favouriteRowBorder]}>
+              <TouchableOpacity
+                style={styles.favouriteRow}
+                activeOpacity={0.78}
+                onPress={() => {
+                  if (canExpand) toggleOpponentDetails(key);
+                }}
+                disabled={!canExpand}
+              >
+                <Text style={styles.favouriteRank}>{index + 1}</Text>
+                <TeamLogoImage
+                  logoPath={item.team_logo_path || undefined}
+                  style={styles.favouriteLogo}
+                  fallbackStyle={styles.favouriteLogoFallback}
+                  fallbackIconSize={20}
+                />
+                <View style={styles.favouriteTextBlock}>
+                  <Text style={styles.favouriteTeamName} numberOfLines={1}>
+                    {teamName}
+                  </Text>
+                </View>
+                <Text style={styles.favouriteValueCompact}>
+                  {item.value}
+                  <Text style={styles.favouriteValueLabelCompact}> {valueLabel}</Text>
                 </Text>
-              </View>
-              <Text style={styles.favouriteValueCompact}>
-                {item.value}
-                <Text style={styles.favouriteValueLabelCompact}> {valueLabel}</Text>
-              </Text>
+                {canExpand ? (
+                  <Ionicons
+                    name={expanded ? 'chevron-up' : 'chevron-down'}
+                    size={16}
+                    color="#64748b"
+                    style={styles.favouriteExpandIcon}
+                  />
+                ) : null}
+              </TouchableOpacity>
+
+              {canExpand && expanded ? (
+                <View style={styles.favouriteDetailsWrap}>
+                  {details.map((match, matchIdx) => {
+                    const mKey = `${key}-m-${match.match_id || matchIdx}`;
+                    const matchValue = Number(match?.value || 0);
+                    return (
+                      <TouchableOpacity
+                        key={mKey}
+                        style={[
+                          styles.favouriteMatchRow,
+                          matchIdx < details.length - 1 && styles.favouriteMatchRowBorder,
+                        ]}
+                        activeOpacity={0.78}
+                        onPress={() => openOfficialMatchFromOpponent(match?.match_id)}
+                        disabled={!Number(match?.match_id)}
+                      >
+                        <View style={styles.favouriteMatchTeams}>
+                          <TeamLogoImage
+                            logoPath={match?.home_team_logo_path || undefined}
+                            style={styles.favouriteMatchLogo}
+                            fallbackStyle={styles.favouriteMatchLogoFallback}
+                            fallbackIconSize={14}
+                          />
+                          <Text style={styles.favouriteMatchScore}>
+                            {Number.isFinite(match?.home_score) ? match.home_score : '-'}
+                            {' - '}
+                            {Number.isFinite(match?.away_score) ? match.away_score : '-'}
+                          </Text>
+                          <TeamLogoImage
+                            logoPath={match?.away_team_logo_path || undefined}
+                            style={styles.favouriteMatchLogo}
+                            fallbackStyle={styles.favouriteMatchLogoFallback}
+                            fallbackIconSize={14}
+                          />
+                        </View>
+                        <View style={styles.favouriteMatchMeta}>
+                          <Text style={styles.favouriteMatchDate}>{formatOpponentMatchDate(match?.kickoff_at)}</Text>
+                          <Text style={styles.favouriteMatchValue}>
+                            +{matchValue} {valueLabel}
+                          </Text>
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              ) : null}
             </View>
           );
         })}
@@ -2054,10 +2137,72 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#667eea',
   },
+  favouriteExpandIcon: {
+    marginLeft: 4,
+  },
   favouriteTeamName: {
     fontSize: 15,
     fontWeight: '600',
     color: '#334155',
+  },
+  favouriteDetailsWrap: {
+    marginTop: -2,
+    marginBottom: 8,
+    marginLeft: 34,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    overflow: 'hidden',
+    backgroundColor: '#f8fafc',
+  },
+  favouriteMatchRow: {
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  favouriteMatchRowBorder: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#dbe3ef',
+  },
+  favouriteMatchTeams: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  favouriteMatchLogo: {
+    width: 20,
+    height: 20,
+  },
+  favouriteMatchLogoFallback: {
+    width: 20,
+    height: 20,
+    borderRadius: 5,
+    backgroundColor: '#eef2ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  favouriteMatchScore: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#0f172a',
+    minWidth: 54,
+    textAlign: 'center',
+  },
+  favouriteMatchMeta: {
+    marginTop: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  favouriteMatchDate: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#64748b',
+  },
+  favouriteMatchValue: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#1e40af',
   },
 
   infoBanner: {
