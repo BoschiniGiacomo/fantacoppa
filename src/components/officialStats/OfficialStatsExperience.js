@@ -560,19 +560,6 @@ function GroupHighlights({ highlights, onPressTeam, onPressMatch }) {
   return (
     <View>
       <Text style={styles.sectionEyebrow}>Squadre</Text>
-      {topMatch ? (
-        <Animated.View
-          entering={FadeInDown.duration(280)}
-          style={[styles.streakPanel, styles.groupTopMatchPanel]}
-        >
-          <MatchRecordCell
-            label="Partita con più gol"
-            bonusType="most_goals"
-            record={topMatch}
-            onPress={matchId > 0 ? () => onPressMatch?.(matchId) : null}
-          />
-        </Animated.View>
-      ) : null}
       {hasAttackDefense ? (
         <Animated.View
           entering={FadeInDown.delay(20).duration(280)}
@@ -582,7 +569,7 @@ function GroupHighlights({ highlights, onPressTeam, onPressMatch }) {
             bonusType="goal"
             value={attack ? formatStatAvg(attack.avg) : '–'}
             valueColor={attack ? '#0f172a' : '#94a3b8'}
-            label="Attacco"
+            label="Miglior attacco"
             detail={attack
               ? `${Number(attack.goals || 0)} gol · ${Number(attack.played || 0)} p`
               : null}
@@ -598,7 +585,7 @@ function GroupHighlights({ highlights, onPressTeam, onPressMatch }) {
             bonusType="goals_conceded"
             value={defense ? formatStatAvg(defense.avg) : '–'}
             valueColor={defense ? '#0f172a' : '#94a3b8'}
-            label="Difesa"
+            label="Miglior difesa"
             detail={defense
               ? `${Number(defense.goals_conceded || 0)} subiti · ${Number(defense.played || 0)} p`
               : null}
@@ -669,6 +656,19 @@ function GroupHighlights({ highlights, onPressTeam, onPressMatch }) {
             );
           })}
         </View>
+      ) : null}
+      {topMatch ? (
+        <Animated.View
+          entering={FadeInDown.duration(280)}
+          style={styles.streakPanel}
+        >
+          <MatchRecordCell
+            label="Partita con più gol"
+            bonusType="most_goals"
+            record={topMatch}
+            onPress={matchId > 0 ? () => onPressMatch?.(matchId) : null}
+          />
+        </Animated.View>
       ) : null}
     </View>
   );
@@ -1434,7 +1434,6 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     marginBottom: 8,
   },
-  groupTopMatchPanel: { marginTop: 0 },
   kpiStack: { gap: 8 },
   goalsKpiPanel: {
     flexDirection: 'row',
