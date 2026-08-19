@@ -1307,34 +1307,34 @@ export default function PlayerStatsScreen({ route, navigation }) {
                         onPress={() => openOfficialMatchFromOpponent(match?.match_id)}
                         disabled={!Number(match?.match_id)}
                       >
-                        <View style={styles.favouriteMatchTeams}>
-                          <TeamLogoImage
-                            logoPath={match?.home_team_logo_path || undefined}
-                            style={styles.favouriteMatchLogo}
-                            fallbackStyle={styles.favouriteMatchLogoFallback}
-                            fallbackIconSize={14}
-                          />
-                          <Text style={styles.favouriteMatchScore}>
-                            {Number.isFinite(match?.home_score) ? match.home_score : '-'}
-                            {' - '}
-                            {Number.isFinite(match?.away_score) ? match.away_score : '-'}
+                        <Text style={styles.favouriteMatchDate}>{formatOpponentMatchDate(match?.kickoff_at)}</Text>
+                        <View style={styles.favouriteMatchCenter}>
+                          <View style={styles.favouriteMatchTeams}>
+                            <TeamLogoImage
+                              logoPath={match?.home_team_logo_path || undefined}
+                              style={styles.favouriteMatchLogo}
+                              fallbackStyle={styles.favouriteMatchLogoFallback}
+                              fallbackIconSize={14}
+                            />
+                            <Text style={styles.favouriteMatchScore}>
+                              {Number.isFinite(match?.home_score) ? match.home_score : '-'}
+                              {' - '}
+                              {Number.isFinite(match?.away_score) ? match.away_score : '-'}
+                            </Text>
+                            <TeamLogoImage
+                              logoPath={match?.away_team_logo_path || undefined}
+                              style={styles.favouriteMatchLogo}
+                              fallbackStyle={styles.favouriteMatchLogoFallback}
+                              fallbackIconSize={14}
+                            />
+                          </View>
+                          <Text style={styles.favouriteMatchTeamsText} numberOfLines={1}>
+                            {String(match?.home_team_name || 'Casa')} - {String(match?.away_team_name || 'Trasferta')}
                           </Text>
-                          <TeamLogoImage
-                            logoPath={match?.away_team_logo_path || undefined}
-                            style={styles.favouriteMatchLogo}
-                            fallbackStyle={styles.favouriteMatchLogoFallback}
-                            fallbackIconSize={14}
-                          />
                         </View>
-                        <Text style={styles.favouriteMatchTeamsText} numberOfLines={1}>
-                          {String(match?.home_team_name || 'Casa')} - {String(match?.away_team_name || 'Trasferta')}
+                        <Text style={styles.favouriteMatchValue}>
+                          +{matchValue} {valueLabel}
                         </Text>
-                        <View style={styles.favouriteMatchMeta}>
-                          <Text style={styles.favouriteMatchDate}>{formatOpponentMatchDate(match?.kickoff_at)}</Text>
-                          <Text style={styles.favouriteMatchValue}>
-                            +{matchValue} {valueLabel}
-                          </Text>
-                        </View>
                       </TouchableOpacity>
                     );
                   })}
@@ -2159,12 +2159,21 @@ const styles = StyleSheet.create({
     backgroundColor: '#ffffff',
   },
   favouriteMatchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 8,
+    gap: 10,
   },
   favouriteMatchRowBorder: {
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: '#dbe3ef',
+  },
+  favouriteMatchCenter: {
+    flex: 1,
+    minWidth: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   favouriteMatchTeams: {
     flexDirection: 'row',
@@ -2192,27 +2201,24 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   favouriteMatchTeamsText: {
-    marginTop: 4,
+    marginTop: 2,
     fontSize: 11,
     fontWeight: '600',
     color: '#64748b',
     textAlign: 'center',
   },
-  favouriteMatchMeta: {
-    marginTop: 6,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
   favouriteMatchDate: {
     fontSize: 11,
-    fontWeight: '600',
+    fontWeight: '700',
     color: '#64748b',
+    minWidth: 66,
   },
   favouriteMatchValue: {
     fontSize: 12,
     fontWeight: '800',
     color: '#1e40af',
+    minWidth: 54,
+    textAlign: 'right',
   },
 
   infoBanner: {
