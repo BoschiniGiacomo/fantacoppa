@@ -1154,8 +1154,8 @@ export default function OfficialStatsExperience({
     if (!node?.scrollTo) return;
     const anchorY = boardBlockYRef.current > 0 ? boardBlockYRef.current : playersSectionYRef.current;
     const overlayCompensation = contentInsetTop > 0
-      ? Math.max(96, Math.round(contentInsetTop * 0.42))
-      : 16;
+      ? Math.max(172, Math.round(contentInsetTop * 0.78))
+      : 42;
     const targetY = Math.max(0, Math.floor(anchorY + overlayCompensation));
     node.scrollTo({ y: targetY, animated });
   }, [contentInsetTop]);
@@ -1168,6 +1168,7 @@ export default function OfficialStatsExperience({
       scrollToLeaderboard(true);
       setTimeout(() => scrollToLeaderboard(false), 120);
       setTimeout(() => scrollToLeaderboard(false), 260);
+      setTimeout(() => scrollToLeaderboard(false), 420);
     });
   }, [scrollToLeaderboard]);
 
