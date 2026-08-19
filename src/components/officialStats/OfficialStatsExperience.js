@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Modal,
@@ -1131,9 +1131,41 @@ export default function OfficialStatsExperience({
   contentMinHeight = 0,
   onScrollViewLayout,
 }) {
+  const internalScrollRef = useRef(null);
+  const playersSectionYRef = useRef(0);
+  const boardBlockYRef = useRef(0);
   const [query, setQuery] = useState('');
   const [selectedBoard, setSelectedBoard] = useState(boards[0]?.key || 'scorers');
   const [expanded, setExpanded] = useState(false);
+
+  const setCombinedScrollRef = useCallback((node) => {
+    internalScrollRef.current = node;
+    if (typeof scrollRef === 'function') {
+      scrollRef(node);
+      return;
+    }
+    if (scrollRef && typeof scrollRef === 'object') {
+      scrollRef.current = node;
+    }
+  }, [scrollRef]);
+
+  const scrollToLeaderboard = useCallback((animated = true) => {
+    const node = internalScrollRef.current;
+    if (!node?.scrollTo) return;
+    const anchorY = boardBlockYRef.current > 0 ? boardBlockYRef.current : playersSectionYRef.current;
+    const targetY = Math.max(0, Math.floor(anchorY - 8));
+    node.scrollTo({ y: targetY, animated });
+  }, []);
+
+  const selectBoardAndScroll = useCallback((key, shouldScroll = true) => {
+    setSelectedBoard(key);
+    setExpanded(false);
+    if (!shouldScroll) return;
+    requestAnimationFrame(() => {
+      scrollToLeaderboard(true);
+      setTimeout(() => scrollToLeaderboard(false), 130);
+    });
+  }, [scrollToLeaderboard]);
 
   useEffect(() => {
     setQuery('');
@@ -1174,10 +1206,7 @@ export default function OfficialStatsExperience({
             <CategoryChips
               boards={displayBoards}
               selectedKey={activeBoard?.key}
-              onSelect={(key) => {
-                setSelectedBoard(key);
-                setExpanded(false);
-              }}
+              onSelect={(key) => selectBoardAndScroll(key, true)}
             />
           ) : null}
         </>
@@ -1189,7 +1218,7 @@ export default function OfficialStatsExperience({
         </View>
       ) : (
         <ScrollView
-          ref={scrollRef}
+          ref={setCombinedScrollRef}
           style={styles.scroll}
           contentContainerStyle={[
             styles.scrollContent,
@@ -1220,10 +1249,7 @@ export default function OfficialStatsExperience({
                 <CategoryChips
                   boards={displayBoards}
                   selectedKey={activeBoard?.key}
-                  onSelect={(key) => {
-                    setSelectedBoard(key);
-                    setExpanded(false);
-                  }}
+                  onSelect={(key) => selectBoardAndScroll(key, true)}
                 />
               ) : null}
             </>
@@ -1279,7 +1305,12 @@ export default function OfficialStatsExperience({
                 </View>
               ) : null}
 
-              <View style={styles.playersSection}>
+              <View
+                style={styles.playersSection}
+                onLayout={(event) => {
+                  playersSectionYRef.current = Number(event?.nativeEvent?.layout?.y || 0);
+                }}
+              >
                 <View style={styles.playersSectionHead}>
                   <Text style={styles.playersSectionKicker}>Classifiche</Text>
                   <Text style={styles.playersSectionTitle}>Giocatori</Text>
@@ -1287,14 +1318,16 @@ export default function OfficialStatsExperience({
                 <TeaserStrip
                   boards={displayBoards}
                   showTeamName={searchIncludesTeam}
-                  onSelect={(key) => {
-                    setSelectedBoard(key);
-                    setExpanded(false);
-                  }}
+                  onSelect={(key) => selectBoardAndScroll(key, true)}
                 />
 
                 {activeBoard ? (
-                  <View style={styles.boardBlock}>
+                  <View
+                    style={styles.boardBlock}
+                    onLayout={(event) => {
+                      boardBlockYRef.current = Number(event?.nativeEvent?.layout?.y || 0);
+                    }}
+                  >
                     <View style={styles.boardHead}>
                       <View style={[styles.boardIcon, { backgroundColor: `${activeBoard.accent}18` }]}>
                         <BoardGlyph board={activeBoard} size={16} color={activeBoard.accent} />
