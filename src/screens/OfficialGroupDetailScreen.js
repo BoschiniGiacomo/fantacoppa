@@ -1252,6 +1252,7 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
               contentInsetTop={overlayPad}
               contentMinHeight={tabScrollMinHeight}
               onScrollViewLayout={onTabScrollViewLayout}
+              {...tabScrollHeroProps}
               loading={statsLoading}
               years={statsYears}
               selectedYear={selectedStatsYear}
