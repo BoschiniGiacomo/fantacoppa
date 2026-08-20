@@ -1372,6 +1372,27 @@ router.put(
       );
       const next = Number(rows[0]?.current || 0) ? 0 : 1;
       await query(`UPDATE leagues SET is_official_squad_public = ? WHERE id = ?`, [next, leagueId]);
+
+      // Ricalcola leaderboard assolute del gruppo senza leghe nascoste/bozza.
+      setImmediate(() => {
+        try {
+          const {
+            recomputeAndStoreOfficialGroupAbsoluteStats,
+          } = require('../utils/officialGroupAbsoluteStatsStore');
+          Promise.resolve(recomputeAndStoreOfficialGroupAbsoluteStats(groupId)).catch((err) => {
+            console.warn(
+              '[superuser] refresh absolute stats after squad-public toggle failed:',
+              err?.message || err,
+            );
+          });
+        } catch (err) {
+          console.warn(
+            '[superuser] refresh absolute stats after squad-public toggle failed:',
+            err?.message || err,
+          );
+        }
+      });
+
       return res.json({ ok: true, league_id: leagueId, is_official_squad_public: next });
     } catch (error) {
       return res.status(500).json({ message: 'Errore aggiornamento pubblicazione rosa ufficiale', error: error.message });

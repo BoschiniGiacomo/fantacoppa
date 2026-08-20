@@ -381,6 +381,9 @@ async function isLeagueExcludedFromPlayerOverview(leagueId, cache = new Map()) {
     if (Number(row.is_official || 0) === 1) {
       if (Number(row.is_official_squad_public || 0) === 0) {
         excluded = true;
+      } else if (Number(row.is_hidden_from_discovery || 0) === 1) {
+        // Difesa extra: anche le ufficiali nascoste da discovery restano fuori overview/compare.
+        excluded = true;
       }
       break;
     }
@@ -968,8 +971,19 @@ async function fetchPlayerPenaltyGoals(playerIds) {
     const rows = await query(
       `SELECT COUNT(*)::int AS total
        FROM official_match_events e
+       INNER JOIN official_matches m ON m.id = e.match_id
        WHERE e.event_type = 'penalty_goal'
-         AND e.player_id IN (${ph})`,
+         AND e.player_id IN (${ph})
+         AND EXISTS (
+           SELECT 1
+           FROM leagues pub_l
+           WHERE pub_l.id = COALESCE(
+             NULLIF(m.league_id, 0),
+             (SELECT ht.league_id FROM teams ht WHERE ht.id = m.home_team_id LIMIT 1)
+           )
+             AND COALESCE(pub_l.is_official, 0) = 1
+             AND COALESCE(pub_l.is_official_squad_public, 0) = 1
+         )`,
       ids,
     );
     return Number(rows[0]?.total || 0);

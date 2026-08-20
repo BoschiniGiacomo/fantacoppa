@@ -121,6 +121,7 @@ async function listOfficialGroupSeasonLeagues(competitionId) {
      FROM leagues l
      WHERE l.official_group_id = ?
        AND COALESCE(l.is_official, 0) = 1
+       AND COALESCE(l.is_official_squad_public, 0) = 1
      ORDER BY NULLIF(to_jsonb(l)->>'reference_year','')::int DESC NULLS LAST, l.id DESC`,
     [competitionId]
   );

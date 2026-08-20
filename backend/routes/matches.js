@@ -3275,6 +3275,13 @@ ${SQL_WALKOVER_MATCHES_CTE}
           LOWER(TRIM(ht.name)) = LOWER(TRIM(?))
           OR LOWER(TRIM(at.name)) = LOWER(TRIM(?))
         )
+        AND EXISTS (
+          SELECT 1
+          FROM leagues pub_l
+          WHERE pub_l.id = COALESCE(NULLIF(m.league_id, 0), ht.league_id)
+            AND COALESCE(pub_l.is_official, 0) = 1
+            AND COALESCE(pub_l.is_official_squad_public, 0) = 1
+        )
       ORDER BY m.kickoff_at ASC, m.id ASC
       `,
       [userId, competitionId, teamName, teamName]
@@ -4984,6 +4991,7 @@ async function listOfficialGroupSeasonLeagues(competitionId) {
      FROM leagues l
      WHERE l.official_group_id = ?
        AND COALESCE(l.is_official, 0) = 1
+       AND COALESCE(l.is_official_squad_public, 0) = 1
      ORDER BY NULLIF(to_jsonb(l)->>'reference_year','')::int DESC NULLS LAST, l.id DESC`,
     [competitionId]
   );
@@ -5990,6 +5998,16 @@ async function queryOfficialGroupMatchYears({ userId, groupId }) {
         EXISTS (SELECT 1 FROM users u WHERE u.id = ? AND COALESCE(u.is_superuser, 0) IN (1, 2))
         OR COALESCE(m.is_admin_only, 0) = 0
       )
+      AND EXISTS (
+        SELECT 1
+        FROM leagues pub_l
+        WHERE pub_l.id = COALESCE(
+          NULLIF(m.league_id, 0),
+          (SELECT ht.league_id FROM teams ht WHERE ht.id = m.home_team_id LIMIT 1)
+        )
+          AND COALESCE(pub_l.is_official, 0) = 1
+          AND COALESCE(pub_l.is_official_squad_public, 0) = 1
+      )
     ORDER BY kickoff_year DESC
     `,
     [groupId, userId]
@@ -6030,6 +6048,16 @@ async function queryOfficialGroupMatchesRows({ userId, groupId, kickoffYear = nu
       WHERE m.competition_id = ?
         AND ${visibilityClause}
         ${yearClause}
+        AND EXISTS (
+          SELECT 1
+          FROM leagues pub_l
+          WHERE pub_l.id = COALESCE(
+            NULLIF(m.league_id, 0),
+            (SELECT ht.league_id FROM teams ht WHERE ht.id = m.home_team_id LIMIT 1)
+          )
+            AND COALESCE(pub_l.is_official, 0) = 1
+            AND COALESCE(pub_l.is_official_squad_public, 0) = 1
+        )
     ),
     last_phase AS (
       SELECT DISTINCT ON (e.match_id)

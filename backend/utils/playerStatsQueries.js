@@ -259,8 +259,19 @@ async function fetchPlayerPenaltyGoalsCount(playerIds) {
     const rows = await query(
       `SELECT COUNT(*)::int AS total
        FROM official_match_events e
+       INNER JOIN official_matches m ON m.id = e.match_id
        WHERE e.event_type = 'penalty_goal'
-         AND e.player_id IN (${ph})`,
+         AND e.player_id IN (${ph})
+         AND EXISTS (
+           SELECT 1
+           FROM leagues pub_l
+           WHERE pub_l.id = COALESCE(
+             NULLIF(m.league_id, 0),
+             (SELECT ht.league_id FROM teams ht WHERE ht.id = m.home_team_id LIMIT 1)
+           )
+             AND COALESCE(pub_l.is_official, 0) = 1
+             AND COALESCE(pub_l.is_official_squad_public, 0) = 1
+         )`,
       ids,
     );
     return Number(rows[0]?.total || 0);
@@ -269,7 +280,7 @@ async function fetchPlayerPenaltyGoalsCount(playerIds) {
   }
 }
 
-/** Serie valore di mercato (= rating roster) per edizione, ordinata per anno. */
+/** Serie valore di mercato (= rating roster) per edizione pubblica, ordinata per anno. */
 async function fetchPlayerMarketValueSeries(playerIds, leagueIds) {
   const pids = [...new Set((playerIds || []).map(Number).filter((id) => Number.isFinite(id) && id > 0))];
   const lids = [...new Set((leagueIds || []).map(Number).filter((id) => Number.isFinite(id) && id > 0))];
@@ -292,6 +303,11 @@ async function fetchPlayerMarketValueSeries(playerIds, leagueIds) {
        INNER JOIN leagues l ON l.id = t.league_id
        WHERE p.id IN (${playerPh})
          AND l.id IN (${leaguesPh})
+         AND (
+           COALESCE(l.is_official, 0) = 0
+           OR COALESCE(l.is_official_squad_public, 0) = 1
+         )
+         AND COALESCE(l.is_hidden_from_discovery, 0) = 0
        ORDER BY reference_year ASC NULLS LAST, l.id ASC`,
       [...pids, ...lids],
     );
