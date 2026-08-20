@@ -12,12 +12,14 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import Svg, { Rect, Circle, Line } from 'react-native-svg';
+import Svg, { Rect, Circle, Line, Text as SvgText } from 'react-native-svg';
 import { matchesService, playerStatsService } from '../services/api';
 import { PlayerPhotoImage, TeamLogoImage } from '../components/StableCachedImage';
 
 const SEARCH_DEBOUNCE_MS = 300;
-const PHOTO_SIZE = 72;
+const PHOTO_WIDTH = 74;
+const PHOTO_HEIGHT = 118;
+const PHOTO_ZOOM = 1.12;
 const ROLE_COLORS = {
   P: '#0d6efd',
   D: '#198754',
@@ -115,54 +117,82 @@ function toneBg(tone) {
   return '#f1f5f9';
 }
 
-function CompareAvatar({ photoPath, name, size = PHOTO_SIZE }) {
-  const radius = Math.round(size * 0.22);
+function CompareAvatar({ photoPath, name, width = PHOTO_WIDTH, height = PHOTO_HEIGHT }) {
+  const radius = 14;
   const fallbackStyle = {
-    width: size,
-    height: size,
+    width,
+    height,
     borderRadius: radius,
-    backgroundColor: '#eef2ff',
+    backgroundColor: '#f1f5f9',
     alignItems: 'center',
     justifyContent: 'center',
   };
 
   if (photoPath) {
+    const zoomedW = Math.round(width * PHOTO_ZOOM);
+    const zoomedH = Math.round(height * PHOTO_ZOOM);
     return (
-      <PlayerPhotoImage
-        photoPath={photoPath}
-        style={{ width: size, height: size, borderRadius: radius }}
-        resizeMode="cover"
-        fallbackStyle={fallbackStyle}
-        fallbackIcon="person-outline"
-        fallbackIconSize={Math.round(size * 0.38)}
-        fallbackColor="#667eea"
-      />
+      <View style={{ width, height, borderRadius: radius, overflow: 'hidden' }}>
+        <PlayerPhotoImage
+          photoPath={photoPath}
+          style={{
+            width: zoomedW,
+            height: zoomedH,
+            position: 'absolute',
+            left: (width - zoomedW) / 2,
+            top: (height - zoomedH) / 2,
+          }}
+          resizeMode="cover"
+          fallbackStyle={fallbackStyle}
+          fallbackIcon="person-outline"
+          fallbackIconSize={Math.round(Math.min(width, height) * 0.34)}
+          fallbackColor="#94a3b8"
+        />
+      </View>
     );
   }
 
   return (
     <View style={fallbackStyle}>
-      <Text style={{ fontSize: Math.round(size * 0.28), fontWeight: '800', color: '#667eea' }}>
+      <Text style={{ fontSize: Math.round(width * 0.28), fontWeight: '800', color: '#64748b' }}>
         {playerInitials(name)}
       </Text>
     </View>
   );
 }
 
-function CareerLogos({ teams, max = 5 }) {
-  const list = Array.isArray(teams) ? teams.filter((t) => String(t?.name || '').trim()) : [];
+function uniqueCareerTeams(teams) {
+  const list = Array.isArray(teams) ? teams : [];
+  const seen = new Set();
+  const out = [];
+  for (const team of list) {
+    const name = String(team?.name || '').trim();
+    const logoPath = String(team?.logo_path || '').trim().toLowerCase();
+    const key = logoPath
+      ? `logo:${logoPath}`
+      : `name:${name.toLowerCase()}`;
+    if (!name || seen.has(key)) continue;
+    seen.add(key);
+    out.push(team);
+  }
+  return out;
+}
+
+function CareerLogos({ teams, max = 6, vertical = false }) {
+  const list = uniqueCareerTeams(teams);
   if (!list.length) {
     return <Text style={styles.metaMuted}>—</Text>;
   }
   const shown = list.slice(0, max);
   return (
-    <View style={styles.careerLogos}>
+    <View style={[styles.careerLogos, vertical ? styles.careerLogosVertical : null]}>
       {shown.map((team, index) => (
         <View
           key={`${team.team_id || team.name}-${index}`}
           style={[
             styles.careerLogoWrap,
-            index > 0 ? styles.careerLogoOverlap : null,
+            !vertical && index > 0 ? styles.careerLogoOverlap : null,
+            vertical && index > 0 ? styles.careerLogoOverlapVertical : null,
             { zIndex: shown.length - index },
           ]}
         >
@@ -183,29 +213,43 @@ function CareerLogos({ teams, max = 5 }) {
 
 function RolesPitch({ roles }) {
   const list = Array.isArray(roles) ? roles : [];
-  const width = 78;
-  const height = 104;
+  const width = 64;
+  const height = 88;
+  const radius = 8;
 
   return (
-    <View style={styles.pitchWrap}>
+    <View style={[styles.pitchWrap, { width, height }]}>
       <Svg width={width} height={height} viewBox={`0 0 ${width} ${height}`}>
         <Rect x={1} y={1} width={width - 2} height={height - 2} rx={8} fill="#1e3a5f" />
         <Rect x={1} y={1} width={width - 2} height={height - 2} rx={8} stroke="#94a3b8" strokeWidth={1.2} fill="none" />
         <Line x1={4} y1={height / 2} x2={width - 4} y2={height / 2} stroke="#64748b" strokeWidth={1} strokeDasharray="3 3" />
-        <Rect x={(width - 36) / 2} y={1} width={36} height={14} stroke="#64748b" strokeWidth={1} fill="none" />
-        <Rect x={(width - 36) / 2} y={height - 15} width={36} height={14} stroke="#64748b" strokeWidth={1} fill="none" />
+        <Rect x={(width - 30) / 2} y={1} width={30} height={12} stroke="#64748b" strokeWidth={1} fill="none" />
+        <Rect x={(width - 30) / 2} y={height - 13} width={30} height={12} stroke="#64748b" strokeWidth={1} fill="none" />
         {list.map((role) => {
           const pos = ROLE_PITCH_POS[role] || ROLE_PITCH_POS.C;
+          const cx = pos.x * width;
+          const cy = pos.y * height;
           return (
-            <Circle
-              key={role}
-              cx={pos.x * width}
-              cy={pos.y * height}
-              r={7}
-              fill={ROLE_COLORS[role] || '#fff'}
-              stroke="#fff"
-              strokeWidth={1.5}
-            />
+            <React.Fragment key={role}>
+              <Circle
+                cx={cx}
+                cy={cy}
+                r={radius}
+                fill={ROLE_COLORS[role] || '#fff'}
+                stroke="#fff"
+                strokeWidth={1.5}
+              />
+              <SvgText
+                x={cx}
+                y={cy + 3.5}
+                fill="#fff"
+                fontSize="9"
+                fontWeight="800"
+                textAnchor="middle"
+              >
+                {role}
+              </SvgText>
+            </React.Fragment>
           );
         })}
       </Svg>
@@ -326,18 +370,38 @@ function SearchResultsPanel({
   );
 }
 
-function PlayerHeaderCard({ profile, fallbackName, fallbackPhoto, side }) {
+function PlayerHeaderCard({ profile, fallbackName, fallbackPhoto, side, onClear, showClear }) {
   const name = resolveDisplayName(profile, fallbackName);
   const fullName = `${name.firstName} ${name.lastName}`.trim();
   const photo = profile?.player?.photo_path || fallbackPhoto;
   const year = profile?.player?.birth_year;
-  const align = side === 'left' ? 'flex-start' : 'flex-end';
   const textAlign = side === 'left' ? 'left' : 'right';
+  const isLeft = side === 'left';
+
+  const metaColumn = (
+    <View style={[styles.pitchMeta, isLeft ? styles.pitchMetaLeft : styles.pitchMetaRight]}>
+      <CareerLogos teams={profile?.career_teams} vertical />
+      <Text style={styles.headerYear}>{year ? String(year) : '—'}</Text>
+    </View>
+  );
 
   return (
-    <View style={[styles.headerCard, { alignItems: align }]}>
-      <CompareAvatar photoPath={photo} name={fullName} />
-      <View style={[styles.headerNames, { alignItems: align }]}>
+    <View style={styles.headerCard}>
+      <View style={styles.headerPhotoRow}>
+        <CompareAvatar photoPath={photo} name={fullName} />
+        {showClear ? (
+          <TouchableOpacity
+            style={[styles.headerClearBtn, isLeft ? styles.headerClearBtnLeft : styles.headerClearBtnRight]}
+            onPress={onClear}
+            activeOpacity={0.75}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityLabel="Cambia giocatore"
+          >
+            <Ionicons name="close" size={11} color="#64748b" />
+          </TouchableOpacity>
+        ) : null}
+      </View>
+      <View style={[styles.headerNames, { alignItems: isLeft ? 'flex-start' : 'flex-end' }]}>
         {name.firstName ? (
           <Text style={[styles.headerFirst, { textAlign }]} numberOfLines={1}>
             {name.firstName}
@@ -347,9 +411,19 @@ function PlayerHeaderCard({ profile, fallbackName, fallbackPhoto, side }) {
           {name.lastName || 'Giocatore'}
         </Text>
       </View>
-      <CareerLogos teams={profile?.career_teams} />
-      <RolesPitch roles={profile?.roles_played} />
-      <Text style={styles.headerYear}>{year ? String(year) : '—'}</Text>
+      <View style={[styles.pitchRow, isLeft ? null : styles.pitchRowRight]}>
+        {isLeft ? (
+          <>
+            <RolesPitch roles={profile?.roles_played} />
+            {metaColumn}
+          </>
+        ) : (
+          <>
+            {metaColumn}
+            <RolesPitch roles={profile?.roles_played} />
+          </>
+        )}
+      </View>
     </View>
   );
 }
@@ -561,6 +635,10 @@ export default function PlayerCompareScreen({ navigation, route }) {
     void hydrateSlot(side, selection);
   }, [closeSearch, hydrateSlot]);
 
+  const resetAndSearch = useCallback((side) => {
+    openSearch(side);
+  }, [openSearch]);
+
   const excludeKey = useMemo(() => {
     const other = activeSlot === 'a' ? slotB : slotA;
     if (!other?.player_id || !other?.league_id) return null;
@@ -569,7 +647,10 @@ export default function PlayerCompareScreen({ navigation, route }) {
 
   const bothReady = Boolean(slotA?.profile && slotB?.profile);
   const anyLoading = Boolean(slotA?.loading || slotB?.loading);
-  const showSearchResults = Boolean(activeSlot) && (searchLoading || searchQuery.trim().length >= 2);
+  const bothPicked = Boolean(slotA && slotB);
+  const showSearchBar = !bothPicked || Boolean(activeSlot);
+  const showSearchResults = Boolean(activeSlot) && showSearchBar && (searchLoading || searchQuery.trim().length >= 2);
+  const showProfileClear = bothPicked && !activeSlot;
 
   const visibleRows = useMemo(() => {
     if (!bothReady) return [];
@@ -587,7 +668,7 @@ export default function PlayerCompareScreen({ navigation, route }) {
         style={[styles.header, { paddingTop: Math.max(insets.top + 6, 12) }]}
         onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}
       >
-        <View style={styles.headerTopRow}>
+        <View style={[styles.headerTopRow, showSearchBar ? null : styles.headerTopRowCompact]}>
           <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()} activeOpacity={0.75}>
             <Ionicons name="arrow-back" size={20} color="#333" />
           </TouchableOpacity>
@@ -595,43 +676,45 @@ export default function PlayerCompareScreen({ navigation, route }) {
           <View style={styles.headerSpacer} />
         </View>
 
-        <View style={styles.searchRow}>
-          <SearchSlot
-            label="Giocatore 1"
-            value={activeSlot === 'a' ? searchText : ''}
-            selected={slotA}
-            active={activeSlot === 'a'}
-            inputRef={inputARef}
-            onFocus={() => openSearch('a')}
-            onChangeText={(text) => {
-              setActiveSlot('a');
-              setSearchText(text);
-            }}
-            onClear={() => {
-              clearSlot('a');
-              setSearchText('');
-            }}
-          />
-          <View style={styles.vsBadge}>
-            <Text style={styles.vsBadgeText}>VS</Text>
+        {showSearchBar ? (
+          <View style={styles.searchRow}>
+            <SearchSlot
+              label="Giocatore 1"
+              value={activeSlot === 'a' ? searchText : ''}
+              selected={slotA}
+              active={activeSlot === 'a'}
+              inputRef={inputARef}
+              onFocus={() => openSearch('a')}
+              onChangeText={(text) => {
+                setActiveSlot('a');
+                setSearchText(text);
+              }}
+              onClear={() => {
+                clearSlot('a');
+                setSearchText('');
+              }}
+            />
+            <View style={styles.vsBadge}>
+              <Text style={styles.vsBadgeText}>VS</Text>
+            </View>
+            <SearchSlot
+              label="Giocatore 2"
+              value={activeSlot === 'b' ? searchText : ''}
+              selected={slotB}
+              active={activeSlot === 'b'}
+              inputRef={inputBRef}
+              onFocus={() => openSearch('b')}
+              onChangeText={(text) => {
+                setActiveSlot('b');
+                setSearchText(text);
+              }}
+              onClear={() => {
+                clearSlot('b');
+                setSearchText('');
+              }}
+            />
           </View>
-          <SearchSlot
-            label="Giocatore 2"
-            value={activeSlot === 'b' ? searchText : ''}
-            selected={slotB}
-            active={activeSlot === 'b'}
-            inputRef={inputBRef}
-            onFocus={() => openSearch('b')}
-            onChangeText={(text) => {
-              setActiveSlot('b');
-              setSearchText(text);
-            }}
-            onClear={() => {
-              clearSlot('b');
-              setSearchText('');
-            }}
-          />
-        </View>
+        ) : null}
       </View>
 
       {showSearchResults && headerHeight > 0 ? (
@@ -677,6 +760,8 @@ export default function PlayerCompareScreen({ navigation, route }) {
                       fallbackName={slotA.name}
                       fallbackPhoto={slotA.photo_path}
                       side="left"
+                      showClear={showProfileClear}
+                      onClear={() => resetAndSearch('a')}
                     />
                   )
                 ) : (
@@ -704,6 +789,8 @@ export default function PlayerCompareScreen({ navigation, route }) {
                       fallbackName={slotB.name}
                       fallbackPhoto={slotB.photo_path}
                       side="right"
+                      showClear={showProfileClear}
+                      onClear={() => resetAndSearch('b')}
                     />
                   )
                 ) : (
@@ -767,6 +854,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 12,
+  },
+  headerTopRowCompact: {
+    marginBottom: 0,
   },
   backBtn: {
     width: 34,
@@ -1006,8 +1096,35 @@ const styles = StyleSheet.create({
     color: '#667eea',
   },
   headerCard: {
-    gap: 8,
+    gap: 6,
     paddingHorizontal: 4,
+  },
+  headerPhotoRow: {
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+    minHeight: PHOTO_HEIGHT,
+  },
+  headerClearBtn: {
+    position: 'absolute',
+    top: 0,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 2,
+  },
+  headerClearBtnLeft: {
+    left: 0,
+    right: undefined,
+  },
+  headerClearBtnRight: {
+    right: 0,
   },
   headerNames: {
     width: '100%',
@@ -1024,8 +1141,29 @@ const styles = StyleSheet.create({
     color: '#1e293b',
     lineHeight: 20,
   },
+  pitchRow: {
+    marginTop: 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    alignSelf: 'flex-start',
+  },
+  pitchRowRight: {
+    alignSelf: 'flex-end',
+  },
+  pitchMeta: {
+    justifyContent: 'center',
+    gap: 6,
+    minWidth: 28,
+  },
+  pitchMetaLeft: {
+    alignItems: 'flex-start',
+  },
+  pitchMetaRight: {
+    alignItems: 'flex-end',
+  },
   headerYear: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '700',
     color: '#475569',
   },
@@ -1036,36 +1174,42 @@ const styles = StyleSheet.create({
   careerLogos: {
     flexDirection: 'row',
     alignItems: 'center',
-    minHeight: 28,
+    minHeight: 24,
+  },
+  careerLogosVertical: {
+    flexDirection: 'column',
+    alignItems: 'center',
+    minHeight: 0,
   },
   careerLogoWrap: {
-    width: 26,
-    height: 26,
+    width: 24,
+    height: 24,
     alignItems: 'center',
     justifyContent: 'center',
   },
   careerLogoOverlap: {
     marginLeft: -8,
   },
+  careerLogoOverlapVertical: {
+    marginTop: -6,
+  },
   careerLogo: {
-    width: 26,
-    height: 26,
+    width: 24,
+    height: 24,
   },
   careerLogoFallback: {
-    width: 26,
-    height: 26,
+    width: 24,
+    height: 24,
     alignItems: 'center',
     justifyContent: 'center',
   },
   careerLogoMore: {
-    marginLeft: 4,
-    fontSize: 11,
+    marginTop: 2,
+    fontSize: 10,
     fontWeight: '700',
     color: '#94a3b8',
   },
   pitchWrap: {
-    width: 78,
-    height: 104,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1075,7 +1219,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   profilePlaceholder: {
-    minHeight: 220,
+    minHeight: 180,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 12,

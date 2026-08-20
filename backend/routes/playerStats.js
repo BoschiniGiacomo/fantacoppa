@@ -1027,7 +1027,11 @@ function buildCompareCareerTeams(editionRows) {
     const teamId = Number(row.team_id) || 0;
     const name = String(row.team_name || '').trim();
     const logoPath = String(row.team_logo_path || '').trim();
-    const key = teamId > 0 ? `id:${teamId}` : `name:${name.toLowerCase()}`;
+    const logoKey = logoPath.toLowerCase();
+    // Un solo logo per club: priorità al path logo (stessa maglia in edizioni diverse)
+    const key = logoKey
+      ? `logo:${logoKey}`
+      : (teamId > 0 ? `id:${teamId}` : `name:${name.toLowerCase()}`);
     if (!name || seen.has(key)) continue;
     seen.add(key);
     teams.push({
