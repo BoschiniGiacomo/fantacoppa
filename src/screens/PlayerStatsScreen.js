@@ -22,6 +22,7 @@ import PlayerFormChart from '../components/PlayerFormChart';
 import VoteDistributionChart from '../components/VoteDistributionChart';
 import EfficiencyBars from '../components/EfficiencyBars';
 import PlayerSeasonTotals from '../components/PlayerSeasonTotals';
+import IconUnderlineTabBar, { FantaCoppaTabIcon } from '../components/IconUnderlineTabBar';
 
 const ROLE_COLORS = {
   P: '#0d6efd',
@@ -38,10 +39,32 @@ const ROLE_NAMES = {
 };
 
 const MAIN_TABS = [
-  { key: 'overview', label: 'Panoramica' },
-  { key: 'stats', label: 'Statistiche' },
-  { key: 'career', label: 'Carriera' },
-  { key: 'fantacoppa', label: 'FantaCoppa' },
+  {
+    key: 'overview',
+    label: 'Panoramica',
+    pack: 'ion',
+    icon: 'person-outline',
+    iconActive: 'person',
+  },
+  {
+    key: 'stats',
+    label: 'Statistiche',
+    pack: 'ion',
+    icon: 'stats-chart-outline',
+    iconActive: 'stats-chart',
+  },
+  {
+    key: 'career',
+    label: 'Carriera',
+    pack: 'mci',
+    icon: 'timeline-clock-outline',
+    iconActive: 'timeline-clock',
+  },
+  {
+    key: 'fantacoppa',
+    label: 'FantaCoppa',
+    renderIcon: (active) => <FantaCoppaTabIcon active={active} />,
+  },
 ];
 
 const SEASON_YEAR_PICKER_MAX_HEIGHT = 180;
@@ -1646,28 +1669,13 @@ export default function PlayerStatsScreen({ route, navigation }) {
         </View>
       </View>
 
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.tabsScroll}
-        contentContainerStyle={styles.tabsScrollContent}
-      >
-        {MAIN_TABS.map((tab) => {
-          const isActive = activeMainTab === tab.key;
-          return (
-            <TouchableOpacity
-              key={tab.key}
-              style={[styles.tabBtn, isActive && styles.tabBtnActive]}
-              onPress={() => handleMainTabPress(tab.key)}
-              activeOpacity={0.8}
-            >
-              <Text style={[styles.tabText, isActive && styles.tabTextActive]}>
-                {tab.label}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </ScrollView>
+      <View style={styles.tabsWrap}>
+        <IconUnderlineTabBar
+          tabs={MAIN_TABS}
+          activeKey={activeMainTab}
+          onSelect={handleMainTabPress}
+        />
+      </View>
 
       <ScrollView
         ref={mainScrollRef}
@@ -1696,8 +1704,7 @@ const styles = StyleSheet.create({
   heroCard: {
     marginTop: 0,
     backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderColor: '#ececec',
+    borderBottomWidth: 0,
     paddingBottom: 10,
     paddingHorizontal: 14,
     overflow: 'visible',
@@ -1778,37 +1785,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  tabsScroll: {
-    marginTop: 8,
-    maxHeight: 46,
-  },
-  tabsScrollContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 12,
-    paddingBottom: 4,
-  },
-  tabBtn: {
+  tabsWrap: {
     backgroundColor: '#fff',
-    borderRadius: 14,
-    paddingVertical: 5,
-    paddingHorizontal: 12,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    flexShrink: 0,
-  },
-  tabBtnActive: {
-    borderColor: '#667eea',
-    backgroundColor: '#eef2ff',
-  },
-  tabText: {
-    color: '#475569',
-    fontWeight: '700',
-    fontSize: 13,
-  },
-  tabTextActive: {
-    color: '#667eea',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#d1d5db',
   },
 
   scopePeriodWrap: {

@@ -1,13 +1,16 @@
 import React from 'react';
-import { StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Image, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 
 export const ICON_TAB_ACTIVE = '#667eea';
 export const ICON_TAB_IDLE = '#94a3b8';
 
+/** Silhouette template (nero su trasparente) — sostituibile in assets/. */
+const FANTA_TAB_ICON = require('../../assets/fantacoppa-tab-icon.png');
+
 /**
  * Tab bar solo icone con underline full-width sul selezionato.
- * tabs: [{ key, label, pack: 'ion'|'mci', icon, iconActive }]
+ * tabs: [{ key, label, pack?, icon?, iconActive?, renderIcon?(active, color) }]
  */
 export default function IconUnderlineTabBar({ tabs, activeKey, onSelect, style }) {
   const list = Array.isArray(tabs) ? tabs : [];
@@ -28,11 +31,33 @@ export default function IconUnderlineTabBar({ tabs, activeKey, onSelect, style }
             accessibilityState={{ selected: active }}
             accessibilityLabel={tab.label}
           >
-            <IconComp name={iconName} size={22} color={color} />
+            {typeof tab.renderIcon === 'function' ? (
+              tab.renderIcon(active, color)
+            ) : (
+              <IconComp name={iconName} size={22} color={color} />
+            )}
             <View style={[styles.underline, active && styles.underlineActive]} />
           </TouchableOpacity>
         );
       })}
+    </View>
+  );
+}
+
+/**
+ * Icona tab FantaCoppa da assets/fantacoppa-tab-icon.png
+ * (nero su trasparente → tint grigio / indigo).
+ */
+export function FantaCoppaTabIcon({ active = false }) {
+  const tint = active ? ICON_TAB_ACTIVE : ICON_TAB_IDLE;
+  return (
+    <View style={styles.fcLogoWrap}>
+      <Image
+        source={FANTA_TAB_ICON}
+        style={[styles.fcLogo, { tintColor: tint }]}
+        resizeMode="contain"
+        accessibilityIgnoresInvertColors
+      />
     </View>
   );
 }
@@ -59,5 +84,17 @@ const styles = StyleSheet.create({
   },
   underlineActive: {
     backgroundColor: ICON_TAB_ACTIVE,
+  },
+  fcLogoWrap: {
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  fcLogo: {
+    width: 28,
+    height: 28,
+    transform: [{ scale: 1.08 }],
   },
 });
