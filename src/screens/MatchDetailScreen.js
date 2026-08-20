@@ -60,6 +60,49 @@ const RECENT_FORM_RESULT_COLORS = {
   P: '#dc2626',
 };
 
+const MATCH_DETAIL_TAB_ACTIVE = '#667eea';
+const MATCH_DETAIL_TAB_IDLE = '#94a3b8';
+
+/** Tab icon-only: pack ion = Ionicons, mci = MaterialCommunityIcons */
+const MATCH_DETAIL_TABS = [
+  {
+    key: 'overview',
+    label: 'Panoramica',
+    pack: 'ion',
+    icon: 'stats-chart-outline',
+    iconActive: 'stats-chart',
+  },
+  {
+    key: 'live',
+    label: 'Diretta',
+    pack: 'mci',
+    icon: 'soccer',
+    iconActive: 'soccer',
+  },
+  {
+    key: 'lineup',
+    label: 'Formazione',
+    pack: 'mci',
+    icon: 'tshirt-crew-outline',
+    iconActive: 'tshirt-crew',
+  },
+  {
+    key: 'standings',
+    label: 'Classifica',
+    pack: 'mci',
+    icon: 'format-list-numbered',
+    iconActive: 'format-list-numbered',
+  },
+  {
+    key: 'votes',
+    label: 'Voti',
+    pack: 'mci',
+    icon: 'clipboard-list-outline',
+    iconActive: 'clipboard-list',
+    requiresVotes: true,
+  },
+];
+
 const PREDICTION_DRAW_BORDER = '#9ca3af';
 
 /** Stempera un hex (#RRGGBB) verso il bianco per bordi meno accesi. */
@@ -218,6 +261,25 @@ function MatchPredictionPanel({
   );
 }
 
+function MatchDetailIconTab({ tab, active, onPress }) {
+  const color = active ? MATCH_DETAIL_TAB_ACTIVE : MATCH_DETAIL_TAB_IDLE;
+  const iconName = active ? tab.iconActive : tab.icon;
+  const IconComp = tab.pack === 'mci' ? MaterialCommunityIcons : Ionicons;
+  return (
+    <TouchableOpacity
+      style={styles.iconTabBtn}
+      onPress={onPress}
+      activeOpacity={0.75}
+      accessibilityRole="tab"
+      accessibilityState={{ selected: active }}
+      accessibilityLabel={tab.label}
+    >
+      <IconComp name={iconName} size={22} color={color} />
+      <View style={[styles.iconTabUnderline, active && styles.iconTabUnderlineActive]} />
+    </TouchableOpacity>
+  );
+}
+
 function RecentFormResultBadge({ result }) {
   const letter = String(result || '').toUpperCase();
   const color = RECENT_FORM_RESULT_COLORS[letter] || RECENT_FORM_RESULT_COLORS.N;
@@ -281,19 +343,14 @@ function formatPreviousMeetingDate(value) {
   return y !== nowY ? `${dom} ${mon} ${y}` : `${dom} ${mon}`;
 }
 
-function PreviousMeetingScore({ homeScore, awayScore, homeResult, awayResult }) {
-  const homeColor = RECENT_FORM_RESULT_COLORS[String(homeResult || 'N').toUpperCase()] || RECENT_FORM_RESULT_COLORS.N;
-  const awayColor = RECENT_FORM_RESULT_COLORS[String(awayResult || 'N').toUpperCase()] || RECENT_FORM_RESULT_COLORS.N;
+function PreviousMeetingScoreBadge({ score, result }) {
+  const bg = RECENT_FORM_RESULT_COLORS[String(result || 'N').toUpperCase()] || RECENT_FORM_RESULT_COLORS.N;
   return (
-    <Text style={styles.prevMeetingScore}>
-      <Text style={[styles.prevMeetingScoreNum, { color: homeColor }]}>
-        {Number.isFinite(Number(homeScore)) ? Number(homeScore) : '-'}
+    <View style={[styles.prevMeetingScoreBadge, { backgroundColor: bg }]}>
+      <Text style={styles.prevMeetingScoreBadgeText}>
+        {Number.isFinite(Number(score)) ? Number(score) : '-'}
       </Text>
-      <Text style={styles.prevMeetingScoreSep}>-</Text>
-      <Text style={[styles.prevMeetingScoreNum, { color: awayColor }]}>
-        {Number.isFinite(Number(awayScore)) ? Number(awayScore) : '-'}
-      </Text>
-    </Text>
+    </View>
   );
 }
 
@@ -307,41 +364,28 @@ function PreviousMeetingsCard({ meetings, onPressMatch }) {
         {list.map((item, idx) => {
           const mid = Number(item?.match_id);
           const canOpen = Number.isFinite(mid) && mid > 0;
-          const homeName = String(item?.home_team_name || '').trim();
-          const awayName = String(item?.away_team_name || '').trim();
+          const homeName = String(item?.home_team_name || '').trim() || 'Casa';
+          const awayName = String(item?.away_team_name || '').trim() || 'Trasferta';
           const dateLabel = formatPreviousMeetingDate(item?.kickoff_at);
           const row = (
             <View style={styles.prevMeetingInner}>
               <View style={styles.prevMeetingScoreRow}>
-                <TeamLogoImage
-                  logoUrl={item?.home_team_logo_url}
-                  logoPath={item?.home_team_logo_path}
-                  style={styles.prevMeetingLogo}
-                  fallbackStyle={styles.prevMeetingLogoFallback}
-                  fallbackIconSize={12}
-                />
-                <PreviousMeetingScore
-                  homeScore={item?.home_score}
-                  awayScore={item?.away_score}
-                  homeResult={item?.home_result}
-                  awayResult={item?.away_result}
-                />
-                <TeamLogoImage
-                  logoUrl={item?.away_team_logo_url}
-                  logoPath={item?.away_team_logo_path}
-                  style={styles.prevMeetingLogo}
-                  fallbackStyle={styles.prevMeetingLogoFallback}
-                  fallbackIconSize={12}
-                />
+                <Text style={[styles.prevMeetingTeamName, styles.prevMeetingTeamHome]} numberOfLines={1}>
+                  {homeName}
+                </Text>
+                <View style={styles.prevMeetingScores}>
+                  <PreviousMeetingScoreBadge score={item?.home_score} result={item?.home_result} />
+                  <PreviousMeetingScoreBadge score={item?.away_score} result={item?.away_result} />
+                </View>
+                <Text style={[styles.prevMeetingTeamName, styles.prevMeetingTeamAway]} numberOfLines={1}>
+                  {awayName}
+                </Text>
               </View>
-              {homeName && awayName ? (
-                <Text style={styles.prevMeetingNames} numberOfLines={1}>
-                  {homeName} vs {awayName}
+              {dateLabel ? (
+                <Text style={styles.prevMeetingDate} numberOfLines={1}>
+                  {dateLabel}
                 </Text>
               ) : null}
-              <Text style={styles.prevMeetingDate} numberOfLines={1}>
-                {dateLabel || ' '}
-              </Text>
             </View>
           );
           return canOpen ? (
@@ -3299,23 +3343,16 @@ export default function MatchDetailScreen({ navigation, route }) {
         ) : null}
       </View>
 
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.tabsScroll}
-        contentContainerStyle={styles.tabsScrollContent}
-        keyboardShouldPersistTaps="handled"
-      >
-        <TouchableOpacity style={[styles.tabBtn, activeTab === 'overview' && styles.tabBtnActive]} onPress={() => setActiveTab('overview')}><Text style={[styles.tabText, activeTab === 'overview' && styles.tabTextActive]}>Panoramica</Text></TouchableOpacity>
-        <TouchableOpacity style={[styles.tabBtn, activeTab === 'live' && styles.tabBtnActive]} onPress={() => setActiveTab('live')}><Text style={[styles.tabText, activeTab === 'live' && styles.tabTextActive]}>Diretta</Text></TouchableOpacity>
-        <TouchableOpacity style={[styles.tabBtn, activeTab === 'lineup' && styles.tabBtnActive]} onPress={() => setActiveTab('lineup')}><Text style={[styles.tabText, activeTab === 'lineup' && styles.tabTextActive]}>Formazione</Text></TouchableOpacity>
-        <TouchableOpacity style={[styles.tabBtn, activeTab === 'standings' && styles.tabBtnActive]} onPress={() => setActiveTab('standings')}><Text style={[styles.tabText, activeTab === 'standings' && styles.tabTextActive]}>Classifica</Text></TouchableOpacity>
-        {showVotesTab ? (
-          <TouchableOpacity style={[styles.tabBtn, activeTab === 'votes' && styles.tabBtnActive]} onPress={() => setActiveTab('votes')}>
-            <Text style={[styles.tabText, activeTab === 'votes' && styles.tabTextActive]}>Voti</Text>
-          </TouchableOpacity>
-        ) : null}
-      </ScrollView>
+      <View style={styles.iconTabBar}>
+        {MATCH_DETAIL_TABS.filter((t) => !t.requiresVotes || showVotesTab).map((tab) => (
+          <MatchDetailIconTab
+            key={tab.key}
+            tab={tab}
+            active={activeTab === tab.key}
+            onPress={() => setActiveTab(tab.key)}
+          />
+        ))}
+      </View>
 
       <ScrollView
         ref={matchDetailScrollRef}
@@ -5282,8 +5319,6 @@ const styles = StyleSheet.create({
   heroColumn: {
     width: '100%',
     backgroundColor: '#fff',
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#ececec',
   },
   heroColumnWithScorersBelow: {
     paddingBottom: 2,
@@ -5420,20 +5455,32 @@ const styles = StyleSheet.create({
     opacity: 0.55,
     backgroundColor: '#9ca3af',
   },
-  tabsScroll: { marginTop: 8, maxHeight: 46 },
-  tabsScrollContent: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingBottom: 4 },
-  tabBtn: {
+  iconTabBar: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    marginTop: 0,
+    paddingHorizontal: 4,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#d1d5db',
     backgroundColor: '#fff',
-    borderRadius: 14,
-    paddingVertical: 5,
-    paddingHorizontal: 12,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    flexShrink: 0,
   },
-  tabBtnActive: { borderColor: '#667eea', backgroundColor: '#eef2ff' },
-  tabText: { color: '#475569', fontWeight: '700', fontSize: 13 },
-  tabTextActive: { color: '#667eea' },
+  iconTabBtn: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    paddingTop: 8,
+    paddingBottom: 0,
+  },
+  iconTabUnderline: {
+    marginTop: 6,
+    height: 3,
+    width: 28,
+    borderRadius: 2,
+    backgroundColor: 'transparent',
+  },
+  iconTabUnderlineActive: {
+    backgroundColor: MATCH_DETAIL_TAB_ACTIVE,
+  },
   content: { flex: 1, paddingHorizontal: 12, paddingTop: 8 },
   card: { backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#ececec', padding: 12, marginBottom: 12 },
   recentFormSection: { marginBottom: 12 },
@@ -5512,7 +5559,7 @@ const styles = StyleSheet.create({
   },
   prevMeetingRow: {
     paddingHorizontal: 12,
-    paddingVertical: 14,
+    paddingVertical: 10,
   },
   prevMeetingRowBorder: {
     borderBottomWidth: StyleSheet.hairlineWidth,
@@ -5525,40 +5572,41 @@ const styles = StyleSheet.create({
   prevMeetingScoreRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
+    width: '100%',
+    gap: 8,
   },
-  prevMeetingLogo: { width: 28, height: 28 },
-  prevMeetingLogoFallback: {
+  prevMeetingTeamName: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#334155',
+  },
+  prevMeetingTeamHome: { textAlign: 'right' },
+  prevMeetingTeamAway: { textAlign: 'left' },
+  prevMeetingScores: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flexShrink: 0,
+  },
+  prevMeetingScoreBadge: {
     width: 28,
     height: 28,
-    borderRadius: 7,
-    backgroundColor: '#f1f5f9',
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  prevMeetingScore: {
-    fontSize: 22,
+  prevMeetingScoreBadgeText: {
+    color: '#fff',
+    fontSize: 14,
     fontWeight: '800',
-    letterSpacing: -0.5,
-    minWidth: 56,
-    textAlign: 'center',
-  },
-  prevMeetingScoreNum: { fontSize: 22, fontWeight: '800', letterSpacing: -0.5 },
-  prevMeetingScoreSep: { fontSize: 18, fontWeight: '700', color: '#94a3b8', marginHorizontal: 2 },
-  prevMeetingNames: {
-    marginTop: 2,
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#64748b',
-    textAlign: 'center',
   },
   prevMeetingDate: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '600',
     color: '#94a3b8',
     textAlign: 'center',
-    minHeight: 13,
   },
   predictionSection: { marginBottom: 12 },
   predictionTitle: { fontSize: 16, fontWeight: '800', color: '#222', marginBottom: 10 },
