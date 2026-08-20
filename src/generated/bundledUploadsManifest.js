@@ -6,7 +6,7 @@ export const BUNDLED_UPLOADS = {
   'uploads/app_loading/app_loading_1778710058927_wrn29s.mp4': require('../../uploads/app_loading/app_loading_1778710058927_wrn29s.mp4'),
   'uploads/login_background/login_bg_1778931491115_rfnqcw.jpg': require('../../uploads/login_background/login_bg_1778931491115_rfnqcw.jpg'),
   'uploads/login_logo/login_logo_1779056487642_3p9ghi.png': require('../../uploads/login_logo/login_logo_1779056487642_3p9ghi.png'),
-  'uploads/match_background/match_bg_campo_dark.jpg': require('../../uploads/match_background/match_bg_campo_dark.jpg'),
+  'uploads/match_background/match_bg_1787259895450_f71jqb.jpg': require('../../uploads/match_background/match_bg_1787259895450_f71jqb.jpg'),
   'uploads/official_group_logos/official_group_1_1782662667.jpeg': require('../../uploads/official_group_logos/official_group_1_1782662667.jpeg'),
   'uploads/official_team_logos/official_team_g1_cantone_1780148955.png': require('../../uploads/official_team_logos/official_team_g1_cantone_1780148955.png'),
   'uploads/official_team_logos/official_team_g1_fola_1780038908.png': require('../../uploads/official_team_logos/official_team_g1_fola_1780038908.png'),
@@ -115,5 +115,5 @@ export const BUNDLED_SLOT_DEFAULTS = {
   login_logo: 'uploads/login_logo/login_logo_1779056487642_3p9ghi.png',
   login_background: 'uploads/login_background/login_bg_1778931491115_rfnqcw.jpg',
   app_loading: 'uploads/app_loading/app_loading_1778710058927_wrn29s.mp4',
-  match_background: 'uploads/match_background/match_bg_campo_dark.jpg',
+  match_background: 'uploads/match_background/match_bg_1787259895450_f71jqb.jpg',
 };
