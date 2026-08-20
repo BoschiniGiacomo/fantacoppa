@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   Pressable,
   Keyboard,
+  Modal,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -62,6 +63,17 @@ const COMPARE_ROWS = [
   { key: 'mvp', label: 'MVP', higherIsBetter: true, decimals: 0 },
   { key: 'avg_rating', label: 'Voto medio', higherIsBetter: true, decimals: 2 },
 ];
+
+/** Parametri spenti di default nel filtro confronto. */
+const COMPARE_FILTER_DEFAULT_OFF = new Set(['penalty_goals', 'penalty_saved', 'mvp']);
+
+function buildDefaultEnabledKeys() {
+  const enabled = {};
+  for (const row of COMPARE_ROWS) {
+    enabled[row.key] = !COMPARE_FILTER_DEFAULT_OFF.has(row.key);
+  }
+  return enabled;
+}
 
 function stripBirthYearNameSuffix(name) {
   return String(name || '').replace(/\s*\('\d{2}\)\s*$/u, '').trim();
@@ -489,6 +501,8 @@ export default function PlayerCompareScreen({ navigation, route }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchPlayers, setSearchPlayers] = useState([]);
   const [searchLoading, setSearchLoading] = useState(false);
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [enabledKeys, setEnabledKeys] = useState(buildDefaultEnabledKeys);
 
   const searchSeqRef = useRef(0);
   const inputARef = useRef(null);
@@ -665,15 +679,32 @@ export default function PlayerCompareScreen({ navigation, route }) {
   const showSearchResults = Boolean(activeSlot) && showSearchBar && (searchLoading || searchQuery.trim().length >= 2);
   const showProfileClear = bothPicked && !activeSlot;
 
+  const toggleFilterKey = useCallback((key) => {
+    setEnabledKeys((prev) => ({
+      ...prev,
+      [key]: !prev[key],
+    }));
+  }, []);
+
+  const selectAllFilterKeys = useCallback(() => {
+    const next = {};
+    for (const row of COMPARE_ROWS) next[row.key] = true;
+    setEnabledKeys(next);
+  }, []);
+
+  const resetDefaultFilterKeys = useCallback(() => {
+    setEnabledKeys(buildDefaultEnabledKeys());
+  }, []);
+
+  const filterIsDefault = useMemo(() => {
+    const defaults = buildDefaultEnabledKeys();
+    return COMPARE_ROWS.every((row) => Boolean(enabledKeys[row.key]) === Boolean(defaults[row.key]));
+  }, [enabledKeys]);
+
   const visibleRows = useMemo(() => {
     if (!bothReady) return [];
-    const a = slotA.profile.stats || {};
-    const b = slotB.profile.stats || {};
-    return COMPARE_ROWS.filter((row) => {
-      if (!row.showIfAnyPositive) return true;
-      return Number(a[row.key] || 0) > 0 || Number(b[row.key] || 0) > 0;
-    });
-  }, [bothReady, slotA, slotB]);
+    return COMPARE_ROWS.filter((row) => Boolean(enabledKeys[row.key]));
+  }, [bothReady, enabledKeys]);
 
   return (
     <View style={styles.container}>
@@ -686,7 +717,21 @@ export default function PlayerCompareScreen({ navigation, route }) {
             <Ionicons name="arrow-back" size={20} color="#333" />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Confronto</Text>
-          <View style={styles.headerSpacer} />
+          <TouchableOpacity
+            style={[styles.filterBtn, !filterIsDefault ? styles.filterBtnActive : null]}
+            onPress={() => {
+              Keyboard.dismiss();
+              setFilterOpen(true);
+            }}
+            activeOpacity={0.75}
+            accessibilityLabel="Filtra parametri confronto"
+          >
+            <Ionicons
+              name="options-outline"
+              size={18}
+              color={!filterIsDefault ? '#667eea' : '#333'}
+            />
+          </TouchableOpacity>
         </View>
 
         {showSearchBar ? (
@@ -819,17 +864,23 @@ export default function PlayerCompareScreen({ navigation, route }) {
             ) : null}
 
             {bothReady ? (
-              <View style={styles.statsCard}>
-                {visibleRows.map((row, index) => (
-                  <StatCompareRow
-                    key={row.key}
-                    row={row}
-                    leftValue={slotA.profile.stats?.[row.key]}
-                    rightValue={slotB.profile.stats?.[row.key]}
-                    zebra={index % 2 === 1}
-                  />
-                ))}
-              </View>
+              visibleRows.length > 0 ? (
+                <View style={styles.statsCard}>
+                  {visibleRows.map((row, index) => (
+                    <StatCompareRow
+                      key={row.key}
+                      row={row}
+                      leftValue={slotA.profile.stats?.[row.key]}
+                      rightValue={slotB.profile.stats?.[row.key]}
+                      zebra={index % 2 === 1}
+                    />
+                  ))}
+                </View>
+              ) : (
+                <Text style={styles.hintText}>
+                  Nessun parametro selezionato. Usa il filtro in alto a destra.
+                </Text>
+              )
             ) : anyLoading ? (
               <View style={styles.loadingBlock}>
                 <ActivityIndicator color="#667eea" />
@@ -845,6 +896,65 @@ export default function PlayerCompareScreen({ navigation, route }) {
           </>
         )}
       </ScrollView>
+
+      <Modal
+        visible={filterOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setFilterOpen(false)}
+      >
+        <View style={styles.filterModalRoot}>
+          <Pressable style={styles.filterModalBackdrop} onPress={() => setFilterOpen(false)} />
+          <View style={[styles.filterSheet, { paddingBottom: Math.max(insets.bottom, 14) }]}>
+            <View style={styles.filterSheetHeader}>
+              <Text style={styles.filterSheetTitle}>Parametri confronto</Text>
+              <TouchableOpacity onPress={() => setFilterOpen(false)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Ionicons name="close" size={20} color="#64748b" />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.filterSheetActions}>
+              <TouchableOpacity onPress={selectAllFilterKeys} activeOpacity={0.75}>
+                <Text style={styles.filterSheetActionText}>Tutti</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={resetDefaultFilterKeys} activeOpacity={0.75}>
+                <Text style={styles.filterSheetActionText}>Predefiniti</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView
+              style={styles.filterSheetScroll}
+              contentContainerStyle={styles.filterSheetScrollContent}
+              showsVerticalScrollIndicator={false}
+              bounces={false}
+            >
+              {COMPARE_ROWS.map((row) => {
+                const on = Boolean(enabledKeys[row.key]);
+                return (
+                  <TouchableOpacity
+                    key={row.key}
+                    style={styles.filterRow}
+                    onPress={() => toggleFilterKey(row.key)}
+                    activeOpacity={0.75}
+                  >
+                    <Text style={[styles.filterRowLabel, on ? null : styles.filterRowLabelOff]}>
+                      {row.label}
+                    </Text>
+                    <View style={[styles.filterCheck, on ? styles.filterCheckOn : null]}>
+                      {on ? <Ionicons name="checkmark" size={14} color="#fff" /> : null}
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+            <TouchableOpacity
+              style={styles.filterDoneBtn}
+              onPress={() => setFilterOpen(false)}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.filterDoneBtnText}>Fatto</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -886,8 +996,105 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#222',
   },
-  headerSpacer: {
+  filterBtn: {
     width: 34,
+    height: 34,
+    borderRadius: 17,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    backgroundColor: '#fff',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  filterBtnActive: {
+    borderColor: '#667eea',
+    backgroundColor: '#eef2ff',
+  },
+  filterModalRoot: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  filterModalBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(15, 23, 42, 0.35)',
+  },
+  filterSheet: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    maxHeight: '78%',
+  },
+  filterSheetHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  filterSheetTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#1e293b',
+  },
+  filterSheetActions: {
+    flexDirection: 'row',
+    gap: 16,
+    marginBottom: 8,
+  },
+  filterSheetActionText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#667eea',
+  },
+  filterSheetScroll: {
+    flexGrow: 0,
+  },
+  filterSheetScrollContent: {
+    paddingBottom: 8,
+  },
+  filterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+  },
+  filterRowLabel: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#1e293b',
+  },
+  filterRowLabelOff: {
+    color: '#94a3b8',
+  },
+  filterCheck: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 1.5,
+    borderColor: '#cbd5e1',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fff',
+  },
+  filterCheckOn: {
+    borderColor: '#667eea',
+    backgroundColor: '#667eea',
+  },
+  filterDoneBtn: {
+    marginTop: 10,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: '#667eea',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  filterDoneBtnText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '800',
   },
   searchRow: {
     flexDirection: 'row',
