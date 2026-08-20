@@ -5,6 +5,10 @@ const { authenticateToken } = require('../middleware/auth');
 const { computePlayerOfficialTrophies, computePlayerOfficialTrophyWinsByLeague } = require('../utils/officialHallTrophies');
 const { SQL_WHERE_PRESENCE_VOTE } = require('../utils/voteRating');
 const {
+  tallyOfficialMatchEventScores,
+  resolveOfficialMatchOutcome,
+} = require('../utils/officialMatchOutcome');
+const {
   BONUS_SCORE_SQL,
   safeNumber,
   fetchPlayerFantaStats,
@@ -973,6 +977,7 @@ async function fetchPlayerPenaltyGoals(playerIds) {
   }
 }
 
+/** Partite vinte: presenza (voto/S.V.) su squadra vincitrice, esito ufficiale (eventi + rigori). */
 async function fetchPlayerMatchWins(playerIds, leagueIds) {
   const pids = [...new Set((playerIds || []).map(Number).filter((id) => Number.isFinite(id) && id > 0))];
   const lids = [...new Set((leagueIds || []).map(Number).filter((id) => Number.isFinite(id) && id > 0))];
@@ -981,7 +986,8 @@ async function fetchPlayerMatchWins(playerIds, leagueIds) {
   const playerPh = pids.map(() => '?').join(',');
   const leaguesPh = lids.map(() => '?').join(',');
   try {
-    const rows = await query(
+    // 1) Presenze del giocatore collegate a partite ufficiali (stessa giornata/squadra)
+    const linkedRows = await query(
       `WITH presence AS (
          SELECT DISTINCT
            pr.league_id,
@@ -992,29 +998,119 @@ async function fetchPlayerMatchWins(playerIds, leagueIds) {
          WHERE pr.player_id IN (${playerPh})
            AND pr.league_id IN (${leaguesPh})
            AND ${SQL_WHERE_PRESENCE_VOTE}
-       ),
-       linked AS (
-         SELECT DISTINCT
-           l.official_match_id,
-           l.team_id
-         FROM presence
-         INNER JOIN official_match_matchday_links l
-           ON l.giornata = presence.giornata
-          AND l.team_id = presence.team_id
-          AND l.league_id = presence.league_id
        )
-       SELECT COUNT(*)::int AS wins
-       FROM linked
-       INNER JOIN official_matches m ON m.id = linked.official_match_id
-       WHERE m.home_score IS NOT NULL
-         AND m.away_score IS NOT NULL
-         AND (
-           (m.home_team_id = linked.team_id AND m.home_score > m.away_score)
-           OR (m.away_team_id = linked.team_id AND m.away_score > m.home_score)
-         )`,
-      [...pids, ...lids],
+       SELECT DISTINCT
+         l.official_match_id AS match_id,
+         l.team_id
+       FROM presence
+       INNER JOIN official_match_matchday_links l
+         ON l.giornata = presence.giornata
+        AND l.team_id = presence.team_id
+        AND (
+          l.league_id = presence.league_id
+          OR l.league_id IN (${leaguesPh})
+        )`,
+      [...pids, ...lids, ...lids],
     );
-    return Number(rows[0]?.wins || 0);
+
+    const teamsByMatch = new Map();
+    for (const row of linkedRows || []) {
+      const mid = Number(row.match_id);
+      const tid = Number(row.team_id);
+      if (!Number.isFinite(mid) || mid <= 0 || !Number.isFinite(tid) || tid <= 0) continue;
+      if (!teamsByMatch.has(mid)) teamsByMatch.set(mid, new Set());
+      teamsByMatch.get(mid).add(tid);
+    }
+
+    const matchIds = [...teamsByMatch.keys()];
+    if (!matchIds.length) return 0;
+
+    const matchPh = matchIds.map(() => '?').join(',');
+    const [matchRows, eventRows, endedRows] = await Promise.all([
+      query(
+        `SELECT id, home_team_id, away_team_id, home_score, away_score
+         FROM official_matches
+         WHERE id IN (${matchPh})`,
+        matchIds,
+      ),
+      query(
+        `SELECT match_id, event_type, team_side, team_id
+         FROM official_match_events
+         WHERE match_id IN (${matchPh})`,
+        matchIds,
+      ),
+      query(
+        `SELECT DISTINCT match_id
+         FROM official_match_events
+         WHERE match_id IN (${matchPh})
+           AND event_type = 'match_end'`,
+        matchIds,
+      ),
+    ]);
+
+    const eventsByMatch = new Map();
+    for (const ev of eventRows || []) {
+      const mid = Number(ev.match_id);
+      if (!eventsByMatch.has(mid)) eventsByMatch.set(mid, []);
+      eventsByMatch.get(mid).push(ev);
+    }
+    const endedMatchIds = new Set(
+      (endedRows || []).map((r) => Number(r.match_id)).filter((id) => id > 0),
+    );
+
+    let wins = 0;
+    for (const m of matchRows || []) {
+      const mid = Number(m.id);
+      const playerTeams = teamsByMatch.get(mid);
+      if (!playerTeams || !playerTeams.size) continue;
+
+      const homeId = Number(m.home_team_id);
+      const awayId = Number(m.away_team_id);
+      const events = eventsByMatch.get(mid) || [];
+      const tallied = tallyOfficialMatchEventScores(events, homeId, awayId);
+
+      let hs = null;
+      let as = null;
+      if (tallied.hasGoalEvents) {
+        hs = Number(tallied.homeGoals) || 0;
+        as = Number(tallied.awayGoals) || 0;
+      } else {
+        const hSet = m.home_score != null && m.home_score !== '';
+        const aSet = m.away_score != null && m.away_score !== '';
+        if (hSet && aSet) {
+          const home = Number(m.home_score);
+          const away = Number(m.away_score);
+          if (Number.isFinite(home) && Number.isFinite(away)) {
+            hs = home;
+            as = away;
+          }
+        } else if (endedMatchIds.has(mid)) {
+          hs = hSet && Number.isFinite(Number(m.home_score)) ? Number(m.home_score) : 0;
+          as = aSet && Number.isFinite(Number(m.away_score)) ? Number(m.away_score) : 0;
+        }
+      }
+
+      if (hs == null && (tallied.hasRigEvents || tallied.hasPreEvents)) hs = 0;
+      if (as == null && (tallied.hasRigEvents || tallied.hasPreEvents)) as = 0;
+      if (!Number.isFinite(hs) || !Number.isFinite(as)) continue;
+
+      const outcome = resolveOfficialMatchOutcome({
+        regHome: hs,
+        regAway: as,
+        preHome: tallied.homePreShootout,
+        preAway: tallied.awayPreShootout,
+        rigHome: tallied.homeRig,
+        rigAway: tallied.awayRig,
+        hasRig: tallied.hasRigEvents,
+      });
+
+      let winnerTeamId = null;
+      if (outcome.home > outcome.away) winnerTeamId = homeId;
+      else if (outcome.away > outcome.home) winnerTeamId = awayId;
+      if (winnerTeamId && playerTeams.has(winnerTeamId)) wins += 1;
+    }
+
+    return wins;
   } catch (_) {
     return 0;
   }

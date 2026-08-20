@@ -17,9 +17,9 @@ import { matchesService, playerStatsService } from '../services/api';
 import { PlayerPhotoImage, TeamLogoImage } from '../components/StableCachedImage';
 
 const SEARCH_DEBOUNCE_MS = 300;
-const PHOTO_WIDTH = 74;
-const PHOTO_HEIGHT = 118;
-const PHOTO_ZOOM = 1.12;
+const PHOTO_WIDTH = 96;
+const PHOTO_HEIGHT = 124;
+const PHOTO_ZOOM = 1.1;
 const ROLE_COLORS = {
   P: '#0d6efd',
   D: '#198754',
@@ -178,34 +178,47 @@ function uniqueCareerTeams(teams) {
   return out;
 }
 
-function CareerLogos({ teams, max = 6, vertical = false }) {
+function CareerLogos({ teams, max = 8 }) {
   const list = uniqueCareerTeams(teams);
   if (!list.length) {
     return <Text style={styles.metaMuted}>—</Text>;
   }
   const shown = list.slice(0, max);
+  const count = shown.length;
+  // Più loghi = più piccoli e più overlap, così restano su una riga
+  const size = count <= 2 ? 26 : count <= 4 ? 22 : count <= 6 ? 18 : 16;
+  const overlap = count <= 2 ? -6 : count <= 4 ? -7 : count <= 6 ? -8 : -9;
+
   return (
-    <View style={[styles.careerLogos, vertical ? styles.careerLogosVertical : null]}>
+    <View style={styles.careerLogos}>
       {shown.map((team, index) => (
         <View
           key={`${team.team_id || team.name}-${index}`}
           style={[
             styles.careerLogoWrap,
-            !vertical && index > 0 ? styles.careerLogoOverlap : null,
-            vertical && index > 0 ? styles.careerLogoOverlapVertical : null,
-            { zIndex: shown.length - index },
+            {
+              width: size,
+              height: size,
+              zIndex: shown.length - index,
+              marginLeft: index > 0 ? overlap : 0,
+            },
           ]}
         >
           <TeamLogoImage
             logoPath={team.logo_path}
-            style={styles.careerLogo}
-            fallbackStyle={styles.careerLogoFallback}
-            fallbackIconSize={10}
+            style={{ width: size, height: size }}
+            fallbackStyle={{
+              width: size,
+              height: size,
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+            fallbackIconSize={Math.max(8, Math.round(size * 0.4))}
           />
         </View>
       ))}
       {list.length > max ? (
-        <Text style={styles.careerLogoMore}>+{list.length - max}</Text>
+        <Text style={[styles.careerLogoMore, { marginLeft: 2 }]}>+{list.length - max}</Text>
       ) : null}
     </View>
   );
@@ -379,8 +392,8 @@ function PlayerHeaderCard({ profile, fallbackName, fallbackPhoto, side, onClear,
   const isLeft = side === 'left';
 
   const metaColumn = (
-    <View style={[styles.pitchMeta, isLeft ? styles.pitchMetaLeft : styles.pitchMetaRight]}>
-      <CareerLogos teams={profile?.career_teams} vertical />
+    <View style={styles.pitchMeta}>
+      <CareerLogos teams={profile?.career_teams} />
       <Text style={styles.headerYear}>{year ? String(year) : '—'}</Text>
     </View>
   );
@@ -1145,66 +1158,42 @@ const styles = StyleSheet.create({
     marginTop: 2,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    alignSelf: 'flex-start',
+    alignSelf: 'stretch',
+    width: '100%',
   },
   pitchRowRight: {
-    alignSelf: 'flex-end',
+    flexDirection: 'row',
   },
   pitchMeta: {
+    flex: 1,
+    minWidth: 0,
+    alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    minWidth: 28,
-  },
-  pitchMetaLeft: {
-    alignItems: 'flex-start',
-  },
-  pitchMetaRight: {
-    alignItems: 'flex-end',
+    paddingHorizontal: 4,
   },
   headerYear: {
     fontSize: 12,
     fontWeight: '700',
     color: '#475569',
+    textAlign: 'center',
   },
   metaMuted: {
     fontSize: 12,
     color: '#cbd5e1',
+    textAlign: 'center',
   },
   careerLogos: {
     flexDirection: 'row',
     alignItems: 'center',
-    minHeight: 24,
-  },
-  careerLogosVertical: {
-    flexDirection: 'column',
-    alignItems: 'center',
-    minHeight: 0,
+    justifyContent: 'center',
+    flexWrap: 'nowrap',
   },
   careerLogoWrap: {
-    width: 24,
-    height: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  careerLogoOverlap: {
-    marginLeft: -8,
-  },
-  careerLogoOverlapVertical: {
-    marginTop: -6,
-  },
-  careerLogo: {
-    width: 24,
-    height: 24,
-  },
-  careerLogoFallback: {
-    width: 24,
-    height: 24,
     alignItems: 'center',
     justifyContent: 'center',
   },
   careerLogoMore: {
-    marginTop: 2,
     fontSize: 10,
     fontWeight: '700',
     color: '#94a3b8',
@@ -1212,6 +1201,7 @@ const styles = StyleSheet.create({
   pitchWrap: {
     alignItems: 'center',
     justifyContent: 'center',
+    flexShrink: 0,
   },
   pitchEmpty: {
     position: 'absolute',
