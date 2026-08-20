@@ -3246,24 +3246,10 @@ export default function MatchDetailScreen({ navigation, route }) {
 
   return (
     <View style={styles.container}>
-      <View style={[styles.header, { paddingTop: Math.max(insets.top + 6, 12) }]}>
-        <TouchableOpacity style={styles.iconBtn} onPress={handleBackNavigation}>
-          <Ionicons name="arrow-back" size={20} color="#333" />
-        </TouchableOpacity>
-        <View style={styles.headerRight}>
-          <TouchableOpacity style={styles.iconBtn} onPress={toggleFavoriteMatch}>
-            <Ionicons name={Number(favorites.match) === 1 ? 'star' : 'star-outline'} size={20} color="#ffc107" />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.iconBtn} onPress={toggleNotifications}>
-            <Ionicons name={Number(notifications.enabled) === 1 ? 'notifications' : 'notifications-outline'} size={20} color="#667eea" />
-          </TouchableOpacity>
-        </View>
-      </View>
-
       {(() => {
         const hasHeroBg = Boolean(matchHeroBgUri);
-        const HeroShell = hasHeroBg ? ImageBackground : View;
-        const heroShellProps = hasHeroBg
+        const TopShell = hasHeroBg ? ImageBackground : View;
+        const topShellProps = hasHeroBg
           ? {
               source: { uri: matchHeroBgUri },
               resizeMode: 'cover',
@@ -3273,127 +3259,193 @@ export default function MatchDetailScreen({ navigation, route }) {
         const ringTrack = hasHeroBg ? HERO_RING_TRACK_ON_BG : HERO_RING_TRACK;
         const ringProgress = hasHeroBg ? HERO_RING_PROGRESS_ON_BG : HERO_RING_PROGRESS;
         const scorerBallColor = hasHeroBg ? HERO_MINUTE_COLOR_ON_BG : HERO_MINUTE_COLOR;
-        return (
-          <HeroShell
-            {...heroShellProps}
+        const iconColor = hasHeroBg ? '#fff' : '#333';
+        const bellColor = hasHeroBg ? '#fff' : '#667eea';
+        const headerPadTop = Math.max(insets.top + 6, 12);
+
+        const headerRow = (
+          <View
             style={[
-              styles.heroColumn,
-              hasHeroBg && styles.heroColumnWithBg,
-              showHeroScorerList && styles.heroColumnWithScorersBelow,
+              styles.header,
+              hasHeroBg ? styles.headerOnBg : null,
+              { paddingTop: headerPadTop },
             ]}
           >
-            {hasHeroBg ? <View style={styles.heroBgScrim} pointerEvents="none" /> : null}
-            <View style={hasHeroBg ? styles.heroBgForeground : undefined}>
-              <View style={[styles.heroTopRow, showHeroScorerList && styles.heroTopRowWithScorersBelow]}>
-                <View style={styles.teamSlot}>
-                  <TouchableOpacity activeOpacity={0.75} onPress={() => openOfficialTeamDetail(match.home_team_id, match.home_team_name)}>
-                    <HeroTeamLogo logoUrl={match.home_team_logo_url} logoPath={match.home_team_logo_path} />
-                  </TouchableOpacity>
-                  <Text style={[styles.team, hasHeroBg && styles.teamOnBg]} numberOfLines={2}>
-                    {match.home_team_name || '-'}
-                  </Text>
-                </View>
-                <View style={styles.centerCol}>
-                  {heroClock.variant === 'running' ? (
-                    <View style={styles.heroRingWrap}>
-                      <MatchMinuteRing
-                        size={HERO_RING_SIZE}
-                        stroke={HERO_RING_STROKE}
-                        trackColor={ringTrack}
-                        progressColor={ringProgress}
-                        progress={heroClock.ringProgress}
-                        minuteStr={heroClock.minuteStr}
-                        minuteTextStyle={[styles.heroMinuteText, hasHeroBg && styles.heroMinuteTextOnBg]}
-                        minimumFontScale={0.65}
-                        centerPaddingH={6}
-                      />
-                    </View>
-                  ) : (
-                    <Text
-                      style={[
-                        styles.countdown,
-                        hasHeroBg && styles.countdownOnBg,
-                        (heroPhaseMainText === 'PT' ||
-                          heroPhaseMainText === 'FT' ||
-                          heroPhaseMainText === 'PT sup' ||
-                          heroPhaseMainText === 'FT sup' ||
-                          heroPhaseMainText === 'Rigori' ||
-                          heroPhaseMainText === OFFICIAL_MATCH_END_LABEL ||
-                          heroPhaseMainText === OFFICIAL_WALKOVER_END_LABEL) &&
-                          (hasHeroBg ? styles.heroStaticPtFtOnBg : styles.heroStaticPtFt),
-                      ]}
-                    >
-                      {heroPhaseMainText}
-                    </Text>
-                  )}
-                  {rigoriHeroLabel ? (
-                    <Text style={[styles.heroShootoutScoreLine, hasHeroBg && styles.heroShootoutScoreLineOnBg]}>
-                      {rigoriHeroLabel}
-                    </Text>
-                  ) : null}
-                  {showHeroLiveScore ? (
-                    <Text
-                      style={[styles.heroLiveScore, hasHeroBg && styles.heroLiveScoreOnBg]}
-                      accessibilityLiveRegion="polite"
-                      accessibilityLabel={`Risultato ${displayScorePreview.home} a ${displayScorePreview.away}`}
-                    >
-                      {displayScorePreview.home} – {displayScorePreview.away}
-                    </Text>
-                  ) : null}
-                  {heroClock.showSub && heroClock.sub ? (
-                    <Text style={[styles.kickoff, hasHeroBg && styles.kickoffOnBg]}>{heroClock.sub}</Text>
-                  ) : null}
-                </View>
-                <View style={styles.teamSlot}>
-                  <TouchableOpacity activeOpacity={0.75} onPress={() => openOfficialTeamDetail(match.away_team_id, match.away_team_name)}>
-                    <HeroTeamLogo logoUrl={match.away_team_logo_url} logoPath={match.away_team_logo_path} />
-                  </TouchableOpacity>
-                  <Text style={[styles.team, hasHeroBg && styles.teamOnBg]} numberOfLines={2}>
-                    {match.away_team_name || '-'}
-                  </Text>
-                </View>
+            <TouchableOpacity
+              style={[styles.iconBtn, hasHeroBg && styles.iconBtnOnBg]}
+              onPress={handleBackNavigation}
+            >
+              <Ionicons name="arrow-back" size={20} color={iconColor} />
+            </TouchableOpacity>
+            <View style={styles.headerRight}>
+              <TouchableOpacity
+                style={[styles.iconBtn, hasHeroBg && styles.iconBtnOnBg]}
+                onPress={toggleFavoriteMatch}
+              >
+                <Ionicons
+                  name={Number(favorites.match) === 1 ? 'star' : 'star-outline'}
+                  size={20}
+                  color="#ffc107"
+                />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.iconBtn, hasHeroBg && styles.iconBtnOnBg]}
+                onPress={toggleNotifications}
+              >
+                <Ionicons
+                  name={Number(notifications.enabled) === 1 ? 'notifications' : 'notifications-outline'}
+                  size={20}
+                  color={bellColor}
+                />
+              </TouchableOpacity>
+            </View>
+          </View>
+        );
+
+        const heroBody = (
+          <>
+            <View style={[styles.heroTopRow, showHeroScorerList && styles.heroTopRowWithScorersBelow]}>
+              <View style={styles.teamSlot}>
+                <TouchableOpacity activeOpacity={0.75} onPress={() => openOfficialTeamDetail(match.home_team_id, match.home_team_name)}>
+                  <HeroTeamLogo logoUrl={match.home_team_logo_url} logoPath={match.home_team_logo_path} />
+                </TouchableOpacity>
+                <Text style={[styles.team, hasHeroBg && styles.teamOnBg]} numberOfLines={2}>
+                  {match.home_team_name || '-'}
+                </Text>
               </View>
-              {showHeroScorerList ? (
-                <View style={styles.heroScorersSection}>
-                  <View style={styles.heroScorersRow} accessibilityLabel="Marcatori">
-                    <View style={styles.heroScorersHome}>
-                      {heroScorerBlocks.homeLines.map((line, i) => (
-                        <Text
-                          key={`hs-${i}`}
-                          style={[
-                            styles.heroScorerLine,
-                            styles.heroScorerLineHome,
-                            hasHeroBg && styles.heroScorerLineOnBg,
-                          ]}
-                          numberOfLines={6}
-                        >
-                          {line}
-                        </Text>
-                      ))}
-                    </View>
-                    <View style={styles.heroScorersBallColumn}>
-                      <MaterialCommunityIcons name="soccer" size={22} color={scorerBallColor} />
-                    </View>
-                    <View style={styles.heroScorersAway}>
-                      {heroScorerBlocks.awayLines.map((line, i) => (
-                        <Text
-                          key={`as-${i}`}
-                          style={[
-                            styles.heroScorerLine,
-                            styles.heroScorerLineAway,
-                            hasHeroBg && styles.heroScorerLineOnBg,
-                          ]}
-                          numberOfLines={6}
-                        >
-                          {line}
-                        </Text>
-                      ))}
-                    </View>
+              <View style={styles.centerCol}>
+                {heroClock.variant === 'running' ? (
+                  <View style={styles.heroRingWrap}>
+                    <MatchMinuteRing
+                      size={HERO_RING_SIZE}
+                      stroke={HERO_RING_STROKE}
+                      trackColor={ringTrack}
+                      progressColor={ringProgress}
+                      progress={heroClock.ringProgress}
+                      minuteStr={heroClock.minuteStr}
+                      minuteTextStyle={[styles.heroMinuteText, hasHeroBg && styles.heroMinuteTextOnBg]}
+                      minimumFontScale={0.65}
+                      centerPaddingH={6}
+                    />
+                  </View>
+                ) : (
+                  <Text
+                    style={[
+                      styles.countdown,
+                      hasHeroBg && styles.countdownOnBg,
+                      (heroPhaseMainText === 'PT' ||
+                        heroPhaseMainText === 'FT' ||
+                        heroPhaseMainText === 'PT sup' ||
+                        heroPhaseMainText === 'FT sup' ||
+                        heroPhaseMainText === 'Rigori' ||
+                        heroPhaseMainText === OFFICIAL_MATCH_END_LABEL ||
+                        heroPhaseMainText === OFFICIAL_WALKOVER_END_LABEL) &&
+                        (hasHeroBg ? styles.heroStaticPtFtOnBg : styles.heroStaticPtFt),
+                    ]}
+                  >
+                    {heroPhaseMainText}
+                  </Text>
+                )}
+                {rigoriHeroLabel ? (
+                  <Text style={[styles.heroShootoutScoreLine, hasHeroBg && styles.heroShootoutScoreLineOnBg]}>
+                    {rigoriHeroLabel}
+                  </Text>
+                ) : null}
+                {showHeroLiveScore ? (
+                  <Text
+                    style={[styles.heroLiveScore, hasHeroBg && styles.heroLiveScoreOnBg]}
+                    accessibilityLiveRegion="polite"
+                    accessibilityLabel={`Risultato ${displayScorePreview.home} a ${displayScorePreview.away}`}
+                  >
+                    {displayScorePreview.home} – {displayScorePreview.away}
+                  </Text>
+                ) : null}
+                {heroClock.showSub && heroClock.sub ? (
+                  <Text style={[styles.kickoff, hasHeroBg && styles.kickoffOnBg]}>{heroClock.sub}</Text>
+                ) : null}
+              </View>
+              <View style={styles.teamSlot}>
+                <TouchableOpacity activeOpacity={0.75} onPress={() => openOfficialTeamDetail(match.away_team_id, match.away_team_name)}>
+                  <HeroTeamLogo logoUrl={match.away_team_logo_url} logoPath={match.away_team_logo_path} />
+                </TouchableOpacity>
+                <Text style={[styles.team, hasHeroBg && styles.teamOnBg]} numberOfLines={2}>
+                  {match.away_team_name || '-'}
+                </Text>
+              </View>
+            </View>
+            {showHeroScorerList ? (
+              <View style={styles.heroScorersSection}>
+                <View style={styles.heroScorersRow} accessibilityLabel="Marcatori">
+                  <View style={styles.heroScorersHome}>
+                    {heroScorerBlocks.homeLines.map((line, i) => (
+                      <Text
+                        key={`hs-${i}`}
+                        style={[
+                          styles.heroScorerLine,
+                          styles.heroScorerLineHome,
+                          hasHeroBg && styles.heroScorerLineOnBg,
+                        ]}
+                        numberOfLines={6}
+                      >
+                        {line}
+                      </Text>
+                    ))}
+                  </View>
+                  <View style={styles.heroScorersBallColumn}>
+                    <MaterialCommunityIcons name="soccer" size={22} color={scorerBallColor} />
+                  </View>
+                  <View style={styles.heroScorersAway}>
+                    {heroScorerBlocks.awayLines.map((line, i) => (
+                      <Text
+                        key={`as-${i}`}
+                        style={[
+                          styles.heroScorerLine,
+                          styles.heroScorerLineAway,
+                          hasHeroBg && styles.heroScorerLineOnBg,
+                        ]}
+                        numberOfLines={6}
+                      >
+                        {line}
+                      </Text>
+                    ))}
                   </View>
                 </View>
-              ) : null}
+              </View>
+            ) : null}
+          </>
+        );
+
+        if (hasHeroBg) {
+          return (
+            <TopShell
+              {...topShellProps}
+              style={[
+                styles.heroColumn,
+                styles.heroColumnWithBg,
+                showHeroScorerList && styles.heroColumnWithScorersBelow,
+              ]}
+            >
+              <View style={styles.heroBgScrim} pointerEvents="none" />
+              <View style={styles.heroBgForeground}>
+                {headerRow}
+                {heroBody}
+              </View>
+            </TopShell>
+          );
+        }
+
+        return (
+          <>
+            {headerRow}
+            <View
+              style={[
+                styles.heroColumn,
+                showHeroScorerList && styles.heroColumnWithScorersBelow,
+              ]}
+            >
+              {heroBody}
             </View>
-          </HeroShell>
+          </>
         );
       })()}
 
@@ -5365,8 +5417,16 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f5f5f5' },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   header: { backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#ececec', paddingHorizontal: 12, paddingBottom: 10, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  headerOnBg: {
+    backgroundColor: 'transparent',
+    borderBottomWidth: 0,
+  },
   headerRight: { flexDirection: 'row', gap: 8 },
   iconBtn: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#ddd', backgroundColor: '#fff' },
+  iconBtnOnBg: {
+    backgroundColor: 'rgba(255,255,255,0.16)',
+    borderColor: 'rgba(255,255,255,0.32)',
+  },
   heroColumn: {
     width: '100%',
     backgroundColor: '#fff',
