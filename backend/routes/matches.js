@@ -815,6 +815,7 @@ async function buildBestOfficialTeamLogoMap(competitionIds, canSeeAdminOnly) {
       WHERE m.competition_id IN (${ph})
         AND (? = 1 OR COALESCE(m.is_admin_only, 0) = 0)
         AND COALESCE(l.is_official_squad_public, 0) = 1
+        AND COALESCE(l.is_hidden_from_discovery, 0) = 0
       UNION
       SELECT DISTINCT m.competition_id, l.id AS league_id
       FROM official_matches m
@@ -822,6 +823,7 @@ async function buildBestOfficialTeamLogoMap(competitionIds, canSeeAdminOnly) {
       WHERE m.competition_id IN (${ph})
         AND (? = 1 OR COALESCE(m.is_admin_only, 0) = 0)
         AND COALESCE(l.is_official_squad_public, 0) = 1
+        AND COALESCE(l.is_hidden_from_discovery, 0) = 0
         AND m.league_id IS NOT NULL
     ),
     ranked AS (
@@ -846,6 +848,7 @@ async function buildBestOfficialTeamLogoMap(competitionIds, canSeeAdminOnly) {
         ON lwm.league_id = l.id AND lwm.competition_id = l.official_group_id
       WHERE l.official_group_id IN (${ph})
         AND COALESCE(l.is_official_squad_public, 0) = 1
+        AND COALESCE(l.is_hidden_from_discovery, 0) = 0
     )
     SELECT competition_id, team_name_norm, logo_path
     FROM ranked
@@ -2287,6 +2290,7 @@ async function fetchSearchCareerTeamRows(playerIds, competitionIds) {
       AND l.official_group_id IN (${gPh})
       AND COALESCE(l.is_official, 0) = 1
       AND COALESCE(l.is_official_squad_public, 0) = 1
+        AND COALESCE(l.is_hidden_from_discovery, 0) = 0
     `,
     [...pids, ...gids],
   );
@@ -2406,7 +2410,10 @@ router.get('/matches/search', authenticateToken, async (req, res) => {
           LEFT JOIN leagues l ON l.id = t.league_id
           WHERE m.competition_id IN (${ph})
             AND (? = 1 OR COALESCE(m.is_admin_only, 0) = 0)
-            AND (l.id IS NULL OR COALESCE(l.is_official_squad_public, 0) = 1)
+            AND (l.id IS NULL OR (
+              COALESCE(l.is_official_squad_public, 0) = 1
+              AND COALESCE(l.is_hidden_from_discovery, 0) = 0
+            ))
           UNION ALL
           SELECT m.competition_id, t.id AS team_id, t.name AS team_name
           FROM official_matches m
@@ -2414,7 +2421,10 @@ router.get('/matches/search', authenticateToken, async (req, res) => {
           LEFT JOIN leagues l ON l.id = t.league_id
           WHERE m.competition_id IN (${ph})
             AND (? = 1 OR COALESCE(m.is_admin_only, 0) = 0)
-            AND (l.id IS NULL OR COALESCE(l.is_official_squad_public, 0) = 1)
+            AND (l.id IS NULL OR (
+              COALESCE(l.is_official_squad_public, 0) = 1
+              AND COALESCE(l.is_hidden_from_discovery, 0) = 0
+            ))
         ),
         ranked AS (
           SELECT
@@ -2455,6 +2465,7 @@ router.get('/matches/search', authenticateToken, async (req, res) => {
         WHERE l.official_group_id IN (${ph})
           AND COALESCE(l.is_official, 0) = 1
           AND COALESCE(l.is_official_squad_public, 0) = 1
+        AND COALESCE(l.is_hidden_from_discovery, 0) = 0
           AND COALESCE(og.is_match_competition_enabled, 1) = 1
           AND (
             LOWER(COALESCE(p.first_name, '')) LIKE LOWER(?)
@@ -3134,6 +3145,7 @@ router.get('/matches/teams/:teamId/detail', authenticateToken, async (req, res) 
          INNER JOIN leagues l ON l.id = t.league_id
          WHERE l.official_group_id = ?
            AND COALESCE(l.is_official_squad_public, 0) = 1
+        AND COALESCE(l.is_hidden_from_discovery, 0) = 0
            AND LOWER(TRIM(t.name)) = LOWER(TRIM(?))
          ORDER BY
            CASE WHEN COALESCE(NULLIF(t.logo_path, ''), '') <> '' THEN 0 ELSE 1 END ASC,
@@ -3281,6 +3293,7 @@ ${SQL_WALKOVER_MATCHES_CTE}
           WHERE pub_l.id = COALESCE(NULLIF(m.league_id, 0), ht.league_id)
             AND COALESCE(pub_l.is_official, 0) = 1
             AND COALESCE(pub_l.is_official_squad_public, 0) = 1
+            AND COALESCE(pub_l.is_hidden_from_discovery, 0) = 0
         )
       ORDER BY m.kickoff_at ASC, m.id ASC
       `,
@@ -3348,6 +3361,7 @@ router.get('/matches/teams/:teamId/season-standings', authenticateToken, async (
       INNER JOIN leagues l ON l.official_group_id = ?
         AND COALESCE(l.is_official, 0) = 1
         AND COALESCE(l.is_official_squad_public, 0) = 1
+        AND COALESCE(l.is_hidden_from_discovery, 0) = 0
       INNER JOIN teams t ON t.league_id = l.id AND LOWER(TRIM(t.name)) = LOWER(TRIM(root.name))
       WHERE root.id = ?
       GROUP BY root.id, root.name, l.id, NULLIF(to_jsonb(l)->>'reference_year','')::int
@@ -3435,7 +3449,9 @@ router.get('/matches/teams/:teamId/season-squad', authenticateToken, async (req,
         l.id AS league_id, NULLIF(to_jsonb(l)->>'reference_year','')::int AS reference_year
       FROM teams root
       INNER JOIN leagues l ON l.official_group_id = ?
-        AND COALESCE(l.is_official, 0) = 1 AND COALESCE(l.is_official_squad_public, 0) = 1
+        AND COALESCE(l.is_official, 0) = 1
+        AND COALESCE(l.is_official_squad_public, 0) = 1
+        AND COALESCE(l.is_hidden_from_discovery, 0) = 0
       INNER JOIN teams t ON t.league_id = l.id AND LOWER(TRIM(t.name)) = LOWER(TRIM(root.name))
       WHERE root.id = ?
       GROUP BY root.id, root.name, l.id, NULLIF(to_jsonb(l)->>'reference_year','')::int
@@ -4259,7 +4275,9 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
         l.id AS league_id, NULLIF(to_jsonb(l)->>'reference_year','')::int AS reference_year
       FROM teams root
       INNER JOIN leagues l ON l.official_group_id = ?
-        AND COALESCE(l.is_official, 0) = 1 AND COALESCE(l.is_official_squad_public, 0) = 1
+        AND COALESCE(l.is_official, 0) = 1
+        AND COALESCE(l.is_official_squad_public, 0) = 1
+        AND COALESCE(l.is_hidden_from_discovery, 0) = 0
       INNER JOIN teams t ON t.league_id = l.id AND LOWER(TRIM(t.name)) = LOWER(TRIM(root.name))
       WHERE root.id = ?
       GROUP BY root.id, root.name, l.id, NULLIF(to_jsonb(l)->>'reference_year','')::int
@@ -4727,7 +4745,9 @@ router.get('/matches/teams/:teamId/opponent-records', authenticateToken, async (
         l.id AS league_id, NULLIF(to_jsonb(l)->>'reference_year','')::int AS reference_year
       FROM teams root
       INNER JOIN leagues l ON l.official_group_id = ?
-        AND COALESCE(l.is_official, 0) = 1 AND COALESCE(l.is_official_squad_public, 0) = 1
+        AND COALESCE(l.is_official, 0) = 1
+        AND COALESCE(l.is_official_squad_public, 0) = 1
+        AND COALESCE(l.is_hidden_from_discovery, 0) = 0
       INNER JOIN teams t ON t.league_id = l.id AND LOWER(TRIM(t.name)) = LOWER(TRIM(root.name))
       WHERE root.id = ?
       GROUP BY root.id, root.name, l.id, NULLIF(to_jsonb(l)->>'reference_year','')::int
@@ -4992,6 +5012,7 @@ async function listOfficialGroupSeasonLeagues(competitionId) {
      WHERE l.official_group_id = ?
        AND COALESCE(l.is_official, 0) = 1
        AND COALESCE(l.is_official_squad_public, 0) = 1
+       AND COALESCE(l.is_hidden_from_discovery, 0) = 0
      ORDER BY NULLIF(to_jsonb(l)->>'reference_year','')::int DESC NULLS LAST, l.id DESC`,
     [competitionId]
   );
@@ -6007,6 +6028,7 @@ async function queryOfficialGroupMatchYears({ userId, groupId }) {
         )
           AND COALESCE(pub_l.is_official, 0) = 1
           AND COALESCE(pub_l.is_official_squad_public, 0) = 1
+            AND COALESCE(pub_l.is_hidden_from_discovery, 0) = 0
       )
     ORDER BY kickoff_year DESC
     `,
@@ -6057,6 +6079,7 @@ async function queryOfficialGroupMatchesRows({ userId, groupId, kickoffYear = nu
           )
             AND COALESCE(pub_l.is_official, 0) = 1
             AND COALESCE(pub_l.is_official_squad_public, 0) = 1
+            AND COALESCE(pub_l.is_hidden_from_discovery, 0) = 0
         )
     ),
     last_phase AS (
@@ -6850,7 +6873,10 @@ router.get('/matches/follow-setup', authenticateToken, async (req, res) => {
           LEFT JOIN leagues l ON l.id = t.league_id
           WHERE m.competition_id IN (${compIds.map(() => '?').join(', ')})
             AND (? = 1 OR COALESCE(m.is_admin_only, 0) = 0)
-            AND (l.id IS NULL OR COALESCE(l.is_official_squad_public, 0) = 1)
+            AND (l.id IS NULL OR (
+              COALESCE(l.is_official_squad_public, 0) = 1
+              AND COALESCE(l.is_hidden_from_discovery, 0) = 0
+            ))
 
           UNION ALL
 
@@ -6863,7 +6889,10 @@ router.get('/matches/follow-setup', authenticateToken, async (req, res) => {
           LEFT JOIN leagues l ON l.id = t.league_id
           WHERE m.competition_id IN (${compIds.map(() => '?').join(', ')})
             AND (? = 1 OR COALESCE(m.is_admin_only, 0) = 0)
-            AND (l.id IS NULL OR COALESCE(l.is_official_squad_public, 0) = 1)
+            AND (l.id IS NULL OR (
+              COALESCE(l.is_official_squad_public, 0) = 1
+              AND COALESCE(l.is_hidden_from_discovery, 0) = 0
+            ))
         ),
         ranked AS (
           SELECT

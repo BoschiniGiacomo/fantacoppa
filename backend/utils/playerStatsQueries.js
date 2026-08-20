@@ -271,6 +271,7 @@ async function fetchPlayerPenaltyGoalsCount(playerIds) {
            )
              AND COALESCE(pub_l.is_official, 0) = 1
              AND COALESCE(pub_l.is_official_squad_public, 0) = 1
+             AND COALESCE(pub_l.is_hidden_from_discovery, 0) = 0
          )`,
       ids,
     );

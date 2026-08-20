@@ -95,7 +95,8 @@ async function resolveAggregatedPlayerContext(playerId, leagueId) {
      FROM leagues
      WHERE official_group_id = ?
        AND COALESCE(is_official, 0) = 1
-       AND COALESCE(is_official_squad_public, 0) = 1`,
+       AND COALESCE(is_official_squad_public, 0) = 1
+       AND COALESCE(is_hidden_from_discovery, 0) = 0`,
     [groupId]
   );
   const groupLeagueIds = groupLeagueRows.map((r) => Number(r.id)).filter((n) => Number.isFinite(n) && n > 0);
@@ -946,7 +947,8 @@ async function resolveCompareLeagueIds(groupId, editionRows, fallbackLeagueId) {
        FROM leagues
        WHERE official_group_id = ?
          AND COALESCE(is_official, 0) = 1
-         AND COALESCE(is_official_squad_public, 0) = 1`,
+         AND COALESCE(is_official_squad_public, 0) = 1
+         AND COALESCE(is_hidden_from_discovery, 0) = 0`,
       [groupId],
     );
     const ids = (groupLeagueRows || [])
@@ -983,6 +985,7 @@ async function fetchPlayerPenaltyGoals(playerIds) {
            )
              AND COALESCE(pub_l.is_official, 0) = 1
              AND COALESCE(pub_l.is_official_squad_public, 0) = 1
+             AND COALESCE(pub_l.is_hidden_from_discovery, 0) = 0
          )`,
       ids,
     );
@@ -1210,7 +1213,8 @@ async function resolveGroupLatestReferenceYear(groupId, leagueIds = []) {
          FROM leagues l
          WHERE l.official_group_id = ?
            AND COALESCE(is_official, 0) = 1
-           AND COALESCE(is_official_squad_public, 0) = 1`,
+           AND COALESCE(is_official_squad_public, 0) = 1
+           AND COALESCE(is_hidden_from_discovery, 0) = 0`,
         [groupId],
       );
       const y = Number(rows?.[0]?.max_year);
