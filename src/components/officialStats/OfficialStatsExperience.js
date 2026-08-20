@@ -1283,6 +1283,7 @@ export default function OfficialStatsExperience({
           style={styles.scroll}
           contentContainerStyle={[
             styles.scrollContent,
+            contentInsetTop > 0 ? styles.scrollContentWithInset : null,
             contentMinHeight > 0 ? { minHeight: contentMinHeight } : null,
           ]}
           showsVerticalScrollIndicator={false}
@@ -1296,110 +1297,112 @@ export default function OfficialStatsExperience({
           scrollEventThrottle={16}
         >
           {contentInsetTop > 0 ? <View style={{ height: contentInsetTop }} pointerEvents="none" /> : null}
-          {contentInsetTop > 0 ? (
-            <>
-              <PeriodSelector years={years} selectedYear={selectedYear} onSelectYear={onSelectYear} />
-              <StatsSearchBar
-                value={query}
-                onChange={(text) => {
-                  setQuery(text);
-                  setExpanded(false);
-                }}
-                placeholder={searchPlaceholder}
-              />
-              {!searching ? (
-                <CategoryChips
-                  boards={displayBoards}
-                  selectedKey={activeBoard?.key}
-                  onSelect={(key) => selectBoardAndScroll(key, true)}
+          <View style={contentInsetTop > 0 ? styles.insetCard : null}>
+            {contentInsetTop > 0 ? (
+              <>
+                <PeriodSelector years={years} selectedYear={selectedYear} onSelectYear={onSelectYear} />
+                <StatsSearchBar
+                  value={query}
+                  onChange={(text) => {
+                    setQuery(text);
+                    setExpanded(false);
+                  }}
+                  placeholder={searchPlaceholder}
                 />
-              ) : null}
-            </>
-          ) : null}
-          {loading ? (
-            <View style={styles.loadingBox}>
-              <ActivityIndicator color="#667eea" />
-            </View>
-          ) : searching ? (
-            searchHits.length === 0 ? (
-              <Text style={styles.emptyText}>Nessun giocatore trovato.</Text>
-            ) : (
-              searchHits.map((hit, idx) => (
-                <Animated.View
-                  key={`search-${hit.board.key}`}
-                  entering={FadeIn.delay(idx * 40).duration(220)}
-                  style={styles.searchGroup}
-                >
-                  <View style={styles.boardHead}>
-                    <View style={[styles.boardIcon, { backgroundColor: `${hit.board.accent}18` }]}>
-                      <BoardGlyph board={hit.board} size={15} color={hit.board.accent} />
-                    </View>
-                    <Text style={styles.boardTitle}>{hit.board.label}</Text>
-                    <Text style={styles.boardCount}>{hit.items.length}</Text>
-                  </View>
-                  <LeaderboardList
-                    board={{ ...hit.board, items: hit.items }}
-                    expanded
-                    onToggleExpand={() => {}}
-                    onPressPlayer={onPressPlayer}
-                    query={normalizedQuery}
-                    includeTeam={searchIncludesTeam}
-                    animKey={`${selectedYear}-search-${hit.board.key}`}
+                {!searching ? (
+                  <CategoryChips
+                    boards={displayBoards}
+                    selectedKey={activeBoard?.key}
+                    onSelect={(key) => selectBoardAndScroll(key, true)}
                   />
-                </Animated.View>
-              ))
-            )
-          ) : (
-            <>
-              {teamHighlights ? (
-                <View style={styles.overviewBlock}>
-                  <GroupHighlights
-                    highlights={teamHighlights}
-                    onPressTeam={onPressTeam}
-                    onPressMatch={onPressMatch}
-                  />
-                </View>
-              ) : null}
-              {general ? (
-                <View style={styles.overviewBlock}>
-                  <TeamGeneral general={general} outcomes={outcomes} onPressMatch={onPressMatch} />
-                  {extraAfterOverview}
-                </View>
-              ) : null}
-
-              <View style={styles.playersSection}>
-                <View style={styles.playersSectionHead}>
-                  <Text style={styles.playersSectionKicker}>Classifiche</Text>
-                  <Text style={styles.playersSectionTitle}>Giocatori</Text>
-                </View>
-                <TeaserStrip
-                  boards={displayBoards}
-                  showTeamName={searchIncludesTeam}
-                  onSelect={(key) => selectBoardAndScroll(key, true)}
-                />
-
-                {activeBoard ? (
-                  <View style={styles.boardBlock}>
+                ) : null}
+              </>
+            ) : null}
+            {loading ? (
+              <View style={styles.loadingBox}>
+                <ActivityIndicator color="#667eea" />
+              </View>
+            ) : searching ? (
+              searchHits.length === 0 ? (
+                <Text style={styles.emptyText}>Nessun giocatore trovato.</Text>
+              ) : (
+                searchHits.map((hit, idx) => (
+                  <Animated.View
+                    key={`search-${hit.board.key}`}
+                    entering={FadeIn.delay(idx * 40).duration(220)}
+                    style={styles.searchGroup}
+                  >
                     <View style={styles.boardHead}>
-                      <View style={[styles.boardIcon, { backgroundColor: `${activeBoard.accent}18` }]}>
-                        <BoardGlyph board={activeBoard} size={16} color={activeBoard.accent} />
+                      <View style={[styles.boardIcon, { backgroundColor: `${hit.board.accent}18` }]}>
+                        <BoardGlyph board={hit.board} size={15} color={hit.board.accent} />
                       </View>
-                      <Text style={styles.boardTitle}>{activeBoard.label}</Text>
+                      <Text style={styles.boardTitle}>{hit.board.label}</Text>
+                      <Text style={styles.boardCount}>{hit.items.length}</Text>
                     </View>
                     <LeaderboardList
-                      board={activeBoard}
-                      expanded={expanded}
-                      onToggleExpand={() => setExpanded((v) => !v)}
+                      board={{ ...hit.board, items: hit.items }}
+                      expanded
+                      onToggleExpand={() => {}}
                       onPressPlayer={onPressPlayer}
-                      query=""
+                      query={normalizedQuery}
                       includeTeam={searchIncludesTeam}
-                      animKey={`${selectedYear}-${activeBoard.key}`}
+                      animKey={`${selectedYear}-search-${hit.board.key}`}
+                    />
+                  </Animated.View>
+                ))
+              )
+            ) : (
+              <>
+                {teamHighlights ? (
+                  <View style={styles.overviewBlock}>
+                    <GroupHighlights
+                      highlights={teamHighlights}
+                      onPressTeam={onPressTeam}
+                      onPressMatch={onPressMatch}
                     />
                   </View>
                 ) : null}
-              </View>
-            </>
-          )}
+                {general ? (
+                  <View style={styles.overviewBlock}>
+                    <TeamGeneral general={general} outcomes={outcomes} onPressMatch={onPressMatch} />
+                    {extraAfterOverview}
+                  </View>
+                ) : null}
+
+                <View style={styles.playersSection}>
+                  <View style={styles.playersSectionHead}>
+                    <Text style={styles.playersSectionKicker}>Classifiche</Text>
+                    <Text style={styles.playersSectionTitle}>Giocatori</Text>
+                  </View>
+                  <TeaserStrip
+                    boards={displayBoards}
+                    showTeamName={searchIncludesTeam}
+                    onSelect={(key) => selectBoardAndScroll(key, true)}
+                  />
+
+                  {activeBoard ? (
+                    <View style={styles.boardBlock}>
+                      <View style={styles.boardHead}>
+                        <View style={[styles.boardIcon, { backgroundColor: `${activeBoard.accent}18` }]}>
+                          <BoardGlyph board={activeBoard} size={16} color={activeBoard.accent} />
+                        </View>
+                        <Text style={styles.boardTitle}>{activeBoard.label}</Text>
+                      </View>
+                      <LeaderboardList
+                        board={activeBoard}
+                        expanded={expanded}
+                        onToggleExpand={() => setExpanded((v) => !v)}
+                        onPressPlayer={onPressPlayer}
+                        query=""
+                        includeTeam={searchIncludesTeam}
+                        animKey={`${selectedYear}-${activeBoard.key}`}
+                      />
+                    </View>
+                  ) : null}
+                </View>
+              </>
+            )}
+          </View>
         </ScrollView>
       )}
     </View>
@@ -1411,6 +1414,19 @@ const styles = StyleSheet.create({
   hScroll: { flexGrow: 0 },
   catScroll: { flexGrow: 0, marginBottom: 6 },
   chipRow: { gap: 8, paddingRight: 4, paddingBottom: 2 },
+  scroll: { flex: 1 },
+  scrollContent: { paddingBottom: 16, paddingTop: 4 },
+  scrollContentWithInset: { paddingTop: 0, paddingBottom: 12 },
+  insetCard: {
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#ececec',
+    paddingHorizontal: 8,
+    paddingTop: 12,
+    paddingBottom: 12,
+    overflow: 'hidden',
+  },
   periodWrap: { marginBottom: 2, position: 'relative' },
   periodControl: {
     height: 38,
@@ -1507,8 +1523,6 @@ const styles = StyleSheet.create({
   catCountText: { fontSize: 10, fontWeight: '800', color: '#64748b' },
   catCountTextActive: { color: '#fff' },
   loadingBox: { flex: 1, alignItems: 'center', justifyContent: 'center', minHeight: 160 },
-  scroll: { flex: 1 },
-  scrollContent: { paddingBottom: 16, paddingTop: 4 },
   emptyText: { fontSize: 13, color: '#64748b', paddingVertical: 10 },
   overviewBlock: { marginBottom: 14 },
   sectionEyebrow: {

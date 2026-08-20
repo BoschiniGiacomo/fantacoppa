@@ -1279,7 +1279,7 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
             ) : null}
           </ScrollView>
         ) : activeTab === 'stats' ? (
-          <View style={[styles.card, styles.teamCard, styles.statsCard]}>
+          <View style={styles.statsTabHost}>
             <OfficialStatsExperience
               scrollRef={statsScrollRef}
               contentInsetTop={overlayPad}
@@ -1545,9 +1545,10 @@ const styles = StyleSheet.create({
     minHeight: 130,
   },
   matchesCard: { flex: 1, minHeight: 0, paddingTop: 8, paddingBottom: 8, paddingHorizontal: 0 },
+  statsTabHost: { flex: 1, minHeight: 0 },
   teamCard: { flex: 1, minHeight: 0 },
   statsCard: { paddingHorizontal: 10, paddingTop: 12, paddingBottom: 12 },
-  seasonCard: { flex: 1, minHeight: 0, paddingHorizontal: 8, paddingTop: 12, paddingBottom: 12 },
+  seasonCard: { flexGrow: 1, minHeight: 0, paddingHorizontal: 8, paddingTop: 12, paddingBottom: 12 },
   seasonScroll: { flex: 1, marginHorizontal: -12 },
   seasonScrollContent: { paddingBottom: 8, paddingHorizontal: 12 },
   matchesLoadingBox: { minHeight: 120, alignItems: 'center', justifyContent: 'center' },

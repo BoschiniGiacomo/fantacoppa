@@ -1532,7 +1532,7 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
             )}
           </View>
         ) : activeTab === 'stats' ? (
-          <View style={[styles.card, styles.teamCard, styles.statsCard]}>
+          <View style={styles.statsTabHost}>
             <OfficialStatsExperience
               scrollRef={statsScrollRef}
               contentInsetTop={overlayPad}
@@ -1687,16 +1687,19 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
             />
           </View>
         ) : activeTab === 'team' ? (
-          <View style={[styles.card, styles.teamCard]}>
-            <ScrollView
-              ref={teamScrollRef}
-              style={styles.teamSquadList}
-              contentContainerStyle={[styles.teamSquadListContent, { minHeight: tabScrollMinHeight }]}
-              showsVerticalScrollIndicator={false}
-              onLayout={onTabScrollViewLayout}
-              {...tabScrollHeroProps}
-            >
-              <HeroListSpacer height={overlayPad} />
+          <ScrollView
+            ref={teamScrollRef}
+            style={styles.seasonScroll}
+            contentContainerStyle={[
+              styles.seasonScrollContent,
+              { paddingBottom: Math.max(insets.bottom, 5), minHeight: tabScrollMinHeight },
+            ]}
+            showsVerticalScrollIndicator={false}
+            onLayout={onTabScrollViewLayout}
+            {...tabScrollHeroProps}
+          >
+            <HeroListSpacer height={overlayPad} />
+            <View style={[styles.card, styles.seasonCard]}>
               <StatsPeriodSelector
                 years={teamSeasonYears}
                 selectedYear={selectedTeamSeasonYear}
@@ -1709,62 +1712,62 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
                 }}
               />
 
-            {teamSeasonLoading ? (
-              <View style={styles.matchesLoadingBox}>
-                <ActivityIndicator color="#667eea" />
-              </View>
-            ) : sortedTeamSeasonSquad.length === 0 ? (
-              <Text style={styles.placeholderText}>Nessun giocatore disponibile per la stagione selezionata.</Text>
-            ) : (
-              <>
-                {sortedTeamSeasonSquad.map((p, i) => {
-                  const role = String(p?.role || '').trim().toUpperCase();
-                  const roleColor = ROLE_COLORS[role] || '#6b7280';
-                  const teamShirtHex = jerseyToHex6(teamSeasonJerseyColor) || DEFAULT_JERSEY_COLOR;
-                  const playerShirtHex = role === 'P' ? goalkeeperShirtHex(teamShirtHex) : teamShirtHex;
-                  const playerNumberColor = jerseyNumberColorForShirt(playerShirtHex);
-                  const playerName = String(p?.name || `${p?.first_name || ''} ${p?.last_name || ''}`).trim() || '-';
-                  const shirtNumber =
-                    p?.shirt_number != null && p?.shirt_number !== '' && !Number.isNaN(Number(p.shirt_number))
-                      ? String(Number(p.shirt_number))
-                      : '–';
-                  const playerId = Number(p?.id || 0);
-                  return (
-                    <TouchableOpacity
-                      key={`squad-${playerId || i}`}
-                      style={styles.squadRow}
-                      activeOpacity={0.75}
-                      disabled={!playerId || !teamSeasonLeagueId}
-                      onPress={() => {
-                        if (!playerId || !teamSeasonLeagueId) return;
-                        navigation.navigate('PlayerStats', {
-                          playerId,
-                          leagueId: Number(teamSeasonLeagueId),
-                          playerName,
-                          playerRole: role || undefined,
-                          playerRating: p?.rating,
-                          playerPhotoPath: p?.photo_path || undefined,
-                          entrySource: 'official',
-                        });
-                      }}
-                    >
-                      <View style={styles.squadJerseyBadge}>
-                        <MaterialCommunityIcons name="tshirt-crew" size={38} color={playerShirtHex} />
-                        <Text style={[styles.squadJerseyNumber, { color: playerNumberColor }]}>{shirtNumber}</Text>
-                      </View>
-                      <Text style={styles.squadPlayerName} numberOfLines={2}>
-                        {playerName}
-                      </Text>
-                      <View style={[styles.squadRolePill, { backgroundColor: roleColor }]}>
-                        <Text style={styles.squadRolePillText}>{role || '–'}</Text>
-                      </View>
-                    </TouchableOpacity>
-                  );
-                })}
-              </>
-            )}
-            </ScrollView>
-          </View>
+              {teamSeasonLoading ? (
+                <View style={styles.matchesLoadingBox}>
+                  <ActivityIndicator color="#667eea" />
+                </View>
+              ) : sortedTeamSeasonSquad.length === 0 ? (
+                <Text style={styles.placeholderText}>Nessun giocatore disponibile per la stagione selezionata.</Text>
+              ) : (
+                <>
+                  {sortedTeamSeasonSquad.map((p, i) => {
+                    const role = String(p?.role || '').trim().toUpperCase();
+                    const roleColor = ROLE_COLORS[role] || '#6b7280';
+                    const teamShirtHex = jerseyToHex6(teamSeasonJerseyColor) || DEFAULT_JERSEY_COLOR;
+                    const playerShirtHex = role === 'P' ? goalkeeperShirtHex(teamShirtHex) : teamShirtHex;
+                    const playerNumberColor = jerseyNumberColorForShirt(playerShirtHex);
+                    const playerName = String(p?.name || `${p?.first_name || ''} ${p?.last_name || ''}`).trim() || '-';
+                    const shirtNumber =
+                      p?.shirt_number != null && p?.shirt_number !== '' && !Number.isNaN(Number(p.shirt_number))
+                        ? String(Number(p.shirt_number))
+                        : '–';
+                    const playerId = Number(p?.id || 0);
+                    return (
+                      <TouchableOpacity
+                        key={`squad-${playerId || i}`}
+                        style={styles.squadRow}
+                        activeOpacity={0.75}
+                        disabled={!playerId || !teamSeasonLeagueId}
+                        onPress={() => {
+                          if (!playerId || !teamSeasonLeagueId) return;
+                          navigation.navigate('PlayerStats', {
+                            playerId,
+                            leagueId: Number(teamSeasonLeagueId),
+                            playerName,
+                            playerRole: role || undefined,
+                            playerRating: p?.rating,
+                            playerPhotoPath: p?.photo_path || undefined,
+                            entrySource: 'official',
+                          });
+                        }}
+                      >
+                        <View style={styles.squadJerseyBadge}>
+                          <MaterialCommunityIcons name="tshirt-crew" size={38} color={playerShirtHex} />
+                          <Text style={[styles.squadJerseyNumber, { color: playerNumberColor }]}>{shirtNumber}</Text>
+                        </View>
+                        <Text style={styles.squadPlayerName} numberOfLines={2}>
+                          {playerName}
+                        </Text>
+                        <View style={[styles.squadRolePill, { backgroundColor: roleColor }]}>
+                          <Text style={styles.squadRolePillText}>{role || '–'}</Text>
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </>
+              )}
+            </View>
+          </ScrollView>
         ) : (
           <View style={styles.card}>
             <Text style={styles.placeholderText}>Contenuto non disponibile.</Text>
@@ -1897,6 +1900,10 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
     paddingHorizontal: 0,
   },
+  statsTabHost: {
+    flex: 1,
+    minHeight: 0,
+  },
   teamCard: {
     flex: 1,
     minHeight: 0,
@@ -1929,7 +1936,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   seasonCard: {
-    flex: 1,
+    flexGrow: 1,
     minHeight: 0,
     paddingHorizontal: 8,
     paddingTop: 12,
