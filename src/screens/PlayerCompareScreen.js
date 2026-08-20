@@ -18,13 +18,20 @@ import Svg, { Rect, Circle, Line, Text as SvgText } from 'react-native-svg';
 import { matchesService, playerStatsService } from '../services/api';
 import { PlayerPhotoImage, TeamLogoImage } from '../components/StableCachedImage';
 import BonusIcon from '../components/BonusIcon';
+import {
+  MiniChampionshipTrophy,
+  MiniWineTrophy,
+} from '../components/PlayerHeroTrophyBadges';
 
 const SEARCH_DEBOUNCE_MS = 300;
 const PHOTO_WIDTH = 96;
 const PHOTO_HEIGHT = 124;
 const PHOTO_ZOOM = 1.1;
-const FILTER_DROPDOWN_MAX_HEIGHT = 340;
-const FILTER_DROPDOWN_WIDTH = 292;
+const FILTER_DROPDOWN_MAX_HEIGHT = 400;
+const FILTER_DROPDOWN_WIDTH = 300;
+
+const DEFAULT_TROPHY_KINDS = { championship: true, wine: false };
+const DEFAULT_TROPHY_MODE = 'sum'; // 'sum' | 'split'
 const ROLE_COLORS = {
   P: '#0d6efd',
   D: '#198754',
@@ -132,6 +139,22 @@ function toneColor(tone) {
 }
 
 function CompareRowGlyph({ row, size = 15 }) {
+  if (row?.trophyGlyph === 'championship' || row?.trophyGlyph === 'wine' || row?.trophyGlyph === 'both') {
+    return (
+      <View style={styles.trophyGlyphRow}>
+        {row.trophyGlyph === 'championship' || row.trophyGlyph === 'both' ? (
+          <View style={styles.trophyGlyphScale}>
+            <MiniChampionshipTrophy />
+          </View>
+        ) : null}
+        {row.trophyGlyph === 'wine' || row.trophyGlyph === 'both' ? (
+          <View style={styles.trophyGlyphScale}>
+            <MiniWineTrophy />
+          </View>
+        ) : null}
+      </View>
+    );
+  }
   if (row?.bonusType) {
     return <BonusIcon type={row.bonusType} size={size} />;
   }
@@ -140,6 +163,41 @@ function CompareRowGlyph({ row, size = 15 }) {
     return <MaterialCommunityIcons name={row.icon} size={size} color={color} />;
   }
   return <Ionicons name={row?.icon || 'ellipse'} size={size} color={color} />;
+}
+
+function TrophyModeSwitch({ mode, onChange }) {
+  return (
+    <View style={styles.trophyModeSwitch}>
+      <TouchableOpacity
+        style={[styles.trophyModeSide, mode === 'sum' ? styles.trophyModeSideActive : null]}
+        onPress={() => onChange('sum')}
+        activeOpacity={0.8}
+        accessibilityLabel="Somma trofei in una riga"
+      >
+        <Text style={[styles.trophyModeSigma, mode === 'sum' ? styles.trophyModeSigmaActive : null]}>Σ</Text>
+      </TouchableOpacity>
+      <TouchableOpacity
+        style={[styles.trophyModeSide, mode === 'split' ? styles.trophyModeSideActive : null]}
+        onPress={() => onChange('split')}
+        activeOpacity={0.8}
+        accessibilityLabel="Separa trofei in due righe"
+      >
+        <Ionicons
+          name="list"
+          size={14}
+          color={mode === 'split' ? '#4f46e5' : '#94a3b8'}
+        />
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+function FilterCheck({ on }) {
+  return (
+    <View style={[styles.filterInlineCheck, on ? styles.filterInlineCheckOn : null]}>
+      {on ? <Ionicons name="checkmark" size={12} color="#fff" /> : null}
+    </View>
+  );
 }
 
 function CompareFilterMenu({
@@ -152,10 +210,16 @@ function CompareFilterMenu({
   onResetDefault,
   allSelected,
   defaultsSelected,
+  trophyKinds,
+  trophyMode,
+  onToggleTrophyKind,
+  onTrophyModeChange,
+  championshipLabel,
 }) {
   const { width: windowWidth } = useWindowDimensions();
   const [layout, setLayout] = useState(null);
   const [scrollMetrics, setScrollMetrics] = useState({ y: 0, contentH: 1, viewH: 1 });
+  const [trophyOpen, setTrophyOpen] = useState(true);
 
   useEffect(() => {
     if (!open) {
@@ -185,6 +249,10 @@ function CompareFilterMenu({
     };
   }, [open, anchorRef, windowWidth]);
 
+  useEffect(() => {
+    if (enabledKeys?.trophies) setTrophyOpen(true);
+  }, [enabledKeys?.trophies]);
+
   const scrollTrackH = FILTER_DROPDOWN_MAX_HEIGHT - 48;
   const canScroll = scrollMetrics.contentH > scrollMetrics.viewH + 2;
   const thumbH = canScroll
@@ -195,6 +263,9 @@ function CompareFilterMenu({
   const thumbTop = canScroll
     ? (scrollMetrics.y / maxScroll) * maxThumbTravel
     : 0;
+
+  const bothTrophyKinds = Boolean(trophyKinds?.championship && trophyKinds?.wine);
+  const champLabel = String(championshipLabel || '').trim() || 'Campionato';
 
   if (!open || !layout) return null;
 
@@ -260,6 +331,94 @@ function CompareFilterMenu({
               {COMPARE_ROWS.map((row, idx) => {
                 const on = Boolean(enabledKeys[row.key]);
                 const isLast = idx === COMPARE_ROWS.length - 1;
+                const isTrophies = row.key === 'trophies';
+
+                if (isTrophies) {
+                  return (
+                    <View key={row.key} style={[styles.filterTrophyBlock, isLast ? null : styles.filterTrophyBlockBorder]}>
+                      <View style={[styles.filterDropdownItem, on ? styles.filterDropdownItemOn : null, styles.filterDropdownItemNoBorder]}>
+                        <TouchableOpacity
+                          style={styles.filterDropdownItemLeft}
+                          onPress={() => onToggle(row.key)}
+                          activeOpacity={0.8}
+                        >
+                          <CompareRowGlyph row={row} size={15} />
+                          <Text style={[styles.filterDropdownItemText, on ? styles.filterDropdownItemTextOn : null]}>
+                            {row.label}
+                          </Text>
+                        </TouchableOpacity>
+                        <View style={styles.filterTrophyItemRight}>
+                          {on && bothTrophyKinds ? (
+                            <TrophyModeSwitch mode={trophyMode} onChange={onTrophyModeChange} />
+                          ) : null}
+                          <TouchableOpacity onPress={() => onToggle(row.key)} activeOpacity={0.8} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
+                            <FilterCheck on={on} />
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            onPress={() => setTrophyOpen((v) => !v)}
+                            activeOpacity={0.75}
+                            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                          >
+                            <Ionicons
+                              name={trophyOpen ? 'chevron-up' : 'chevron-down'}
+                              size={16}
+                              color="#94a3b8"
+                            />
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+
+                      {trophyOpen ? (
+                        <View style={styles.filterTrophyPanel}>
+                          <TouchableOpacity
+                            style={styles.filterTrophyKindRow}
+                            onPress={() => onToggleTrophyKind('championship')}
+                            activeOpacity={0.8}
+                          >
+                            <View style={styles.filterTrophyKindLeft}>
+                              <View style={styles.filterTrophyMini}>
+                                <MiniChampionshipTrophy />
+                              </View>
+                              <Text
+                                style={[
+                                  styles.filterTrophyKindLabel,
+                                  trophyKinds?.championship ? styles.filterTrophyKindLabelOn : null,
+                                ]}
+                                numberOfLines={2}
+                              >
+                                {champLabel}
+                              </Text>
+                            </View>
+                            <FilterCheck on={Boolean(trophyKinds?.championship)} />
+                          </TouchableOpacity>
+
+                          <TouchableOpacity
+                            style={styles.filterTrophyKindRow}
+                            onPress={() => onToggleTrophyKind('wine')}
+                            activeOpacity={0.8}
+                          >
+                            <View style={styles.filterTrophyKindLeft}>
+                              <View style={styles.filterTrophyMini}>
+                                <MiniWineTrophy />
+                              </View>
+                              <Text
+                                style={[
+                                  styles.filterTrophyKindLabel,
+                                  trophyKinds?.wine ? styles.filterTrophyKindLabelOn : null,
+                                ]}
+                                numberOfLines={2}
+                              >
+                                Trofeo del vino
+                              </Text>
+                            </View>
+                            <FilterCheck on={Boolean(trophyKinds?.wine)} />
+                          </TouchableOpacity>
+                        </View>
+                      ) : null}
+                    </View>
+                  );
+                }
+
                 return (
                   <TouchableOpacity
                     key={row.key}
@@ -277,7 +436,7 @@ function CompareFilterMenu({
                         {row.label}
                       </Text>
                     </View>
-                    {on ? <Ionicons name="checkmark" size={16} color="#4f46e5" /> : null}
+                    <FilterCheck on={on} />
                   </TouchableOpacity>
                 );
               })}
@@ -676,6 +835,8 @@ export default function PlayerCompareScreen({ navigation, route }) {
   const [searchLoading, setSearchLoading] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
   const [enabledKeys, setEnabledKeys] = useState(buildDefaultEnabledKeys);
+  const [trophyKinds, setTrophyKinds] = useState(() => ({ ...DEFAULT_TROPHY_KINDS }));
+  const [trophyMode, setTrophyMode] = useState(DEFAULT_TROPHY_MODE);
 
   const searchSeqRef = useRef(0);
   const inputARef = useRef(null);
@@ -855,44 +1016,143 @@ export default function PlayerCompareScreen({ navigation, route }) {
   const showProfileClear = bothPicked && !activeSlot;
 
   const toggleFilterKey = useCallback((key) => {
-    setEnabledKeys((prev) => ({
-      ...prev,
-      [key]: !prev[key],
-    }));
+    setEnabledKeys((prev) => {
+      const nextOn = !prev[key];
+      if (key === 'trophies' && nextOn) {
+        setTrophyKinds((kinds) => (
+          kinds.championship || kinds.wine
+            ? kinds
+            : { ...DEFAULT_TROPHY_KINDS }
+        ));
+      }
+      return {
+        ...prev,
+        [key]: nextOn,
+      };
+    });
+  }, []);
+
+  const toggleTrophyKind = useCallback((kind) => {
+    setTrophyKinds((prev) => {
+      const next = { ...prev, [kind]: !prev[kind] };
+      if (!next.championship && !next.wine) {
+        setEnabledKeys((keys) => ({ ...keys, trophies: false }));
+      } else {
+        setEnabledKeys((keys) => ({ ...keys, trophies: true }));
+      }
+      return next;
+    });
   }, []);
 
   const selectAllFilterKeys = useCallback(() => {
     const next = {};
     for (const row of COMPARE_ROWS) next[row.key] = true;
     setEnabledKeys(next);
+    setTrophyKinds({ championship: true, wine: true });
   }, []);
 
   const resetDefaultFilterKeys = useCallback(() => {
     setEnabledKeys(buildDefaultEnabledKeys());
+    setTrophyKinds({ ...DEFAULT_TROPHY_KINDS });
+    setTrophyMode(DEFAULT_TROPHY_MODE);
   }, []);
 
   const filterIsDefault = useMemo(() => {
     const defaults = buildDefaultEnabledKeys();
-    return COMPARE_ROWS.every((row) => Boolean(enabledKeys[row.key]) === Boolean(defaults[row.key]));
-  }, [enabledKeys]);
+    const keysMatch = COMPARE_ROWS.every((row) => Boolean(enabledKeys[row.key]) === Boolean(defaults[row.key]));
+    const kindsMatch = Boolean(trophyKinds.championship) === true && Boolean(trophyKinds.wine) === false;
+    const modeMatch = trophyMode === DEFAULT_TROPHY_MODE;
+    return keysMatch && kindsMatch && modeMatch;
+  }, [enabledKeys, trophyKinds, trophyMode]);
 
   const filterIsAll = useMemo(
-    () => COMPARE_ROWS.every((row) => Boolean(enabledKeys[row.key])),
-    [enabledKeys],
+    () => COMPARE_ROWS.every((row) => Boolean(enabledKeys[row.key]))
+      && Boolean(trophyKinds.championship)
+      && Boolean(trophyKinds.wine),
+    [enabledKeys, trophyKinds],
   );
+
+  const competitionName = useMemo(() => {
+    const fromA = String(slotA?.profile?.competition_name || '').trim();
+    const fromB = String(slotB?.profile?.competition_name || '').trim();
+    return fromA || fromB || 'Campionato';
+  }, [slotA, slotB]);
 
   const visibleRows = useMemo(() => {
     if (!bothReady) return [];
     const a = slotA.profile.stats || {};
     const b = slotB.profile.stats || {};
-    return COMPARE_ROWS.filter((row) => {
-      if (!enabledKeys[row.key]) return false;
-      if (row.showIfAnyPositive) {
-        return Number(a[row.key] || 0) > 0 || Number(b[row.key] || 0) > 0;
+    const out = [];
+
+    for (const row of COMPARE_ROWS) {
+      if (!enabledKeys[row.key]) continue;
+
+      if (row.key === 'trophies') {
+        const wantChamp = Boolean(trophyKinds.championship);
+        const wantWine = Boolean(trophyKinds.wine);
+        if (!wantChamp && !wantWine) continue;
+
+        if (wantChamp && wantWine && trophyMode === 'split') {
+          out.push({
+            key: 'championships',
+            label: competitionName,
+            higherIsBetter: true,
+            decimals: 0,
+            trophyGlyph: 'championship',
+            accent: '#d97706',
+          });
+          out.push({
+            key: 'wine_trophies',
+            label: 'Trofeo del vino',
+            higherIsBetter: true,
+            decimals: 0,
+            trophyGlyph: 'wine',
+            accent: '#7c3aed',
+          });
+          continue;
+        }
+
+        if (wantChamp && wantWine) {
+          out.push({
+            ...row,
+            key: 'trophies',
+            label: 'Trofei',
+            trophyGlyph: 'both',
+          });
+          continue;
+        }
+
+        if (wantChamp) {
+          out.push({
+            key: 'championships',
+            label: competitionName,
+            higherIsBetter: true,
+            decimals: 0,
+            trophyGlyph: 'championship',
+            accent: '#d97706',
+          });
+          continue;
+        }
+
+        out.push({
+          key: 'wine_trophies',
+          label: 'Trofeo del vino',
+          higherIsBetter: true,
+          decimals: 0,
+          trophyGlyph: 'wine',
+          accent: '#7c3aed',
+        });
+        continue;
       }
-      return true;
-    });
-  }, [bothReady, slotA, slotB, enabledKeys]);
+
+      if (row.showIfAnyPositive) {
+        if (!(Number(a[row.key] || 0) > 0 || Number(b[row.key] || 0) > 0)) continue;
+      }
+      out.push(row);
+    }
+
+    return out;
+  }, [bothReady, slotA, slotB, enabledKeys, trophyKinds, trophyMode, competitionName]);
 
   return (
     <View style={styles.container}>
@@ -1100,6 +1360,11 @@ export default function PlayerCompareScreen({ navigation, route }) {
         onResetDefault={resetDefaultFilterKeys}
         allSelected={filterIsAll}
         defaultsSelected={filterIsDefault}
+        trophyKinds={trophyKinds}
+        trophyMode={trophyMode}
+        onToggleTrophyKind={toggleTrophyKind}
+        onTrophyModeChange={setTrophyMode}
+        championshipLabel={competitionName}
       />
     </View>
   );
@@ -1259,6 +1524,9 @@ const styles = StyleSheet.create({
   filterDropdownItemLast: {
     borderBottomWidth: 0,
   },
+  filterDropdownItemNoBorder: {
+    borderBottomWidth: 0,
+  },
   filterDropdownItemOn: {
     backgroundColor: '#eef2ff',
   },
@@ -1279,6 +1547,115 @@ const styles = StyleSheet.create({
   filterDropdownItemTextOn: {
     color: '#4f46e5',
     fontWeight: '700',
+  },
+  filterInlineCheck: {
+    width: 18,
+    height: 18,
+    borderRadius: 5,
+    borderWidth: 1.5,
+    borderColor: '#cbd5e1',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fff',
+  },
+  filterInlineCheckOn: {
+    borderColor: '#667eea',
+    backgroundColor: '#667eea',
+  },
+  filterTrophyBlock: {
+    paddingBottom: 4,
+  },
+  filterTrophyBlockBorder: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#f1f5f9',
+  },
+  filterTrophyItemRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  filterTrophyPanel: {
+    marginHorizontal: 8,
+    marginBottom: 6,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 10,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e8edf5',
+    gap: 2,
+  },
+  filterTrophyKindRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    minHeight: 40,
+    paddingVertical: 4,
+    gap: 8,
+  },
+  filterTrophyKindLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
+    minWidth: 0,
+  },
+  filterTrophyMini: {
+    width: 22,
+    height: 26,
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    transform: [{ scale: 0.62 }],
+  },
+  filterTrophyKindLabel: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#94a3b8',
+  },
+  filterTrophyKindLabelOn: {
+    color: '#334155',
+    fontWeight: '700',
+  },
+  trophyModeSwitch: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#dbe3ef',
+    backgroundColor: '#fff',
+    overflow: 'hidden',
+  },
+  trophyModeSide: {
+    width: 28,
+    height: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fff',
+  },
+  trophyModeSideActive: {
+    backgroundColor: '#eef2ff',
+  },
+  trophyModeSigma: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#94a3b8',
+    lineHeight: 16,
+  },
+  trophyModeSigmaActive: {
+    color: '#4f46e5',
+  },
+  trophyGlyphRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 1,
+    minWidth: 18,
+    height: 18,
+    overflow: 'visible',
+  },
+  trophyGlyphScale: {
+    transform: [{ scale: 0.48 }],
+    marginBottom: -6,
   },
   searchRow: {
     flexDirection: 'row',

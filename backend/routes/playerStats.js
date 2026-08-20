@@ -1178,7 +1178,7 @@ async function buildPlayerCompareProfile(playerId, leagueId) {
     sortEditionsByYearDesc(editions)[0]?.role || basePlayer.role || '',
   ).trim().toUpperCase() || null;
 
-  const [analytics, fantaStats, trophies, matchWins, penaltyGoals, photoRows] = await Promise.all([
+  const [analytics, fantaStats, trophies, matchWins, penaltyGoals, photoRows, groupNameRows] = await Promise.all([
     fetchPlayerAnalytics(playerIds, leagueIds, primaryRole || ''),
     fetchPlayerFantaStats(playerIds, leagueIds),
     groupId
@@ -1199,6 +1199,12 @@ async function buildPlayerCompareProfile(playerId, leagueId) {
         playerIds,
       ).catch(() => [])
       : Promise.resolve([]),
+    groupId
+      ? query(
+        `SELECT name FROM official_league_groups WHERE id = ? LIMIT 1`,
+        [groupId],
+      ).catch(() => [])
+      : Promise.resolve([]),
   ]);
 
   const photoPath = String(basePlayer.photo_path || '').trim()
@@ -1208,6 +1214,7 @@ async function buildPlayerCompareProfile(playerId, leagueId) {
   const totals = analytics?.totals || {};
   const championships = Number(trophies?.championships || 0);
   const wineTrophies = Number(trophies?.wine_trophies || 0);
+  const competitionName = String(groupNameRows?.[0]?.name || '').trim() || null;
 
   return {
     profile: {
@@ -1223,6 +1230,7 @@ async function buildPlayerCompareProfile(playerId, leagueId) {
       },
       career_teams: buildCompareCareerTeams(editions),
       roles_played: buildCompareRoles(editions),
+      competition_name: competitionName,
       stats: {
         editions_played: Number(editionsPlayed || 0),
         appearances: Number(totals.games_played || 0),

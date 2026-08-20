@@ -2,7 +2,7 @@ import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 
-function MiniChampionshipTrophy() {
+export function MiniChampionshipTrophy() {
   return (
     <View style={styles.champVisual}>
       <View style={styles.champCupWrap}>
@@ -30,7 +30,7 @@ function MiniChampionshipTrophy() {
   );
 }
 
-function MiniWineTrophy() {
+export function MiniWineTrophy() {
   return (
     <View style={styles.wineVisual}>
       <View style={styles.wineCupWrap}>
