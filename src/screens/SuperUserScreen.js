@@ -2813,7 +2813,7 @@ export default function SuperUserScreen() {
         onRequestClose={() => setShowClusterFilters(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.clusterFiltersSheet}>
+          <View style={[styles.clusterFiltersSheet, { paddingBottom: Math.max(insets.bottom, 12) + 8 }]}>
             <View style={styles.clusterFiltersHeader}>
               <Text style={styles.clusterFiltersTitle}>Filtri</Text>
               <TouchableOpacity
@@ -2823,7 +2823,11 @@ export default function SuperUserScreen() {
                 <Ionicons name="close" size={22} color="#94a3b8" />
               </TouchableOpacity>
             </View>
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.clusterFiltersBody}>
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={styles.clusterFiltersBody}
+              keyboardShouldPersistTaps="handled"
+            >
               <Text style={styles.clusterFilterHint}>
                 Apri una sezione per scegliere il filtro da applicare.
               </Text>
@@ -3030,9 +3034,11 @@ export default function SuperUserScreen() {
               </View>
             </ScrollView>
             {hasActiveClusterFilters ? (
-              <TouchableOpacity style={styles.clusterFiltersReset} onPress={clearClusterFilters}>
-                <Text style={styles.clusterFiltersResetText}>Azzera filtri</Text>
-              </TouchableOpacity>
+              <View style={styles.clusterFiltersFooter}>
+                <TouchableOpacity style={styles.clusterFiltersReset} onPress={clearClusterFilters}>
+                  <Text style={styles.clusterFiltersResetText}>Azzera filtri</Text>
+                </TouchableOpacity>
+              </View>
             ) : null}
           </View>
         </View>
@@ -4610,7 +4616,7 @@ export default function SuperUserScreen() {
         onRequestClose={closeSuggestionEditModal}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.suggestionEditModalContent}>
+          <View style={[styles.suggestionEditModalContent, { paddingBottom: Math.max(insets.bottom, 12) + 8 }]}>
             <View style={styles.suggestionEditHeader}>
               <View style={styles.suggestionEditHeaderText}>
                 <Text style={styles.suggestionEditTitle}>
@@ -5305,7 +5311,6 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
     maxHeight: '72%',
-    paddingBottom: 8,
   },
   clusterFiltersHeader: {
     flexDirection: 'row',
@@ -5325,7 +5330,13 @@ const styles = StyleSheet.create({
   clusterFiltersBody: {
     paddingHorizontal: 16,
     paddingTop: 12,
-    paddingBottom: 16,
+    paddingBottom: 12,
+  },
+  clusterFiltersFooter: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#e8e8e8',
+    paddingTop: 4,
+    paddingHorizontal: 16,
   },
   clusterFilterHint: {
     fontSize: 13,
@@ -5420,9 +5431,8 @@ const styles = StyleSheet.create({
   },
   clusterFiltersReset: {
     alignSelf: 'center',
-    paddingVertical: 10,
+    paddingVertical: 12,
     paddingHorizontal: 16,
-    marginBottom: 4,
   },
   clusterFiltersResetText: {
     fontSize: 13,
@@ -7079,7 +7089,6 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 20,
     maxHeight: '78%',
     minHeight: 320,
-    paddingBottom: 12,
   },
   suggestionEditHeader: {
     flexDirection: 'row',
