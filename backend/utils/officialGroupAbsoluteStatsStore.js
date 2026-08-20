@@ -222,10 +222,16 @@ async function fetchClusterAbsoluteRanksFromStore(groupId, clusterPlayerIds) {
   const empty = { found: false, ranks: { appearances_rank: null, goals_rank: null }, refreshed_at: null };
   const gid = Number(groupId);
   const playerIds = [...new Set((clusterPlayerIds || []).map(Number).filter((id) => Number.isFinite(id) && id > 0))];
-  if (!gid || !playerIds.length) return empty;
+  if (!gid || !playerIds.length) {
+    console.log('[AbsoluteRanks:store] empty input', { gid, playerIds });
+    return empty;
+  }
 
   const hasSnapshot = await hasOfficialGroupSnapshot(gid);
-  if (!hasSnapshot) return empty;
+  if (!hasSnapshot) {
+    console.log('[AbsoluteRanks:store] no snapshot for group', { gid });
+    return empty;
+  }
 
   const clusterByPlayer = await fetchClusterIdForPlayers(gid, playerIds);
   const targetEntityIds = [
@@ -235,6 +241,13 @@ async function fetchClusterAbsoluteRanksFromStore(groupId, clusterPlayerIds) {
         .filter((id) => id != null),
     ),
   ];
+  console.log('[AbsoluteRanks:store] entity map', {
+    gid,
+    playerIds,
+    clusterByPlayer: Object.fromEntries([...clusterByPlayer.entries()]),
+    targetEntityIds,
+    soloEntities: targetEntityIds.filter((id) => id < 0),
+  });
   if (!targetEntityIds.length) return empty;
 
   const rows = await query(
@@ -243,15 +256,27 @@ async function fetchClusterAbsoluteRanksFromStore(groupId, clusterPlayerIds) {
      WHERE official_group_id = ?`,
     [gid],
   );
-  if (!rows?.length) return empty;
+  if (!rows?.length) {
+    console.log('[AbsoluteRanks:store] snapshot table empty', { gid });
+    return empty;
+  }
 
   const targetSet = new Set(targetEntityIds.map(Number));
   const playerSet = new Set(playerIds);
-  // Match per entity id (cluster o -player_id) oppure representative_player_id.
   const matched = (rows || []).filter((row) => {
     const entityId = Number(row.cluster_id);
     const repId = Number(row.representative_player_id);
     return targetSet.has(entityId) || (repId > 0 && playerSet.has(repId));
+  });
+  console.log('[AbsoluteRanks:store] match', {
+    snapshotRows: rows.length,
+    matchedCount: matched.length,
+    matched: matched.slice(0, 5).map((row) => ({
+      cluster_id: row.cluster_id,
+      representative_player_id: row.representative_player_id,
+      total_goals: row.total_goals,
+      total_presences: row.total_presences,
+    })),
   });
   if (!matched.length) return empty;
 
@@ -261,7 +286,7 @@ async function fetchClusterAbsoluteRanksFromStore(groupId, clusterPlayerIds) {
   const goalsRank = rankByDescendingValue(rows, (r) => r.total_goals, matchedEntityIds);
   const refreshedAt = await fetchSnapshotRefreshedAt(gid);
 
-  return {
+  const result = {
     found: appearancesRank != null || goalsRank != null,
     refreshed_at: refreshedAt,
     ranks: {
@@ -269,6 +294,8 @@ async function fetchClusterAbsoluteRanksFromStore(groupId, clusterPlayerIds) {
       goals_rank: goalsRank,
     },
   };
+  console.log('[AbsoluteRanks:store] ranks computed', result);
+  return result;
 }
 
 async function refreshOfficialGroupAbsoluteStatsStore(groupId, stats) {
