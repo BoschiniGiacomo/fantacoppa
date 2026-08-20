@@ -23,6 +23,7 @@ import VoteDistributionChart from '../components/VoteDistributionChart';
 import EfficiencyBars from '../components/EfficiencyBars';
 import PlayerSeasonTotals from '../components/PlayerSeasonTotals';
 import IconUnderlineTabBar, { FantaCoppaTabIcon } from '../components/IconUnderlineTabBar';
+import CompareVsIcon from '../components/CompareVsIcon';
 
 const ROLE_COLORS = {
   P: '#0d6efd',
@@ -1641,7 +1642,7 @@ export default function PlayerStatsScreen({ route, navigation }) {
               activeOpacity={0.75}
               accessibilityLabel="Confronta giocatori"
             >
-              <Text style={styles.heroVsBtnText}>VS</Text>
+              <CompareVsIcon size={22} color="#667eea" />
             </TouchableOpacity>
           </View>
 
@@ -1748,20 +1749,15 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
   },
   heroVsBtn: {
-    width: 42,
+    minWidth: 48,
     height: 34,
     borderRadius: 17,
     borderWidth: 1,
-    borderColor: '#667eea',
-    backgroundColor: '#eef2ff',
+    borderColor: '#d8d8d8',
+    backgroundColor: '#fff',
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  heroVsBtnText: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: '#667eea',
-    letterSpacing: 0.4,
+    paddingHorizontal: 6,
   },
   heroNameBlock: {
     marginTop: 10,

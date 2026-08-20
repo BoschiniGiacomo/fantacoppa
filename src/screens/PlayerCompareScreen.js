@@ -18,6 +18,7 @@ import Svg, { Rect, Circle, Line, Text as SvgText } from 'react-native-svg';
 import { matchesService, playerStatsService } from '../services/api';
 import { PlayerPhotoImage, TeamLogoImage } from '../components/StableCachedImage';
 import BonusIcon from '../components/BonusIcon';
+import CompareVsIcon from '../components/CompareVsIcon';
 import {
   MiniChampionshipTrophy,
   MiniWineTrophy,
@@ -1203,7 +1204,7 @@ export default function PlayerCompareScreen({ navigation, route }) {
               }}
             />
             <View style={styles.vsBadge}>
-              <Text style={styles.vsBadgeText}>VS</Text>
+              <CompareVsIcon size={16} color="#667eea" />
             </View>
             <SearchSlot
               label="Giocatore 2"
@@ -1251,7 +1252,7 @@ export default function PlayerCompareScreen({ navigation, route }) {
         {!slotA && !slotB ? (
           <View style={styles.emptyState}>
             <View style={styles.emptyIcon}>
-              <Text style={styles.emptyIconText}>VS</Text>
+              <CompareVsIcon size={30} color="#fff" />
             </View>
             <Text style={styles.emptyTitle}>Scegli due giocatori</Text>
             <Text style={styles.emptySubtitle}>
@@ -1285,7 +1286,7 @@ export default function PlayerCompareScreen({ navigation, route }) {
               <View style={styles.profilesDivider}>
                 <View style={styles.profilesDividerLine} />
                 <View style={styles.profilesDividerBadge}>
-                  <Text style={styles.profilesDividerText}>VS</Text>
+                  <CompareVsIcon size={14} color="#667eea" />
                 </View>
                 <View style={styles.profilesDividerLine} />
               </View>
@@ -1708,18 +1709,13 @@ const styles = StyleSheet.create({
     paddingVertical: 0,
   },
   vsBadge: {
-    width: 28,
+    width: 38,
     height: 28,
     borderRadius: 14,
-    backgroundColor: '#667eea',
+    backgroundColor: '#eef2ff',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 3,
-  },
-  vsBadgeText: {
-    color: '#fff',
-    fontSize: 10,
-    fontWeight: '800',
   },
   searchOverlay: {
     position: 'absolute',
@@ -1821,11 +1817,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: 16,
   },
-  emptyIconText: {
-    color: '#fff',
-    fontWeight: '800',
-    fontSize: 18,
-  },
   emptyTitle: {
     fontSize: 20,
     fontWeight: '800',
@@ -1864,17 +1855,12 @@ const styles = StyleSheet.create({
     backgroundColor: '#e2e8f0',
   },
   profilesDividerBadge: {
-    width: 28,
+    width: 36,
     height: 28,
     borderRadius: 14,
     backgroundColor: '#eef2ff',
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  profilesDividerText: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: '#667eea',
   },
   headerCard: {
     gap: 6,
