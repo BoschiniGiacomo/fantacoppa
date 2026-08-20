@@ -271,6 +271,102 @@ function RecentFormTeamColumn({ items }) {
   );
 }
 
+function formatPreviousMeetingDate(value) {
+  const d = parseAppDate(value);
+  if (!d || Number.isNaN(d.getTime())) return '';
+  const y = d.getFullYear();
+  const nowY = new Date().getFullYear();
+  const dom = d.getDate();
+  const mon = MONTH_SHORT_IT[d.getMonth()];
+  return y !== nowY ? `${dom} ${mon} ${y}` : `${dom} ${mon}`;
+}
+
+function PreviousMeetingScore({ homeScore, awayScore, homeResult, awayResult }) {
+  const homeColor = RECENT_FORM_RESULT_COLORS[String(homeResult || 'N').toUpperCase()] || RECENT_FORM_RESULT_COLORS.N;
+  const awayColor = RECENT_FORM_RESULT_COLORS[String(awayResult || 'N').toUpperCase()] || RECENT_FORM_RESULT_COLORS.N;
+  return (
+    <Text style={styles.prevMeetingScore}>
+      <Text style={[styles.prevMeetingScoreNum, { color: homeColor }]}>
+        {Number.isFinite(Number(homeScore)) ? Number(homeScore) : '-'}
+      </Text>
+      <Text style={styles.prevMeetingScoreSep}>-</Text>
+      <Text style={[styles.prevMeetingScoreNum, { color: awayColor }]}>
+        {Number.isFinite(Number(awayScore)) ? Number(awayScore) : '-'}
+      </Text>
+    </Text>
+  );
+}
+
+function PreviousMeetingsCard({ meetings, onPressMatch }) {
+  const list = Array.isArray(meetings) ? meetings : [];
+  if (list.length === 0) return null;
+  return (
+    <View style={styles.prevMeetingsSection}>
+      <Text style={styles.recentFormTitle}>Incontri precedenti</Text>
+      <View style={styles.prevMeetingsCard}>
+        {list.map((item, idx) => {
+          const mid = Number(item?.match_id);
+          const canOpen = Number.isFinite(mid) && mid > 0;
+          const homeName = String(item?.home_team_name || '').trim();
+          const awayName = String(item?.away_team_name || '').trim();
+          const dateLabel = formatPreviousMeetingDate(item?.kickoff_at);
+          const row = (
+            <View style={styles.prevMeetingInner}>
+              <View style={styles.prevMeetingScoreRow}>
+                <TeamLogoImage
+                  logoUrl={item?.home_team_logo_url}
+                  logoPath={item?.home_team_logo_path}
+                  style={styles.prevMeetingLogo}
+                  fallbackStyle={styles.prevMeetingLogoFallback}
+                  fallbackIconSize={12}
+                />
+                <PreviousMeetingScore
+                  homeScore={item?.home_score}
+                  awayScore={item?.away_score}
+                  homeResult={item?.home_result}
+                  awayResult={item?.away_result}
+                />
+                <TeamLogoImage
+                  logoUrl={item?.away_team_logo_url}
+                  logoPath={item?.away_team_logo_path}
+                  style={styles.prevMeetingLogo}
+                  fallbackStyle={styles.prevMeetingLogoFallback}
+                  fallbackIconSize={12}
+                />
+              </View>
+              {homeName && awayName ? (
+                <Text style={styles.prevMeetingNames} numberOfLines={1}>
+                  {homeName} vs {awayName}
+                </Text>
+              ) : null}
+              <Text style={styles.prevMeetingDate} numberOfLines={1}>
+                {dateLabel || ' '}
+              </Text>
+            </View>
+          );
+          return canOpen ? (
+            <TouchableOpacity
+              key={`pm-${mid}`}
+              style={[styles.prevMeetingRow, idx < list.length - 1 && styles.prevMeetingRowBorder]}
+              activeOpacity={0.78}
+              onPress={() => onPressMatch?.(mid)}
+            >
+              {row}
+            </TouchableOpacity>
+          ) : (
+            <View
+              key={`pm-${idx}`}
+              style={[styles.prevMeetingRow, idx < list.length - 1 && styles.prevMeetingRowBorder]}
+            >
+              {row}
+            </View>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
 function startOfLocalDay(d) {
   const x = new Date(d);
   x.setHours(0, 0, 0, 0);
@@ -1628,6 +1724,8 @@ export default function MatchDetailScreen({ navigation, route }) {
               full.standings_groups !== undefined ? full.standings_groups : prev.standings_groups,
             knockout: full.knockout != null ? full.knockout : prev.knockout,
             recent_form: full.recent_form != null ? full.recent_form : prev.recent_form,
+            previous_meetings:
+              full.previous_meetings != null ? full.previous_meetings : prev.previous_meetings,
             prediction: full.prediction != null ? full.prediction : prev.prediction,
           };
         });
@@ -1729,6 +1827,8 @@ export default function MatchDetailScreen({ navigation, route }) {
   const recentFormHome = Array.isArray(recentForm.home) ? recentForm.home : [];
   const recentFormAway = Array.isArray(recentForm.away) ? recentForm.away : [];
   const showRecentForm = recentFormHome.length > 0 || recentFormAway.length > 0;
+  const previousMeetings = Array.isArray(data?.previous_meetings) ? data.previous_meetings : [];
+  const showPreviousMeetings = previousMeetings.length > 0;
   const prediction = data?.prediction || { my_choice: null, total: 0, counts: { home: 0, draw: 0, away: 0 }, percents: { home: 0, draw: 0, away: 0 } };
   const matchStageId = match?.match_stage_id != null ? Number(match.match_stage_id) : NaN;
   const standingsIsKnockoutMatch = matchStageId === 2 || matchStageId === 3 || matchStageId === 4;
@@ -3297,6 +3397,9 @@ export default function MatchDetailScreen({ navigation, route }) {
               <RecentFormTeamColumn items={recentFormAway} />
             </View>
           </View>
+        ) : null}
+        {activeTab === 'overview' && showPreviousMeetings ? (
+          <PreviousMeetingsCard meetings={previousMeetings} onPressMatch={openKnockoutMatchDetail} />
         ) : null}
         {activeTab === 'lineup' && (
           <View style={[styles.card, styles.cardLineup, lineupEditMode && styles.cardLineupCompact]}>
@@ -5399,6 +5502,64 @@ const styles = StyleSheet.create({
     borderRadius: 2,
   },
   recentFormEmptyText: { fontSize: 12, color: '#9ca3af', textAlign: 'center', fontWeight: '600' },
+  prevMeetingsSection: { marginBottom: 12 },
+  prevMeetingsCard: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#e8edf3',
+    overflow: 'hidden',
+  },
+  prevMeetingRow: {
+    paddingHorizontal: 12,
+    paddingVertical: 14,
+  },
+  prevMeetingRowBorder: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#e2e8f0',
+  },
+  prevMeetingInner: {
+    alignItems: 'center',
+    gap: 4,
+  },
+  prevMeetingScoreRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  prevMeetingLogo: { width: 28, height: 28 },
+  prevMeetingLogoFallback: {
+    width: 28,
+    height: 28,
+    borderRadius: 7,
+    backgroundColor: '#f1f5f9',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  prevMeetingScore: {
+    fontSize: 22,
+    fontWeight: '800',
+    letterSpacing: -0.5,
+    minWidth: 56,
+    textAlign: 'center',
+  },
+  prevMeetingScoreNum: { fontSize: 22, fontWeight: '800', letterSpacing: -0.5 },
+  prevMeetingScoreSep: { fontSize: 18, fontWeight: '700', color: '#94a3b8', marginHorizontal: 2 },
+  prevMeetingNames: {
+    marginTop: 2,
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#64748b',
+    textAlign: 'center',
+  },
+  prevMeetingDate: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#94a3b8',
+    textAlign: 'center',
+    minHeight: 13,
+  },
   predictionSection: { marginBottom: 12 },
   predictionTitle: { fontSize: 16, fontWeight: '800', color: '#222', marginBottom: 10 },
   predictionCard: {

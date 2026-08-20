@@ -39,9 +39,10 @@ const {
 const MATCHES_LIST_SHARED_CACHE = createShortTtlCache({ ttlMs: 6000, maxEntries: 80 });
 /** Cache classifica + knockout per live-delta (match/eventi restano sempre freschi). */
 const LIVE_DELTA_TABLES_CACHE = createShortTtlCache({ ttlMs: 6000, maxEntries: 60 });
-/** Cache ultimi risultati (form) per dettaglio partita — dato relativamente stabile. */
+/** Cache ultimi risultati + H2H per dettaglio partita — dato relativamente stabile. */
 const RECENT_FORM_CACHE = createShortTtlCache({ ttlMs: 60_000, maxEntries: 120 });
 const RECENT_FORM_LIMIT = 3;
+const PREVIOUS_MEETINGS_LIMIT = 3;
 
 function isMissingDbObjectError(err) {
   return err && (err.code === '42P01' || err.code === '42703'); // undefined_table / undefined_column
@@ -2520,16 +2521,48 @@ router.get('/matches/search', authenticateToken, async (req, res) => {
 });
 
 /**
- * Ultimi N risultati (anche anni precedenti) per casa/ospite nello stesso gruppo ufficiale.
- * Match chiusi (match_end), esclusa la partita corrente; esito via eventi/outcome ufficiale.
- * Ordine cronologico ascendente (più recente a destra).
+ * Risolve punteggio regolamentare + esito ufficiale (rigori inclusi) da row + eventi.
+ * Usato da form recente e H2H panoramica.
  */
-async function loadRecentFormForMatch({
+function resolveClosedMatchScoresFromEvents(m, events) {
+  const homeId = Number(m.home_team_id);
+  const awayId = Number(m.away_team_id);
+  const tallied = tallyOfficialMatchEventScores(events, homeId, awayId);
+  const evScore = { has: tallied.hasGoalEvents, home: tallied.homeGoals, away: tallied.awayGoals };
+  const resolved = resolveOfficialMatchResultForStandings(m, evScore, true);
+  let hs = resolved.counted ? resolved.home : null;
+  let as = resolved.counted ? resolved.away : null;
+  if (hs == null && (tallied.hasRigEvents || tallied.homePreShootout > 0 || tallied.awayPreShootout > 0)) hs = 0;
+  if (as == null && (tallied.hasRigEvents || tallied.homePreShootout > 0 || tallied.awayPreShootout > 0)) as = 0;
+  if (!Number.isFinite(hs) || !Number.isFinite(as)) return null;
+  const outcome = resolveOfficialMatchOutcome({
+    regHome: hs,
+    regAway: as,
+    preHome: tallied.homePreShootout,
+    preAway: tallied.awayPreShootout,
+    rigHome: tallied.homeRig,
+    rigAway: tallied.awayRig,
+    hasRig: tallied.hasRigEvents,
+  });
+  return {
+    home_score: tallied.hasRigEvents ? hs : outcome.home,
+    away_score: tallied.hasRigEvents ? as : outcome.away,
+    outcome_home: outcome.home,
+    outcome_away: outcome.away,
+  };
+}
+
+/**
+ * Ultimi risultati casa/ospite + ultimi incontri diretti (stesso gruppo ufficiale).
+ * Match chiusi (match_end), esclusa la partita corrente; una sola mappa logo + un batch eventi.
+ */
+async function loadMatchDetailOverviewExtras({
   competitionId,
   matchId,
   homeTeamName,
   awayTeamName,
-  limit = RECENT_FORM_LIMIT,
+  formLimit = RECENT_FORM_LIMIT,
+  meetingsLimit = PREVIOUS_MEETINGS_LIMIT,
 } = {}) {
   const compId = Number(competitionId) || 0;
   const mid = Number(matchId) || 0;
@@ -2537,14 +2570,14 @@ async function loadRecentFormForMatch({
   const awayName = String(awayTeamName || '').trim();
   const homeNorm = normalizeTeamNameForFavorite(homeName);
   const awayNorm = normalizeTeamNameForFavorite(awayName);
-  const empty = { home: [], away: [] };
+  const empty = { recent_form: { home: [], away: [] }, previous_meetings: [] };
   if (!(compId > 0) || !homeNorm || !awayNorm) return empty;
 
-  const cacheKey = `form:${compId}:${mid}:${homeNorm}:${awayNorm}:${limit}`;
+  const cacheKey = `overview:${compId}:${mid}:${homeNorm}:${awayNorm}:${formLimit}:${meetingsLimit}`;
   return RECENT_FORM_CACHE.getOrSet(cacheKey, async () => {
-    const candidateLimit = Math.max(12, limit * 8);
-    const rows = await query(
-      `
+    const formCandidateLimit = Math.max(12, formLimit * 8);
+    const meetingsCandidateLimit = Math.max(meetingsLimit, meetingsLimit + 3);
+    const matchSelectSql = `
       SELECT
         m.id,
         m.kickoff_at,
@@ -2562,26 +2595,52 @@ async function loadRecentFormForMatch({
       WHERE m.competition_id = ?
         AND (? <= 0 OR m.id <> ?)
         AND COALESCE(m.is_admin_only, 0) = 0
-        AND (
-          LOWER(TRIM(ht.name)) IN (LOWER(TRIM(?)), LOWER(TRIM(?)))
-          OR LOWER(TRIM(at.name)) IN (LOWER(TRIM(?)), LOWER(TRIM(?)))
-        )
+    `;
+    const endedExistsSql = `
         AND EXISTS (
           SELECT 1 FROM official_match_events e
           WHERE e.match_id = m.id AND e.event_type = 'match_end'
         )
       ORDER BY m.kickoff_at DESC NULLS LAST, m.id DESC
       LIMIT ?
-      `,
-      [compId, mid, mid, homeName, awayName, homeName, awayName, candidateLimit]
-    );
+    `;
 
-    const candidates = Array.isArray(rows) ? rows : [];
-    if (candidates.length === 0) return empty;
+    const [formRows, meetingRows, logoMap] = await Promise.all([
+      query(
+        `${matchSelectSql}
+        AND (
+          LOWER(TRIM(ht.name)) IN (LOWER(TRIM(?)), LOWER(TRIM(?)))
+          OR LOWER(TRIM(at.name)) IN (LOWER(TRIM(?)), LOWER(TRIM(?)))
+        )
+        ${endedExistsSql}`,
+        [compId, mid, mid, homeName, awayName, homeName, awayName, formCandidateLimit]
+      ),
+      query(
+        `${matchSelectSql}
+        AND (
+          (LOWER(TRIM(ht.name)) = LOWER(TRIM(?)) AND LOWER(TRIM(at.name)) = LOWER(TRIM(?)))
+          OR (LOWER(TRIM(ht.name)) = LOWER(TRIM(?)) AND LOWER(TRIM(at.name)) = LOWER(TRIM(?)))
+        )
+        ${endedExistsSql}`,
+        [compId, mid, mid, homeName, awayName, awayName, homeName, meetingsCandidateLimit]
+      ),
+      buildBestOfficialTeamLogoMap([compId], false).catch(() => new Map()),
+    ]);
 
-    const matchIds = candidates
-      .map((r) => Number(r.id))
-      .filter((id) => Number.isFinite(id) && id > 0);
+    const formCandidates = Array.isArray(formRows) ? formRows : [];
+    const meetingCandidates = Array.isArray(meetingRows) ? meetingRows : [];
+    if (formCandidates.length === 0 && meetingCandidates.length === 0) return empty;
+
+    const matchIdSet = new Set();
+    for (const r of formCandidates) {
+      const id = Number(r.id);
+      if (Number.isFinite(id) && id > 0) matchIdSet.add(id);
+    }
+    for (const r of meetingCandidates) {
+      const id = Number(r.id);
+      if (Number.isFinite(id) && id > 0) matchIdSet.add(id);
+    }
+    const matchIds = [...matchIdSet];
     const evRows =
       matchIds.length > 0
         ? await query(
@@ -2605,12 +2664,10 @@ async function loadRecentFormForMatch({
       evByMatch.get(id).push(ev);
     }
 
-    const logoMap = await buildBestOfficialTeamLogoMap([compId], false).catch(() => new Map());
-
     const pickForTeam = (teamNorm) => {
       const picked = [];
-      for (const m of candidates) {
-        if (picked.length >= limit) break;
+      for (const m of formCandidates) {
+        if (picked.length >= formLimit) break;
         const homeId = Number(m.home_team_id);
         const awayId = Number(m.away_team_id);
         const mHomeNorm = normalizeTeamNameForFavorite(m.home_team_name);
@@ -2620,27 +2677,11 @@ async function loadRecentFormForMatch({
         if (!isHome && !isAway) continue;
         if (isHome && isAway) continue;
 
-        const events = evByMatch.get(Number(m.id)) || [];
-        const tallied = tallyOfficialMatchEventScores(events, homeId, awayId);
-        const evScore = { has: tallied.hasGoalEvents, home: tallied.homeGoals, away: tallied.awayGoals };
-        const resolved = resolveOfficialMatchResultForStandings(m, evScore, true);
-        let hs = resolved.counted ? resolved.home : null;
-        let as = resolved.counted ? resolved.away : null;
-        if (hs == null && (tallied.hasRigEvents || tallied.homePreShootout > 0 || tallied.awayPreShootout > 0)) hs = 0;
-        if (as == null && (tallied.hasRigEvents || tallied.homePreShootout > 0 || tallied.awayPreShootout > 0)) as = 0;
-        if (!Number.isFinite(hs) || !Number.isFinite(as)) continue;
+        const scores = resolveClosedMatchScoresFromEvents(m, evByMatch.get(Number(m.id)) || []);
+        if (!scores) continue;
 
-        const outcome = resolveOfficialMatchOutcome({
-          regHome: hs,
-          regAway: as,
-          preHome: tallied.homePreShootout,
-          preAway: tallied.awayPreShootout,
-          rigHome: tallied.homeRig,
-          rigAway: tallied.awayRig,
-          hasRig: tallied.hasRigEvents,
-        });
-        const gf = isHome ? outcome.home : outcome.away;
-        const ga = isHome ? outcome.away : outcome.home;
+        const gf = isHome ? scores.outcome_home : scores.outcome_away;
+        const ga = isHome ? scores.outcome_away : scores.outcome_home;
         const result = gf > ga ? 'V' : gf < ga ? 'P' : 'N';
 
         const oppName = String((isHome ? m.away_team_name : m.home_team_name) || '').trim();
@@ -2661,11 +2702,66 @@ async function loadRecentFormForMatch({
       return picked.reverse();
     };
 
+    const previousMeetings = [];
+    for (const m of meetingCandidates) {
+      if (previousMeetings.length >= meetingsLimit) break;
+      const scores = resolveClosedMatchScoresFromEvents(m, evByMatch.get(Number(m.id)) || []);
+      if (!scores) continue;
+
+      const homeTeam = String(m.home_team_name || '').trim();
+      const awayTeam = String(m.away_team_name || '').trim();
+      const homeLogoPath = pickBestOfficialTeamLogo(
+        logoMap,
+        compId,
+        homeTeam,
+        m.home_team_logo_path
+      );
+      const awayLogoPath = pickBestOfficialTeamLogo(
+        logoMap,
+        compId,
+        awayTeam,
+        m.away_team_logo_path
+      );
+      const oh = scores.outcome_home;
+      const oa = scores.outcome_away;
+      const homeResult = oh > oa ? 'V' : oh < oa ? 'P' : 'N';
+      const awayResult = oa > oh ? 'V' : oa < oh ? 'P' : 'N';
+
+      previousMeetings.push({
+        match_id: Number(m.id),
+        kickoff_at: m.kickoff_at || null,
+        home_team_id: Number(m.home_team_id) || null,
+        away_team_id: Number(m.away_team_id) || null,
+        home_team_name: homeTeam || null,
+        away_team_name: awayTeam || null,
+        home_team_logo_path: homeLogoPath,
+        home_team_logo_url: logoUrlForPath(homeLogoPath),
+        away_team_logo_path: awayLogoPath,
+        away_team_logo_url: logoUrlForPath(awayLogoPath),
+        home_score: scores.home_score,
+        away_score: scores.away_score,
+        home_result: homeResult,
+        away_result: awayResult,
+      });
+    }
+
     return {
-      home: pickForTeam(homeNorm),
-      away: pickForTeam(awayNorm),
+      recent_form: {
+        home: pickForTeam(homeNorm),
+        away: pickForTeam(awayNorm),
+      },
+      previous_meetings: previousMeetings,
     };
   });
+}
+
+/** Compat: solo form recente (stesso payload di prima). */
+async function loadRecentFormForMatch(opts = {}) {
+  const extras = await loadMatchDetailOverviewExtras({
+    ...opts,
+    formLimit: opts.formLimit != null ? opts.formLimit : opts.limit,
+  });
+  return extras?.recent_form || { home: [], away: [] };
 }
 
 // GET /matches/:matchId/detail — dettaglio match con tabs (overview/formazione/classifica)
@@ -2731,7 +2827,8 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
 
     await ensureUnavailablePlayersTable();
     const emptyKnockout = { quarterfinals: [], semifinals: [], final: null };
-    const [homeTeam, awayTeam, rawEvents, homeLineup, awayLineup, unavailableRows, standingsBundle, knockout, recentForm, prediction] = await Promise.all([
+    const emptyOverviewExtras = { recent_form: { home: [], away: [] }, previous_meetings: [] };
+    const [homeTeam, awayTeam, rawEvents, homeLineup, awayLineup, unavailableRows, standingsBundle, knockout, overviewExtras, prediction] = await Promise.all([
       getTeamMeta(homeTeamId),
       getTeamMeta(awayTeamId),
       query(
@@ -2754,15 +2851,21 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
             competitionId: Number(matchRow.competition_id),
           }).catch(() => emptyKnockout)
         : Promise.resolve(emptyKnockout),
-      loadRecentFormForMatch({
+      loadMatchDetailOverviewExtras({
         competitionId: Number(matchRow.competition_id),
         matchId,
         homeTeamName: matchRow.home_team_name,
         awayTeamName: matchRow.away_team_name,
-        limit: RECENT_FORM_LIMIT,
-      }).catch(() => ({ home: [], away: [] })),
+        formLimit: RECENT_FORM_LIMIT,
+        meetingsLimit: PREVIOUS_MEETINGS_LIMIT,
+      }).catch(() => emptyOverviewExtras),
       loadOfficialMatchPrediction(matchId, userId).catch(() => emptyPrediction(null)),
     ]);
+
+    const recentForm = overviewExtras?.recent_form;
+    const previousMeetings = Array.isArray(overviewExtras?.previous_meetings)
+      ? overviewExtras.previous_meetings
+      : [];
 
     const homeLogoPath = normalizeTeamLogoPathForApi(homeTeam?.logo_path);
     const awayLogoPath = normalizeTeamLogoPathForApi(awayTeam?.logo_path);
@@ -2825,6 +2928,7 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
             away: Array.isArray(recentForm.away) ? recentForm.away : [],
           }
         : { home: [], away: [] },
+      previous_meetings: previousMeetings,
       prediction: prediction && typeof prediction === 'object' ? prediction : emptyPrediction(null),
       favorites: {
         match: Number(match.is_favorite_match) ? 1 : 0,
