@@ -212,9 +212,11 @@ function MarketValueModeSwitch({ mode, onChange }) {
         activeOpacity={0.8}
         accessibilityLabel="Valore di mercato attuale"
       >
-        <Text style={[styles.marketModeText, mode === 'current' ? styles.marketModeTextActive : null]}>
-          Base
-        </Text>
+        <Ionicons
+          name="pricetag-outline"
+          size={13}
+          color={mode === 'current' ? '#4f46e5' : '#94a3b8'}
+        />
       </TouchableOpacity>
       <TouchableOpacity
         style={[styles.marketModeSide, mode === 'peak' ? styles.marketModeSideActive : null]}

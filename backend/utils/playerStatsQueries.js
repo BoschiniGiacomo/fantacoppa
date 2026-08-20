@@ -63,6 +63,7 @@ function emptyAnalytics() {
       total_yellow_cards: 0,
       total_red_cards: 0,
       total_own_goals: 0,
+      total_penalty_goals: 0,
       total_penalty_missed: 0,
       total_clean_sheets: 0,
       total_penalty_saved: 0,
@@ -248,6 +249,24 @@ function buildDistributionFromRatings(ratings) {
   return [...buckets.entries()].map(([label, count]) => ({ label, count }));
 }
 
+async function fetchPlayerPenaltyGoalsCount(playerIds) {
+  const ids = [...new Set((playerIds || []).map(Number).filter((id) => Number.isFinite(id) && id > 0))];
+  if (!ids.length) return 0;
+  const ph = ids.map(() => '?').join(',');
+  try {
+    const rows = await query(
+      `SELECT COUNT(*)::int AS total
+       FROM official_match_events e
+       WHERE e.event_type = 'penalty_goal'
+         AND e.player_id IN (${ph})`,
+      ids,
+    );
+    return Number(rows[0]?.total || 0);
+  } catch (_) {
+    return 0;
+  }
+}
+
 async function fetchPlayerAnalytics(playerIds, leagueIds, playerRole = '') {
   if (!playerIds.length || !leagueIds.length) return emptyAnalytics();
 
@@ -255,7 +274,7 @@ async function fetchPlayerAnalytics(playerIds, leagueIds, playerRole = '') {
   const leaguesPh = leagueIds.map(() => '?').join(',');
   const params = [...playerIds, ...leagueIds];
 
-  const [aggregateRows, seriesRows] = await Promise.all([
+  const [aggregateRows, seriesRows, penaltyGoals] = await Promise.all([
     query(
       `WITH vote_rows AS (
          SELECT
@@ -355,6 +374,7 @@ async function fetchPlayerAnalytics(playerIds, leagueIds, playerRole = '') {
        ORDER BY reference_year ASC NULLS LAST, d.giornata ASC`,
       params
     ),
+    fetchPlayerPenaltyGoalsCount(playerIds),
   ]);
 
   const agg = aggregateRows[0] || {};
@@ -383,6 +403,7 @@ async function fetchPlayerAnalytics(playerIds, leagueIds, playerRole = '') {
       total_yellow_cards: totalYellow,
       total_red_cards: totalRed,
       total_own_goals: Number(agg.total_own_goals || 0),
+      total_penalty_goals: Number(penaltyGoals || 0),
       total_penalty_missed: Number(agg.total_penalty_missed || 0),
       total_clean_sheets: totalCleanSheets,
       total_penalty_saved: totalPenaltySaved,

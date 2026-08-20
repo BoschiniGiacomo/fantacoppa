@@ -1387,6 +1387,7 @@ export default function PlayerStatsScreen({ route, navigation }) {
       { key: 'yellow_card', value: v(totals.total_yellow_cards), label: 'Gialli' },
       { key: 'red_card', value: v(totals.total_red_cards), label: 'Rossi' },
       { key: 'own_goal', value: v(totals.total_own_goals), label: 'Autogol' },
+      { key: 'penalty_goal', value: v(totals.total_penalty_goals), label: 'Rig. seg.' },
       { key: 'penalty_missed', value: v(totals.total_penalty_missed), label: 'Rig. sb.' },
     ];
     const goalkeeperTotals = isRecentClusterGoalkeeper ? [

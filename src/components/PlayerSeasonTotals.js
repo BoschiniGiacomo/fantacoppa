@@ -6,7 +6,7 @@ import BonusIcon from './BonusIcon';
 
 const OUTFIELD_PRIMARY_KEYS = ['goal', 'assist', 'briso'];
 const KEEPER_PRIMARY_KEYS = ['clean_sheet', 'penalty_saved', 'briso'];
-const SECONDARY_KEYS = ['yellow_card', 'red_card', 'own_goal', 'penalty_missed'];
+const SECONDARY_KEYS = ['yellow_card', 'red_card', 'own_goal', 'penalty_goal', 'penalty_missed'];
 const OUTFIELD_EXTRA_KEYS = [];
 const KEEPER_EXTRA_KEYS = ['goal', 'assist', 'goals_conceded'];
 
