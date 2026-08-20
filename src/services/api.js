@@ -866,6 +866,7 @@ export const playerStatsService = {
   getPlayerOverview: (playerId, leagueId) => api.get(`/players/${playerId}/overview/${leagueId}`),
   getPlayerAbsoluteRanks: (playerId, leagueId) => api.get(`/players/${playerId}/absolute-ranks/${leagueId}`),
   getPlayerCareer: (playerId, leagueId) => api.get(`/players/${playerId}/career/${leagueId}`),
+  getPlayerCompare: (playerId, leagueId) => api.get(`/players/${playerId}/compare/${leagueId}`),
 };
 
 export default api;

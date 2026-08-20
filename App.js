@@ -35,6 +35,7 @@ import DeleteAccountScreen from './src/screens/DeleteAccountScreen';
 import TeamsScreen from './src/screens/TeamsScreen';
 import TeamDetailScreen from './src/screens/TeamDetailScreen';
 import PlayerStatsScreen from './src/screens/PlayerStatsScreen';
+import PlayerCompareScreen from './src/screens/PlayerCompareScreen';
 import MarketScreen from './src/screens/MarketScreen';
 import SquadScreen from './src/screens/SquadScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
@@ -326,6 +327,11 @@ function AppNavigator() {
                 <Stack.Screen 
                   name="PlayerStats"
                   component={PlayerStatsScreen}
+                  options={{ headerShown: false }}
+                />
+                <Stack.Screen
+                  name="PlayerCompare"
+                  component={PlayerCompareScreen}
                   options={{ headerShown: false }}
                 />
                 <Stack.Screen 

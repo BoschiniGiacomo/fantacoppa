@@ -3,6 +3,7 @@ const router = express.Router();
 const { query } = require('../config/database');
 const { authenticateToken } = require('../middleware/auth');
 const { computePlayerOfficialTrophies, computePlayerOfficialTrophyWinsByLeague } = require('../utils/officialHallTrophies');
+const { SQL_WHERE_PRESENCE_VOTE } = require('../utils/voteRating');
 const {
   BONUS_SCORE_SQL,
   safeNumber,
@@ -927,6 +928,234 @@ router.get('/:playerId/stats/:leagueId', authenticateToken, async (req, res) => 
     });
   } catch (error) {
     return res.status(500).json({ message: 'Errore caricamento statistiche giocatore', error: error.message });
+  }
+});
+
+async function resolveCompareLeagueIds(groupId, editionRows, fallbackLeagueId) {
+  if (groupId) {
+    const groupLeagueRows = await query(
+      `SELECT id
+       FROM leagues
+       WHERE official_group_id = ?
+         AND COALESCE(is_official, 0) = 1
+         AND COALESCE(is_official_squad_public, 0) = 1`,
+      [groupId],
+    );
+    const ids = (groupLeagueRows || [])
+      .map((row) => Number(row.id))
+      .filter((id) => Number.isFinite(id) && id > 0);
+    if (ids.length) return [...new Set(ids)];
+  }
+
+  const fromEditions = (editionRows || [])
+    .map((row) => Number(row.league_id))
+    .filter((id) => Number.isFinite(id) && id > 0);
+  if (fromEditions.length) return [...new Set(fromEditions)];
+
+  return resolveLeagueIdsForRatings(fallbackLeagueId);
+}
+
+async function fetchPlayerPenaltyGoals(playerIds) {
+  const ids = [...new Set((playerIds || []).map(Number).filter((id) => Number.isFinite(id) && id > 0))];
+  if (!ids.length) return 0;
+  const ph = ids.map(() => '?').join(',');
+  try {
+    const rows = await query(
+      `SELECT COUNT(*)::int AS total
+       FROM official_match_events e
+       WHERE e.event_type = 'penalty_goal'
+         AND e.player_id IN (${ph})`,
+      ids,
+    );
+    return Number(rows[0]?.total || 0);
+  } catch (_) {
+    return 0;
+  }
+}
+
+async function fetchPlayerMatchWins(playerIds, leagueIds) {
+  const pids = [...new Set((playerIds || []).map(Number).filter((id) => Number.isFinite(id) && id > 0))];
+  const lids = [...new Set((leagueIds || []).map(Number).filter((id) => Number.isFinite(id) && id > 0))];
+  if (!pids.length || !lids.length) return 0;
+
+  const playerPh = pids.map(() => '?').join(',');
+  const leaguesPh = lids.map(() => '?').join(',');
+  try {
+    const rows = await query(
+      `WITH presence AS (
+         SELECT DISTINCT
+           pr.league_id,
+           pr.giornata,
+           p.team_id
+         FROM player_ratings pr
+         INNER JOIN players p ON p.id = pr.player_id
+         WHERE pr.player_id IN (${playerPh})
+           AND pr.league_id IN (${leaguesPh})
+           AND ${SQL_WHERE_PRESENCE_VOTE}
+       ),
+       linked AS (
+         SELECT DISTINCT
+           l.official_match_id,
+           l.team_id
+         FROM presence
+         INNER JOIN official_match_matchday_links l
+           ON l.giornata = presence.giornata
+          AND l.team_id = presence.team_id
+          AND l.league_id = presence.league_id
+       )
+       SELECT COUNT(*)::int AS wins
+       FROM linked
+       INNER JOIN official_matches m ON m.id = linked.official_match_id
+       WHERE m.home_score IS NOT NULL
+         AND m.away_score IS NOT NULL
+         AND (
+           (m.home_team_id = linked.team_id AND m.home_score > m.away_score)
+           OR (m.away_team_id = linked.team_id AND m.away_score > m.home_score)
+         )`,
+      [...pids, ...lids],
+    );
+    return Number(rows[0]?.wins || 0);
+  } catch (_) {
+    return 0;
+  }
+}
+
+function buildCompareCareerTeams(editionRows) {
+  const seen = new Set();
+  const teams = [];
+  for (const row of sortEditionsByYearDesc(editionRows || [])) {
+    const teamId = Number(row.team_id) || 0;
+    const name = String(row.team_name || '').trim();
+    const logoPath = String(row.team_logo_path || '').trim();
+    const key = teamId > 0 ? `id:${teamId}` : `name:${name.toLowerCase()}`;
+    if (!name || seen.has(key)) continue;
+    seen.add(key);
+    teams.push({
+      team_id: teamId > 0 ? teamId : null,
+      name,
+      logo_path: logoPath || null,
+    });
+  }
+  return teams;
+}
+
+function buildCompareRoles(editionRows) {
+  const order = ['P', 'D', 'C', 'A'];
+  const found = new Set();
+  for (const row of editionRows || []) {
+    const role = String(row.role || '').trim().toUpperCase();
+    if (order.includes(role)) found.add(role);
+  }
+  return order.filter((role) => found.has(role));
+}
+
+async function buildPlayerCompareProfile(playerId, leagueId) {
+  const playerRows = await query(
+    `SELECT id, first_name, last_name, role, COALESCE(photo_path, '') AS photo_path
+     FROM players
+     WHERE id = ?
+     LIMIT 1`,
+    [playerId],
+  );
+  if (!playerRows.length) {
+    return { error: { status: 404, message: 'Giocatore non trovato' } };
+  }
+
+  const basePlayer = playerRows[0];
+  const groupId = await resolveOfficialGroupId(leagueId);
+  const clusterContext = await fetchClusterContext(playerId, groupId);
+  const playerIds = clusterContext.playerIds.length
+    ? clusterContext.playerIds
+    : [playerId];
+
+  const [editionsPlayed, editions] = await Promise.all([
+    countVisibleClusterMembers(playerIds),
+    fetchPlayerEditionRows(playerIds),
+  ]);
+
+  const leagueIds = await resolveCompareLeagueIds(groupId, editions, leagueId);
+  const primaryRole = String(
+    sortEditionsByYearDesc(editions)[0]?.role || basePlayer.role || '',
+  ).trim().toUpperCase() || null;
+
+  const [analytics, fantaStats, trophies, matchWins, penaltyGoals, photoRows] = await Promise.all([
+    fetchPlayerAnalytics(playerIds, leagueIds, primaryRole || ''),
+    fetchPlayerFantaStats(playerIds, leagueIds),
+    groupId
+      ? computePlayerOfficialTrophies(groupId, editions)
+      : Promise.resolve({ championships: 0, wine_trophies: 0 }),
+    fetchPlayerMatchWins(playerIds, leagueIds),
+    fetchPlayerPenaltyGoals(playerIds),
+    !String(basePlayer.photo_path || '').trim()
+      ? query(
+        `SELECT p.photo_path
+         FROM players p
+         JOIN teams t ON t.id = p.team_id
+         JOIN leagues l ON l.id = t.league_id
+         WHERE p.id IN (${playerIds.map(() => '?').join(',')})
+           AND COALESCE(p.photo_path, '') != ''
+         ORDER BY NULLIF(to_jsonb(l)->>'reference_year','')::int DESC NULLS LAST, l.id DESC
+         LIMIT 1`,
+        playerIds,
+      ).catch(() => [])
+      : Promise.resolve([]),
+  ]);
+
+  const photoPath = String(basePlayer.photo_path || '').trim()
+    || String(photoRows?.[0]?.photo_path || '').trim()
+    || '';
+
+  const totals = analytics?.totals || {};
+  const championships = Number(trophies?.championships || 0);
+  const wineTrophies = Number(trophies?.wine_trophies || 0);
+
+  return {
+    profile: {
+      player: {
+        player_id: Number(basePlayer.id),
+        league_id: Number(leagueId),
+        first_name: String(basePlayer.first_name || '').trim(),
+        last_name: String(basePlayer.last_name || '').trim(),
+        name: `${String(basePlayer.first_name || '').trim()} ${String(basePlayer.last_name || '').trim()}`.trim(),
+        photo_path: photoPath || null,
+        role: primaryRole,
+        birth_year: resolveBirthYear(editions),
+      },
+      career_teams: buildCompareCareerTeams(editions),
+      roles_played: buildCompareRoles(editions),
+      stats: {
+        editions_played: Number(editionsPlayed || 0),
+        appearances: Number(totals.games_played || 0),
+        wins: Number(matchWins || 0),
+        trophies: championships + wineTrophies,
+        championships,
+        wine_trophies: wineTrophies,
+        goals: Number(totals.total_goals || 0),
+        assists: Number(totals.total_assists || 0),
+        yellow_cards: Number(totals.total_yellow_cards || 0),
+        red_cards: Number(totals.total_red_cards || 0),
+        penalty_goals: Number(penaltyGoals || 0),
+        penalty_missed: Number(totals.total_penalty_missed || 0),
+        penalty_saved: Number(totals.total_penalty_saved || 0),
+        clean_sheets: Number(totals.total_clean_sheets || 0),
+        mvp: Number(totals.total_briso || 0),
+        avg_rating: safeNumber(fantaStats?.avg_rating, 2),
+      },
+    },
+  };
+}
+
+router.get('/:playerId/compare/:leagueId', authenticateToken, async (req, res) => {
+  try {
+    const playerId = Number(req.params.playerId);
+    const leagueId = Number(req.params.leagueId);
+    if (!playerId || !leagueId) return res.status(400).json({ message: 'Parametri non validi' });
+
+    const result = await buildPlayerCompareProfile(playerId, leagueId);
+    if (result.error) return res.status(result.error.status).json({ message: result.error.message });
+    return res.json(result.profile);
+  } catch (error) {
+    return res.status(500).json({ message: 'Errore caricamento confronto giocatore', error: error.message });
   }
 });
 

@@ -1625,9 +1625,25 @@ export default function PlayerStatsScreen({ route, navigation }) {
     <View style={styles.container}>
       <View style={[styles.heroCard, { paddingTop: Math.max(insets.top + 6, 12) }]}>
         <View style={styles.heroTopBlock}>
-          <TouchableOpacity style={styles.heroBackBtn} onPress={() => navigation.goBack()} activeOpacity={0.75}>
-            <Ionicons name="arrow-back" size={20} color="#333" />
-          </TouchableOpacity>
+          <View style={styles.heroTopRow}>
+            <TouchableOpacity style={styles.heroBackBtn} onPress={() => navigation.goBack()} activeOpacity={0.75}>
+              <Ionicons name="arrow-back" size={20} color="#333" />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.heroVsBtn}
+              onPress={() => navigation.navigate('PlayerCompare', {
+                playerAId: playerId,
+                leagueAId: leagueId,
+                playerAName: playerName,
+                playerARole: playerRole,
+                playerAPhotoPath: photoPath || initialPlayerPhotoPath,
+              })}
+              activeOpacity={0.75}
+              accessibilityLabel="Confronta giocatori"
+            >
+              <Text style={styles.heroVsBtnText}>VS</Text>
+            </TouchableOpacity>
+          </View>
 
           <View style={styles.heroNameBlock}>
             {firstName ? (
@@ -1714,6 +1730,12 @@ const styles = StyleSheet.create({
     elevation: 2,
     alignSelf: 'stretch',
   },
+  heroTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    alignSelf: 'stretch',
+  },
   heroBackBtn: {
     width: 34,
     height: 34,
@@ -1724,6 +1746,22 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     alignSelf: 'flex-start',
+  },
+  heroVsBtn: {
+    width: 42,
+    height: 34,
+    borderRadius: 17,
+    borderWidth: 1,
+    borderColor: '#667eea',
+    backgroundColor: '#eef2ff',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  heroVsBtnText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#667eea',
+    letterSpacing: 0.4,
   },
   heroNameBlock: {
     marginTop: 10,
