@@ -36,7 +36,7 @@ import OfficialStatsExperience, {
 import IconUnderlineTabBar from '../components/IconUnderlineTabBar';
 
 const OFFICIAL_GROUP_ICON_TABS = [
-  { key: 'matches', label: 'Partite', pack: 'mci', icon: 'soccer', iconActive: 'soccer' },
+  { key: 'matches', label: 'Partite', pack: 'mci', icon: 'calendar-month-outline', iconActive: 'calendar-month' },
   { key: 'season', label: 'Stagione', pack: 'mci', icon: 'format-list-numbered', iconActive: 'format-list-numbered' },
   { key: 'stats', label: 'Statistiche', pack: 'ion', icon: 'stats-chart-outline', iconActive: 'stats-chart' },
   { key: 'hall', label: "Albo d'oro", pack: 'mci', icon: 'trophy-outline', iconActive: 'trophy' },
@@ -62,6 +62,8 @@ const MATCHES_LIST_INITIAL_RENDER = 14;
 const HEADER_LOGO_SIZE = 32;
 const HERO_EXPANDED_ESTIMATE = 214;
 const OVERLAY_HEIGHT_ESTIMATE = 280;
+/** Spazio sotto i tab fissi così il contenuto non viene tagliato in alto. */
+const OVERLAY_CONTENT_GAP = 8;
 const HERO_SNAP_MS = 280;
 const HERO_SNAP_OPEN_Y = 8;
 const HERO_GESTURE_DIR_Y = 22;
@@ -718,7 +720,7 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
   const matchListData = useMemo(() => buildMatchListItems(groupMatches), [groupMatches]);
   const matchListLayouts = useMemo(() => computeMatchListLayouts(matchListData), [matchListData]);
   const initialMatchScrollIndex = useMemo(() => resolveInitialMatchScrollIndex(matchListData), [matchListData]);
-  const overlayPad = overlayHeight;
+  const overlayPad = overlayHeight + OVERLAY_CONTENT_GAP;
   const tabScrollMinHeight = Math.max(
     0,
     tabScrollViewportH + (heroCollapsed ? heroSlotHeight : 0)

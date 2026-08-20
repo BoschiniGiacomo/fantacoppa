@@ -5437,7 +5437,7 @@ const styles = StyleSheet.create({
     borderTopColor: '#d1d5db',
     backgroundColor: '#fff',
   },
-  content: { flex: 1, paddingHorizontal: 12, paddingTop: 8 },
+  content: { flex: 1, paddingHorizontal: 12, paddingTop: 12 },
   card: { backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#ececec', padding: 12, marginBottom: 12 },
   recentFormSection: { marginBottom: 12 },
   recentFormTitle: { fontSize: 16, fontWeight: '800', color: '#222', marginBottom: 10 },

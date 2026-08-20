@@ -38,7 +38,7 @@ import OfficialStatsExperience, {
 import IconUnderlineTabBar from '../components/IconUnderlineTabBar';
 
 const OFFICIAL_TEAM_ICON_TABS = [
-  { key: 'matches', label: 'Partite', pack: 'mci', icon: 'soccer', iconActive: 'soccer' },
+  { key: 'matches', label: 'Partite', pack: 'mci', icon: 'calendar-month-outline', iconActive: 'calendar-month' },
   { key: 'season', label: 'Stagione', pack: 'mci', icon: 'format-list-numbered', iconActive: 'format-list-numbered' },
   { key: 'stats', label: 'Statistiche', pack: 'ion', icon: 'stats-chart-outline', iconActive: 'stats-chart' },
   { key: 'team', label: 'Squadra', pack: 'mci', icon: 'tshirt-crew-outline', iconActive: 'tshirt-crew' },
@@ -197,6 +197,8 @@ const ROLE_ORDER = { P: 0, D: 1, C: 2, A: 3 };
 const HEADER_LOGO_SIZE = 32;
 const HERO_EXPANDED_ESTIMATE = 214;
 const OVERLAY_HEIGHT_ESTIMATE = 280;
+/** Spazio sotto i tab fissi così il contenuto non viene tagliato in alto. */
+const OVERLAY_CONTENT_GAP = 8;
 const HERO_SNAP_MS = 280;
 const HERO_SNAP_OPEN_Y = 8;
 const HERO_GESTURE_DIR_Y = 22;
@@ -976,15 +978,15 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
     }
   };
 
-  const overlayPad = overlayHeight;
-  const trophiesTabsChrome = Math.max(0, overlayHeight - heroSlotHeight);
+  const overlayPad = overlayHeight + OVERLAY_CONTENT_GAP;
+  const trophiesTabsChrome = Math.max(0, overlayHeight - heroSlotHeight) + OVERLAY_CONTENT_GAP;
   const tabScrollMinHeight = Math.max(
     0,
     tabScrollViewportH + (heroCollapsed ? heroSlotHeight : 0)
   );
   const trophiesBoardMinHeight = Math.max(
     0,
-    (trophiesViewportHeight || tabScrollViewportH) - (heroCollapsed ? trophiesTabsChrome : overlayHeight)
+    (trophiesViewportHeight || tabScrollViewportH) - (heroCollapsed ? trophiesTabsChrome : overlayPad)
   );
 
   const onTabScrollViewLayout = useCallback((event) => {
