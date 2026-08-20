@@ -1642,7 +1642,7 @@ export default function PlayerStatsScreen({ route, navigation }) {
               activeOpacity={0.75}
               accessibilityLabel="Confronta giocatori"
             >
-              <CompareVsIcon size={22} color="#667eea" />
+              <CompareVsIcon size={22} color="#667eea" withPeople />
             </TouchableOpacity>
           </View>
 

@@ -1256,7 +1256,7 @@ export default function PlayerCompareScreen({ navigation, route }) {
             </View>
             <Text style={styles.emptyTitle}>Scegli due giocatori</Text>
             <Text style={styles.emptySubtitle}>
-              Cerca e seleziona i profili da confrontare. I dati migliori si colorano di verde, i peggiori di rosso.
+              Cerca e seleziona i profili da confrontare.
             </Text>
           </View>
         ) : (
