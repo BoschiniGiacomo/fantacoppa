@@ -31,11 +31,13 @@ export default function IconUnderlineTabBar({ tabs, activeKey, onSelect, style }
             accessibilityState={{ selected: active }}
             accessibilityLabel={tab.label}
           >
-            {typeof tab.renderIcon === 'function' ? (
-              tab.renderIcon(active, color)
-            ) : (
-              <IconComp name={iconName} size={22} color={color} />
-            )}
+            <View style={styles.iconSlot}>
+              {typeof tab.renderIcon === 'function' ? (
+                tab.renderIcon(active, color)
+              ) : (
+                <IconComp name={iconName} size={22} color={color} />
+              )}
+            </View>
             <View style={[styles.underline, active && styles.underlineActive]} />
           </TouchableOpacity>
         );
@@ -74,6 +76,12 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-start',
     paddingTop: 8,
     paddingBottom: 0,
+  },
+  iconSlot: {
+    height: 28,
+    width: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   underline: {
     marginTop: 6,
