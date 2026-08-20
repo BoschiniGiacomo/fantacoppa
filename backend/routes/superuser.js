@@ -1264,8 +1264,18 @@ router.delete(
           `SELECT COUNT(*)::int AS c FROM player_cluster_members WHERE cluster_id = ?`,
           [clusterId]
         );
-        if (Number(countRows[0]?.c || 0) === 0) {
+        // Cluster con 0 o 1 membro non ha senso: elimina members + cluster.
+        if (Number(countRows[0]?.c || 0) < 2) {
+          await query(`DELETE FROM player_cluster_members WHERE cluster_id = ?`, [clusterId]);
           await query(`DELETE FROM player_clusters WHERE id = ?`, [clusterId]);
+          try {
+            await query(
+              `DELETE FROM official_group_cluster_absolute_stats WHERE cluster_id = ?`,
+              [clusterId],
+            );
+          } catch (_) {
+            /* tabella opzionale */
+          }
           clustersDeleted += 1;
         }
       }
@@ -2004,18 +2014,31 @@ router.delete('/player-clusters/:clusterId/players/:playerId', authenticateToken
       [clusterId]
     );
     const remaining = Number(countRows[0]?.c || 0);
-    let clusterRejected = false;
+    let clusterDeleted = false;
+    // Se resta 0 o 1 player (rimozione del penultimo), elimina tutto il cluster.
     if (remaining < 2) {
-      await query(`UPDATE player_clusters SET status = 'rejected' WHERE id = ?`, [clusterId]);
-      clusterRejected = true;
+      await query(`DELETE FROM player_cluster_members WHERE cluster_id = ?`, [clusterId]);
+      await query(`DELETE FROM player_clusters WHERE id = ?`, [clusterId]);
+      try {
+        await query(
+          `DELETE FROM official_group_cluster_absolute_stats WHERE cluster_id = ?`,
+          [clusterId],
+        );
+      } catch (_) {
+        /* tabella opzionale */
+      }
+      clusterDeleted = true;
     }
 
     return res.json({
-      message: 'Giocatore dissociato dal cluster',
+      message: clusterDeleted
+        ? 'Giocatore dissociato: cluster eliminato (restava un solo membro)'
+        : 'Giocatore dissociato dal cluster',
       cluster_id: clusterId,
       player_id: playerId,
-      remaining_members: remaining,
-      cluster_rejected: clusterRejected,
+      remaining_members: clusterDeleted ? 0 : remaining,
+      cluster_deleted: clusterDeleted,
+      cluster_rejected: false,
     });
   } catch (error) {
     console.error('[superuser] DELETE player-clusters player error:', error?.message || error);
