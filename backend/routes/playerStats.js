@@ -472,6 +472,7 @@ async function fetchPlayerEditionRows(playerIds) {
        p.role,
        p.shirt_number,
        p.birth_year,
+       p.rating,
        NULLIF(to_jsonb(l)->>'reference_year','')::int AS reference_year,
        l.id AS league_id,
        l.name AS league_name,
@@ -1149,6 +1150,42 @@ function buildCompareRoles(editionRows) {
   return order.filter((role) => found.has(role));
 }
 
+/** Valore di mercato (= rating giocatore): base (lega corrente) + picco carriera con anno. */
+function resolveCompareMarketValueStats(editionRows, leagueId) {
+  const rows = Array.isArray(editionRows) ? editionRows : [];
+  const lid = Number(leagueId);
+
+  let marketValue = null;
+  const currentEdition = rows.find((row) => Number(row.league_id) === lid);
+  if (currentEdition) {
+    const n = Number(currentEdition.rating);
+    if (Number.isFinite(n)) marketValue = n;
+  }
+  if (marketValue == null) {
+    const latest = sortEditionsByYearDesc(rows)[0];
+    const n = Number(latest?.rating);
+    if (Number.isFinite(n)) marketValue = n;
+  }
+
+  let peakValue = null;
+  let peakYear = null;
+  for (const row of sortEditionsByYearDesc(rows)) {
+    const n = Number(row.rating);
+    if (!Number.isFinite(n)) continue;
+    if (peakValue == null || n > peakValue) {
+      peakValue = n;
+      const y = Number(row.reference_year);
+      peakYear = Number.isFinite(y) && y > 0 ? Math.trunc(y) : null;
+    }
+  }
+
+  return {
+    market_value: safeNumber(marketValue ?? 0, 2),
+    peak_market_value: safeNumber(peakValue ?? marketValue ?? 0, 2),
+    peak_market_value_year: peakYear,
+  };
+}
+
 async function buildPlayerCompareProfile(playerId, leagueId) {
   const playerRows = await query(
     `SELECT id, first_name, last_name, role, COALESCE(photo_path, '') AS photo_path
@@ -1215,6 +1252,7 @@ async function buildPlayerCompareProfile(playerId, leagueId) {
   const championships = Number(trophies?.championships || 0);
   const wineTrophies = Number(trophies?.wine_trophies || 0);
   const competitionName = String(groupNameRows?.[0]?.name || '').trim() || null;
+  const marketStats = resolveCompareMarketValueStats(editions, leagueId);
 
   return {
     profile: {
@@ -1232,6 +1270,9 @@ async function buildPlayerCompareProfile(playerId, leagueId) {
       roles_played: buildCompareRoles(editions),
       competition_name: competitionName,
       stats: {
+        market_value: marketStats.market_value,
+        peak_market_value: marketStats.peak_market_value,
+        peak_market_value_year: marketStats.peak_market_value_year,
         editions_played: Number(editionsPlayed || 0),
         appearances: Number(totals.games_played || 0),
         wins: Number(matchWins || 0),

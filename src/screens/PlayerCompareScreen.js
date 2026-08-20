@@ -33,6 +33,7 @@ const FILTER_DROPDOWN_WIDTH = 300;
 
 const DEFAULT_TROPHY_KINDS = { championship: true, wine: false };
 const DEFAULT_TROPHY_MODE = 'sum'; // 'sum' | 'split'
+const DEFAULT_MARKET_VALUE_MODE = 'current'; // 'current' | 'peak'
 const ROLE_COLORS = {
   P: '#0d6efd',
   D: '#198754',
@@ -48,6 +49,15 @@ const ROLE_PITCH_POS = {
 };
 
 const COMPARE_ROWS = [
+  {
+    key: 'market_value',
+    label: 'Valore di mercato',
+    higherIsBetter: true,
+    decimals: 2,
+    pack: 'ion',
+    icon: 'pricetag-outline',
+    accent: '#b8860b',
+  },
   { key: 'editions_played', label: 'Edizioni', higherIsBetter: true, decimals: 0, pack: 'ion', icon: 'calendar', accent: '#667eea' },
   { key: 'appearances', label: 'Presenze', higherIsBetter: true, decimals: 0, pack: 'ion', icon: 'people', accent: '#667eea' },
   { key: 'wins', label: 'Partite vinte', higherIsBetter: true, decimals: 0, pack: 'ion', icon: 'checkmark-circle', accent: '#16a34a' },
@@ -81,7 +91,7 @@ const COMPARE_ROWS = [
 ];
 
 /** Parametri spenti di default nel filtro confronto. */
-const COMPARE_FILTER_DEFAULT_OFF = new Set(['penalty_goals', 'penalty_missed', 'penalty_saved', 'mvp']);
+const COMPARE_FILTER_DEFAULT_OFF = new Set(['market_value', 'penalty_goals', 'penalty_missed', 'penalty_saved', 'mvp']);
 
 function buildDefaultEnabledKeys() {
   const enabled = {};
@@ -193,6 +203,33 @@ function TrophyModeSwitch({ mode, onChange }) {
   );
 }
 
+function MarketValueModeSwitch({ mode, onChange }) {
+  return (
+    <View style={styles.marketModeSwitch}>
+      <TouchableOpacity
+        style={[styles.marketModeSide, mode === 'current' ? styles.marketModeSideActive : null]}
+        onPress={() => onChange('current')}
+        activeOpacity={0.8}
+        accessibilityLabel="Valore di mercato attuale"
+      >
+        <Text style={[styles.marketModeText, mode === 'current' ? styles.marketModeTextActive : null]}>
+          Base
+        </Text>
+      </TouchableOpacity>
+      <TouchableOpacity
+        style={[styles.marketModeSide, mode === 'peak' ? styles.marketModeSideActive : null]}
+        onPress={() => onChange('peak')}
+        activeOpacity={0.8}
+        accessibilityLabel="Valore di mercato più alto"
+      >
+        <Text style={[styles.marketModeText, mode === 'peak' ? styles.marketModeTextActive : null]}>
+          Max
+        </Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
 function FilterCheck({ on }) {
   return (
     <View style={[styles.filterInlineCheck, on ? styles.filterInlineCheckOn : null]}>
@@ -215,6 +252,8 @@ function CompareFilterMenu({
   trophyMode,
   onToggleTrophyKind,
   onTrophyModeChange,
+  marketValueMode,
+  onMarketValueModeChange,
   championshipLabel,
 }) {
   const { width: windowWidth } = useWindowDimensions();
@@ -230,17 +269,30 @@ function CompareFilterMenu({
     }
     let cancelled = false;
     const measureAnchor = () => {
-      if (!anchorRef?.current) return;
-      anchorRef.current.measureInWindow((x, y, width, height) => {
-        if (cancelled) return;
-        const panelWidth = Math.min(FILTER_DROPDOWN_WIDTH, Math.max(240, windowWidth - 24));
-        const left = Math.max(12, Math.min(x + width - panelWidth, windowWidth - panelWidth - 12));
-        setLayout({
-          left,
-          top: y + height + 6,
-          width: panelWidth,
+      const node = anchorRef?.current;
+      if (!node || typeof node.measureInWindow !== 'function') return;
+      try {
+        node.measureInWindow((x, y, width, height) => {
+          if (cancelled) return;
+          if (
+            typeof x !== 'number'
+            || typeof y !== 'number'
+            || typeof width !== 'number'
+            || typeof height !== 'number'
+          ) {
+            return;
+          }
+          const panelWidth = Math.min(FILTER_DROPDOWN_WIDTH, Math.max(240, windowWidth - 24));
+          const left = Math.max(12, Math.min(x + width - panelWidth, windowWidth - panelWidth - 12));
+          setLayout({
+            left,
+            top: y + height + 6,
+            width: panelWidth,
+          });
         });
-      });
+      } catch {
+        // Native node non ancora pronto (es. Fabric): ritenta al timeout.
+      }
     };
     measureAnchor();
     const retryTimer = setTimeout(measureAnchor, 64);
@@ -315,24 +367,68 @@ function CompareFilterMenu({
               nestedScrollEnabled
               scrollEventThrottle={16}
               onScroll={(e) => {
-                const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+                const ne = e?.nativeEvent;
+                if (!ne) return;
+                const { contentOffset, contentSize, layoutMeasurement } = ne;
                 setScrollMetrics({
-                  y: contentOffset.y,
-                  contentH: contentSize.height,
-                  viewH: layoutMeasurement.height,
+                  y: contentOffset?.y || 0,
+                  contentH: contentSize?.height || 1,
+                  viewH: layoutMeasurement?.height || 1,
                 });
               }}
               onContentSizeChange={(_, h) => {
-                setScrollMetrics((prev) => ({ ...prev, contentH: h }));
+                setScrollMetrics((prev) => ({ ...prev, contentH: h || 1 }));
               }}
               onLayout={(e) => {
-                setScrollMetrics((prev) => ({ ...prev, viewH: e.nativeEvent.layout.height }));
+                const h = e?.nativeEvent?.layout?.height;
+                if (typeof h !== 'number') return;
+                setScrollMetrics((prev) => ({ ...prev, viewH: h }));
               }}
             >
               {COMPARE_ROWS.map((row, idx) => {
                 const on = Boolean(enabledKeys[row.key]);
                 const isLast = idx === COMPARE_ROWS.length - 1;
                 const isTrophies = row.key === 'trophies';
+                const isMarketValue = row.key === 'market_value';
+
+                if (isMarketValue) {
+                  return (
+                    <View
+                      key={row.key}
+                      style={[
+                        styles.filterDropdownItem,
+                        isLast ? styles.filterDropdownItemLast : null,
+                        on ? styles.filterDropdownItemOn : null,
+                      ]}
+                    >
+                      <TouchableOpacity
+                        style={styles.filterDropdownItemLeft}
+                        onPress={() => onToggle(row.key)}
+                        activeOpacity={0.8}
+                      >
+                        <CompareRowGlyph row={row} size={15} />
+                        <Text style={[styles.filterDropdownItemText, on ? styles.filterDropdownItemTextOn : null]}>
+                          {row.label}
+                        </Text>
+                      </TouchableOpacity>
+                      <View style={styles.filterTrophyItemRight}>
+                        {on ? (
+                          <MarketValueModeSwitch
+                            mode={marketValueMode}
+                            onChange={onMarketValueModeChange}
+                          />
+                        ) : null}
+                        <TouchableOpacity
+                          onPress={() => onToggle(row.key)}
+                          activeOpacity={0.8}
+                          hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                        >
+                          <FilterCheck on={on} />
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  );
+                }
 
                 if (isTrophies) {
                   return (
@@ -785,14 +881,17 @@ function PlayerHeaderCard({ profile, fallbackName, fallbackPhoto, side, onClear,
   );
 }
 
-function StatCompareRow({ row, leftValue, rightValue, zebra }) {
+function StatCompareRow({ row, leftValue, rightValue, leftSub, rightSub, zebra }) {
   const tones = compareTone(leftValue, rightValue, row.higherIsBetter);
+  const leftYear = leftSub != null && String(leftSub).trim() !== '' ? String(leftSub) : null;
+  const rightYear = rightSub != null && String(rightSub).trim() !== '' ? String(rightSub) : null;
   return (
     <View style={[styles.statRow, zebra ? styles.statRowZebra : null]}>
       <View style={styles.statValueCell}>
         <Text style={[styles.statValue, { color: toneColor(tones.left) }]}>
           {formatStatValue(leftValue, row.decimals)}
         </Text>
+        {leftYear ? <Text style={styles.statValueSub}>{leftYear}</Text> : null}
       </View>
       <View style={styles.statLabelCell}>
         <CompareRowGlyph row={row} size={15} />
@@ -802,6 +901,7 @@ function StatCompareRow({ row, leftValue, rightValue, zebra }) {
         <Text style={[styles.statValue, { color: toneColor(tones.right) }]}>
           {formatStatValue(rightValue, row.decimals)}
         </Text>
+        {rightYear ? <Text style={styles.statValueSub}>{rightYear}</Text> : null}
       </View>
     </View>
   );
@@ -838,6 +938,7 @@ export default function PlayerCompareScreen({ navigation, route }) {
   const [enabledKeys, setEnabledKeys] = useState(buildDefaultEnabledKeys);
   const [trophyKinds, setTrophyKinds] = useState(() => ({ ...DEFAULT_TROPHY_KINDS }));
   const [trophyMode, setTrophyMode] = useState(DEFAULT_TROPHY_MODE);
+  const [marketValueMode, setMarketValueMode] = useState(DEFAULT_MARKET_VALUE_MODE);
 
   const searchSeqRef = useRef(0);
   const inputARef = useRef(null);
@@ -848,7 +949,10 @@ export default function PlayerCompareScreen({ navigation, route }) {
 
   const loadProfile = useCallback(async (playerId, leagueId) => {
     const key = `${playerId}-${leagueId}`;
-    if (cacheRef.current.has(key)) return cacheRef.current.get(key);
+    const cached = cacheRef.current.get(key);
+    if (cached && cached?.stats && Object.prototype.hasOwnProperty.call(cached.stats, 'market_value')) {
+      return cached;
+    }
 
     const res = await playerStatsService.getPlayerCompare(playerId, leagueId);
     const profile = res?.data || null;
@@ -1056,6 +1160,7 @@ export default function PlayerCompareScreen({ navigation, route }) {
     setEnabledKeys(buildDefaultEnabledKeys());
     setTrophyKinds({ ...DEFAULT_TROPHY_KINDS });
     setTrophyMode(DEFAULT_TROPHY_MODE);
+    setMarketValueMode(DEFAULT_MARKET_VALUE_MODE);
   }, []);
 
   const filterIsDefault = useMemo(() => {
@@ -1063,8 +1168,9 @@ export default function PlayerCompareScreen({ navigation, route }) {
     const keysMatch = COMPARE_ROWS.every((row) => Boolean(enabledKeys[row.key]) === Boolean(defaults[row.key]));
     const kindsMatch = Boolean(trophyKinds.championship) === true && Boolean(trophyKinds.wine) === false;
     const modeMatch = trophyMode === DEFAULT_TROPHY_MODE;
-    return keysMatch && kindsMatch && modeMatch;
-  }, [enabledKeys, trophyKinds, trophyMode]);
+    const marketModeMatch = marketValueMode === DEFAULT_MARKET_VALUE_MODE;
+    return keysMatch && kindsMatch && modeMatch && marketModeMatch;
+  }, [enabledKeys, trophyKinds, trophyMode, marketValueMode]);
 
   const filterIsAll = useMemo(
     () => COMPARE_ROWS.every((row) => Boolean(enabledKeys[row.key]))
@@ -1087,6 +1193,24 @@ export default function PlayerCompareScreen({ navigation, route }) {
 
     for (const row of COMPARE_ROWS) {
       if (!enabledKeys[row.key]) continue;
+
+      if (row.key === 'market_value') {
+        if (marketValueMode === 'peak') {
+          out.push({
+            ...row,
+            key: 'peak_market_value',
+            label: 'Valore più alto',
+            yearKey: 'peak_market_value_year',
+          });
+        } else {
+          out.push({
+            ...row,
+            key: 'market_value',
+            label: 'Valore di mercato',
+          });
+        }
+        continue;
+      }
 
       if (row.key === 'trophies') {
         const wantChamp = Boolean(trophyKinds.championship);
@@ -1153,7 +1277,7 @@ export default function PlayerCompareScreen({ navigation, route }) {
     }
 
     return out;
-  }, [bothReady, slotA, slotB, enabledKeys, trophyKinds, trophyMode, competitionName]);
+  }, [bothReady, slotA, slotB, enabledKeys, trophyKinds, trophyMode, marketValueMode, competitionName]);
 
   return (
     <View style={styles.container}>
@@ -1166,23 +1290,23 @@ export default function PlayerCompareScreen({ navigation, route }) {
             <Ionicons name="arrow-back" size={20} color="#333" />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Confronto</Text>
-          <TouchableOpacity
-            ref={filterBtnRef}
-            style={[styles.filterBtn, filterOpen || !filterIsDefault ? styles.filterBtnActive : null]}
-            onPress={() => {
-              Keyboard.dismiss();
-              setFilterOpen((open) => !open);
-            }}
-            activeOpacity={0.75}
-            accessibilityLabel="Filtra parametri confronto"
-            collapsable={false}
-          >
-            <Ionicons
-              name="options-outline"
-              size={18}
-              color={filterOpen || !filterIsDefault ? '#667eea' : '#333'}
-            />
-          </TouchableOpacity>
+          <View ref={filterBtnRef} collapsable={false}>
+            <TouchableOpacity
+              style={[styles.filterBtn, filterOpen || !filterIsDefault ? styles.filterBtnActive : null]}
+              onPress={() => {
+                Keyboard.dismiss();
+                setFilterOpen((open) => !open);
+              }}
+              activeOpacity={0.75}
+              accessibilityLabel="Filtra parametri confronto"
+            >
+              <Ionicons
+                name="options-outline"
+                size={18}
+                color={filterOpen || !filterIsDefault ? '#667eea' : '#333'}
+              />
+            </TouchableOpacity>
+          </View>
         </View>
 
         {showSearchBar ? (
@@ -1326,6 +1450,8 @@ export default function PlayerCompareScreen({ navigation, route }) {
                       row={row}
                       leftValue={slotA.profile.stats?.[row.key]}
                       rightValue={slotB.profile.stats?.[row.key]}
+                      leftSub={row.yearKey ? slotA.profile.stats?.[row.yearKey] : null}
+                      rightSub={row.yearKey ? slotB.profile.stats?.[row.yearKey] : null}
                       zebra={index % 2 === 1}
                     />
                   ))}
@@ -1365,6 +1491,8 @@ export default function PlayerCompareScreen({ navigation, route }) {
         trophyMode={trophyMode}
         onToggleTrophyKind={toggleTrophyKind}
         onTrophyModeChange={setTrophyMode}
+        marketValueMode={marketValueMode}
+        onMarketValueModeChange={setMarketValueMode}
         championshipLabel={competitionName}
       />
     </View>
@@ -1644,6 +1772,34 @@ const styles = StyleSheet.create({
     lineHeight: 16,
   },
   trophyModeSigmaActive: {
+    color: '#4f46e5',
+  },
+  marketModeSwitch: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#dbe3ef',
+    backgroundColor: '#fff',
+    overflow: 'hidden',
+  },
+  marketModeSide: {
+    minWidth: 36,
+    height: 24,
+    paddingHorizontal: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fff',
+  },
+  marketModeSideActive: {
+    backgroundColor: '#eef2ff',
+  },
+  marketModeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#94a3b8',
+  },
+  marketModeTextActive: {
     color: '#4f46e5',
   },
   trophyGlyphRow: {
@@ -2005,6 +2161,12 @@ const styles = StyleSheet.create({
   statValue: {
     fontSize: 16,
     fontWeight: '800',
+  },
+  statValueSub: {
+    marginTop: 2,
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#94a3b8',
   },
   statLabelCell: {
     width: 112,
