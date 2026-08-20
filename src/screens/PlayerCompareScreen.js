@@ -28,9 +28,11 @@ const SEARCH_DEBOUNCE_MS = 300;
 const PHOTO_WIDTH = 80;
 // Grandezza disegno fissa; lo slot più alto dà aria senza scalare/tagliare la foto.
 const PHOTO_HEIGHT = 104;
-const PHOTO_SLOT_HEIGHT = 140;
-const PHOTO_ZOOM = 1.05;
+const PHOTO_SLOT_HEIGHT = 120;
+const PHOTO_ZOOM = 1.15;
 const PHOTO_SIDE_BLEED = 1.55;
+const PHOTO_VERT_BLEED = 1.22;
+const PROFILES_PAD_TOP = 34;
 const FILTER_DROPDOWN_MAX_HEIGHT = 400;
 const FILTER_DROPDOWN_WIDTH = 300;
 
@@ -576,12 +578,13 @@ function CompareAvatar({ photoPath, name, width = PHOTO_WIDTH, height = PHOTO_HE
   };
 
   if (photoPath) {
-    // Grandezza = PHOTO_WIDTH/HEIGHT (+ zoom). Canvas più largo + overflow visible:
-    // non taglia ai lati (sborda sotto la X). Lo slot più alto dà aria senza rimpicciolire/ingrandire.
-    const drawH = Math.round(height * PHOTO_ZOOM);
+    // Canvas più largo/alto + overflow visible: niente crop. Allineata in basso così
+    // l’eventuale eccesso sfora dall’alto (anche sotto la X), come ai lati.
+    const drawH = Math.round(height * PHOTO_ZOOM * PHOTO_VERT_BLEED);
     const drawW = Math.round(width * PHOTO_ZOOM * PHOTO_SIDE_BLEED);
+    const top = slotH - drawH;
     return (
-      <View style={{ width, height: slotH, alignItems: 'center', justifyContent: 'center', overflow: 'visible' }}>
+      <View style={{ width, height: slotH, alignItems: 'center', justifyContent: 'flex-end', overflow: 'visible' }}>
         <PlayerPhotoImage
           photoPath={photoPath}
           style={{
@@ -589,7 +592,7 @@ function CompareAvatar({ photoPath, name, width = PHOTO_WIDTH, height = PHOTO_HE
             height: drawH,
             position: 'absolute',
             left: (width - drawW) / 2,
-            top: (slotH - drawH) / 2,
+            top,
           }}
           resizeMode="cover"
           fallbackStyle={fallbackStyle}
@@ -1991,7 +1994,8 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: 12,
-    paddingTop: 14,
+    // Aria sopra così le foto possono sforare dall’alto senza clip dello ScrollView.
+    paddingTop: 22,
   },
   emptyState: {
     alignItems: 'center',
@@ -2022,7 +2026,8 @@ const styles = StyleSheet.create({
   profilesRow: {
     flexDirection: 'row',
     alignItems: 'stretch',
-    paddingVertical: 14,
+    paddingTop: PROFILES_PAD_TOP,
+    paddingBottom: 14,
     paddingHorizontal: 8,
     // Sfondo su layer separato: su Android borderRadius+bg taglia i figli.
     overflow: 'visible',
@@ -2075,7 +2080,8 @@ const styles = StyleSheet.create({
   },
   headerClearBtn: {
     position: 'absolute',
-    top: 0,
+    // Angolo alto della card (il paddingTop spinge solo foto/contenuto).
+    top: -PROFILES_PAD_TOP + 7,
     width: 20,
     height: 20,
     borderRadius: 10,
@@ -2088,11 +2094,11 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   headerClearBtnLeft: {
-    left: 0,
+    left: -5,
     right: undefined,
   },
   headerClearBtnRight: {
-    right: 0,
+    right: -7,
   },
   headerNames: {
     width: '100%',
