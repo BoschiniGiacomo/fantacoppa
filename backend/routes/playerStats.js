@@ -577,11 +577,7 @@ async function fetchPlayerAbsoluteOverviewRanks(groupId, clusterPlayerIds) {
   const empty = { appearances_rank: null, goals_rank: null };
   const gid = Number(groupId);
   const playerIds = [...new Set((clusterPlayerIds || []).map(Number).filter((id) => Number.isFinite(id) && id > 0))];
-  const soloMode = playerIds.length === 1;
-  console.log('[AbsoluteRanks] compute start', { groupId: gid, playerIds, soloMode });
-
   if (!Number.isFinite(gid) || gid <= 0 || !playerIds.length) {
-    console.log('[AbsoluteRanks] compute abort: groupId/playerIds invalidi', { gid, playerIds });
     return empty;
   }
 
@@ -596,27 +592,17 @@ async function fetchPlayerAbsoluteOverviewRanks(groupId, clusterPlayerIds) {
 
   // 1) Store (non deve mai bloccare il fallback live)
   try {
-    const storeAvailable = await isOfficialGroupAbsoluteStatsStoreAvailable();
-    console.log('[AbsoluteRanks] store available?', storeAvailable);
-    if (storeAvailable) {
+    if (await isOfficialGroupAbsoluteStatsStoreAvailable()) {
       const stored = await fetchClusterAbsoluteRanksFromStore(gid, playerIds);
-      console.log('[AbsoluteRanks] store result', {
-        found: stored.found,
-        ranks: stored.ranks,
-        refreshed_at: stored.refreshed_at || null,
-        soloMode,
-      });
       if (
         stored.found
         && (stored.ranks?.appearances_rank != null || stored.ranks?.goals_rank != null)
       ) {
-        console.log('[AbsoluteRanks] using STORE ranks');
         return stored.ranks;
       }
-      console.log('[AbsoluteRanks] store miss/empty → fallback LIVE');
     }
-  } catch (error) {
-    console.error('[AbsoluteRanks] store lookup failed:', error?.message || error);
+  } catch (_) {
+    // fallback live
   }
 
   // 2) Live leaderboard del gruppo
@@ -626,7 +612,6 @@ async function fetchPlayerAbsoluteOverviewRanks(groupId, clusterPlayerIds) {
     const listOfficialGroupSeasonLeagues = officialGroupStatsApi?.listOfficialGroupSeasonLeagues;
     const computeOfficialGroupSeasonStats = officialGroupStatsApi?.computeOfficialGroupSeasonStats;
     if (!listOfficialGroupSeasonLeagues || !computeOfficialGroupSeasonStats) {
-      console.error('[AbsoluteRanks] officialGroupStatsApi missing');
       return empty;
     }
 
@@ -638,15 +623,7 @@ async function fetchPlayerAbsoluteOverviewRanks(groupId, clusterPlayerIds) {
           .filter((id) => Number.isFinite(id) && id > 0),
       ),
     ];
-    console.log('[AbsoluteRanks] live leagues', {
-      groupId: gid,
-      leagueCount: leagueIds.length,
-      leagueIds: leagueIds.slice(0, 20),
-    });
-    if (!leagueIds.length) {
-      console.log('[AbsoluteRanks] live abort: nessuna league pubblica nel gruppo');
-      return empty;
-    }
+    if (!leagueIds.length) return empty;
 
     const stats = await computeOfficialGroupSeasonStats(gid, leagueIds, true, {
       leaderboards: ['scorers', 'presences'],
@@ -654,33 +631,6 @@ async function fetchPlayerAbsoluteOverviewRanks(groupId, clusterPlayerIds) {
 
     const presenceRows = Array.isArray(stats?.presences) ? stats.presences : [];
     const scorerRows = Array.isArray(stats?.scorers) ? stats.scorers : [];
-    const idSet = new Set(playerIds);
-    const presenceHit = presenceRows.find((row) => idSet.has(Number(row?.player_id)));
-    const scorerHit = scorerRows.find((row) => idSet.has(Number(row?.player_id)));
-    console.log('[AbsoluteRanks] live boards', {
-      soloMode,
-      playerIds,
-      presencesCount: presenceRows.length,
-      scorersCount: scorerRows.length,
-      presenceHit: presenceHit
-        ? {
-          player_id: presenceHit.player_id,
-          cluster_id: presenceHit.cluster_id || null,
-          value: presenceHit.value,
-          name: presenceHit.name,
-        }
-        : null,
-      scorerHit: scorerHit
-        ? {
-          player_id: scorerHit.player_id,
-          cluster_id: scorerHit.cluster_id || null,
-          value: scorerHit.value,
-          name: scorerHit.name,
-        }
-        : null,
-      samplePresencePlayerIds: presenceRows.slice(0, 8).map((r) => Number(r.player_id) || null),
-      sampleScorerPlayerIds: scorerRows.slice(0, 8).map((r) => Number(r.player_id) || null),
-    });
 
     // Anche cluster da 1 membro: la leaderboard live può esporre cluster_id.
     let clusterIds = [];
@@ -698,30 +648,24 @@ async function fetchPlayerAbsoluteOverviewRanks(groupId, clusterPlayerIds) {
       clusterIds = (memberRows || [])
         .map((row) => Number(row.cluster_id))
         .filter((id) => Number.isFinite(id) && id > 0);
-    } catch (error) {
-      console.error('[AbsoluteRanks] clusterIds lookup failed:', error?.message || error);
+    } catch (_) {
       clusterIds = [];
     }
-    console.log('[AbsoluteRanks] live clusterIds for players', { playerIds, clusterIds });
 
     const ranks = {
       appearances_rank: resolveRankInLeaderboard(presenceRows, playerIds, clusterIds),
       goals_rank: resolveRankInLeaderboard(scorerRows, playerIds, clusterIds),
     };
-    console.log('[AbsoluteRanks] using LIVE ranks', { ranks, soloMode });
 
     // Aggiorna subito lo snapshot (include anche i player senza cluster).
     try {
-      const upserted = await refreshOfficialGroupAbsoluteStatsStore(gid, stats);
-      console.log('[AbsoluteRanks] store refresh after live', upserted);
-    } catch (error) {
-      console.error('[AbsoluteRanks] store refresh failed, scheduling async:', error?.message || error);
+      await refreshOfficialGroupAbsoluteStatsStore(gid, stats);
+    } catch (_) {
       void scheduleOfficialGroupAbsoluteStatsRefresh(gid).catch(() => {});
     }
 
     return ranks;
-  } catch (error) {
-    console.error('[AbsoluteRanks] live compute failed:', error?.message || error);
+  } catch (_) {
     return empty;
   }
 }
@@ -870,28 +814,14 @@ router.get('/:playerId/absolute-ranks/:leagueId', authenticateToken, async (req,
     if (!playerRows.length) return res.status(404).json({ message: 'Giocatore non trovato' });
 
     const groupId = await resolveOfficialGroupId(leagueId);
-    console.log('[AbsoluteRanks] request', { playerId, leagueId, groupId: groupId || null });
     if (!groupId) {
-      console.log('[AbsoluteRanks] abort: nessun official_group_id per la league');
       return res.json({ absolute_ranks: { appearances_rank: null, goals_rank: null } });
     }
 
     const clusterContext = await fetchClusterContext(playerId, groupId);
-    console.log('[AbsoluteRanks] clusterContext', {
-      playerId,
-      groupId,
-      hasCluster: clusterContext.hasCluster,
-      clusterId: clusterContext.clusterId,
-      lookup: clusterContext.lookup,
-      playerIds: clusterContext.playerIds,
-      soloPlayer: !clusterContext.hasCluster && clusterContext.playerIds?.length === 1,
-    });
-
     const absoluteRanks = await fetchPlayerAbsoluteOverviewRanks(groupId, clusterContext.playerIds);
-    console.log('[AbsoluteRanks] response', { playerId, groupId, absoluteRanks });
     return res.json({ absolute_ranks: absoluteRanks });
   } catch (error) {
-    console.error('[AbsoluteRanks] endpoint error:', error?.message || error);
     return res.status(500).json({ message: 'Errore caricamento ranking assoluto giocatore', error: error.message });
   }
 });
