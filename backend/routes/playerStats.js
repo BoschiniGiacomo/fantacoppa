@@ -95,8 +95,7 @@ async function resolveAggregatedPlayerContext(playerId, leagueId) {
      FROM leagues
      WHERE official_group_id = ?
        AND COALESCE(is_official, 0) = 1
-       AND COALESCE(is_official_squad_public, 0) = 1
-       AND COALESCE(is_hidden_from_discovery, 0) = 0`,
+       AND COALESCE(is_official_squad_public, 0) = 1`,
     [groupId]
   );
   const groupLeagueIds = groupLeagueRows.map((r) => Number(r.id)).filter((n) => Number.isFinite(n) && n > 0);
@@ -380,10 +379,8 @@ async function isLeagueExcludedFromPlayerOverview(leagueId, cache = new Map()) {
     if (!row) break;
 
     if (Number(row.is_official || 0) === 1) {
+      // Zone ufficiali / player / compare: conta solo "Pubblicata" (rosa/stats).
       if (Number(row.is_official_squad_public || 0) === 0) {
-        excluded = true;
-      } else if (Number(row.is_hidden_from_discovery || 0) === 1) {
-        // Difesa extra: anche le ufficiali nascoste da discovery restano fuori overview/compare.
         excluded = true;
       }
       break;
@@ -947,8 +944,7 @@ async function resolveCompareLeagueIds(groupId, editionRows, fallbackLeagueId) {
        FROM leagues
        WHERE official_group_id = ?
          AND COALESCE(is_official, 0) = 1
-         AND COALESCE(is_official_squad_public, 0) = 1
-         AND COALESCE(is_hidden_from_discovery, 0) = 0`,
+         AND COALESCE(is_official_squad_public, 0) = 1`,
       [groupId],
     );
     const ids = (groupLeagueRows || [])
@@ -985,7 +981,6 @@ async function fetchPlayerPenaltyGoals(playerIds) {
            )
              AND COALESCE(pub_l.is_official, 0) = 1
              AND COALESCE(pub_l.is_official_squad_public, 0) = 1
-             AND COALESCE(pub_l.is_hidden_from_discovery, 0) = 0
          )`,
       ids,
     );
@@ -1213,8 +1208,7 @@ async function resolveGroupLatestReferenceYear(groupId, leagueIds = []) {
          FROM leagues l
          WHERE l.official_group_id = ?
            AND COALESCE(is_official, 0) = 1
-           AND COALESCE(is_official_squad_public, 0) = 1
-           AND COALESCE(is_hidden_from_discovery, 0) = 0`,
+           AND COALESCE(is_official_squad_public, 0) = 1`,
         [groupId],
       );
       const y = Number(rows?.[0]?.max_year);

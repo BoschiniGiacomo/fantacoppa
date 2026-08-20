@@ -271,7 +271,6 @@ async function fetchPlayerPenaltyGoalsCount(playerIds) {
            )
              AND COALESCE(pub_l.is_official, 0) = 1
              AND COALESCE(pub_l.is_official_squad_public, 0) = 1
-             AND COALESCE(pub_l.is_hidden_from_discovery, 0) = 0
          )`,
       ids,
     );
@@ -308,7 +307,6 @@ async function fetchPlayerMarketValueSeries(playerIds, leagueIds) {
            COALESCE(l.is_official, 0) = 0
            OR COALESCE(l.is_official_squad_public, 0) = 1
          )
-         AND COALESCE(l.is_hidden_from_discovery, 0) = 0
        ORDER BY reference_year ASC NULLS LAST, l.id ASC`,
       [...pids, ...lids],
     );
