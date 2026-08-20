@@ -12,8 +12,10 @@ const CHART_HEIGHT = 196;
 const PADDING = { top: 10, right: 16, bottom: 40, left: 28 };
 const PLOT_LEFT_ZOOMED = 10;
 const ACCENT = '#667eea';
+const MARKET_ACCENT = '#b8860b';
 const LENS_COLOR = '#94a3b8';
 const POINT_SPACING = 34;
+const MARKET_MIN_SEASONS_FOR_ZOOM = 8;
 
 function ZoomLensToggle({ zoomed, onPress }) {
   return (
@@ -179,8 +181,15 @@ function buildYearSegments(points) {
   return segments;
 }
 
-export default function PlayerFormChart({ series = [], width = 320, mode = 'league' }) {
-  const isTotalMode = mode === 'total';
+export default function PlayerFormChart({
+  series = [],
+  width = 320,
+  mode = 'league',
+  variant = 'form',
+}) {
+  const isMarket = variant === 'market';
+  const isTotalMode = mode === 'total' || isMarket;
+  const lineColor = isMarket ? MARKET_ACCENT : ACCENT;
   const viewportWidth = Math.max(240, Number(width) || 320);
   const [zoomLevel, setZoomLevel] = useState(1);
   const zoomShared = useSharedValue(1);
@@ -189,16 +198,29 @@ export default function PlayerFormChart({ series = [], width = 320, mode = 'leag
 
   const scoredPoints = useMemo(
     () => (Array.isArray(series) ? series : [])
-      .map((point, index) => ({
-        index,
-        giornata: Number(point?.giornata),
-        referenceYear: point?.reference_year != null ? Number(point.reference_year) : null,
-        rating: Number(point?.rating),
-        ratingWithBonus: Number(point?.rating_with_bonus),
-        isScored: Number(point?.rating) > 0,
-      }))
+      .map((point, index) => {
+        if (isMarket) {
+          const marketValue = Number(point?.market_value ?? point?.rating);
+          return {
+            index,
+            giornata: Number(point?.reference_year ?? point?.giornata),
+            referenceYear: point?.reference_year != null ? Number(point.reference_year) : null,
+            rating: marketValue,
+            ratingWithBonus: marketValue,
+            isScored: Number.isFinite(marketValue),
+          };
+        }
+        return {
+          index,
+          giornata: Number(point?.giornata),
+          referenceYear: point?.reference_year != null ? Number(point.reference_year) : null,
+          rating: Number(point?.rating),
+          ratingWithBonus: Number(point?.rating_with_bonus),
+          isScored: Number(point?.rating) > 0,
+        };
+      })
       .filter((point) => point.isScored),
-    [series],
+    [series, isMarket],
   );
 
   const maxZoom = useMemo(() => {
@@ -208,7 +230,9 @@ export default function PlayerFormChart({ series = [], width = 320, mode = 'leag
     return Math.max(1, fullPlotWidth / zoomViewport);
   }, [isTotalMode, scoredPoints.length, viewportWidth]);
 
-  const canZoom = isTotalMode && maxZoom > 1.01;
+  const canZoom = isTotalMode
+    && maxZoom > 1.01
+    && (!isMarket || scoredPoints.length >= MARKET_MIN_SEASONS_FOR_ZOOM);
   const isZoomedIn = canZoom && zoomLevel > 1.01;
   const yAxisWidth = isZoomedIn ? PADDING.left : 0;
   const plotLeft = isZoomedIn ? PLOT_LEFT_ZOOMED : PADDING.left;
@@ -251,7 +275,7 @@ export default function PlayerFormChart({ series = [], width = 320, mode = 'leag
     zoomShared.value = 1;
     basePinchZoom.value = 1;
     setZoomLevel(1);
-  }, [series, mode]);
+  }, [series, mode, variant]);
 
   const pinchGesture = useMemo(() => Gesture.Pinch()
     .enabled(canZoom)
@@ -274,7 +298,9 @@ export default function PlayerFormChart({ series = [], width = 320, mode = 'leag
     if (!scoredPoints.length) return null;
 
     const ratings = scoredPoints.map((p) => p.rating);
-    const bonusRatings = scoredPoints.map((p) => p.ratingWithBonus);
+    const bonusRatings = isMarket
+      ? []
+      : scoredPoints.map((p) => p.ratingWithBonus);
     const allValues = [...ratings, ...bonusRatings].filter((v) => Number.isFinite(v));
     const baseMin = ratings.filter((v) => Number.isFinite(v));
     const domainMin = baseMin.length ? Math.min(...baseMin) : null;
@@ -304,10 +330,12 @@ export default function PlayerFormChart({ series = [], width = 320, mode = 'leag
       rating: point.rating,
     }));
 
-    const bonusCoords = scoredPoints.map((point, index) => ({
-      x: xForIndex(index),
-      y: yForValue(point.ratingWithBonus),
-    }));
+    const bonusCoords = isMarket
+      ? []
+      : scoredPoints.map((point, index) => ({
+        x: xForIndex(index),
+        y: yForValue(point.ratingWithBonus),
+      }));
 
     let bestIndex = 0;
     let worstIndex = 0;
@@ -345,7 +373,7 @@ export default function PlayerFormChart({ series = [], width = 320, mode = 'leag
       votePolyline: voteCoords.map((p) => `${p.x},${p.y}`).join(' '),
       bonusPolyline: bonusCoords.map((p) => `${p.x},${p.y}`).join(' '),
     };
-  }, [scoredPoints, innerWidth, innerHeight, isTotalMode, isFittedTotal, plotLeft]);
+  }, [scoredPoints, innerWidth, innerHeight, isTotalMode, isFittedTotal, plotLeft, isMarket]);
 
   const handleZoomToggle = () => {
     applyZoom(isZoomedIn ? 1 : maxZoom);
@@ -354,7 +382,11 @@ export default function PlayerFormChart({ series = [], width = 320, mode = 'leag
   if (!layout) {
     return (
       <View style={styles.emptyWrap}>
-        <Text style={styles.emptyText}>Nessun voto disponibile per il grafico.</Text>
+        <Text style={styles.emptyText}>
+          {isMarket
+            ? 'Nessun valore di mercato disponibile per il grafico.'
+            : 'Nessun voto disponibile per il grafico.'}
+        </Text>
       </View>
     );
   }
@@ -380,17 +412,19 @@ export default function PlayerFormChart({ series = [], width = 320, mode = 'leag
         />
       ))}
 
-      <Polyline
-        points={layout.bonusPolyline}
-        fill="none"
-        stroke="#c7d2fe"
-        strokeWidth={2}
-        strokeDasharray="4 4"
-      />
+      {!isMarket && layout.bonusPolyline ? (
+        <Polyline
+          points={layout.bonusPolyline}
+          fill="none"
+          stroke="#c7d2fe"
+          strokeWidth={2}
+          strokeDasharray="4 4"
+        />
+      ) : null}
       <Polyline
         points={layout.votePolyline}
         fill="none"
-        stroke={ACCENT}
+        stroke={lineColor}
         strokeWidth={2.5}
         strokeLinejoin="round"
         strokeLinecap="round"
@@ -403,7 +437,7 @@ export default function PlayerFormChart({ series = [], width = 320, mode = 'leag
           cy={point.y}
           r={3.5}
           fill="#fff"
-          stroke={ACCENT}
+          stroke={lineColor}
           strokeWidth={2}
         />
       ))}
@@ -411,7 +445,7 @@ export default function PlayerFormChart({ series = [], width = 320, mode = 'leag
       {bestPoint ? (
         <Circle cx={bestPoint.x} cy={bestPoint.y} r={5} fill="#198754" stroke="#fff" strokeWidth={2} />
       ) : null}
-      {worstPoint ? (
+      {worstPoint && layout.worstIndex !== layout.bestIndex ? (
         <Circle cx={worstPoint.x} cy={worstPoint.y} r={5} fill="#dc3545" stroke="#fff" strokeWidth={2} />
       ) : null}
 
@@ -517,20 +551,31 @@ export default function PlayerFormChart({ series = [], width = 320, mode = 'leag
       </GestureDetector>
 
       <View style={styles.legendRow}>
-        <View style={styles.legendItem}>
-          <View style={[styles.legendLine, { backgroundColor: ACCENT }]} />
-          <Text style={styles.legendText}>Voto</Text>
-        </View>
-        <View style={styles.legendItem}>
-          <View style={[styles.legendLine, styles.legendLineDashed]} />
-          <Text style={styles.legendText}>Con bonus</Text>
-        </View>
+        {isMarket ? (
+          <View style={styles.legendItem}>
+            <View style={[styles.legendLine, { backgroundColor: MARKET_ACCENT }]} />
+            <Text style={styles.legendText}>Valore di mercato</Text>
+          </View>
+        ) : (
+          <>
+            <View style={styles.legendItem}>
+              <View style={[styles.legendLine, { backgroundColor: ACCENT }]} />
+              <Text style={styles.legendText}>Voto</Text>
+            </View>
+            <View style={styles.legendItem}>
+              <View style={[styles.legendLine, styles.legendLineDashed]} />
+              <Text style={styles.legendText}>Con bonus</Text>
+            </View>
+          </>
+        )}
       </View>
 
       <View style={styles.highlightRow}>
         <Text style={styles.highlightText}>
-          Miglior: <Text style={styles.highlightBest}>{formatRating(layout.best.rating)}</Text>
-          {' '}· Peggior: <Text style={styles.highlightWorst}>{formatRating(layout.worst.rating)}</Text>
+          {isMarket ? 'Più alto' : 'Miglior'}:{' '}
+          <Text style={styles.highlightBest}>{formatRating(layout.best.rating)}</Text>
+          {' '}· {isMarket ? 'Più basso' : 'Peggior'}:{' '}
+          <Text style={styles.highlightWorst}>{formatRating(layout.worst.rating)}</Text>
         </Text>
       </View>
     </View>

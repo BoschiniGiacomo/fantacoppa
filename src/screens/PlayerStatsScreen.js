@@ -251,6 +251,70 @@ function TileSplitRow({ left, right }) {
   );
 }
 
+function TimelineModeSwitch({ mode, onChange }) {
+  return (
+    <View style={styles.timelineModeSwitch}>
+      <TouchableOpacity
+        style={[styles.timelineModeSide, mode === 'form' ? styles.timelineModeSideActive : null]}
+        onPress={() => onChange('form')}
+        activeOpacity={0.8}
+        accessibilityLabel="Forma nel tempo"
+      >
+        <Ionicons
+          name="pulse-outline"
+          size={14}
+          color={mode === 'form' ? '#4f46e5' : '#94a3b8'}
+        />
+        <Text style={[styles.timelineModeText, mode === 'form' ? styles.timelineModeTextActive : null]}>
+          Forma
+        </Text>
+      </TouchableOpacity>
+      <TouchableOpacity
+        style={[styles.timelineModeSide, mode === 'market' ? styles.timelineModeSideActive : null]}
+        onPress={() => onChange('market')}
+        activeOpacity={0.8}
+        accessibilityLabel="Valore di mercato nel tempo"
+      >
+        <Ionicons
+          name="pricetag-outline"
+          size={13}
+          color={mode === 'market' ? '#b45309' : '#94a3b8'}
+        />
+        <Text
+          style={[
+            styles.timelineModeText,
+            mode === 'market' ? styles.timelineModeTextMarketActive : null,
+          ]}
+        >
+          Mercato
+        </Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+function MarketValueSeasonCard({ value }) {
+  const n = Number(value);
+  const hasValue = Number.isFinite(n);
+  return (
+    <View style={styles.marketValueCard}>
+      <View style={styles.marketValueCardGlow} />
+      <View style={styles.marketValueCardInner}>
+        <View style={styles.marketValueIconWrap}>
+          <Ionicons name="pricetag" size={18} color="#b45309" />
+        </View>
+        <View style={styles.marketValueTextCol}>
+          <Text style={styles.marketValueKicker}>Questa edizione</Text>
+          <Text style={styles.marketValueLabel}>Valore di mercato</Text>
+        </View>
+        <Text style={styles.marketValueNumber}>
+          {hasValue ? n.toFixed(2) : '–'}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
 function ProductionStatCell({ type, value, label }) {
   return (
     <View style={styles.productionCell}>
@@ -300,6 +364,7 @@ export default function PlayerStatsScreen({ route, navigation }) {
   const [editionPickerOpen, setEditionPickerOpen] = useState(false);
   const [toastMsg, setToastMsg] = useState(null);
   const [photoPath, setPhotoPath] = useState(() => String(initialPlayerPhotoPath || '').trim());
+  const [statsTimelineMode, setStatsTimelineMode] = useState('form');
   const editionPickerAnchorRef = useRef(null);
   const mainScrollRef = useRef(null);
   const officialGroupCheckDoneRef = useRef(false);
@@ -516,7 +581,11 @@ export default function PlayerStatsScreen({ route, navigation }) {
 
     const cacheKey = `${targetPlayerId}-${targetLeagueId}`;
     const cached = analyticsCacheRef.current.get(cacheKey);
-    if (cached && !options.force) {
+    if (
+      cached
+      && !options.force
+      && Object.prototype.hasOwnProperty.call(cached, 'market_value')
+    ) {
       setEditionAnalytics(cached);
       return;
     }
@@ -690,7 +759,7 @@ export default function PlayerStatsScreen({ route, navigation }) {
   const loadAggregatedAnalytics = async () => {
     if (aggregatedAnalytics || aggregatedAnalyticsInFlightRef.current) return;
     const cached = analyticsCacheRef.current.get('total');
-    if (cached) {
+    if (cached && Object.prototype.hasOwnProperty.call(cached, 'market_value_series')) {
       setAggregatedAnalytics(cached);
       return;
     }
@@ -1409,14 +1478,41 @@ export default function PlayerStatsScreen({ route, navigation }) {
         </View>
 
         <View style={styles.card}>
-          <Text style={styles.cardSectionTitle}>Forma nel tempo</Text>
-          <PlayerFormChart
-            key={`form-${chartMode}-${Array.isArray(data.form_series) ? data.form_series.length : 0}`}
-            series={data.form_series}
-            width={chartWidth}
-            mode={chartMode}
-          />
+          {chartMode === 'total' ? (
+            <View style={styles.timelineHeaderRow}>
+              <Text style={[styles.cardSectionTitle, styles.timelineHeaderTitle]}>
+                {statsTimelineMode === 'market' ? 'Valore di mercato' : 'Forma nel tempo'}
+              </Text>
+              <TimelineModeSwitch mode={statsTimelineMode} onChange={setStatsTimelineMode} />
+            </View>
+          ) : (
+            <Text style={styles.cardSectionTitle}>Forma nel tempo</Text>
+          )}
+
+          {chartMode === 'total' && statsTimelineMode === 'market' ? (
+            <PlayerFormChart
+              key={`market-${Array.isArray(data.market_value_series) ? data.market_value_series.length : 0}`}
+              series={data.market_value_series}
+              width={chartWidth}
+              mode="total"
+              variant="market"
+            />
+          ) : (
+            <PlayerFormChart
+              key={`form-${chartMode}-${Array.isArray(data.form_series) ? data.form_series.length : 0}`}
+              series={data.form_series}
+              width={chartWidth}
+              mode={chartMode}
+            />
+          )}
         </View>
+
+        {chartMode === 'league' ? (
+          <View style={styles.card}>
+            <Text style={styles.cardSectionTitle}>Valore di mercato</Text>
+            <MarketValueSeasonCard value={data.market_value} />
+          </View>
+        ) : null}
 
         <View style={styles.card}>
           <Text style={styles.cardSectionTitle}>Indici di efficienza</Text>
@@ -1930,6 +2026,103 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 0.5,
     marginBottom: 14,
+  },
+  timelineHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginBottom: 10,
+  },
+  timelineHeaderTitle: {
+    marginBottom: 0,
+    flex: 1,
+  },
+  timelineModeSwitch: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    backgroundColor: '#f8fafc',
+    overflow: 'hidden',
+  },
+  timelineModeSide: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    height: 30,
+    backgroundColor: 'transparent',
+  },
+  timelineModeSideActive: {
+    backgroundColor: '#fff',
+  },
+  timelineModeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#94a3b8',
+  },
+  timelineModeTextActive: {
+    color: '#4f46e5',
+  },
+  timelineModeTextMarketActive: {
+    color: '#b45309',
+  },
+  marketValueCard: {
+    borderRadius: 14,
+    overflow: 'hidden',
+    backgroundColor: '#fffbeb',
+    borderWidth: 1,
+    borderColor: '#fde68a',
+    position: 'relative',
+  },
+  marketValueCardGlow: {
+    position: 'absolute',
+    top: -18,
+    right: -10,
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    backgroundColor: 'rgba(245, 158, 11, 0.16)',
+  },
+  marketValueCardInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 14,
+    gap: 12,
+  },
+  marketValueIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#fcd34d',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  marketValueTextCol: {
+    flex: 1,
+    minWidth: 0,
+  },
+  marketValueKicker: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#b45309',
+    marginBottom: 2,
+  },
+  marketValueLabel: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#78350f',
+  },
+  marketValueNumber: {
+    fontSize: 28,
+    fontWeight: '800',
+    color: '#92400e',
+    letterSpacing: -0.5,
   },
   overviewAllTimeCard: {
     paddingTop: 10,

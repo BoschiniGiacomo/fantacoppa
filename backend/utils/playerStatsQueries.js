@@ -87,6 +87,8 @@ function emptyAnalytics() {
       { label: '≥7.5', count: 0 },
     ],
     form_series: [],
+    market_value: null,
+    market_value_series: [],
     favourite_opponent: null,
     favourite_opponent_reason: 'no_data',
     opponent_rankings: [],
@@ -267,6 +269,73 @@ async function fetchPlayerPenaltyGoalsCount(playerIds) {
   }
 }
 
+/** Serie valore di mercato (= rating roster) per edizione, ordinata per anno. */
+async function fetchPlayerMarketValueSeries(playerIds, leagueIds) {
+  const pids = [...new Set((playerIds || []).map(Number).filter((id) => Number.isFinite(id) && id > 0))];
+  const lids = [...new Set((leagueIds || []).map(Number).filter((id) => Number.isFinite(id) && id > 0))];
+  if (!pids.length || !lids.length) {
+    return { market_value: null, market_value_series: [] };
+  }
+
+  const playerPh = pids.map(() => '?').join(',');
+  const leaguesPh = lids.map(() => '?').join(',');
+
+  try {
+    const rows = await query(
+      `SELECT
+         p.id AS player_id,
+         l.id AS league_id,
+         p.rating::float AS market_value,
+         NULLIF(to_jsonb(l)->>'reference_year', '')::int AS reference_year
+       FROM players p
+       INNER JOIN teams t ON t.id = p.team_id
+       INNER JOIN leagues l ON l.id = t.league_id
+       WHERE p.id IN (${playerPh})
+         AND l.id IN (${leaguesPh})
+       ORDER BY reference_year ASC NULLS LAST, l.id ASC`,
+      [...pids, ...lids],
+    );
+
+    const byKey = new Map();
+    for (const row of rows || []) {
+      const yearRaw = Number(row.reference_year);
+      const year = Number.isFinite(yearRaw) && yearRaw > 0 ? Math.trunc(yearRaw) : null;
+      const leagueId = Number(row.league_id) || 0;
+      const key = year != null ? `y:${year}` : `l:${leagueId}`;
+      const value = Number(row.market_value);
+      if (!Number.isFinite(value)) continue;
+      const prev = byKey.get(key);
+      if (!prev || value > prev.market_value || (value === prev.market_value && leagueId > prev.league_id)) {
+        byKey.set(key, {
+          reference_year: year,
+          league_id: leagueId || null,
+          market_value: safeNumber(value, 2),
+        });
+      }
+    }
+
+    const series = [...byKey.values()].sort((a, b) => {
+      const ay = Number(a.reference_year);
+      const by = Number(b.reference_year);
+      const aValid = Number.isFinite(ay);
+      const bValid = Number.isFinite(by);
+      if (aValid && bValid && ay !== by) return ay - by;
+      if (aValid && !bValid) return -1;
+      if (!aValid && bValid) return 1;
+      return Number(a.league_id || 0) - Number(b.league_id || 0);
+    });
+
+    const latest = [...series].reverse().find((point) => Number.isFinite(Number(point.market_value))) || null;
+
+    return {
+      market_value: latest ? latest.market_value : null,
+      market_value_series: series,
+    };
+  } catch (_) {
+    return { market_value: null, market_value_series: [] };
+  }
+}
+
 async function fetchPlayerAnalytics(playerIds, leagueIds, playerRole = '') {
   if (!playerIds.length || !leagueIds.length) return emptyAnalytics();
 
@@ -274,7 +343,7 @@ async function fetchPlayerAnalytics(playerIds, leagueIds, playerRole = '') {
   const leaguesPh = leagueIds.map(() => '?').join(',');
   const params = [...playerIds, ...leagueIds];
 
-  const [aggregateRows, seriesRows, penaltyGoals] = await Promise.all([
+  const [aggregateRows, seriesRows, penaltyGoals, marketValueProfile] = await Promise.all([
     query(
       `WITH vote_rows AS (
          SELECT
@@ -375,6 +444,7 @@ async function fetchPlayerAnalytics(playerIds, leagueIds, playerRole = '') {
       params
     ),
     fetchPlayerPenaltyGoalsCount(playerIds),
+    fetchPlayerMarketValueSeries(playerIds, leagueIds),
   ]);
 
   const agg = aggregateRows[0] || {};
@@ -429,6 +499,10 @@ async function fetchPlayerAnalytics(playerIds, leagueIds, playerRole = '') {
       rating_with_bonus: safeNumber(row.rating_with_bonus, 2),
       is_scored: Number(row.rating) > 0,
     })),
+    market_value: marketValueProfile?.market_value ?? null,
+    market_value_series: Array.isArray(marketValueProfile?.market_value_series)
+      ? marketValueProfile.market_value_series
+      : [],
     favourite_opponent: favouriteOpponentResult.favourite,
     favourite_opponent_reason: favouriteOpponentResult.reason,
     opponent_rankings: favouriteOpponentResult.opponents || [],
