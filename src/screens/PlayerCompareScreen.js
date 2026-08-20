@@ -25,9 +25,12 @@ import {
 } from '../components/PlayerHeroTrophyBadges';
 
 const SEARCH_DEBOUNCE_MS = 300;
-const PHOTO_WIDTH = 96;
-const PHOTO_HEIGHT = 124;
-const PHOTO_ZOOM = 1.1;
+const PHOTO_WIDTH = 80;
+// Grandezza disegno fissa; lo slot più alto dà aria senza scalare/tagliare la foto.
+const PHOTO_HEIGHT = 104;
+const PHOTO_SLOT_HEIGHT = 140;
+const PHOTO_ZOOM = 1.05;
+const PHOTO_SIDE_BLEED = 1.55;
 const FILTER_DROPDOWN_MAX_HEIGHT = 400;
 const FILTER_DROPDOWN_WIDTH = 300;
 
@@ -562,6 +565,7 @@ function CompareFilterMenu({
 
 function CompareAvatar({ photoPath, name, width = PHOTO_WIDTH, height = PHOTO_HEIGHT }) {
   const radius = 14;
+  const slotH = PHOTO_SLOT_HEIGHT;
   const fallbackStyle = {
     width,
     height,
@@ -572,18 +576,20 @@ function CompareAvatar({ photoPath, name, width = PHOTO_WIDTH, height = PHOTO_HE
   };
 
   if (photoPath) {
-    const zoomedW = Math.round(width * PHOTO_ZOOM);
-    const zoomedH = Math.round(height * PHOTO_ZOOM);
+    // Grandezza = PHOTO_WIDTH/HEIGHT (+ zoom). Canvas più largo + overflow visible:
+    // non taglia ai lati (sborda sotto la X). Lo slot più alto dà aria senza rimpicciolire/ingrandire.
+    const drawH = Math.round(height * PHOTO_ZOOM);
+    const drawW = Math.round(width * PHOTO_ZOOM * PHOTO_SIDE_BLEED);
     return (
-      <View style={{ width, height, borderRadius: radius, overflow: 'hidden' }}>
+      <View style={{ width, height: slotH, alignItems: 'center', justifyContent: 'center', overflow: 'visible' }}>
         <PlayerPhotoImage
           photoPath={photoPath}
           style={{
-            width: zoomedW,
-            height: zoomedH,
+            width: drawW,
+            height: drawH,
             position: 'absolute',
-            left: (width - zoomedW) / 2,
-            top: (height - zoomedH) / 2,
+            left: (width - drawW) / 2,
+            top: (slotH - drawH) / 2,
           }}
           resizeMode="cover"
           fallbackStyle={fallbackStyle}
@@ -596,10 +602,12 @@ function CompareAvatar({ photoPath, name, width = PHOTO_WIDTH, height = PHOTO_HE
   }
 
   return (
-    <View style={fallbackStyle}>
-      <Text style={{ fontSize: Math.round(width * 0.28), fontWeight: '800', color: '#64748b' }}>
-        {playerInitials(name)}
-      </Text>
+    <View style={{ width, height: slotH, alignItems: 'center', justifyContent: 'center' }}>
+      <View style={fallbackStyle}>
+        <Text style={{ fontSize: Math.round(width * 0.28), fontWeight: '800', color: '#64748b' }}>
+          {playerInitials(name)}
+        </Text>
+      </View>
     </View>
   );
 }
@@ -1405,6 +1413,7 @@ export default function PlayerCompareScreen({ navigation, route }) {
         ) : (
           <>
             <View style={styles.profilesRow}>
+              <View style={styles.profilesRowBg} pointerEvents="none" />
               <View style={styles.profileCol}>
                 {slotA ? (
                   slotA.loading && !slotA.profile ? (
@@ -2013,22 +2022,30 @@ const styles = StyleSheet.create({
   profilesRow: {
     flexDirection: 'row',
     alignItems: 'stretch',
-    backgroundColor: '#fff',
-    borderRadius: 16,
     paddingVertical: 14,
     paddingHorizontal: 8,
+    // Sfondo su layer separato: su Android borderRadius+bg taglia i figli.
+    overflow: 'visible',
+  },
+  profilesRowBg: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#fff',
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: '#e8edf5',
   },
   profileCol: {
     flex: 1,
     minWidth: 0,
+    overflow: 'visible',
+    zIndex: 1,
   },
   profilesDivider: {
     width: 36,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
+    zIndex: 2,
   },
   profilesDividerLine: {
     width: 1,
@@ -2046,13 +2063,15 @@ const styles = StyleSheet.create({
   headerCard: {
     gap: 6,
     paddingHorizontal: 4,
+    overflow: 'visible',
   },
   headerPhotoRow: {
     width: '100%',
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',
-    minHeight: PHOTO_HEIGHT,
+    minHeight: PHOTO_SLOT_HEIGHT,
+    overflow: 'visible',
   },
   headerClearBtn: {
     position: 'absolute',
@@ -2065,7 +2084,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     alignItems: 'center',
     justifyContent: 'center',
-    zIndex: 2,
+    zIndex: 3,
+    elevation: 3,
   },
   headerClearBtnLeft: {
     left: 0,
