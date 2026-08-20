@@ -538,11 +538,14 @@ function resolveBirthYear(editions) {
   return null;
 }
 
-function resolveRankInLeaderboard(rows, clusterPlayerIds) {
+function resolveRankInLeaderboard(rows, clusterPlayerIds, clusterIds = null) {
   const idSet = new Set(
     (clusterPlayerIds || []).map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0),
   );
-  if (!idSet.size) return null;
+  const clusterSet = new Set(
+    (clusterIds || []).map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0),
+  );
+  if (!idSet.size && !clusterSet.size) return null;
 
   const list = Array.isArray(rows) ? rows : [];
   if (!list.length) return null;
@@ -561,6 +564,10 @@ function resolveRankInLeaderboard(rows, clusterPlayerIds) {
     if (rowPlayerId > 0 && idSet.has(rowPlayerId)) {
       return currentRank;
     }
+    const rowClusterId = Number(row?.cluster_id);
+    if (rowClusterId > 0 && clusterSet.has(rowClusterId)) {
+      return currentRank;
+    }
   }
 
   return null;
@@ -569,23 +576,24 @@ function resolveRankInLeaderboard(rows, clusterPlayerIds) {
 async function fetchPlayerAbsoluteOverviewRanks(groupId, clusterPlayerIds) {
   const empty = { appearances_rank: null, goals_rank: null };
   const gid = Number(groupId);
-  if (!Number.isFinite(gid) || gid <= 0 || !clusterPlayerIds?.length) {
+  const playerIds = [...new Set((clusterPlayerIds || []).map(Number).filter((id) => Number.isFinite(id) && id > 0))];
+  if (!Number.isFinite(gid) || gid <= 0 || !playerIds.length) {
     return empty;
   }
 
-  try {
-    const {
-      fetchClusterAbsoluteRanksFromStore,
-      isOfficialGroupAbsoluteStatsStoreAvailable,
-    } = require('../utils/officialGroupAbsoluteStatsStore');
-    const {
-      scheduleOfficialGroupAbsoluteStatsRefresh,
-    } = require('../utils/officialGroupAbsoluteStatsRefresh');
+  const {
+    fetchClusterAbsoluteRanksFromStore,
+    isOfficialGroupAbsoluteStatsStoreAvailable,
+    refreshOfficialGroupAbsoluteStatsStore,
+  } = require('../utils/officialGroupAbsoluteStatsStore');
+  const {
+    scheduleOfficialGroupAbsoluteStatsRefresh,
+  } = require('../utils/officialGroupAbsoluteStatsRefresh');
 
+  // 1) Store (non deve mai bloccare il fallback live)
+  try {
     if (await isOfficialGroupAbsoluteStatsStoreAvailable()) {
-      const stored = await fetchClusterAbsoluteRanksFromStore(gid, clusterPlayerIds);
-      // Usa lo store solo se c’è almeno un rank; altrimenti fallback live
-      // (es. snapshot vecchio senza player fuori cluster).
+      const stored = await fetchClusterAbsoluteRanksFromStore(gid, playerIds);
       if (
         stored.found
         && (stored.ranks?.appearances_rank != null || stored.ranks?.goals_rank != null)
@@ -593,11 +601,18 @@ async function fetchPlayerAbsoluteOverviewRanks(groupId, clusterPlayerIds) {
         return stored.ranks;
       }
     }
+  } catch (error) {
+    console.error('[playerStats] absolute ranks store lookup failed:', error?.message || error);
+  }
 
-    const { officialGroupStatsApi } = require('./matches');
+  // 2) Live leaderboard del gruppo
+  try {
+    const matchesMod = require('./matches');
+    const officialGroupStatsApi = matchesMod.officialGroupStatsApi || matchesMod;
     const listOfficialGroupSeasonLeagues = officialGroupStatsApi?.listOfficialGroupSeasonLeagues;
     const computeOfficialGroupSeasonStats = officialGroupStatsApi?.computeOfficialGroupSeasonStats;
     if (!listOfficialGroupSeasonLeagues || !computeOfficialGroupSeasonStats) {
+      console.error('[playerStats] officialGroupStatsApi missing for absolute ranks');
       return empty;
     }
 
@@ -614,15 +629,42 @@ async function fetchPlayerAbsoluteOverviewRanks(groupId, clusterPlayerIds) {
     const stats = await computeOfficialGroupSeasonStats(gid, leagueIds, true, {
       leaderboards: ['scorers', 'presences'],
     });
+
+    // Anche cluster da 1 membro: la leaderboard live può esporre cluster_id.
+    let clusterIds = [];
+    try {
+      const ph = playerIds.map(() => '?').join(', ');
+      const memberRows = await query(
+        `SELECT DISTINCT pcm.cluster_id
+         FROM player_cluster_members pcm
+         INNER JOIN player_clusters pc ON pc.id = pcm.cluster_id
+         WHERE pc.official_group_id = ?
+           AND pc.status = 'approved'
+           AND pcm.player_id IN (${ph})`,
+        [gid, ...playerIds],
+      );
+      clusterIds = (memberRows || [])
+        .map((row) => Number(row.cluster_id))
+        .filter((id) => Number.isFinite(id) && id > 0);
+    } catch (_) {
+      clusterIds = [];
+    }
+
     const ranks = {
-      appearances_rank: resolveRankInLeaderboard(stats?.presences, clusterPlayerIds),
-      goals_rank: resolveRankInLeaderboard(stats?.scorers, clusterPlayerIds),
+      appearances_rank: resolveRankInLeaderboard(stats?.presences, playerIds, clusterIds),
+      goals_rank: resolveRankInLeaderboard(stats?.scorers, playerIds, clusterIds),
     };
 
-    void scheduleOfficialGroupAbsoluteStatsRefresh(gid).catch(() => {});
+    // Aggiorna subito lo snapshot (include anche i player senza cluster).
+    try {
+      await refreshOfficialGroupAbsoluteStatsStore(gid, stats);
+    } catch (_) {
+      void scheduleOfficialGroupAbsoluteStatsRefresh(gid).catch(() => {});
+    }
 
     return ranks;
-  } catch (_) {
+  } catch (error) {
+    console.error('[playerStats] absolute ranks live compute failed:', error?.message || error);
     return empty;
   }
 }
