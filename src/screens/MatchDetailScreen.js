@@ -3540,7 +3540,7 @@ export default function MatchDetailScreen({ navigation, route }) {
         {activeTab === 'live' && (
           <>
             <View style={[styles.liveKeyEventsHeading, styles.liveKeyEventsHeadingBelowTabs]}>
-              <Text style={styles.keyEventsTitle}>Eventi chiave</Text>
+              <Text style={styles.keyEventsTitle}>Diretta</Text>
             </View>
             <View style={styles.card}>
               <View style={styles.timelineReverse}>
