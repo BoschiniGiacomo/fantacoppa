@@ -4,6 +4,15 @@ const TABLE = 'official_group_cluster_absolute_stats';
 
 let tableReadyPromise = null;
 
+/** Entity id nello store: cluster reale, oppure -player_id per i player senza cluster. */
+function absoluteEntityIdForPlayer(clusterId, playerId) {
+  const cid = Number(clusterId);
+  if (Number.isFinite(cid) && cid > 0) return cid;
+  const pid = Number(playerId);
+  if (Number.isFinite(pid) && pid > 0) return -pid;
+  return null;
+}
+
 async function ensureOfficialGroupAbsoluteStatsTable() {
   if (!tableReadyPromise) {
     tableReadyPromise = query(`
@@ -78,33 +87,33 @@ async function upsertLeaderboardsSnapshot(groupId, stats) {
   ];
   const clusterByPlayer = await fetchClusterIdForPlayers(gid, playerIds);
 
-  const byCluster = new Map();
+  const byEntity = new Map();
   for (const row of scorers) {
     const pid = Number(row.player_id);
-    const clusterId = clusterByPlayer.get(pid);
-    if (!clusterId) continue;
-    const prev = byCluster.get(clusterId) || {
+    const entityId = absoluteEntityIdForPlayer(clusterByPlayer.get(pid), pid);
+    if (!entityId) continue;
+    const prev = byEntity.get(entityId) || {
       total_goals: 0,
       total_presences: 0,
       representative_player_id: pid > 0 ? pid : null,
     };
     prev.total_goals = Number(row.value) || 0;
     if (pid > 0) prev.representative_player_id = pid;
-    byCluster.set(clusterId, prev);
+    byEntity.set(entityId, prev);
   }
 
   for (const row of presences) {
     const pid = Number(row.player_id);
-    const clusterId = clusterByPlayer.get(pid);
-    if (!clusterId) continue;
-    const prev = byCluster.get(clusterId) || {
+    const entityId = absoluteEntityIdForPlayer(clusterByPlayer.get(pid), pid);
+    if (!entityId) continue;
+    const prev = byEntity.get(entityId) || {
       total_goals: 0,
       total_presences: 0,
       representative_player_id: pid > 0 ? pid : null,
     };
     prev.total_presences = Number(row.value) || 0;
     if (pid > 0 && !prev.representative_player_id) prev.representative_player_id = pid;
-    byCluster.set(clusterId, prev);
+    byEntity.set(entityId, prev);
   }
 
   await query(
@@ -112,7 +121,7 @@ async function upsertLeaderboardsSnapshot(groupId, stats) {
     [gid],
   );
 
-  const entries = [...byCluster.entries()];
+  const entries = [...byEntity.entries()];
   if (!entries.length) return { upserted: 0 };
 
   const CHUNK_SIZE = 150;
@@ -120,10 +129,10 @@ async function upsertLeaderboardsSnapshot(groupId, stats) {
   for (let offset = 0; offset < entries.length; offset += CHUNK_SIZE) {
     const chunk = entries.slice(offset, offset + CHUNK_SIZE);
     const params = [];
-    const valueParts = chunk.map(([clusterId, row]) => {
+    const valueParts = chunk.map(([entityId, row]) => {
       params.push(
         gid,
-        Number(clusterId),
+        Number(entityId),
         row.representative_player_id,
         Number(row.total_goals) || 0,
         Number(row.total_presences) || 0,
@@ -192,16 +201,26 @@ async function fetchClusterAbsoluteRanksFromStore(groupId, clusterPlayerIds) {
     return { found: false, ranks: { appearances_rank: null, goals_rank: null }, refreshed_at: null };
   }
 
-  // Parimerito come buildCompetitionRanks / resolveRankInLeaderboard: RANK solo sul valore
-  // (senza cluster_id nell'ORDER BY, altrimenti a parità di score non risultano pari).
+  const clusterByPlayer = await fetchClusterIdForPlayers(gid, playerIds);
+  const targetEntityIds = [
+    ...new Set(
+      playerIds
+        .map((pid) => absoluteEntityIdForPlayer(clusterByPlayer.get(pid), pid))
+        .filter((id) => id != null),
+    ),
+  ];
+  if (!targetEntityIds.length) {
+    return { found: false, ranks: { appearances_rank: null, goals_rank: null }, refreshed_at: null };
+  }
+
+  const ph = targetEntityIds.map(() => '?').join(', ');
+
+  // Parimerito come buildCompetitionRanks / resolveRankInLeaderboard: RANK solo sul valore.
+  // cluster_id può essere un id cluster reale oppure -player_id (senza cluster).
   const rows = await query(
     `WITH target AS (
-       SELECT DISTINCT pcm.cluster_id
-       FROM player_cluster_members pcm
-       INNER JOIN player_clusters pc ON pc.id = pcm.cluster_id
-       WHERE pc.official_group_id = ?
-         AND pc.status = 'approved'
-         AND pcm.player_id = ANY(?)
+       SELECT DISTINCT v.cluster_id
+       FROM (VALUES ${targetEntityIds.map(() => '(?)').join(', ')}) AS v(cluster_id)
      ),
      ranked_presences AS (
        SELECT
@@ -219,15 +238,23 @@ async function fetchClusterAbsoluteRanksFromStore(groupId, clusterPlayerIds) {
        WHERE official_group_id = ?
          AND total_goals > 0
      )
-     SELECT rp.appearances_rank, rg.goals_rank
+     SELECT
+       EXISTS (
+         SELECT 1 FROM ${TABLE} s
+         WHERE s.official_group_id = ?
+           AND s.cluster_id = t.cluster_id
+       ) AS in_store,
+       rp.appearances_rank,
+       rg.goals_rank
      FROM target t
      LEFT JOIN ranked_presences rp ON rp.cluster_id = t.cluster_id
      LEFT JOIN ranked_goals rg ON rg.cluster_id = t.cluster_id
+     ORDER BY in_store DESC, rp.appearances_rank NULLS LAST, rg.goals_rank NULLS LAST
      LIMIT 1`,
-    [gid, playerIds, gid, gid],
+    [...targetEntityIds, gid, gid, gid],
   );
 
-  if (!rows.length) {
+  if (!rows.length || !rows[0].in_store) {
     return { found: false, ranks: { appearances_rank: null, goals_rank: null }, refreshed_at: null };
   }
 

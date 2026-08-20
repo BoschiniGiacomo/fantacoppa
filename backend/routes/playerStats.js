@@ -584,7 +584,12 @@ async function fetchPlayerAbsoluteOverviewRanks(groupId, clusterPlayerIds) {
 
     if (await isOfficialGroupAbsoluteStatsStoreAvailable()) {
       const stored = await fetchClusterAbsoluteRanksFromStore(gid, clusterPlayerIds);
-      if (stored.found) {
+      // Usa lo store solo se c’è almeno un rank; altrimenti fallback live
+      // (es. snapshot vecchio senza player fuori cluster).
+      if (
+        stored.found
+        && (stored.ranks?.appearances_rank != null || stored.ranks?.goals_rank != null)
+      ) {
         return stored.ranks;
       }
     }
