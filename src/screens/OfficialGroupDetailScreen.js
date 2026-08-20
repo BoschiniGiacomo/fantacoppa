@@ -33,6 +33,14 @@ import OfficialStatsExperience, {
   mapOfficialStatsBoards,
   StatsPeriodSelector,
 } from '../components/officialStats/OfficialStatsExperience';
+import IconUnderlineTabBar from '../components/IconUnderlineTabBar';
+
+const OFFICIAL_GROUP_ICON_TABS = [
+  { key: 'matches', label: 'Partite', pack: 'mci', icon: 'soccer', iconActive: 'soccer' },
+  { key: 'season', label: 'Stagione', pack: 'mci', icon: 'format-list-numbered', iconActive: 'format-list-numbered' },
+  { key: 'stats', label: 'Statistiche', pack: 'ion', icon: 'stats-chart-outline', iconActive: 'stats-chart' },
+  { key: 'hall', label: "Albo d'oro", pack: 'mci', icon: 'trophy-outline', iconActive: 'trophy' },
+];
 
 const EMPTY_TEAM_HIGHLIGHTS = {
   best_attack: null,
@@ -1119,20 +1127,11 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
           </View>
 
           <View style={styles.tabsWrap}>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabsScroll} contentContainerStyle={styles.tabsScrollContent}>
-              <TouchableOpacity style={[styles.tabBtn, activeTab === 'matches' && styles.tabBtnActive]} onPress={() => setActiveTab('matches')}>
-                <Text style={[styles.tabText, activeTab === 'matches' && styles.tabTextActive]}>Partite</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.tabBtn, activeTab === 'season' && styles.tabBtnActive]} onPress={() => setActiveTab('season')}>
-                <Text style={[styles.tabText, activeTab === 'season' && styles.tabTextActive]}>Stagione</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.tabBtn, activeTab === 'stats' && styles.tabBtnActive]} onPress={() => setActiveTab('stats')}>
-                <Text style={[styles.tabText, activeTab === 'stats' && styles.tabTextActive]}>Statistiche</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.tabBtn, activeTab === 'hall' && styles.tabBtnActive]} onPress={() => setActiveTab('hall')}>
-                <Text style={[styles.tabText, activeTab === 'hall' && styles.tabTextActive]}>Albo d&apos;oro</Text>
-              </TouchableOpacity>
-            </ScrollView>
+            <IconUnderlineTabBar
+              tabs={OFFICIAL_GROUP_ICON_TABS}
+              activeKey={activeTab}
+              onSelect={setActiveTab}
+            />
           </View>
         </Reanimated.View>
 
@@ -1504,11 +1503,9 @@ const styles = StyleSheet.create({
     zIndex: 3,
   },
   tabsWrap: {
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#fff',
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: '#e8edf4',
-    paddingTop: 4,
-    paddingBottom: 2,
+    borderTopColor: '#d1d5db',
   },
   heroCard: {
     marginTop: 0,
@@ -1535,19 +1532,6 @@ const styles = StyleSheet.create({
   },
   groupName: { marginTop: 10, fontSize: 21, fontWeight: '800', color: '#222', textAlign: 'center' },
   heroMeta: { width: '100%', alignItems: 'center' },
-  tabsScroll: { maxHeight: 46 },
-  tabsScrollContent: { paddingHorizontal: 12, paddingBottom: 4, gap: 8, alignItems: 'center' },
-  tabBtn: {
-    backgroundColor: '#fff',
-    borderRadius: 14,
-    paddingVertical: 5,
-    paddingHorizontal: 12,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-  },
-  tabBtnActive: { borderColor: '#667eea', backgroundColor: '#eef2ff' },
-  tabText: { color: '#475569', fontWeight: '700', fontSize: 13 },
-  tabTextActive: { color: '#667eea' },
   content: { flex: 1, paddingHorizontal: 12, paddingBottom: 12 },
   contentHall: { paddingBottom: 0 },
   card: {

@@ -25,6 +25,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { adminMatchDetailsService, adminMatchesService, matchesService } from '../services/api';
 import { TeamLogoImage } from '../components/StableCachedImage';
 import BonusIcon from '../components/BonusIcon';
+import IconUnderlineTabBar from '../components/IconUnderlineTabBar';
 import {
   EMPTY_OFFICIAL_KNOCKOUT,
   hasOfficialKnockoutBracket,
@@ -59,9 +60,6 @@ const RECENT_FORM_RESULT_COLORS = {
   N: '#6b7280',
   P: '#dc2626',
 };
-
-const MATCH_DETAIL_TAB_ACTIVE = '#667eea';
-const MATCH_DETAIL_TAB_IDLE = '#94a3b8';
 
 /** Tab icon-only: pack ion = Ionicons, mci = MaterialCommunityIcons */
 const MATCH_DETAIL_TABS = [
@@ -258,25 +256,6 @@ function MatchPredictionPanel({
         </View>
       </View>
     </View>
-  );
-}
-
-function MatchDetailIconTab({ tab, active, onPress }) {
-  const color = active ? MATCH_DETAIL_TAB_ACTIVE : MATCH_DETAIL_TAB_IDLE;
-  const iconName = active ? tab.iconActive : tab.icon;
-  const IconComp = tab.pack === 'mci' ? MaterialCommunityIcons : Ionicons;
-  return (
-    <TouchableOpacity
-      style={styles.iconTabBtn}
-      onPress={onPress}
-      activeOpacity={0.75}
-      accessibilityRole="tab"
-      accessibilityState={{ selected: active }}
-      accessibilityLabel={tab.label}
-    >
-      <IconComp name={iconName} size={22} color={color} />
-      <View style={[styles.iconTabUnderline, active && styles.iconTabUnderlineActive]} />
-    </TouchableOpacity>
   );
 }
 
@@ -3344,14 +3323,11 @@ export default function MatchDetailScreen({ navigation, route }) {
       </View>
 
       <View style={styles.iconTabBar}>
-        {MATCH_DETAIL_TABS.filter((t) => !t.requiresVotes || showVotesTab).map((tab) => (
-          <MatchDetailIconTab
-            key={tab.key}
-            tab={tab}
-            active={activeTab === tab.key}
-            onPress={() => setActiveTab(tab.key)}
-          />
-        ))}
+        <IconUnderlineTabBar
+          tabs={MATCH_DETAIL_TABS.filter((t) => !t.requiresVotes || showVotesTab)}
+          activeKey={activeTab}
+          onSelect={setActiveTab}
+        />
       </View>
 
       <ScrollView
@@ -5456,31 +5432,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#9ca3af',
   },
   iconTabBar: {
-    flexDirection: 'row',
-    alignItems: 'stretch',
     marginTop: 0,
-    paddingHorizontal: 4,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: '#d1d5db',
     backgroundColor: '#fff',
-  },
-  iconTabBtn: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'flex-start',
-    paddingTop: 8,
-    paddingBottom: 0,
-  },
-  iconTabUnderline: {
-    marginTop: 6,
-    height: 3,
-    alignSelf: 'stretch',
-    width: '100%',
-    borderRadius: 0,
-    backgroundColor: 'transparent',
-  },
-  iconTabUnderlineActive: {
-    backgroundColor: MATCH_DETAIL_TAB_ACTIVE,
   },
   content: { flex: 1, paddingHorizontal: 12, paddingTop: 8 },
   card: { backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#ececec', padding: 12, marginBottom: 12 },

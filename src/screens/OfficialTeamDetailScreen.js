@@ -35,6 +35,15 @@ import OfficialStatsExperience, {
   mapOfficialStatsBoards,
   StatsPeriodSelector,
 } from '../components/officialStats/OfficialStatsExperience';
+import IconUnderlineTabBar from '../components/IconUnderlineTabBar';
+
+const OFFICIAL_TEAM_ICON_TABS = [
+  { key: 'matches', label: 'Partite', pack: 'mci', icon: 'soccer', iconActive: 'soccer' },
+  { key: 'season', label: 'Stagione', pack: 'mci', icon: 'format-list-numbered', iconActive: 'format-list-numbered' },
+  { key: 'stats', label: 'Statistiche', pack: 'ion', icon: 'stats-chart-outline', iconActive: 'stats-chart' },
+  { key: 'team', label: 'Squadra', pack: 'mci', icon: 'tshirt-crew-outline', iconActive: 'tshirt-crew' },
+  { key: 'trophies', label: 'Trofei', pack: 'mci', icon: 'trophy-outline', iconActive: 'trophy' },
+];
 
 function TeamLogo({ logoUrl, logoPath, style, fallbackStyle, fallbackIconSize = 56 }) {
   return (
@@ -1263,18 +1272,11 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
           </View>
 
           <View style={styles.tabsWrap}>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              style={styles.tabsScroll}
-              contentContainerStyle={styles.tabsScrollContent}
-            >
-              <TouchableOpacity style={[styles.tabBtn, activeTab === 'matches' && styles.tabBtnActive]} onPress={() => selectTab('matches')}><Text style={[styles.tabText, activeTab === 'matches' && styles.tabTextActive]}>Partite</Text></TouchableOpacity>
-              <TouchableOpacity style={[styles.tabBtn, activeTab === 'season' && styles.tabBtnActive]} onPress={() => selectTab('season')}><Text style={[styles.tabText, activeTab === 'season' && styles.tabTextActive]}>Stagione</Text></TouchableOpacity>
-              <TouchableOpacity style={[styles.tabBtn, activeTab === 'stats' && styles.tabBtnActive]} onPress={() => selectTab('stats')}><Text style={[styles.tabText, activeTab === 'stats' && styles.tabTextActive]}>Statistiche</Text></TouchableOpacity>
-              <TouchableOpacity style={[styles.tabBtn, activeTab === 'team' && styles.tabBtnActive]} onPress={() => selectTab('team')}><Text style={[styles.tabText, activeTab === 'team' && styles.tabTextActive]}>Squadra</Text></TouchableOpacity>
-              <TouchableOpacity style={[styles.tabBtn, activeTab === 'trophies' && styles.tabBtnActive]} onPress={() => selectTab('trophies')}><Text style={[styles.tabText, activeTab === 'trophies' && styles.tabTextActive]}>Trofei</Text></TouchableOpacity>
-            </ScrollView>
+            <IconUnderlineTabBar
+              tabs={OFFICIAL_TEAM_ICON_TABS}
+              activeKey={activeTab}
+              onSelect={selectTab}
+            />
           </View>
         </Reanimated.View>
 
@@ -1834,11 +1836,9 @@ const styles = StyleSheet.create({
     zIndex: 3,
   },
   tabsWrap: {
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#fff',
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: '#e8edf4',
-    paddingTop: 4,
-    paddingBottom: 2,
+    borderTopColor: '#d1d5db',
   },
   heroCard: {
     marginTop: 0,
@@ -1879,19 +1879,6 @@ const styles = StyleSheet.create({
   heroFavoriteTextCol: { justifyContent: 'center' },
   heroFavoriteCountText: { fontSize: 22, lineHeight: 24, fontWeight: '800', color: '#0f172a' },
   heroFavoriteLabel: { fontSize: 10, lineHeight: 12, fontWeight: '600', color: '#64748b' },
-  tabsScroll: { maxHeight: 46 },
-  tabsScrollContent: { paddingHorizontal: 12, paddingBottom: 4, gap: 8, alignItems: 'center' },
-  tabBtn: {
-    backgroundColor: '#fff',
-    borderRadius: 14,
-    paddingVertical: 5,
-    paddingHorizontal: 12,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-  },
-  tabBtnActive: { borderColor: '#667eea', backgroundColor: '#eef2ff' },
-  tabText: { color: '#475569', fontWeight: '700', fontSize: 13 },
-  tabTextActive: { color: '#667eea' },
   content: { flex: 1, paddingHorizontal: 12, paddingBottom: 12 },
   card: {
     backgroundColor: '#fff',
