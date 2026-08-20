@@ -2416,4 +2416,84 @@ router.delete('/login-background', authenticateToken, requireSuperuserLevel1, as
   }
 });
 
+const matchBackgroundUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 8 * 1024 * 1024 },
+});
+
+async function removeStoredMatchBackground(supabase, prevPath) {
+  if (!supabase || !prevPath || !String(prevPath).startsWith('uploads/')) return;
+  // Non cancellare lo sfondo predefinito bundled nell'app
+  if (String(prevPath) === 'uploads/match_background/match_bg_campo_dark.jpg') return;
+  const old = String(prevPath).replace(/^uploads\//, '');
+  await supabase.storage.from('uploads').remove([old]).catch(() => {});
+}
+
+router.post(
+  '/match-background',
+  authenticateToken,
+  requireSuperuserLevel1,
+  matchBackgroundUpload.single('media'),
+  async (req, res) => {
+    try {
+      if (!req.file) return res.status(400).json({ message: 'File mancante' });
+      if (!allowedLogoMime(req.file.mimetype, req.file.originalname)) {
+        return res.status(400).json({ message: 'Formato non supportato (PNG, JPEG, GIF, WEBP)' });
+      }
+      const supabase = getSupabaseStorageClient();
+      if (!supabase) {
+        return res.status(500).json({ message: 'Supabase Storage non configurato sul server' });
+      }
+      await ensureAppSettingsTable();
+
+      const ext = path.extname(String(req.file.originalname || '')).toLowerCase();
+      const safeExt = ['.png', '.jpg', '.jpeg', '.gif', '.webp'].includes(ext) ? ext : '.jpg';
+      const filename = `match_bg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}${safeExt}`;
+      const storagePath = `match_background/${filename}`;
+
+      const prevRows = await query(`SELECT match_background_path FROM app_settings WHERE id = 1`);
+      const prevPath = prevRows[0]?.match_background_path;
+
+      const { error: storageError } = await supabase.storage
+        .from('uploads')
+        .upload(storagePath, req.file.buffer, {
+          contentType: req.file.mimetype || 'image/jpeg',
+          upsert: true,
+          cacheControl: '300',
+        });
+      if (storageError) {
+        return res.status(500).json({ message: 'Errore upload su storage', error: storageError.message });
+      }
+
+      const dbPath = `uploads/${storagePath}`;
+      await removeStoredMatchBackground(supabase, prevPath);
+
+      await query(
+        `UPDATE app_settings SET match_background_path = ?, updated_at = NOW() WHERE id = 1`,
+        [dbPath]
+      );
+
+      return res.json({ success: true, path: dbPath });
+    } catch (error) {
+      console.error('Upload match background:', error);
+      return res.status(500).json({ message: 'Errore upload', error: error.message });
+    }
+  }
+);
+
+router.delete('/match-background', authenticateToken, requireSuperuserLevel1, async (_req, res) => {
+  try {
+    const supabase = getSupabaseStorageClient();
+    await ensureAppSettingsTable();
+    const prevRows = await query(`SELECT match_background_path FROM app_settings WHERE id = 1`);
+    const prevPath = prevRows[0]?.match_background_path;
+    await removeStoredMatchBackground(supabase, prevPath);
+    await query(`UPDATE app_settings SET match_background_path = NULL, updated_at = NOW() WHERE id = 1`);
+    return res.json({ success: true });
+  } catch (error) {
+    console.error('Delete match background:', error);
+    return res.status(500).json({ message: 'Errore rimozione', error: error.message });
+  }
+});
+
 module.exports = router;

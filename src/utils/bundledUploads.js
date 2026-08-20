@@ -53,6 +53,10 @@ export function getBundledLoginBackground() {
   return getBundledSlotMedia('login_background');
 }
 
+export function getBundledMatchBackground() {
+  return getBundledSlotMedia('match_background');
+}
+
 export function getBundledAppLoading() {
   return getBundledSlotMedia('app_loading');
 }

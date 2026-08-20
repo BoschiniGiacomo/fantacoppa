@@ -19,6 +19,7 @@ const SLOT_FOLDERS = {
   login_logo: 'login_logo',
   login_background: 'login_background',
   app_loading: 'app_loading',
+  match_background: 'match_background',
 };
 
 function walkUploads(dir, relBase = '') {

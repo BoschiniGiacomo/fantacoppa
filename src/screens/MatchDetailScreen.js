@@ -5,6 +5,7 @@ import {
   Alert,
   BackHandler,
   Image,
+  ImageBackground,
   Keyboard,
   Modal,
   Platform,
@@ -52,6 +53,8 @@ import {
   OFFICIAL_WALKOVER_END_LABEL,
 } from '../utils/officialMatchWalkover';
 import { parseAppDate } from '../utils/dateTime';
+import { getMatchBackgroundSettings } from '../utils/matchBackgroundSettings';
+import { getBundledMatchBackground } from '../utils/bundledUploads';
 
 const MONTH_SHORT_IT = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic'];
 
@@ -564,6 +567,9 @@ const HERO_RING_STROKE = 3;
 const HERO_RING_TRACK = '#e5e7eb';
 const HERO_RING_PROGRESS = '#111827';
 const HERO_MINUTE_COLOR = '#111827';
+const HERO_RING_TRACK_ON_BG = 'rgba(255,255,255,0.28)';
+const HERO_RING_PROGRESS_ON_BG = '#ffffff';
+const HERO_MINUTE_COLOR_ON_BG = '#ffffff';
 
 function buildPhaseSequence(match) {
   const et = Number(match?.extra_time_enabled) === 1;
@@ -1603,6 +1609,7 @@ export default function MatchDetailScreen({ navigation, route }) {
   const [activeTab, setActiveTab] = useState('overview');
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState(null);
+  const [matchHeroBgUri, setMatchHeroBgUri] = useState(null);
   const dataRef = useRef(null);
   dataRef.current = data;
   const [tick, setTick] = useState(0);
@@ -1783,6 +1790,23 @@ export default function MatchDetailScreen({ navigation, route }) {
     const t = setInterval(() => setTick((v) => v + 1), 1000);
     return () => clearInterval(t);
   }, [matchId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const bundled = getBundledMatchBackground();
+    if (bundled?.uri) setMatchHeroBgUri(bundled.uri);
+    (async () => {
+      try {
+        const s = await getMatchBackgroundSettings();
+        if (!cancelled) setMatchHeroBgUri(s?.uri || null);
+      } catch {
+        if (!cancelled) setMatchHeroBgUri(bundled?.uri || null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     void loadVotesTabMeta();
@@ -3236,91 +3260,142 @@ export default function MatchDetailScreen({ navigation, route }) {
         </View>
       </View>
 
-      <View style={[styles.heroColumn, showHeroScorerList && styles.heroColumnWithScorersBelow]}>
-        <View style={[styles.heroTopRow, showHeroScorerList && styles.heroTopRowWithScorersBelow]}>
-          <View style={styles.teamSlot}>
-            <TouchableOpacity activeOpacity={0.75} onPress={() => openOfficialTeamDetail(match.home_team_id, match.home_team_name)}>
-              <HeroTeamLogo logoUrl={match.home_team_logo_url} logoPath={match.home_team_logo_path} />
-            </TouchableOpacity>
-            <Text style={styles.team} numberOfLines={2}>
-              {match.home_team_name || '-'}
-            </Text>
-          </View>
-          <View style={styles.centerCol}>
-            {heroClock.variant === 'running' ? (
-              <View style={styles.heroRingWrap}>
-                <MatchMinuteRing
-                  size={HERO_RING_SIZE}
-                  stroke={HERO_RING_STROKE}
-                  trackColor={HERO_RING_TRACK}
-                  progressColor={HERO_RING_PROGRESS}
-                  progress={heroClock.ringProgress}
-                  minuteStr={heroClock.minuteStr}
-                  minuteTextStyle={styles.heroMinuteText}
-                  minimumFontScale={0.65}
-                  centerPaddingH={6}
-                />
-              </View>
-            ) : (
-              <Text
-                style={[
-                  styles.countdown,
-                  (heroPhaseMainText === 'PT' ||
-                    heroPhaseMainText === 'FT' ||
-                    heroPhaseMainText === 'PT sup' ||
-                    heroPhaseMainText === 'FT sup' ||
-                    heroPhaseMainText === 'Rigori' ||
-                    heroPhaseMainText === OFFICIAL_MATCH_END_LABEL ||
-                    heroPhaseMainText === OFFICIAL_WALKOVER_END_LABEL) &&
-                    styles.heroStaticPtFt,
-                ]}
-              >
-                {heroPhaseMainText}
-              </Text>
-            )}
-            {rigoriHeroLabel ? (
-              <Text style={styles.heroShootoutScoreLine}>{rigoriHeroLabel}</Text>
-            ) : null}
-            {showHeroLiveScore ? (
-              <Text style={styles.heroLiveScore} accessibilityLiveRegion="polite" accessibilityLabel={`Risultato ${displayScorePreview.home} a ${displayScorePreview.away}`}>
-                {displayScorePreview.home} – {displayScorePreview.away}
-              </Text>
-            ) : null}
-            {heroClock.showSub && heroClock.sub ? <Text style={styles.kickoff}>{heroClock.sub}</Text> : null}
-          </View>
-          <View style={styles.teamSlot}>
-            <TouchableOpacity activeOpacity={0.75} onPress={() => openOfficialTeamDetail(match.away_team_id, match.away_team_name)}>
-              <HeroTeamLogo logoUrl={match.away_team_logo_url} logoPath={match.away_team_logo_path} />
-            </TouchableOpacity>
-            <Text style={styles.team} numberOfLines={2}>
-              {match.away_team_name || '-'}
-            </Text>
-          </View>
-        </View>
-        {showHeroScorerList ? (
-          <View style={styles.heroScorersSection}>
-            <View style={styles.heroScorersRow} accessibilityLabel="Marcatori">
-              <View style={styles.heroScorersHome}>
-                {heroScorerBlocks.homeLines.map((line, i) => (
-                  <Text key={`hs-${i}`} style={[styles.heroScorerLine, styles.heroScorerLineHome]} numberOfLines={6}>
-                    {line}
+      {(() => {
+        const hasHeroBg = Boolean(matchHeroBgUri);
+        const HeroShell = hasHeroBg ? ImageBackground : View;
+        const heroShellProps = hasHeroBg
+          ? {
+              source: { uri: matchHeroBgUri },
+              resizeMode: 'cover',
+              imageStyle: styles.heroBgImage,
+            }
+          : {};
+        const ringTrack = hasHeroBg ? HERO_RING_TRACK_ON_BG : HERO_RING_TRACK;
+        const ringProgress = hasHeroBg ? HERO_RING_PROGRESS_ON_BG : HERO_RING_PROGRESS;
+        const scorerBallColor = hasHeroBg ? HERO_MINUTE_COLOR_ON_BG : HERO_MINUTE_COLOR;
+        return (
+          <HeroShell
+            {...heroShellProps}
+            style={[
+              styles.heroColumn,
+              hasHeroBg && styles.heroColumnWithBg,
+              showHeroScorerList && styles.heroColumnWithScorersBelow,
+            ]}
+          >
+            {hasHeroBg ? <View style={styles.heroBgScrim} pointerEvents="none" /> : null}
+            <View style={hasHeroBg ? styles.heroBgForeground : undefined}>
+              <View style={[styles.heroTopRow, showHeroScorerList && styles.heroTopRowWithScorersBelow]}>
+                <View style={styles.teamSlot}>
+                  <TouchableOpacity activeOpacity={0.75} onPress={() => openOfficialTeamDetail(match.home_team_id, match.home_team_name)}>
+                    <HeroTeamLogo logoUrl={match.home_team_logo_url} logoPath={match.home_team_logo_path} />
+                  </TouchableOpacity>
+                  <Text style={[styles.team, hasHeroBg && styles.teamOnBg]} numberOfLines={2}>
+                    {match.home_team_name || '-'}
                   </Text>
-                ))}
-              </View>
-              <View style={styles.heroScorersBallColumn}>
-                <MaterialCommunityIcons name="soccer" size={22} color={HERO_MINUTE_COLOR} />
-              </View>
-              <View style={styles.heroScorersAway}>
-                {heroScorerBlocks.awayLines.map((line, i) => (
-                  <Text key={`as-${i}`} style={[styles.heroScorerLine, styles.heroScorerLineAway]} numberOfLines={6}>
-                    {line}
+                </View>
+                <View style={styles.centerCol}>
+                  {heroClock.variant === 'running' ? (
+                    <View style={styles.heroRingWrap}>
+                      <MatchMinuteRing
+                        size={HERO_RING_SIZE}
+                        stroke={HERO_RING_STROKE}
+                        trackColor={ringTrack}
+                        progressColor={ringProgress}
+                        progress={heroClock.ringProgress}
+                        minuteStr={heroClock.minuteStr}
+                        minuteTextStyle={[styles.heroMinuteText, hasHeroBg && styles.heroMinuteTextOnBg]}
+                        minimumFontScale={0.65}
+                        centerPaddingH={6}
+                      />
+                    </View>
+                  ) : (
+                    <Text
+                      style={[
+                        styles.countdown,
+                        hasHeroBg && styles.countdownOnBg,
+                        (heroPhaseMainText === 'PT' ||
+                          heroPhaseMainText === 'FT' ||
+                          heroPhaseMainText === 'PT sup' ||
+                          heroPhaseMainText === 'FT sup' ||
+                          heroPhaseMainText === 'Rigori' ||
+                          heroPhaseMainText === OFFICIAL_MATCH_END_LABEL ||
+                          heroPhaseMainText === OFFICIAL_WALKOVER_END_LABEL) &&
+                          (hasHeroBg ? styles.heroStaticPtFtOnBg : styles.heroStaticPtFt),
+                      ]}
+                    >
+                      {heroPhaseMainText}
+                    </Text>
+                  )}
+                  {rigoriHeroLabel ? (
+                    <Text style={[styles.heroShootoutScoreLine, hasHeroBg && styles.heroShootoutScoreLineOnBg]}>
+                      {rigoriHeroLabel}
+                    </Text>
+                  ) : null}
+                  {showHeroLiveScore ? (
+                    <Text
+                      style={[styles.heroLiveScore, hasHeroBg && styles.heroLiveScoreOnBg]}
+                      accessibilityLiveRegion="polite"
+                      accessibilityLabel={`Risultato ${displayScorePreview.home} a ${displayScorePreview.away}`}
+                    >
+                      {displayScorePreview.home} – {displayScorePreview.away}
+                    </Text>
+                  ) : null}
+                  {heroClock.showSub && heroClock.sub ? (
+                    <Text style={[styles.kickoff, hasHeroBg && styles.kickoffOnBg]}>{heroClock.sub}</Text>
+                  ) : null}
+                </View>
+                <View style={styles.teamSlot}>
+                  <TouchableOpacity activeOpacity={0.75} onPress={() => openOfficialTeamDetail(match.away_team_id, match.away_team_name)}>
+                    <HeroTeamLogo logoUrl={match.away_team_logo_url} logoPath={match.away_team_logo_path} />
+                  </TouchableOpacity>
+                  <Text style={[styles.team, hasHeroBg && styles.teamOnBg]} numberOfLines={2}>
+                    {match.away_team_name || '-'}
                   </Text>
-                ))}
+                </View>
               </View>
+              {showHeroScorerList ? (
+                <View style={styles.heroScorersSection}>
+                  <View style={styles.heroScorersRow} accessibilityLabel="Marcatori">
+                    <View style={styles.heroScorersHome}>
+                      {heroScorerBlocks.homeLines.map((line, i) => (
+                        <Text
+                          key={`hs-${i}`}
+                          style={[
+                            styles.heroScorerLine,
+                            styles.heroScorerLineHome,
+                            hasHeroBg && styles.heroScorerLineOnBg,
+                          ]}
+                          numberOfLines={6}
+                        >
+                          {line}
+                        </Text>
+                      ))}
+                    </View>
+                    <View style={styles.heroScorersBallColumn}>
+                      <MaterialCommunityIcons name="soccer" size={22} color={scorerBallColor} />
+                    </View>
+                    <View style={styles.heroScorersAway}>
+                      {heroScorerBlocks.awayLines.map((line, i) => (
+                        <Text
+                          key={`as-${i}`}
+                          style={[
+                            styles.heroScorerLine,
+                            styles.heroScorerLineAway,
+                            hasHeroBg && styles.heroScorerLineOnBg,
+                          ]}
+                          numberOfLines={6}
+                        >
+                          {line}
+                        </Text>
+                      ))}
+                    </View>
+                  </View>
+                </View>
+              ) : null}
             </View>
-          </View>
-        ) : null}
-      </View>
+          </HeroShell>
+        );
+      })()}
 
       <View style={styles.iconTabBar}>
         <IconUnderlineTabBar
@@ -5295,6 +5370,21 @@ const styles = StyleSheet.create({
   heroColumn: {
     width: '100%',
     backgroundColor: '#fff',
+    overflow: 'hidden',
+  },
+  heroColumnWithBg: {
+    backgroundColor: '#0b1220',
+  },
+  heroBgImage: {
+    width: '100%',
+    height: '100%',
+  },
+  heroBgScrim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(8, 12, 22, 0.42)',
+  },
+  heroBgForeground: {
+    zIndex: 1,
   },
   heroColumnWithScorersBelow: {
     paddingBottom: 2,
@@ -5316,6 +5406,12 @@ const styles = StyleSheet.create({
   heroLogo: { width: 72, height: 72 },
   heroLogoFallback: { width: 72, height: 72, borderRadius: 36, backgroundColor: '#eef2ff', alignItems: 'center', justifyContent: 'center' },
   team: { fontWeight: '700', color: '#222', textAlign: 'center', fontSize: 13, lineHeight: 17 },
+  teamOnBg: {
+    color: '#fff',
+    textShadowColor: 'rgba(0,0,0,0.55)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
+  },
   centerCol: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -5353,6 +5449,12 @@ const styles = StyleSheet.create({
     color: '#374151',
     marginBottom: 4,
   },
+  heroScorerLineOnBg: {
+    color: 'rgba(255,255,255,0.92)',
+    textShadowColor: 'rgba(0,0,0,0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
   heroScorerLineHome: { textAlign: 'right' },
   heroScorerLineAway: { textAlign: 'left' },
   heroRingWrap: {
@@ -5363,6 +5465,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   heroMinuteText: { fontWeight: '800', color: HERO_MINUTE_COLOR, fontSize: 15, letterSpacing: -0.3 },
+  heroMinuteTextOnBg: { color: HERO_MINUTE_COLOR_ON_BG },
   heroLiveScore: {
     marginTop: 6,
     fontSize: 19,
@@ -5371,9 +5474,17 @@ const styles = StyleSheet.create({
     fontVariant: ['tabular-nums'],
     letterSpacing: -0.4,
   },
+  heroLiveScoreOnBg: {
+    color: '#fff',
+    textShadowColor: 'rgba(0,0,0,0.45)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
+  },
   countdown: { fontWeight: '800', color: '#667eea', fontSize: 18 },
+  countdownOnBg: { color: '#e8edff' },
   /** PT, FT, Fine partita al centro tra i loghi: nero come il minuto live. */
   heroStaticPtFt: { color: HERO_MINUTE_COLOR },
+  heroStaticPtFtOnBg: { color: HERO_MINUTE_COLOR_ON_BG },
   heroShootoutScoreLine: {
     marginTop: 4,
     fontSize: 15,
@@ -5382,7 +5493,9 @@ const styles = StyleSheet.create({
     fontVariant: ['tabular-nums'],
     letterSpacing: -0.2,
   },
+  heroShootoutScoreLineOnBg: { color: HERO_MINUTE_COLOR_ON_BG },
   kickoff: { color: '#666', marginTop: 4, fontSize: 13 },
+  kickoffOnBg: { color: 'rgba(255,255,255,0.78)' },
   heroTimerEditRow: {
     flexDirection: 'row',
     alignItems: 'center',

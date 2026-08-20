@@ -40,6 +40,7 @@ function inferAsset(event, payload) {
   if (event.includes('fantasy_team')) return 'fantasy_team_logo';
   if (event.includes('team_logo')) return 'team_logo';
   if (event.includes('login_bg') || payload.asset === 'login_background') return 'login_background';
+  if (event.includes('match_bg') || payload.asset === 'match_background') return 'match_background';
   if (event.includes('login') || event.includes('logo_')) return 'login_logo';
   if (event.includes('loading') || event.includes('disk_')) return 'loading_video';
   return 'media';

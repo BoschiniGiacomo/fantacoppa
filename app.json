@@ -14,6 +14,7 @@
       "uploads/app_loading/**/*",
       "uploads/login_background/**/*",
       "uploads/login_logo/**/*",
+      "uploads/match_background/**/*",
       "uploads/official_group_logos/**/*",
       "uploads/official_team_logos/**/*",
       "uploads/player_photos/**/*"

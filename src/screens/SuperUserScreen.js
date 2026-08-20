@@ -38,6 +38,11 @@ import {
   saveLoginBackgroundFromPicker,
   clearLoginBackground,
 } from '../utils/loginBackgroundSettings';
+import {
+  getMatchBackgroundSettings,
+  saveMatchBackgroundFromPicker,
+  clearMatchBackground,
+} from '../utils/matchBackgroundSettings';
 import { useAuthBranding } from '../context/AuthBrandingContext';
 
 function matchesNameSearch(displayName, query) {
@@ -396,6 +401,9 @@ export default function SuperUserScreen() {
   const [loginBackgroundSectionOpen, setLoginBackgroundSectionOpen] = useState(false);
   const [loginBackgroundPreview, setLoginBackgroundPreview] = useState(null);
   const [pickingLoginBackground, setPickingLoginBackground] = useState(false);
+  const [matchBackgroundSectionOpen, setMatchBackgroundSectionOpen] = useState(false);
+  const [matchBackgroundPreview, setMatchBackgroundPreview] = useState(null);
+  const [pickingMatchBackground, setPickingMatchBackground] = useState(false);
   
   const isSuperuser = !!(user?.is_superuser === true || user?.is_superuser === 1 || user?.is_superuser === '1');
   const activeAppLoadingPreview = appLoadingPickStaging || appLoadingPreview;
@@ -1139,6 +1147,7 @@ export default function SuperUserScreen() {
     getAppLoadingMediaSettings().then(setAppLoadingPreview);
     getLoginLogoSettings().then(setLoginLogoPreview);
     getLoginBackgroundSettings().then(setLoginBackgroundPreview);
+    getMatchBackgroundSettings().then(setMatchBackgroundPreview);
   }, [activeTab, isSuperuser]);
 
   useEffect(() => {
@@ -1279,6 +1288,42 @@ export default function SuperUserScreen() {
       showToast(e?.message || 'Impossibile rimuovere lo sfondo');
     } finally {
       setPickingLoginBackground(false);
+    }
+  };
+
+  const handlePickMatchBackground = async () => {
+    if (!isSuperuser) return;
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['image/png', 'image/jpeg', 'image/gif', 'image/webp'],
+        copyToCacheDirectory: true,
+      });
+      if (result.canceled || !result.assets || result.assets.length === 0) return;
+      const asset = result.assets[0];
+      setPickingMatchBackground(true);
+      const saved = await saveMatchBackgroundFromPicker(asset);
+      setMatchBackgroundPreview(saved);
+      showToast('Sfondo partita aggiornato', 'success');
+    } catch (e) {
+      console.error('Match background pick:', e);
+      showToast(e?.message || 'Impossibile importare il file');
+    } finally {
+      setPickingMatchBackground(false);
+    }
+  };
+
+  const handleClearMatchBackground = async () => {
+    if (!isSuperuser) return;
+    try {
+      setPickingMatchBackground(true);
+      await clearMatchBackground();
+      const bundled = await getMatchBackgroundSettings();
+      setMatchBackgroundPreview(bundled);
+      showToast('Sfondo partita ripristinato al predefinito in-app', 'success');
+    } catch (e) {
+      showToast(e?.message || 'Impossibile ripristinare lo sfondo');
+    } finally {
+      setPickingMatchBackground(false);
     }
   };
   
@@ -3246,6 +3291,74 @@ export default function SuperUserScreen() {
                   ) : (
                     <Text style={[styles.appSettingsMuted, { marginTop: 14 }]}>
                       Di default viene usato lo sfondo grigio.
+                    </Text>
+                  )}
+                </>
+              )}
+            </View>
+
+            <View style={[styles.appSettingsCard, { marginTop: 16 }]}>
+              <TouchableOpacity
+                style={styles.collapsibleHeader}
+                onPress={() => setMatchBackgroundSectionOpen((v) => !v)}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.appSettingsSectionTitle}>Sfondo partita</Text>
+                <Ionicons
+                  name={matchBackgroundSectionOpen ? 'chevron-up' : 'chevron-down'}
+                  size={22}
+                  color="#666"
+                />
+              </TouchableOpacity>
+
+              {matchBackgroundSectionOpen && (
+                <>
+                  <Text style={[styles.appSettingsMuted, { marginTop: 4, marginBottom: 10 }]}>
+                    Immagine landscape (~2:1) per la zona alta della partita ufficiale (loghi,
+                    risultato, marcatori). Lo sfondo in-app è già scurito per il contrasto del testo.
+                  </Text>
+
+                  <TouchableOpacity
+                    style={[styles.appSettingsPrimaryBtn, pickingMatchBackground && styles.appSettingsBtnDisabled]}
+                    onPress={handlePickMatchBackground}
+                    disabled={pickingMatchBackground}
+                  >
+                    {pickingMatchBackground ? (
+                      <ActivityIndicator color="#fff" />
+                    ) : (
+                      <Text style={styles.appSettingsPrimaryBtnText}>Scegli immagine</Text>
+                    )}
+                  </TouchableOpacity>
+
+                  {matchBackgroundPreview?.uri ? (
+                    <>
+                      <Text style={styles.appSettingsPreviewTitle}>Anteprima hero</Text>
+                      <View style={styles.matchBackgroundPreviewStage}>
+                        <Image
+                          source={{ uri: matchBackgroundPreview.uri }}
+                          style={StyleSheet.absoluteFillObject}
+                          resizeMode="cover"
+                        />
+                        <View style={styles.matchBackgroundPreviewScrim} />
+                        <View style={styles.matchBackgroundPreviewMock}>
+                          <View style={styles.matchBackgroundPreviewTeam} />
+                          <Text style={styles.matchBackgroundPreviewScore}>1 – 0</Text>
+                          <View style={styles.matchBackgroundPreviewTeam} />
+                        </View>
+                      </View>
+                      <TouchableOpacity
+                        style={styles.appSettingsSecondaryBtn}
+                        onPress={handleClearMatchBackground}
+                        disabled={pickingMatchBackground}
+                      >
+                        <Text style={styles.appSettingsSecondaryBtnText}>
+                          Rimuovi custom (torna allo sfondo in-app)
+                        </Text>
+                      </TouchableOpacity>
+                    </>
+                  ) : (
+                    <Text style={[styles.appSettingsMuted, { marginTop: 14 }]}>
+                      Anteprima non disponibile. Verrà usato lo sfondo predefinito in-app.
                     </Text>
                   )}
                 </>
@@ -7483,6 +7596,42 @@ const styles = StyleSheet.create({
     backgroundColor: '#000',
     borderWidth: 2,
     borderColor: '#2a2a2a',
+  },
+  matchBackgroundPreviewStage: {
+    width: '100%',
+    aspectRatio: 2.2,
+    alignSelf: 'center',
+    borderRadius: 14,
+    overflow: 'hidden',
+    backgroundColor: '#0f172a',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    justifyContent: 'center',
+  },
+  matchBackgroundPreviewScrim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(15, 23, 42, 0.28)',
+  },
+  matchBackgroundPreviewMock: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 28,
+    zIndex: 1,
+  },
+  matchBackgroundPreviewTeam: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.88)',
+  },
+  matchBackgroundPreviewScore: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#fff',
+    textShadowColor: 'rgba(0,0,0,0.45)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
   },
   appLoadingPreviewUploadOverlay: {
     ...StyleSheet.absoluteFillObject,

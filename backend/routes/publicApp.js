@@ -108,4 +108,24 @@ router.get('/login-background', async (_req, res) => {
   }
 });
 
+/**
+ * GET /api/public/match-background
+ * Pubblico: sfondo hero partita ufficiale (loghi / risultato / marcatori).
+ */
+router.get('/match-background', async (_req, res) => {
+  try {
+    await ensureAppSettingsTable();
+    const rows = await query(
+      `SELECT match_background_path AS path FROM app_settings WHERE id = 1 LIMIT 1`
+    );
+    const row = rows[0] || {};
+    const pathVal = row.path ? String(row.path).trim() : null;
+    logMediaDbRead('match_background', _req, { path: pathVal, ok: true });
+    return res.json({ path: pathVal || null });
+  } catch (error) {
+    logMediaDbRead('match_background', _req, { ok: false, error: error.message });
+    return res.status(500).json({ message: 'Errore lettura impostazioni', error: error.message });
+  }
+});
+
 module.exports = router;

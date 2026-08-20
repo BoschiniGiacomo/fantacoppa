@@ -18,6 +18,9 @@ async function ensureAppSettingsTable() {
   await query(
     `ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS login_background_path TEXT`
   );
+  await query(
+    `ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS match_background_path TEXT`
+  );
   tableReady = true;
 }
 
