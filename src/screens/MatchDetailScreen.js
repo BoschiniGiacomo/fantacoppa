@@ -5474,8 +5474,9 @@ const styles = StyleSheet.create({
   iconTabUnderline: {
     marginTop: 6,
     height: 3,
-    width: 28,
-    borderRadius: 2,
+    alignSelf: 'stretch',
+    width: '100%',
+    borderRadius: 0,
     backgroundColor: 'transparent',
   },
   iconTabUnderlineActive: {
