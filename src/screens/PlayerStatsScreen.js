@@ -150,7 +150,7 @@ function SeasonYearPickerMenu({ open, onClose, anchorRef, options, onSelectOptio
       if (!anchorRef?.current) return;
       anchorRef.current.measureInWindow((x, y, width, height) => {
         if (cancelled) return;
-        setLayout({ left: x, top: y + height + 2, width: Math.max(width, 120) });
+        setLayout({ left: x, top: y + height + 4, width });
       });
     };
     measureAnchor();
@@ -181,16 +181,21 @@ function SeasonYearPickerMenu({ open, onClose, anchorRef, options, onSelectOptio
             bounces={false}
             nestedScrollEnabled
           >
-            {options.map((item) => (
+            {options.map((item, idx) => (
               <TouchableOpacity
                 key={item.key}
-                style={[styles.seasonPickerItem, item.active && styles.seasonPickerItemActive]}
+                style={[
+                  styles.seasonPickerItem,
+                  idx === options.length - 1 && styles.seasonPickerItemLast,
+                  item.active && styles.seasonPickerItemActive,
+                ]}
                 onPress={() => onSelectOption(item)}
                 activeOpacity={0.8}
               >
                 <Text style={[styles.seasonPickerItemText, item.active && styles.seasonPickerItemTextActive]}>
                   {item.label}
                 </Text>
+                {item.active ? <Ionicons name="checkmark" size={16} color="#4f46e5" /> : null}
               </TouchableOpacity>
             ))}
           </ScrollView>
@@ -632,16 +637,13 @@ export default function PlayerStatsScreen({ route, navigation }) {
     }
   };
 
-  const handleEditionSubTabPress = () => {
-    setActiveScopeSubTab('league');
-    if (activeMainTab === 'fantacoppa') {
-      void loadEditionFantaStats(selectedEdition.player_id, selectedEdition.league_id);
-    } else if (activeMainTab === 'stats') {
-      void loadEditionAnalytics(selectedEdition.player_id, selectedEdition.league_id);
+  const handleYearSegmentPress = () => {
+    if (editionYearOptions.length === 0) return;
+    if (editionYearOptions.length === 1) {
+      handleEditionYearSelect(editionYearOptions[0]);
+      return;
     }
-    if (canPickEditionYear) {
-      setEditionPickerOpen((open) => !open);
-    }
+    setEditionPickerOpen((open) => !open);
   };
 
   const loadAggregatedFantaStats = async () => {
@@ -917,39 +919,55 @@ export default function PlayerStatsScreen({ route, navigation }) {
     );
   };
 
-  const renderScopeSubTabs = () => (
-    <View style={styles.subTabBar}>
-      <View
-        ref={editionPickerAnchorRef}
-        style={styles.subTabPickerWrap}
-        collapsable={false}
-      >
-        <TouchableOpacity
-          style={[
-            styles.subTabBtn,
-            styles.subTabPickerBtn,
-            activeScopeSubTab === 'league' && styles.subTabBtnActive,
-          ]}
-          onPress={handleEditionSubTabPress}
-          activeOpacity={0.8}
-        >
-          <Text
+  const renderScopeSubTabs = () => {
+    const isTotal = activeScopeSubTab === 'total';
+    const totalEnabled = !officialGroupReady || hasOfficialGroup;
+    return (
+      <View ref={editionPickerAnchorRef} style={styles.scopePeriodWrap} collapsable={false}>
+        <View style={styles.scopePeriodControl}>
+          <TouchableOpacity
             style={[
-              styles.subTabText,
-              activeScopeSubTab === 'league' && styles.subTabTextActive,
+              styles.scopePeriodSeg,
+              isTotal && totalEnabled && styles.scopePeriodSegActive,
+              !totalEnabled && styles.scopePeriodSegDisabled,
             ]}
+            onPress={() => {
+              if (!totalEnabled) return;
+              setEditionPickerOpen(false);
+              handleScopeSubTabPress('total');
+            }}
+            disabled={!totalEnabled}
+            activeOpacity={0.8}
           >
-            {selectedEditionYearLabel}
-          </Text>
-          {canPickEditionYear && (
-            <Ionicons
-              name={editionPickerOpen ? 'chevron-up' : 'chevron-down'}
-              size={14}
-              color={activeScopeSubTab === 'league' ? '#667eea' : '#475569'}
-              style={styles.subTabPickerIcon}
-            />
-          )}
-        </TouchableOpacity>
+            <Text
+              style={[
+                styles.scopePeriodSegText,
+                isTotal && totalEnabled && styles.scopePeriodSegTextActive,
+                !totalEnabled && styles.scopePeriodSegTextDisabled,
+              ]}
+            >
+              Totali
+            </Text>
+          </TouchableOpacity>
+          <View style={styles.scopePeriodDivider} />
+          <TouchableOpacity
+            style={[styles.scopePeriodSeg, styles.scopePeriodSegYear, !isTotal && styles.scopePeriodSegActive]}
+            onPress={handleYearSegmentPress}
+            activeOpacity={0.8}
+            disabled={editionYearOptions.length === 0}
+          >
+            <Text style={[styles.scopePeriodSegText, !isTotal && styles.scopePeriodSegTextActive]}>
+              {selectedEditionYearLabel}
+            </Text>
+            {canPickEditionYear ? (
+              <Ionicons
+                name={editionPickerOpen ? 'chevron-up' : 'chevron-down'}
+                size={14}
+                color={!isTotal ? '#4f46e5' : '#64748b'}
+              />
+            ) : null}
+          </TouchableOpacity>
+        </View>
         <SeasonYearPickerMenu
           open={editionPickerOpen}
           onClose={() => setEditionPickerOpen(false)}
@@ -958,31 +976,8 @@ export default function PlayerStatsScreen({ route, navigation }) {
           onSelectOption={handleEditionYearSelect}
         />
       </View>
-
-      <TouchableOpacity
-        style={[
-          styles.subTabBtn,
-          activeScopeSubTab === 'total' && styles.subTabBtnActive,
-          officialGroupReady && !hasOfficialGroup && styles.subTabBtnDisabled,
-        ]}
-        onPress={() => {
-          if (!officialGroupReady || hasOfficialGroup) handleScopeSubTabPress('total');
-        }}
-        disabled={officialGroupReady && !hasOfficialGroup}
-        activeOpacity={0.8}
-      >
-        <Text
-          style={[
-            styles.subTabText,
-            activeScopeSubTab === 'total' && (!officialGroupReady || hasOfficialGroup) && styles.subTabTextActive,
-            officialGroupReady && !hasOfficialGroup && styles.subTabTextDisabled,
-          ]}
-        >
-          Totali
-        </Text>
-      </TouchableOpacity>
-    </View>
-  );
+    );
+  };
 
   const renderAggregatedBanner = () => (
     !hasOfficialGroup ? (
@@ -1816,57 +1811,58 @@ const styles = StyleSheet.create({
     color: '#667eea',
   },
 
-  subTabBar: {
-    flexDirection: 'row',
-    gap: 8,
+  scopePeriodWrap: {
     marginBottom: 14,
-  },
-  subTabPickerWrap: {
-    flex: 1,
     position: 'relative',
   },
-  subTabPickerBtn: {
+  scopePeriodControl: {
+    height: 38,
     flexDirection: 'row',
-    gap: 4,
-  },
-  subTabPickerIcon: {
-    marginTop: 1,
-  },
-  subTabBtn: {
-    flex: 1,
-    backgroundColor: '#fff',
-    borderRadius: 14,
-    paddingVertical: 5,
-    paddingHorizontal: 12,
+    alignItems: 'stretch',
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: '#dbe3ef',
+    borderRadius: 10,
+    backgroundColor: '#fff',
+    overflow: 'hidden',
+  },
+  scopePeriodSeg: {
+    flex: 1,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
   },
-  subTabBtnActive: {
-    borderColor: '#667eea',
+  scopePeriodSegYear: {
+    justifyContent: 'center',
+  },
+  scopePeriodSegActive: {
     backgroundColor: '#eef2ff',
   },
-  subTabBtnDisabled: {
+  scopePeriodSegDisabled: {
     opacity: 0.45,
   },
-  subTabText: {
-    color: '#475569',
+  scopePeriodSegText: {
+    fontSize: 14,
     fontWeight: '700',
-    fontSize: 13,
+    color: '#64748b',
   },
-  subTabTextActive: {
-    color: '#667eea',
+  scopePeriodSegTextActive: {
+    color: '#4f46e5',
   },
-  subTabTextDisabled: {
+  scopePeriodSegTextDisabled: {
     color: '#94a3b8',
+  },
+  scopePeriodDivider: {
+    width: StyleSheet.hairlineWidth,
+    backgroundColor: '#dbe3ef',
   },
 
   seasonPickerModalRoot: { flex: 1 },
   seasonPickerModalBackdrop: { ...StyleSheet.absoluteFillObject },
   seasonPickerDropdownModal: {
     position: 'absolute',
-    height: SEASON_YEAR_PICKER_MAX_HEIGHT,
+    maxHeight: SEASON_YEAR_PICKER_MAX_HEIGHT,
     borderWidth: 1,
     borderColor: '#dbe3ef',
     borderRadius: 10,
@@ -1878,14 +1874,18 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.15,
     shadowRadius: 8,
   },
-  seasonPickerDropdownScroll: { height: SEASON_YEAR_PICKER_MAX_HEIGHT },
-  seasonPickerDropdownScrollContent: { paddingBottom: 4 },
+  seasonPickerDropdownScroll: { maxHeight: SEASON_YEAR_PICKER_MAX_HEIGHT },
+  seasonPickerDropdownScrollContent: { paddingVertical: 4 },
   seasonPickerItem: {
-    paddingHorizontal: 8,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
+    minHeight: 40,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: '#f1f5f9',
   },
+  seasonPickerItemLast: { borderBottomWidth: 0 },
   seasonPickerItemActive: { backgroundColor: '#eef2ff' },
   seasonPickerItemText: { fontSize: 14, fontWeight: '600', color: '#334155' },
   seasonPickerItemTextActive: { color: '#4f46e5', fontWeight: '700' },

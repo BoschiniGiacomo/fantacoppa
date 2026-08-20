@@ -1039,9 +1039,9 @@ export const GROUP_STATS_BOARDS = [
   { key: 'presences', label: 'Presenze', shortLabel: 'Presenze', pack: 'ion', icon: 'people', accent: '#667eea', empty: 'Nessuna presenza con voto nel periodo selezionato.' },
   { key: 'yellow_cards', label: 'Cartellini gialli', shortLabel: 'Gialli', pack: 'ion', icon: 'square', accent: '#ca8a04', bonusType: 'yellow_card', empty: 'Nessun cartellino giallo disponibile.' },
   { key: 'red_cards', label: 'Cartellini rossi', shortLabel: 'Rossi', pack: 'ion', icon: 'square', accent: '#dc2626', bonusType: 'red_card', empty: 'Nessun cartellino rosso disponibile.' },
-  { key: 'penalty_goals', label: 'Rigori segnati', shortLabel: 'Rigori', pack: 'ion', icon: 'disc', accent: '#2563eb', bonusType: 'penalty_goal', keepIconOnWhite: true, empty: 'Nessun rigore segnato disponibile.' },
-  { key: 'penalty_saved', label: 'Rigori parati', shortLabel: 'Parate', pack: 'ion', icon: 'hand-left-outline', accent: '#0f766e', bonusType: 'penalty_saved', keepIconOnWhite: true, empty: 'Nessun rigore parato disponibile.' },
-  { key: 'match_wins', label: 'Partite vinte', shortLabel: 'Vinte', pack: 'ion', icon: 'checkmark-circle', accent: '#16a34a', empty: 'Nessuna partita vinta disponibile.' },
+  { key: 'penalty_goals', label: 'Rigori segnati', shortLabel: 'Rigori segnati', pack: 'ion', icon: 'disc', accent: '#2563eb', bonusType: 'penalty_goal', keepIconOnWhite: true, empty: 'Nessun rigore segnato disponibile.' },
+  { key: 'penalty_saved', label: 'Rigori parati', shortLabel: 'Rigori parati', pack: 'ion', icon: 'hand-left-outline', accent: '#0f766e', bonusType: 'penalty_saved', keepIconOnWhite: true, empty: 'Nessun rigore parato disponibile.' },
+  { key: 'match_wins', label: 'Partite vinte', shortLabel: 'Partite vinte', pack: 'ion', icon: 'checkmark-circle', accent: '#16a34a', empty: 'Nessuna partita vinta disponibile.' },
   { key: 'edition_wins', label: 'Edizioni vinte', shortLabel: 'Trofei', pack: 'ion', icon: 'trophy', accent: '#d97706', empty: 'Nessun trofeo vinto disponibile.' },
 ];
 
