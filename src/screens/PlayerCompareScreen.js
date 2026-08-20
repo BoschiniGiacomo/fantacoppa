@@ -124,7 +124,8 @@ function resolveDisplayName(profile, fallbackName) {
   return { firstName: parts[0], lastName: parts.slice(1).join(' ') };
 }
 
-function formatStatValue(value, decimals = 0) {
+function formatStatValue(value, decimals = 0, options = {}) {
+  if (options.emptyDash) return '–';
   const n = Number(value);
   if (!Number.isFinite(n)) return decimals > 0 ? (0).toFixed(decimals) : '0';
   if (decimals > 0) return n.toFixed(decimals);
@@ -757,6 +758,9 @@ function SearchSlot({
             autoCorrect={false}
             autoCapitalize="none"
             returnKeyType="search"
+            multiline={false}
+            numberOfLines={1}
+            scrollEnabled={false}
           />
           {value ? (
             <TouchableOpacity onPress={onClear} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
@@ -883,27 +887,40 @@ function PlayerHeaderCard({ profile, fallbackName, fallbackPhoto, side, onClear,
   );
 }
 
-function StatCompareRow({ row, leftValue, rightValue, leftSub, rightSub, zebra }) {
-  const tones = compareTone(leftValue, rightValue, row.higherIsBetter);
+function StatCompareRow({
+  row,
+  leftValue,
+  rightValue,
+  leftSub,
+  rightSub,
+  leftEmpty,
+  rightEmpty,
+  zebra,
+}) {
+  const tones = compareTone(
+    leftEmpty ? 0 : leftValue,
+    rightEmpty ? 0 : rightValue,
+    row.higherIsBetter,
+  );
   const leftYear = leftSub != null && String(leftSub).trim() !== '' ? String(leftSub) : null;
   const rightYear = rightSub != null && String(rightSub).trim() !== '' ? String(rightSub) : null;
   return (
     <View style={[styles.statRow, zebra ? styles.statRowZebra : null]}>
       <View style={styles.statValueCell}>
-        <Text style={[styles.statValue, { color: toneColor(tones.left) }]}>
-          {formatStatValue(leftValue, row.decimals)}
+        <Text style={[styles.statValue, { color: toneColor(leftEmpty ? 'tie' : tones.left) }]}>
+          {formatStatValue(leftValue, row.decimals, { emptyDash: Boolean(leftEmpty) })}
         </Text>
-        {leftYear ? <Text style={styles.statValueSub}>{leftYear}</Text> : null}
+        {leftYear && !leftEmpty ? <Text style={styles.statValueSub}>{leftYear}</Text> : null}
       </View>
       <View style={styles.statLabelCell}>
         <CompareRowGlyph row={row} size={15} />
         <Text style={styles.statLabel}>{row.label}</Text>
       </View>
       <View style={styles.statValueCell}>
-        <Text style={[styles.statValue, { color: toneColor(tones.right) }]}>
-          {formatStatValue(rightValue, row.decimals)}
+        <Text style={[styles.statValue, { color: toneColor(rightEmpty ? 'tie' : tones.right) }]}>
+          {formatStatValue(rightValue, row.decimals, { emptyDash: Boolean(rightEmpty) })}
         </Text>
-        {rightYear ? <Text style={styles.statValueSub}>{rightYear}</Text> : null}
+        {rightYear && !rightEmpty ? <Text style={styles.statValueSub}>{rightYear}</Text> : null}
       </View>
     </View>
   );
@@ -952,7 +969,7 @@ export default function PlayerCompareScreen({ navigation, route }) {
   const loadProfile = useCallback(async (playerId, leagueId) => {
     const key = `${playerId}-${leagueId}`;
     const cached = cacheRef.current.get(key);
-    if (cached && cached?.stats && Object.prototype.hasOwnProperty.call(cached.stats, 'market_value')) {
+    if (cached && cached?.stats && Object.prototype.hasOwnProperty.call(cached.stats, 'market_value_missing')) {
       return cached;
     }
 
@@ -1454,6 +1471,8 @@ export default function PlayerCompareScreen({ navigation, route }) {
                       rightValue={slotB.profile.stats?.[row.key]}
                       leftSub={row.yearKey ? slotA.profile.stats?.[row.yearKey] : null}
                       rightSub={row.yearKey ? slotB.profile.stats?.[row.yearKey] : null}
+                      leftEmpty={row.key === 'market_value' && Boolean(slotA.profile.stats?.market_value_missing)}
+                      rightEmpty={row.key === 'market_value' && Boolean(slotB.profile.stats?.market_value_missing)}
                       zebra={index % 2 === 1}
                     />
                   ))}
@@ -1862,9 +1881,13 @@ const styles = StyleSheet.create({
   searchInput: {
     flex: 1,
     minWidth: 0,
-    fontSize: 14,
+    height: 32,
+    fontSize: 12,
     color: '#1e293b',
     paddingVertical: 0,
+    paddingHorizontal: 0,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
   },
   vsBadge: {
     width: 38,

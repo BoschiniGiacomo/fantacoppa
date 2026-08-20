@@ -1150,21 +1150,22 @@ function buildCompareRoles(editionRows) {
   return order.filter((role) => found.has(role));
 }
 
-/** Valore di mercato (= rating giocatore): base (lega corrente) + picco carriera con anno. */
-function resolveCompareMarketValueStats(editionRows, leagueId) {
+/** Valore di mercato (= rating): base = lega più recente del gruppo; assente → 0 e missing. */
+function resolveCompareMarketValueStats(editionRows, latestReferenceYear) {
   const rows = Array.isArray(editionRows) ? editionRows : [];
-  const lid = Number(leagueId);
+  const targetYear = Number(latestReferenceYear);
 
   let marketValue = null;
-  const currentEdition = rows.find((row) => Number(row.league_id) === lid);
-  if (currentEdition) {
-    const n = Number(currentEdition.rating);
-    if (Number.isFinite(n)) marketValue = n;
-  }
-  if (marketValue == null) {
-    const latest = sortEditionsByYearDesc(rows)[0];
-    const n = Number(latest?.rating);
-    if (Number.isFinite(n)) marketValue = n;
+  let marketValueMissing = true;
+  if (Number.isFinite(targetYear) && targetYear > 0) {
+    const inLatest = rows.find((row) => Number(row.reference_year) === targetYear);
+    if (inLatest) {
+      const n = Number(inLatest.rating);
+      if (Number.isFinite(n)) {
+        marketValue = n;
+        marketValueMissing = false;
+      }
+    }
   }
 
   let peakValue = null;
@@ -1181,9 +1182,43 @@ function resolveCompareMarketValueStats(editionRows, leagueId) {
 
   return {
     market_value: safeNumber(marketValue ?? 0, 2),
-    peak_market_value: safeNumber(peakValue ?? marketValue ?? 0, 2),
+    market_value_missing: marketValueMissing,
+    peak_market_value: safeNumber(peakValue ?? 0, 2),
     peak_market_value_year: peakYear,
   };
+}
+
+async function resolveGroupLatestReferenceYear(groupId, leagueIds = []) {
+  try {
+    if (groupId) {
+      const rows = await query(
+        `SELECT MAX(NULLIF(to_jsonb(l)->>'reference_year','')::int) AS max_year
+         FROM leagues l
+         WHERE l.official_group_id = ?
+           AND COALESCE(is_official, 0) = 1
+           AND COALESCE(is_official_squad_public, 0) = 1`,
+        [groupId],
+      );
+      const y = Number(rows?.[0]?.max_year);
+      if (Number.isFinite(y) && y > 0) return Math.trunc(y);
+    }
+
+    const lids = [...new Set((leagueIds || []).map(Number).filter((id) => Number.isFinite(id) && id > 0))];
+    if (lids.length) {
+      const ph = lids.map(() => '?').join(',');
+      const rows = await query(
+        `SELECT MAX(NULLIF(to_jsonb(l)->>'reference_year','')::int) AS max_year
+         FROM leagues l
+         WHERE l.id IN (${ph})`,
+        lids,
+      );
+      const y = Number(rows?.[0]?.max_year);
+      if (Number.isFinite(y) && y > 0) return Math.trunc(y);
+    }
+  } catch (_) {
+    // ignore
+  }
+  return null;
 }
 
 async function buildPlayerCompareProfile(playerId, leagueId) {
@@ -1211,6 +1246,7 @@ async function buildPlayerCompareProfile(playerId, leagueId) {
   ]);
 
   const leagueIds = await resolveCompareLeagueIds(groupId, editions, leagueId);
+  const latestReferenceYear = await resolveGroupLatestReferenceYear(groupId, leagueIds);
   const primaryRole = String(
     sortEditionsByYearDesc(editions)[0]?.role || basePlayer.role || '',
   ).trim().toUpperCase() || null;
@@ -1252,7 +1288,7 @@ async function buildPlayerCompareProfile(playerId, leagueId) {
   const championships = Number(trophies?.championships || 0);
   const wineTrophies = Number(trophies?.wine_trophies || 0);
   const competitionName = String(groupNameRows?.[0]?.name || '').trim() || null;
-  const marketStats = resolveCompareMarketValueStats(editions, leagueId);
+  const marketStats = resolveCompareMarketValueStats(editions, latestReferenceYear);
 
   return {
     profile: {
@@ -1271,6 +1307,7 @@ async function buildPlayerCompareProfile(playerId, leagueId) {
       competition_name: competitionName,
       stats: {
         market_value: marketStats.market_value,
+        market_value_missing: Boolean(marketStats.market_value_missing),
         peak_market_value: marketStats.peak_market_value,
         peak_market_value_year: marketStats.peak_market_value_year,
         editions_played: Number(editionsPlayed || 0),
