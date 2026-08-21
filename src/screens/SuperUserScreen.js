@@ -21,6 +21,7 @@ import * as ImagePicker from 'expo-image-picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import LoopingVideoView from '../components/LoopingVideoView';
 import AppLoadingFullScreenModal from '../components/AppLoadingFullScreenModal';
+import BrandingPreviewFullScreenModal from '../components/BrandingPreviewFullScreenModal';
 import { useAuth } from '../context/AuthContext';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { superuserService, publicAssetUrl } from '../services/api';
@@ -479,6 +480,8 @@ export default function SuperUserScreen() {
   const [appLoadingPickStaging, setAppLoadingPickStaging] = useState(null);
   const [pickingAppLoading, setPickingAppLoading] = useState(false);
   const [appLoadingSimulateOpen, setAppLoadingSimulateOpen] = useState(false);
+  const [loginBgSimulateOpen, setLoginBgSimulateOpen] = useState(false);
+  const [matchBgSimulateOpen, setMatchBgSimulateOpen] = useState(false);
   const [simulateProgress, setSimulateProgress] = useState(0);
   const [loadingSectionOpen, setLoadingSectionOpen] = useState(false);
   const [logoSectionOpen, setLogoSectionOpen] = useState(false);
@@ -490,6 +493,8 @@ export default function SuperUserScreen() {
   const [matchBackgroundSectionOpen, setMatchBackgroundSectionOpen] = useState(false);
   const [matchBackgroundPreview, setMatchBackgroundPreview] = useState(null);
   const [pickingMatchBackground, setPickingMatchBackground] = useState(false);
+  const [refreshingAppSettings, setRefreshingAppSettings] = useState(false);
+  const appSettingsHydratedRef = useRef(false);
   
   const isSuperuser = !!(user?.is_superuser === true || user?.is_superuser === 1 || user?.is_superuser === '1');
   const activeAppLoadingPreview = appLoadingPickStaging || appLoadingPreview;
@@ -1337,12 +1342,54 @@ export default function SuperUserScreen() {
   }, [activeTab, isSuperuser]);
 
   useEffect(() => {
-    if (!isSuperuser || activeTab !== 'appSettings') return;
-    getAppLoadingMediaSettings().then(setAppLoadingPreview);
-    getLoginLogoSettings().then(setLoginLogoPreview);
-    getLoginBackgroundSettings().then(setLoginBackgroundPreview);
-    getMatchBackgroundSettings().then(setMatchBackgroundPreview);
+    if (!isSuperuser || activeTab !== 'appSettings') return undefined;
+    let cancelled = false;
+    (async () => {
+      // Evita 4 GET ripetuti a ogni rientro sul tab se già idratato
+      if (appSettingsHydratedRef.current) return;
+      try {
+        const [loading, logo, loginBg, matchBg] = await Promise.all([
+          getAppLoadingMediaSettings(),
+          getLoginLogoSettings(),
+          getLoginBackgroundSettings(),
+          getMatchBackgroundSettings(),
+        ]);
+        if (cancelled) return;
+        setAppLoadingPreview(loading);
+        setLoginLogoPreview(logo);
+        setLoginBackgroundPreview(loginBg);
+        setMatchBackgroundPreview(matchBg);
+        appSettingsHydratedRef.current = true;
+      } catch (error) {
+        console.error('Error loading app settings previews:', error);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [activeTab, isSuperuser]);
+
+  const refreshAppSettingsPreviews = async () => {
+    try {
+      setRefreshingAppSettings(true);
+      const [loading, logo, loginBg, matchBg] = await Promise.all([
+        getAppLoadingMediaSettings(),
+        getLoginLogoSettings(),
+        getLoginBackgroundSettings(),
+        getMatchBackgroundSettings(),
+      ]);
+      setAppLoadingPreview(loading);
+      setLoginLogoPreview(logo);
+      setLoginBackgroundPreview(loginBg);
+      setMatchBackgroundPreview(matchBg);
+      appSettingsHydratedRef.current = true;
+    } catch (error) {
+      console.error('Error refreshing app settings previews:', error);
+      showToast('Impossibile aggiornare le anteprime');
+    } finally {
+      setRefreshingAppSettings(false);
+    }
+  };
 
   useEffect(() => {
     if (!appLoadingSimulateOpen) {
@@ -3485,7 +3532,7 @@ export default function SuperUserScreen() {
           onPress={() => setActiveTab('appSettings')}
         >
           <Ionicons
-            name={activeTab === 'appSettings' ? 'settings' : 'settings-outline'}
+            name={activeTab === 'appSettings' ? 'color-palette' : 'color-palette-outline'}
             size={20}
             color={activeTab === 'appSettings' ? '#667eea' : '#666'}
           />
@@ -3493,11 +3540,10 @@ export default function SuperUserScreen() {
             style={[
               styles.tabText,
               activeTab === 'appSettings' && styles.tabTextActive,
-              styles.tabAppSettingsLabel,
             ]}
-            numberOfLines={2}
+            numberOfLines={1}
           >
-            Impostazioni app
+            Aspetto
           </Text>
         </TouchableOpacity>
       </ScrollView>
@@ -4807,25 +4853,73 @@ export default function SuperUserScreen() {
             style={styles.appSettingsRoot}
             contentContainerStyle={styles.appSettingsScroll}
             keyboardShouldPersistTaps="handled"
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshingAppSettings}
+                tintColor="#667eea"
+                colors={['#667eea']}
+                onRefresh={() => {
+                  appSettingsHydratedRef.current = false;
+                  void refreshAppSettingsPreviews();
+                }}
+              />
+            }
           >
-            <Text style={styles.appSettingsTitle}>Impostazioni app</Text>
+            <Text style={styles.appSettingsSubtitle}>
+              Branding globale: caricamento, login e partite
+            </Text>
 
-            <View style={styles.appSettingsCard}>
+            {/* Loading */}
+            <View style={[styles.appSettingsCard, loadingSectionOpen && styles.appSettingsCardOpen]}>
               <TouchableOpacity
-                style={styles.collapsibleHeader}
+                style={styles.appSettingsSectionHeader}
                 onPress={() => setLoadingSectionOpen((v) => !v)}
-                activeOpacity={0.7}
+                activeOpacity={0.75}
               >
-                <Text style={styles.appSettingsSectionTitle}>Schermata di caricamento (9:16)</Text>
+                <View style={styles.appSettingsSectionHeaderLeft}>
+                  <View
+                    style={[
+                      styles.appSettingsSectionIcon,
+                      !!activeAppLoadingPreview?.uri && styles.appSettingsSectionIconOn,
+                    ]}
+                  >
+                    <Ionicons
+                      name="phone-portrait-outline"
+                      size={18}
+                      color={activeAppLoadingPreview?.uri ? '#667eea' : '#94a3b8'}
+                    />
+                  </View>
+                  <View style={styles.appSettingsSectionCopy}>
+                    <Text style={styles.appSettingsSectionTitle}>Caricamento</Text>
+                    <View
+                      style={[
+                        styles.appSettingsStatusPill,
+                        !!activeAppLoadingPreview?.uri && styles.appSettingsStatusPillOn,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.appSettingsStatusPillText,
+                          !!activeAppLoadingPreview?.uri && styles.appSettingsStatusPillTextOn,
+                        ]}
+                      >
+                        {activeAppLoadingPreview?.uri ? 'Personalizzato' : 'Predefinito'}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
                 <Ionicons
                   name={loadingSectionOpen ? 'chevron-up' : 'chevron-down'}
-                  size={22}
-                  color="#666"
+                  size={20}
+                  color="#94a3b8"
                 />
               </TouchableOpacity>
 
-              {loadingSectionOpen && (
-                <>
+              {loadingSectionOpen ? (
+                <View style={styles.appSettingsSectionBody}>
+                  <Text style={styles.appSettingsSectionHint}>
+                    Media 9:16 (GIF, immagine o video) mostrato all’avvio.
+                  </Text>
                   <TouchableOpacity
                     style={[styles.appSettingsPrimaryBtn, pickingAppLoading && styles.appSettingsBtnDisabled]}
                     onPress={handlePickAppLoadingMedia}
@@ -4834,17 +4928,17 @@ export default function SuperUserScreen() {
                     {pickingAppLoading ? (
                       <ActivityIndicator color="#fff" />
                     ) : (
-                      <Text style={styles.appSettingsPrimaryBtnText}>Scegli file (GIF / immagine / video)</Text>
+                      <Text style={styles.appSettingsPrimaryBtnText}>Scegli file</Text>
                     )}
                   </TouchableOpacity>
 
                   {!activeAppLoadingPreview?.uri ? (
-                    <Text style={[styles.appSettingsMuted, { marginTop: 14 }]}>
-                      {`Nessun file: in caricamento reale vedrai solo lo spinner.`}
+                    <Text style={styles.appSettingsMuted}>
+                      Nessun file: in caricamento reale vedrai solo lo spinner.
                     </Text>
                   ) : (
                     <>
-                      <Text style={styles.appSettingsPreviewTitle}>Anteprima sul telefono</Text>
+                      <Text style={styles.appSettingsPreviewTitle}>Anteprima</Text>
                       <View style={styles.appLoadingPreviewStage}>
                         {activeAppLoadingPreview.type === 'video' ? (
                           <LoopingVideoView
@@ -4875,12 +4969,12 @@ export default function SuperUserScreen() {
                   )}
 
                   <TouchableOpacity
-                    style={[styles.appSettingsOutlineBtn, { marginTop: 4 }]}
+                    style={styles.appSettingsOutlineBtn}
                     onPress={() => setAppLoadingSimulateOpen(true)}
                     disabled={pickingAppLoading}
                   >
-                    <Ionicons name="phone-portrait-outline" size={20} color="#667eea" />
-                    <Text style={styles.appSettingsOutlineBtnText}>Anteprima a tutto schermo (loop)</Text>
+                    <Ionicons name="expand-outline" size={18} color="#667eea" />
+                    <Text style={styles.appSettingsOutlineBtnText}>Anteprima a tutto schermo</Text>
                   </TouchableOpacity>
 
                   {activeAppLoadingPreview?.uri ? (
@@ -4892,27 +4986,58 @@ export default function SuperUserScreen() {
                       <Text style={styles.appSettingsSecondaryBtnText}>Rimuovi personalizzazione</Text>
                     </TouchableOpacity>
                   ) : null}
-                </>
-              )}
+                </View>
+              ) : null}
             </View>
 
-            <View style={[styles.appSettingsCard, { marginTop: 16 }]}>
+            {/* Login logo */}
+            <View style={[styles.appSettingsCard, logoSectionOpen && styles.appSettingsCardOpen]}>
               <TouchableOpacity
-                style={styles.collapsibleHeader}
+                style={styles.appSettingsSectionHeader}
                 onPress={() => setLogoSectionOpen((v) => !v)}
-                activeOpacity={0.7}
+                activeOpacity={0.75}
               >
-                <Text style={styles.appSettingsSectionTitle}>Logo pagina di login</Text>
+                <View style={styles.appSettingsSectionHeaderLeft}>
+                  <View
+                    style={[
+                      styles.appSettingsSectionIcon,
+                      !!loginLogoPreview?.uri && styles.appSettingsSectionIconOn,
+                    ]}
+                  >
+                    <Ionicons
+                      name="image-outline"
+                      size={18}
+                      color={loginLogoPreview?.uri ? '#667eea' : '#94a3b8'}
+                    />
+                  </View>
+                  <View style={styles.appSettingsSectionCopy}>
+                    <Text style={styles.appSettingsSectionTitle}>Logo login</Text>
+                    <View
+                      style={[
+                        styles.appSettingsStatusPill,
+                        !!loginLogoPreview?.uri && styles.appSettingsStatusPillOn,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.appSettingsStatusPillText,
+                          !!loginLogoPreview?.uri && styles.appSettingsStatusPillTextOn,
+                        ]}
+                      >
+                        {loginLogoPreview?.uri ? 'Personalizzato' : 'Predefinito'}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
                 <Ionicons
                   name={logoSectionOpen ? 'chevron-up' : 'chevron-down'}
-                  size={22}
-                  color="#666"
+                  size={20}
+                  color="#94a3b8"
                 />
               </TouchableOpacity>
 
-              {logoSectionOpen && (
-                <>
-
+              {logoSectionOpen ? (
+                <View style={styles.appSettingsSectionBody}>
                   <TouchableOpacity
                     style={[styles.appSettingsPrimaryBtn, pickingLoginLogo && styles.appSettingsBtnDisabled]}
                     onPress={handlePickLoginLogo}
@@ -4940,37 +5065,71 @@ export default function SuperUserScreen() {
                         onPress={handleClearLoginLogo}
                         disabled={pickingLoginLogo}
                       >
-                        <Text style={styles.appSettingsSecondaryBtnText}>Rimuovi logo (torna alla scritta)</Text>
+                        <Text style={styles.appSettingsSecondaryBtnText}>Rimuovi logo</Text>
                       </TouchableOpacity>
                     </>
                   ) : (
-                    <Text style={[styles.appSettingsMuted, { marginTop: 14 }]}>
-                      Nessun logo caricato: verrà visualizzata la scritta predefinita.
+                    <Text style={styles.appSettingsMuted}>
+                      Nessun logo: verrà usata la scritta predefinita.
                     </Text>
                   )}
-                </>
-              )}
+                </View>
+              ) : null}
             </View>
 
-            <View style={[styles.appSettingsCard, { marginTop: 16 }]}>
+            {/* Login background */}
+            <View style={[styles.appSettingsCard, loginBackgroundSectionOpen && styles.appSettingsCardOpen]}>
               <TouchableOpacity
-                style={styles.collapsibleHeader}
+                style={styles.appSettingsSectionHeader}
                 onPress={() => setLoginBackgroundSectionOpen((v) => !v)}
-                activeOpacity={0.7}
+                activeOpacity={0.75}
               >
-                <Text style={styles.appSettingsSectionTitle}>Sfondo pagina di login</Text>
+                <View style={styles.appSettingsSectionHeaderLeft}>
+                  <View
+                    style={[
+                      styles.appSettingsSectionIcon,
+                      !!loginBackgroundPreview?.uri && styles.appSettingsSectionIconOn,
+                    ]}
+                  >
+                    <Ionicons
+                      name="layers-outline"
+                      size={18}
+                      color={loginBackgroundPreview?.uri ? '#667eea' : '#94a3b8'}
+                    />
+                  </View>
+                  <View style={styles.appSettingsSectionCopy}>
+                    <Text style={styles.appSettingsSectionTitle}>Sfondo login</Text>
+                    <View
+                      style={[
+                        styles.appSettingsStatusPill,
+                        !!loginBackgroundPreview?.uri && styles.appSettingsStatusPillOn,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.appSettingsStatusPillText,
+                          !!loginBackgroundPreview?.uri && styles.appSettingsStatusPillTextOn,
+                        ]}
+                      >
+                        {loginBackgroundPreview?.uri ? 'Personalizzato' : 'Predefinito'}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
                 <Ionicons
                   name={loginBackgroundSectionOpen ? 'chevron-up' : 'chevron-down'}
-                  size={22}
-                  color="#666"
+                  size={20}
+                  color="#94a3b8"
                 />
               </TouchableOpacity>
 
-              {loginBackgroundSectionOpen && (
-                <>
-
+              {loginBackgroundSectionOpen ? (
+                <View style={styles.appSettingsSectionBody}>
                   <TouchableOpacity
-                    style={[styles.appSettingsPrimaryBtn, pickingLoginBackground && styles.appSettingsBtnDisabled]}
+                    style={[
+                      styles.appSettingsPrimaryBtn,
+                      pickingLoginBackground && styles.appSettingsBtnDisabled,
+                    ]}
                     onPress={handlePickLoginBackground}
                     disabled={pickingLoginBackground}
                   >
@@ -4984,7 +5143,7 @@ export default function SuperUserScreen() {
                   {loginBackgroundPreview?.uri ? (
                     <>
                       <Text style={styles.appSettingsPreviewTitle}>Anteprima</Text>
-                      <View style={styles.appLoadingPreviewStage}>
+                      <View style={styles.loginBackgroundPreviewStage}>
                         <Image
                           source={{ uri: loginBackgroundPreview.uri }}
                           style={StyleSheet.absoluteFillObject}
@@ -4992,47 +5151,97 @@ export default function SuperUserScreen() {
                         />
                       </View>
                       <TouchableOpacity
+                        style={styles.appSettingsOutlineBtn}
+                        onPress={() => setLoginBgSimulateOpen(true)}
+                        disabled={pickingLoginBackground}
+                      >
+                        <Ionicons name="expand-outline" size={18} color="#667eea" />
+                        <Text style={styles.appSettingsOutlineBtnText}>Anteprima a tutto schermo</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
                         style={styles.appSettingsSecondaryBtn}
                         onPress={handleClearLoginBackground}
                         disabled={pickingLoginBackground}
                       >
-                        <Text style={styles.appSettingsSecondaryBtnText}>
-                          Rimuovi sfondo (torna al grigio predefinito)
-                        </Text>
+                        <Text style={styles.appSettingsSecondaryBtnText}>Rimuovi sfondo</Text>
                       </TouchableOpacity>
                     </>
                   ) : (
-                    <Text style={[styles.appSettingsMuted, { marginTop: 14 }]}>
-                      Di default viene usato lo sfondo grigio.
-                    </Text>
+                    <>
+                      <Text style={styles.appSettingsMuted}>
+                        Di default viene usato lo sfondo grigio.
+                      </Text>
+                      <TouchableOpacity
+                        style={styles.appSettingsOutlineBtn}
+                        onPress={() => setLoginBgSimulateOpen(true)}
+                        disabled={pickingLoginBackground}
+                      >
+                        <Ionicons name="expand-outline" size={18} color="#667eea" />
+                        <Text style={styles.appSettingsOutlineBtnText}>Anteprima a tutto schermo</Text>
+                      </TouchableOpacity>
+                    </>
                   )}
-                </>
-              )}
+                </View>
+              ) : null}
             </View>
 
-            <View style={[styles.appSettingsCard, { marginTop: 16 }]}>
+            {/* Match background */}
+            <View style={[styles.appSettingsCard, matchBackgroundSectionOpen && styles.appSettingsCardOpen]}>
               <TouchableOpacity
-                style={styles.collapsibleHeader}
+                style={styles.appSettingsSectionHeader}
                 onPress={() => setMatchBackgroundSectionOpen((v) => !v)}
-                activeOpacity={0.7}
+                activeOpacity={0.75}
               >
-                <Text style={styles.appSettingsSectionTitle}>Sfondo partita</Text>
+                <View style={styles.appSettingsSectionHeaderLeft}>
+                  <View
+                    style={[
+                      styles.appSettingsSectionIcon,
+                      !!matchBackgroundPreview?.uri && styles.appSettingsSectionIconOn,
+                    ]}
+                  >
+                    <Ionicons
+                      name="football"
+                      size={18}
+                      color={matchBackgroundPreview?.uri ? '#667eea' : '#94a3b8'}
+                    />
+                  </View>
+                  <View style={styles.appSettingsSectionCopy}>
+                    <Text style={styles.appSettingsSectionTitle}>Sfondo partita</Text>
+                    <View
+                      style={[
+                        styles.appSettingsStatusPill,
+                        !!matchBackgroundPreview?.uri && styles.appSettingsStatusPillOn,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.appSettingsStatusPillText,
+                          !!matchBackgroundPreview?.uri && styles.appSettingsStatusPillTextOn,
+                        ]}
+                      >
+                        {matchBackgroundPreview?.uri ? 'Attivo' : 'Predefinito'}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
                 <Ionicons
                   name={matchBackgroundSectionOpen ? 'chevron-up' : 'chevron-down'}
-                  size={22}
-                  color="#666"
+                  size={20}
+                  color="#94a3b8"
                 />
               </TouchableOpacity>
 
-              {matchBackgroundSectionOpen && (
-                <>
-                  <Text style={[styles.appSettingsMuted, { marginTop: 4, marginBottom: 10 }]}>
-                    Immagine landscape (~2:1) per la zona alta della partita ufficiale (loghi,
-                    risultato, marcatori). Lo sfondo in-app è già scurito per il contrasto del testo.
+              {matchBackgroundSectionOpen ? (
+                <View style={styles.appSettingsSectionBody}>
+                  <Text style={styles.appSettingsSectionHint}>
+                    Lo sfondo in app è già scurito per il contrasto
                   </Text>
 
                   <TouchableOpacity
-                    style={[styles.appSettingsPrimaryBtn, pickingMatchBackground && styles.appSettingsBtnDisabled]}
+                    style={[
+                      styles.appSettingsPrimaryBtn,
+                      pickingMatchBackground && styles.appSettingsBtnDisabled,
+                    ]}
                     onPress={handlePickMatchBackground}
                     disabled={pickingMatchBackground}
                   >
@@ -5060,22 +5269,38 @@ export default function SuperUserScreen() {
                         </View>
                       </View>
                       <TouchableOpacity
+                        style={styles.appSettingsOutlineBtn}
+                        onPress={() => setMatchBgSimulateOpen(true)}
+                        disabled={pickingMatchBackground}
+                      >
+                        <Ionicons name="expand-outline" size={18} color="#667eea" />
+                        <Text style={styles.appSettingsOutlineBtnText}>Anteprima pagina partita</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
                         style={styles.appSettingsSecondaryBtn}
                         onPress={handleClearMatchBackground}
                         disabled={pickingMatchBackground}
                       >
-                        <Text style={styles.appSettingsSecondaryBtnText}>
-                          Rimuovi custom (torna allo sfondo in-app)
-                        </Text>
+                        <Text style={styles.appSettingsSecondaryBtnText}>Rimuovi custom</Text>
                       </TouchableOpacity>
                     </>
                   ) : (
-                    <Text style={[styles.appSettingsMuted, { marginTop: 14 }]}>
-                      Anteprima non disponibile. Verrà usato lo sfondo predefinito in-app.
-                    </Text>
+                    <>
+                      <Text style={styles.appSettingsMuted}>
+                        Verrà usato lo sfondo predefinito in-app.
+                      </Text>
+                      <TouchableOpacity
+                        style={styles.appSettingsOutlineBtn}
+                        onPress={() => setMatchBgSimulateOpen(true)}
+                        disabled={pickingMatchBackground}
+                      >
+                        <Ionicons name="expand-outline" size={18} color="#667eea" />
+                        <Text style={styles.appSettingsOutlineBtnText}>Anteprima pagina partita</Text>
+                      </TouchableOpacity>
+                    </>
                   )}
-                </>
-              )}
+                </View>
+              ) : null}
             </View>
           </ScrollView>
         )}
@@ -7368,6 +7593,21 @@ export default function SuperUserScreen() {
         progress={simulateProgress}
       />
 
+      <BrandingPreviewFullScreenModal
+        visible={loginBgSimulateOpen}
+        mode="login"
+        backgroundUri={loginBackgroundPreview?.uri || null}
+        logoUri={loginLogoPreview?.uri || null}
+        onClose={() => setLoginBgSimulateOpen(false)}
+      />
+
+      <BrandingPreviewFullScreenModal
+        visible={matchBgSimulateOpen}
+        mode="match"
+        backgroundUri={matchBackgroundPreview?.uri || null}
+        onClose={() => setMatchBgSimulateOpen(false)}
+      />
+
       {toastMsg && (
         <View style={[styles.toast, toastMsg.type === 'success' ? styles.toastSuccess : styles.toastError]}>
           <Ionicons name={toastMsg.type === 'success' ? 'checkmark-circle' : 'alert-circle'} size={18} color="#fff" />
@@ -7862,12 +8102,6 @@ const styles = StyleSheet.create({
   tabTextActive: {
     color: '#667eea',
     fontWeight: '700',
-  },
-  tabAppSettingsLabel: {
-    fontSize: 11,
-    textAlign: 'center',
-    lineHeight: 13,
-    maxWidth: 92,
   },
   content: {
     flex: 1,
@@ -11086,36 +11320,97 @@ const styles = StyleSheet.create({
   confirmBtnActionText: { color: '#fff', fontSize: 13, fontWeight: '600', textAlign: 'center' },
   appSettingsRoot: {
     flex: 1,
-    backgroundColor: '#f4f5fa',
+    backgroundColor: '#f5f5f5',
   },
   appSettingsScroll: {
     padding: 16,
     paddingBottom: 32,
   },
-  appSettingsTitle: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: '#333',
-    marginBottom: 8,
-  },
-  appSettingsHint: {
-    fontSize: 14,
-    color: '#666',
-    lineHeight: 20,
-    marginBottom: 20,
+  appSettingsSubtitle: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#64748b',
+    marginBottom: 12,
+    lineHeight: 18,
   },
   appSettingsCard: {
     backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16,
+    borderRadius: 14,
+    padding: 14,
     borderWidth: 1,
-    borderColor: '#e8e8ee',
+    borderColor: '#ececec',
+    marginBottom: 10,
+  },
+  appSettingsCardOpen: {
+    borderColor: '#c7d2fe',
+    backgroundColor: '#fff',
+  },
+  appSettingsSectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  appSettingsSectionHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+    minWidth: 0,
+  },
+  appSettingsSectionIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  appSettingsSectionIconOn: {
+    backgroundColor: '#eef2ff',
+    borderColor: '#c7d2fe',
+  },
+  appSettingsSectionCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 4,
   },
   appSettingsSectionTitle: {
-    fontSize: 17,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 8,
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  appSettingsStatusPill: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 999,
+    backgroundColor: '#f1f5f9',
+  },
+  appSettingsStatusPillOn: {
+    backgroundColor: '#eef2ff',
+  },
+  appSettingsStatusPillText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#64748b',
+  },
+  appSettingsStatusPillTextOn: {
+    color: '#4f46e5',
+  },
+  appSettingsSectionBody: {
+    marginTop: 14,
+    paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#e8edf5',
+  },
+  appSettingsSectionHint: {
+    fontSize: 13,
+    color: '#64748b',
+    lineHeight: 18,
+    marginBottom: 12,
   },
   collapsibleHeader: {
     flexDirection: 'row',
@@ -11123,9 +11418,11 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   loginLogoPreviewBox: {
-    backgroundColor: 'transparent',
+    backgroundColor: '#f8fafc',
     borderRadius: 12,
-    padding: 20,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    padding: 16,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -11133,68 +11430,53 @@ const styles = StyleSheet.create({
     width: 180,
     height: 120,
   },
-  appSettingsBody: {
-    fontSize: 14,
-    color: '#555',
-    lineHeight: 20,
-    marginBottom: 12,
-  },
-  appSettingsProportionsBox: {
-    backgroundColor: '#f0f1f7',
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 16,
+  loginBackgroundPreviewStage: {
+    width: '100%',
+    aspectRatio: 16 / 10,
+    alignSelf: 'center',
+    borderRadius: 14,
+    overflow: 'hidden',
+    backgroundColor: '#e2e8f0',
     borderWidth: 1,
-    borderColor: '#e2e4ef',
-  },
-  appSettingsProportionsTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#333',
-    marginBottom: 6,
-  },
-  appSettingsProportionsLine: {
-    fontSize: 13,
-    color: '#444',
-    lineHeight: 20,
-    marginTop: 4,
+    borderColor: '#e2e8f0',
   },
   appSettingsOutlineBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    paddingVertical: 12,
+    paddingVertical: 11,
     paddingHorizontal: 14,
     borderRadius: 10,
-    borderWidth: 1.5,
-    borderColor: '#667eea',
-    marginTop: 16,
-    marginBottom: 4,
+    borderWidth: 1,
+    borderColor: '#c7d2fe',
+    marginTop: 12,
     backgroundColor: '#f8f9ff',
   },
   appSettingsOutlineBtnText: {
-    fontSize: 15,
-    fontWeight: '600',
+    fontSize: 14,
+    fontWeight: '700',
     color: '#667eea',
   },
   appSettingsPreviewTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#333',
-    marginTop: 18,
-    marginBottom: 10,
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#94a3b8',
+    textTransform: 'uppercase',
+    letterSpacing: 0.35,
+    marginTop: 14,
+    marginBottom: 8,
   },
   appLoadingPreviewStage: {
     width: '100%',
-    maxHeight: 440,
+    maxHeight: 380,
     aspectRatio: 9 / 16,
     alignSelf: 'center',
     borderRadius: 14,
     overflow: 'hidden',
-    backgroundColor: '#000',
-    borderWidth: 2,
-    borderColor: '#2a2a2a',
+    backgroundColor: '#0f172a',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
   },
   matchBackgroundPreviewStage: {
     width: '100%',
@@ -11245,51 +11527,43 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   appSettingsFileName: {
-    fontSize: 13,
-    color: '#555',
-    marginTop: 10,
-    marginBottom: 4,
-  },
-  appSettingsPreviewFoot: {
-    fontSize: 13,
-    color: '#666',
-    lineHeight: 19,
-    marginTop: 6,
-    marginBottom: 4,
+    fontSize: 12,
+    color: '#64748b',
+    marginTop: 8,
   },
   appSettingsMuted: {
-    fontSize: 14,
-    color: '#999',
-    marginBottom: 16,
-    fontStyle: 'italic',
+    fontSize: 13,
+    color: '#94a3b8',
+    marginTop: 12,
+    lineHeight: 18,
   },
   appSettingsPrimaryBtn: {
     backgroundColor: '#667eea',
-    paddingVertical: 14,
+    paddingVertical: 12,
     paddingHorizontal: 16,
     borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: 48,
+    minHeight: 44,
   },
   appSettingsPrimaryBtnText: {
     color: '#fff',
-    fontSize: 15,
-    fontWeight: '600',
+    fontSize: 14,
+    fontWeight: '700',
     textAlign: 'center',
   },
   appSettingsBtnDisabled: {
     opacity: 0.7,
   },
   appSettingsSecondaryBtn: {
-    marginTop: 12,
-    paddingVertical: 10,
+    marginTop: 10,
+    paddingVertical: 8,
     alignItems: 'center',
   },
   appSettingsSecondaryBtnText: {
     color: '#667eea',
-    fontSize: 15,
-    fontWeight: '600',
+    fontSize: 14,
+    fontWeight: '700',
   },
 });
 

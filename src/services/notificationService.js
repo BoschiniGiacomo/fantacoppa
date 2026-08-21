@@ -53,6 +53,26 @@ export async function openSystemNotificationSettings() {
   }
 }
 
+/** Stato permesso notifiche per UI (senza richiedere il permesso). */
+export async function getNotificationPermissionStatus() {
+  try {
+    await initNotifications();
+    const current = await Notifications.getPermissionsAsync();
+    const provisional =
+      Platform.OS === 'ios'
+      && current?.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL;
+    if (current?.granted || provisional) {
+      return { granted: true, status: provisional ? 'provisional' : 'granted' };
+    }
+    if (current?.canAskAgain === false) {
+      return { granted: false, status: 'blocked' };
+    }
+    return { granted: false, status: 'denied' };
+  } catch {
+    return { granted: false, status: 'unknown' };
+  }
+}
+
 function resolveExpoProjectId() {
   return (
     Constants.expoConfig?.extra?.eas?.projectId ??

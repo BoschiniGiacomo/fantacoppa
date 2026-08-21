@@ -82,6 +82,13 @@ function resolveAppVersionCode() {
 const APP_VERSION_CODE = String(resolveAppVersionCode());
 const APP_VERSION_NAME = String(Constants.expoConfig?.version ?? '0.0.0');
 
+export function getAppVersionInfo() {
+  return {
+    name: APP_VERSION_NAME,
+    code: APP_VERSION_CODE,
+  };
+}
+
 const api = axios.create({
   baseURL: API_BASE_URL,
   timeout: 10000,
