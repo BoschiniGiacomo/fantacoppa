@@ -3126,7 +3126,7 @@ export default function SuperUserScreen() {
                     style={[styles.buttonColumnHeader, styles.columnWithPaddingRight, styles.sortableColumn]}
                     onPress={() => handleSort('is_superuser')}
                   >
-                    <Text style={styles.columnHeaderText}>Ruolo</Text>
+                    <Text style={styles.columnHeaderText} numberOfLines={1}>Ruolo</Text>
                     {sortColumn === 'is_superuser' && (
                       <Ionicons 
                         name={sortDirection === 'asc' ? 'chevron-up' : 'chevron-down'} 
@@ -6913,14 +6913,14 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   userInfoColumn: {
-    flex: 2,
-    minWidth: 120,
+    flex: 3.2,
+    minWidth: 140,
   },
   columnWithPadding: {
     paddingLeft: 16,
   },
   columnWithPaddingRight: {
-    paddingRight: 16,
+    paddingRight: 12,
   },
   userHeader: {
     flexDirection: 'row',
@@ -7060,14 +7060,18 @@ const styles = StyleSheet.create({
     minWidth: 50,
   },
   buttonColumn: {
-    flex: 1.7,
-    minWidth: 100,
+    flex: 0,
+    width: 68,
+    minWidth: 68,
     alignItems: 'center',
     justifyContent: 'center',
   },
   buttonColumnHeader: {
-    flex: 1.5,
-    minWidth: 100,
+    flex: 0,
+    width: 68,
+    minWidth: 68,
+    flexDirection: 'row',
+    flexWrap: 'nowrap',
     alignItems: 'center',
     justifyContent: 'center',
   },
