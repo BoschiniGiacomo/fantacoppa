@@ -1,6 +1,7 @@
 const express = require('express');
 const path = require('path');
 const multer = require('multer');
+const bcrypt = require('bcryptjs');
 const { createClient } = require('@supabase/supabase-js');
 const router = express.Router();
 const { query } = require('../config/database');
@@ -736,6 +737,90 @@ async function setSuperuserLevelHandler(req, res) {
 
 router.put('/users/:id/superuser-level', authenticateToken, requireSuperuser, setSuperuserLevelHandler);
 router.post('/users/:id/superuser-level', authenticateToken, requireSuperuser, setSuperuserLevelHandler);
+
+function normalizeUsernameInput(raw) {
+  return String(raw || '').trim();
+}
+
+function normalizeEmailInput(raw) {
+  return String(raw || '').trim().toLowerCase();
+}
+
+router.put('/users/:id/username', authenticateToken, requireSuperuser, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const username = normalizeUsernameInput(req.body?.username);
+    if (!id || id <= 0) return res.status(400).json({ message: 'ID utente non valido' });
+    if (!username || username.length < 2) {
+      return res.status(400).json({ message: 'Nome utente non valido (minimo 2 caratteri)' });
+    }
+    if (username.length > 50) {
+      return res.status(400).json({ message: 'Nome utente troppo lungo' });
+    }
+    const existing = await query(`SELECT id FROM users WHERE id = ? LIMIT 1`, [id]);
+    if (!existing.length) return res.status(404).json({ message: 'Utente non trovato' });
+
+    const clash = await query(
+      `SELECT id FROM users WHERE LOWER(username) = LOWER(?) AND id <> ? LIMIT 1`,
+      [username, id]
+    );
+    if (clash.length) return res.status(400).json({ message: 'Nome utente già in uso' });
+
+    await query(`UPDATE users SET username = ? WHERE id = ?`, [username, id]);
+    return res.json({ success: true, id, username });
+  } catch (error) {
+    if (String(error?.code || '') === '23505') {
+      return res.status(400).json({ message: 'Nome utente già in uso' });
+    }
+    return res.status(500).json({ message: 'Errore aggiornamento nome utente', error: error.message });
+  }
+});
+
+router.put('/users/:id/email', authenticateToken, requireSuperuser, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const email = normalizeEmailInput(req.body?.email);
+    if (!id || id <= 0) return res.status(400).json({ message: 'ID utente non valido' });
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ message: 'Email non valida' });
+    }
+    const existing = await query(`SELECT id FROM users WHERE id = ? LIMIT 1`, [id]);
+    if (!existing.length) return res.status(404).json({ message: 'Utente non trovato' });
+
+    const clash = await query(
+      `SELECT id FROM users WHERE LOWER(email) = LOWER(?) AND id <> ? LIMIT 1`,
+      [email, id]
+    );
+    if (clash.length) return res.status(400).json({ message: 'Email già in uso' });
+
+    await query(`UPDATE users SET email = ? WHERE id = ?`, [email, id]);
+    return res.json({ success: true, id, email });
+  } catch (error) {
+    if (String(error?.code || '') === '23505') {
+      return res.status(400).json({ message: 'Email già in uso' });
+    }
+    return res.status(500).json({ message: 'Errore aggiornamento email', error: error.message });
+  }
+});
+
+router.put('/users/:id/password', authenticateToken, requireSuperuser, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const password = String(req.body?.password || '').trim();
+    if (!id || id <= 0) return res.status(400).json({ message: 'ID utente non valido' });
+    if (!password || password.length < 6) {
+      return res.status(400).json({ message: 'La password deve essere di almeno 6 caratteri' });
+    }
+    const existing = await query(`SELECT id FROM users WHERE id = ? LIMIT 1`, [id]);
+    if (!existing.length) return res.status(404).json({ message: 'Utente non trovato' });
+
+    const hashed = await bcrypt.hash(password, 10);
+    await query(`UPDATE users SET password = ? WHERE id = ?`, [hashed, id]);
+    return res.json({ success: true, id, message: 'Password aggiornata' });
+  } catch (error) {
+    return res.status(500).json({ message: 'Errore aggiornamento password', error: error.message });
+  }
+});
 
 router.get('/leagues', authenticateToken, requireSuperuser, async (_req, res) => {
   try {

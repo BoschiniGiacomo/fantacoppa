@@ -726,6 +726,12 @@ export const superuserService = {
   getUsers: () => api.get('/superuser/users'),
   toggleSuperuser: (userId) => api.post(`/superuser/users/${userId}/toggle-superuser`),
   setSuperuserLevel: (userId, level) => api.post(`/superuser/users/${userId}/superuser-level`, { level }),
+  updateUserUsername: (userId, username) =>
+    api.put(`/superuser/users/${encodeURIComponent(Number(userId))}/username`, { username }),
+  updateUserEmail: (userId, email) =>
+    api.put(`/superuser/users/${encodeURIComponent(Number(userId))}/email`, { email }),
+  updateUserPassword: (userId, password) =>
+    api.put(`/superuser/users/${encodeURIComponent(Number(userId))}/password`, { password }),
   getLeagues: () => api.get('/superuser/leagues'),
   deleteLeague: (leagueId) => api.delete(`/superuser/leagues/${leagueId}`),
   joinLeagueAsAdmin: (leagueId) => api.post(`/superuser/leagues/${leagueId}/join-as-admin`),

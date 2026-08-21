@@ -342,6 +342,14 @@ export default function SuperUserScreen() {
   const [refreshingOfficialGroups, setRefreshingOfficialGroups] = useState(false);
   const [sortColumn, setSortColumn] = useState('is_online'); // 'username', 'last_login', 'is_online', 'is_superuser'
   const [sortDirection, setSortDirection] = useState('desc'); // 'asc', 'desc' - 'desc' per mostrare prima gli online
+  const [selectedUserDetail, setSelectedUserDetail] = useState(null);
+  const [userDetailDraftUsername, setUserDetailDraftUsername] = useState('');
+  const [userDetailDraftEmail, setUserDetailDraftEmail] = useState('');
+  const [userDetailDraftPassword, setUserDetailDraftPassword] = useState('');
+  const [userDetailEditingField, setUserDetailEditingField] = useState(null); // 'username' | 'email' | 'password' | null
+  const [userDetailPasswordVisible, setUserDetailPasswordVisible] = useState(false);
+  const [userDetailPasswordUnlocked, setUserDetailPasswordUnlocked] = useState(false);
+  const [savingUserDetail, setSavingUserDetail] = useState(false);
   const [searchText, setSearchText] = useState('');
   const [filterOfficialOnly, setFilterOfficialOnly] = useState(false);
   const [showOfficialGroupModal, setShowOfficialGroupModal] = useState(false);
@@ -1499,6 +1507,210 @@ export default function SuperUserScreen() {
       },
     });
   };
+
+  const roleLabelForUser = (suLevel) => {
+    const n = Number(suLevel || 0);
+    if (n === 2) return 'Gestore partite (GM)';
+    if (n === 1) return 'Super user (SU)';
+    return 'Utente';
+  };
+
+  const openUserDetail = (user) => {
+    if (!user) return;
+    setSelectedUserDetail(user);
+    setUserDetailDraftUsername(String(user.username || ''));
+    setUserDetailDraftEmail(String(user.email || ''));
+    setUserDetailDraftPassword('');
+    setUserDetailEditingField(null);
+    setUserDetailPasswordVisible(false);
+    setUserDetailPasswordUnlocked(false);
+  };
+
+  const closeUserDetail = () => {
+    setSelectedUserDetail(null);
+    setUserDetailDraftUsername('');
+    setUserDetailDraftEmail('');
+    setUserDetailDraftPassword('');
+    setUserDetailEditingField(null);
+    setUserDetailPasswordVisible(false);
+    setUserDetailPasswordUnlocked(false);
+    setSavingUserDetail(false);
+  };
+
+  const requestDoubleConfirm = ({ title, message, confirmText = 'Conferma', destructive = true, onFinal }) => {
+    setConfirmModal({
+      title,
+      message,
+      confirmText: 'Continua',
+      destructive,
+      onConfirm: () => {
+        setConfirmModal(null);
+        setConfirmModal({
+          title: 'Conferma definitiva',
+          message: `${message}\n\nSei sicuro? L'operazione verrà applicata subito.`,
+          confirmText,
+          destructive,
+          onConfirm: async () => {
+            setConfirmModal(null);
+            await onFinal?.();
+          },
+        });
+      },
+    });
+  };
+
+  const saveUserDetailUsername = () => {
+    const user = selectedUserDetail;
+    if (!user) return;
+    const next = String(userDetailDraftUsername || '').trim();
+    if (!next || next.length < 2) {
+      showToast('Nome utente non valido');
+      return;
+    }
+    if (next === String(user.username || '')) {
+      setUserDetailEditingField(null);
+      return;
+    }
+    requestDoubleConfirm({
+      title: 'Modifica nome utente',
+      message: `Cambiare il nome utente da "${user.username}" a "${next}"?`,
+      confirmText: 'Salva nome',
+      onFinal: async () => {
+        try {
+          setSavingUserDetail(true);
+          await superuserService.updateUserUsername(user.id, next);
+          setSelectedUserDetail((prev) => (prev ? { ...prev, username: next } : prev));
+          setUserDetailEditingField(null);
+          await loadUsers();
+          showToast('Nome utente aggiornato', 'success');
+        } catch (error) {
+          showToast(error.response?.data?.message || 'Errore aggiornamento nome utente');
+        } finally {
+          setSavingUserDetail(false);
+        }
+      },
+    });
+  };
+
+  const saveUserDetailEmail = () => {
+    const user = selectedUserDetail;
+    if (!user) return;
+    const next = String(userDetailDraftEmail || '').trim().toLowerCase();
+    if (!next || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(next)) {
+      showToast('Email non valida');
+      return;
+    }
+    if (next === String(user.email || '').trim().toLowerCase()) {
+      setUserDetailEditingField(null);
+      return;
+    }
+    requestDoubleConfirm({
+      title: 'Modifica email',
+      message: `Cambiare l'email da "${user.email}" a "${next}"?`,
+      confirmText: 'Salva email',
+      onFinal: async () => {
+        try {
+          setSavingUserDetail(true);
+          await superuserService.updateUserEmail(user.id, next);
+          setSelectedUserDetail((prev) => (prev ? { ...prev, email: next } : prev));
+          setUserDetailEditingField(null);
+          await loadUsers();
+          showToast('Email aggiornata', 'success');
+        } catch (error) {
+          showToast(error.response?.data?.message || 'Errore aggiornamento email');
+        } finally {
+          setSavingUserDetail(false);
+        }
+      },
+    });
+  };
+
+  const unlockUserDetailPassword = () => {
+    setConfirmModal({
+      title: 'Sbloccare la password?',
+      message:
+        'La password attuale non è recuperabile (salvata in forma protetta).\n\n'
+        + 'Puoi impostarne una nuova e, dopo conferma, visualizzare quella che stai digitando.',
+      confirmText: 'Continua',
+      destructive: true,
+      onConfirm: () => {
+        setConfirmModal(null);
+        setConfirmModal({
+          title: 'Conferma sblocco',
+          message: 'Confermi di voler sbloccare modifica e visualizzazione password per questo utente?',
+          confirmText: 'Sblocca',
+          destructive: true,
+          onConfirm: () => {
+            setConfirmModal(null);
+            setUserDetailPasswordUnlocked(true);
+            setUserDetailEditingField('password');
+            setUserDetailDraftPassword('');
+            setUserDetailPasswordVisible(false);
+          },
+        });
+      },
+    });
+  };
+
+  const toggleUserDetailPasswordVisible = () => {
+    if (!userDetailPasswordUnlocked) {
+      unlockUserDetailPassword();
+      return;
+    }
+    if (userDetailPasswordVisible) {
+      setUserDetailPasswordVisible(false);
+      return;
+    }
+    setConfirmModal({
+      title: 'Mostrare la password?',
+      message: 'Confermi di voler visualizzare la password in chiaro (quella che stai impostando)?',
+      confirmText: 'Continua',
+      destructive: true,
+      onConfirm: () => {
+        setConfirmModal(null);
+        setConfirmModal({
+          title: 'Conferma visualizzazione',
+          message: 'La password sarà visibile a schermo. Procedi solo se sei in un ambiente sicuro.',
+          confirmText: 'Mostra',
+          destructive: true,
+          onConfirm: () => {
+            setConfirmModal(null);
+            setUserDetailPasswordVisible(true);
+          },
+        });
+      },
+    });
+  };
+
+  const saveUserDetailPassword = () => {
+    const user = selectedUserDetail;
+    if (!user) return;
+    const next = String(userDetailDraftPassword || '').trim();
+    if (!next || next.length < 6) {
+      showToast('La password deve essere di almeno 6 caratteri');
+      return;
+    }
+    requestDoubleConfirm({
+      title: 'Modifica password',
+      message: `Impostare una nuova password per "${user.username}"?`,
+      confirmText: 'Salva password',
+      onFinal: async () => {
+        try {
+          setSavingUserDetail(true);
+          await superuserService.updateUserPassword(user.id, next);
+          setUserDetailDraftPassword('');
+          setUserDetailEditingField(null);
+          setUserDetailPasswordVisible(false);
+          setUserDetailPasswordUnlocked(false);
+          showToast('Password aggiornata', 'success');
+        } catch (error) {
+          showToast(error.response?.data?.message || 'Errore aggiornamento password');
+        } finally {
+          setSavingUserDetail(false);
+        }
+      },
+    });
+  };
   
   // Elimina lega
   const handleDeleteLeague = (leagueId, leagueName) => {
@@ -2496,10 +2708,14 @@ export default function SuperUserScreen() {
     const badgeText = suLevel === 2 ? 'GM' : 'SU';
     return (
     <View style={styles.userItem}>
-      {/* Colonna 1: Nome utente e email */}
-      <View style={[styles.userInfoColumn, styles.columnWithPadding]}>
+      {/* Colonna 1: Nome utente (tap → scheda) */}
+      <TouchableOpacity
+        style={[styles.userInfoColumn, styles.columnWithPadding]}
+        onPress={() => openUserDetail(item)}
+        activeOpacity={0.7}
+      >
         <View style={styles.userHeader}>
-          <Text style={styles.userName}>{item.username}</Text>
+          <Text style={styles.userName} numberOfLines={1}>{item.username}</Text>
           {isSuper && (
             <View
               style={[
@@ -2510,9 +2726,9 @@ export default function SuperUserScreen() {
               <Text style={styles.superuserBadgeText}>{badgeText}</Text>
             </View>
           )}
+          <Ionicons name="chevron-forward" size={16} color="#cbd5e1" style={{ marginLeft: 'auto' }} />
         </View>
-        <Text style={styles.userEmail} numberOfLines={1} ellipsizeMode="tail">{item.email}</Text>
-      </View>
+      </TouchableOpacity>
       
       {/* Colonna 2: Ultimo accesso */}
       <View style={styles.lastAccessColumn}>
@@ -6063,6 +6279,253 @@ export default function SuperUserScreen() {
           <Text style={styles.toastText}>{toastMsg.text}</Text>
         </View>
       )}
+
+      <Modal
+        visible={!!selectedUserDetail}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={closeUserDetail}
+      >
+        <View style={styles.modalOverlay}>
+          <View
+            style={[
+              styles.modalContent,
+              styles.userDetailModalContent,
+              { paddingBottom: Math.max(insets.bottom, 12) },
+            ]}
+          >
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, { flex: 1, marginRight: 8 }]} numberOfLines={1}>
+                Scheda utente
+              </Text>
+              <TouchableOpacity onPress={closeUserDetail} hitSlop={8}>
+                <Ionicons name="close" size={24} color="#666" />
+              </TouchableOpacity>
+            </View>
+
+            {selectedUserDetail ? (
+              <ScrollView
+                style={styles.userDetailScroll}
+                contentContainerStyle={{ paddingBottom: 20 }}
+                keyboardShouldPersistTaps="handled"
+              >
+                {/* Nome utente */}
+                <View style={styles.userDetailField}>
+                  <View style={styles.userDetailFieldHeader}>
+                    <Text style={styles.userDetailLabel}>Nome utente</Text>
+                    {userDetailEditingField !== 'username' ? (
+                      <TouchableOpacity
+                        onPress={() => {
+                          setUserDetailEditingField('username');
+                          setUserDetailDraftUsername(String(selectedUserDetail.username || ''));
+                        }}
+                        hitSlop={8}
+                      >
+                        <Text style={styles.userDetailEditLink}>Modifica</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
+                  {userDetailEditingField === 'username' ? (
+                    <>
+                      <TextInput
+                        style={styles.userDetailInput}
+                        value={userDetailDraftUsername}
+                        onChangeText={setUserDetailDraftUsername}
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        editable={!savingUserDetail}
+                      />
+                      <View style={styles.userDetailActions}>
+                        <TouchableOpacity
+                          style={styles.userDetailBtnGhost}
+                          onPress={() => {
+                            setUserDetailEditingField(null);
+                            setUserDetailDraftUsername(String(selectedUserDetail.username || ''));
+                          }}
+                          disabled={savingUserDetail}
+                        >
+                          <Text style={styles.userDetailBtnGhostText}>Annulla</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[styles.userDetailBtnPrimary, savingUserDetail && { opacity: 0.6 }]}
+                          onPress={saveUserDetailUsername}
+                          disabled={savingUserDetail}
+                        >
+                          {savingUserDetail ? (
+                            <ActivityIndicator size="small" color="#fff" />
+                          ) : (
+                            <Text style={styles.userDetailBtnPrimaryText}>Salva</Text>
+                          )}
+                        </TouchableOpacity>
+                      </View>
+                    </>
+                  ) : (
+                    <Text style={styles.userDetailValue}>{selectedUserDetail.username || '—'}</Text>
+                  )}
+                </View>
+
+                {/* Email */}
+                <View style={styles.userDetailField}>
+                  <View style={styles.userDetailFieldHeader}>
+                    <Text style={styles.userDetailLabel}>Email</Text>
+                    {userDetailEditingField !== 'email' ? (
+                      <TouchableOpacity
+                        onPress={() => {
+                          setUserDetailEditingField('email');
+                          setUserDetailDraftEmail(String(selectedUserDetail.email || ''));
+                        }}
+                        hitSlop={8}
+                      >
+                        <Text style={styles.userDetailEditLink}>Modifica</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
+                  {userDetailEditingField === 'email' ? (
+                    <>
+                      <TextInput
+                        style={styles.userDetailInput}
+                        value={userDetailDraftEmail}
+                        onChangeText={setUserDetailDraftEmail}
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        keyboardType="email-address"
+                        editable={!savingUserDetail}
+                      />
+                      <View style={styles.userDetailActions}>
+                        <TouchableOpacity
+                          style={styles.userDetailBtnGhost}
+                          onPress={() => {
+                            setUserDetailEditingField(null);
+                            setUserDetailDraftEmail(String(selectedUserDetail.email || ''));
+                          }}
+                          disabled={savingUserDetail}
+                        >
+                          <Text style={styles.userDetailBtnGhostText}>Annulla</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[styles.userDetailBtnPrimary, savingUserDetail && { opacity: 0.6 }]}
+                          onPress={saveUserDetailEmail}
+                          disabled={savingUserDetail}
+                        >
+                          {savingUserDetail ? (
+                            <ActivityIndicator size="small" color="#fff" />
+                          ) : (
+                            <Text style={styles.userDetailBtnPrimaryText}>Salva</Text>
+                          )}
+                        </TouchableOpacity>
+                      </View>
+                    </>
+                  ) : (
+                    <Text style={styles.userDetailValue}>{selectedUserDetail.email || '—'}</Text>
+                  )}
+                </View>
+
+                <View style={styles.userDetailField}>
+                  <Text style={styles.userDetailLabel}>Ultimo accesso</Text>
+                  <Text style={styles.userDetailValue}>
+                    {formatDateTime(selectedUserDetail.last_login)}
+                  </Text>
+                </View>
+
+                <View style={styles.userDetailField}>
+                  <Text style={styles.userDetailLabel}>Stato</Text>
+                  <View style={styles.userDetailStatusRow}>
+                    <View
+                      style={[
+                        styles.statusIndicator,
+                        selectedUserDetail.is_online && styles.statusIndicatorOnline,
+                      ]}
+                    />
+                    <Text style={styles.userDetailValue}>
+                      {selectedUserDetail.is_online ? 'Online' : 'Offline'}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.userDetailField}>
+                  <Text style={styles.userDetailLabel}>Ruolo</Text>
+                  <Text style={styles.userDetailValue}>
+                    {roleLabelForUser(selectedUserDetail.is_superuser)}
+                  </Text>
+                </View>
+
+                {/* Password */}
+                <View style={styles.userDetailField}>
+                  <View style={styles.userDetailFieldHeader}>
+                    <Text style={styles.userDetailLabel}>Password</Text>
+                    {!userDetailPasswordUnlocked ? (
+                      <TouchableOpacity onPress={unlockUserDetailPassword} hitSlop={8}>
+                        <Text style={styles.userDetailEditLink}>Sblocca / modifica</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
+
+                  {!userDetailPasswordUnlocked ? (
+                    <View style={styles.userDetailPasswordRow}>
+                      <Text style={styles.userDetailValue}>••••••••</Text>
+                      <TouchableOpacity onPress={unlockUserDetailPassword} hitSlop={8}>
+                        <Ionicons name="eye-off-outline" size={20} color="#94a3b8" />
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <>
+                      <Text style={styles.userDetailPasswordHint}>
+                        Imposta una nuova password (quella attuale non è recuperabile).
+                      </Text>
+                      <View style={styles.userDetailPasswordRow}>
+                        <TextInput
+                          style={[styles.userDetailInput, { flex: 1, marginBottom: 0 }]}
+                          value={userDetailDraftPassword}
+                          onChangeText={setUserDetailDraftPassword}
+                          placeholder="Nuova password (min. 6)"
+                          placeholderTextColor="#94a3b8"
+                          autoCapitalize="none"
+                          autoCorrect={false}
+                          secureTextEntry={!userDetailPasswordVisible}
+                          editable={!savingUserDetail}
+                        />
+                        <TouchableOpacity onPress={toggleUserDetailPasswordVisible} hitSlop={8}>
+                          <Ionicons
+                            name={userDetailPasswordVisible ? 'eye' : 'eye-off-outline'}
+                            size={22}
+                            color={userDetailPasswordVisible ? '#4338ca' : '#64748b'}
+                          />
+                        </TouchableOpacity>
+                      </View>
+                      <View style={styles.userDetailActions}>
+                        <TouchableOpacity
+                          style={styles.userDetailBtnGhost}
+                          onPress={() => {
+                            setUserDetailPasswordUnlocked(false);
+                            setUserDetailPasswordVisible(false);
+                            setUserDetailDraftPassword('');
+                            setUserDetailEditingField(null);
+                          }}
+                          disabled={savingUserDetail}
+                        >
+                          <Text style={styles.userDetailBtnGhostText}>Annulla</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[styles.userDetailBtnPrimary, savingUserDetail && { opacity: 0.6 }]}
+                          onPress={saveUserDetailPassword}
+                          disabled={savingUserDetail}
+                        >
+                          {savingUserDetail ? (
+                            <ActivityIndicator size="small" color="#fff" />
+                          ) : (
+                            <Text style={styles.userDetailBtnPrimaryText}>Salva password</Text>
+                          )}
+                        </TouchableOpacity>
+                      </View>
+                    </>
+                  )}
+                </View>
+              </ScrollView>
+            ) : null}
+          </View>
+        </View>
+      </Modal>
+
       <Modal visible={!!confirmModal} transparent={true} animationType="fade" onRequestClose={() => setConfirmModal(null)}>
         <View style={styles.confirmOverlay}>
           <View style={styles.confirmContent}>
@@ -6437,13 +6900,104 @@ const styles = StyleSheet.create({
   userHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 4,
     gap: 8,
   },
   userName: {
     fontSize: 16,
+    fontWeight: '700',
+    color: '#0f172a',
+    flexShrink: 1,
+  },
+  userDetailModalContent: {
+    maxHeight: '88%',
+  },
+  userDetailScroll: {
+    paddingHorizontal: 16,
+  },
+  userDetailField: {
+    marginBottom: 16,
+    paddingBottom: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+  },
+  userDetailFieldHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  userDetailLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#64748b',
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
+  },
+  userDetailEditLink: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#4338ca',
+  },
+  userDetailValue: {
+    fontSize: 16,
+    color: '#0f172a',
     fontWeight: '600',
-    color: '#333',
+  },
+  userDetailInput: {
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 15,
+    color: '#0f172a',
+    backgroundColor: '#fff',
+    marginBottom: 10,
+  },
+  userDetailActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 10,
+  },
+  userDetailBtnGhost: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: '#f1f5f9',
+  },
+  userDetailBtnGhostText: {
+    color: '#475569',
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  userDetailBtnPrimary: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: '#4338ca',
+    minWidth: 88,
+    alignItems: 'center',
+  },
+  userDetailBtnPrimaryText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  userDetailStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  userDetailPasswordRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  userDetailPasswordHint: {
+    fontSize: 12,
+    color: '#64748b',
+    marginBottom: 8,
+    lineHeight: 17,
   },
   superuserBadge: {
     minWidth: 28,
@@ -6463,10 +7017,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: 'bold',
     color: '#1f2937',
-  },
-  userEmail: {
-    fontSize: 11,
-    color: '#666',
   },
   lastAccessColumn: {
     flex: 0.9,
