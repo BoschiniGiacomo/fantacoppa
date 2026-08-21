@@ -59,10 +59,9 @@ function canManageMatchVoteLinks(level) {
   return normalizeUserRole(level) === USER_ROLE.SUPER;
 }
 
-/** Accesso API pannello SuperUser (solo livello 1; il 2 resta escluso da UI ma storicamente era in requireSuperuser — teniamo solo 1 per zone esclusive). */
-function canAccessSuperuserPanel(level) {
+/** Accesso API pannello SuperUser (storico: livelli 1 e 2). */
+function canAccessSuperuserRoutes(level) {
   const n = normalizeUserRole(level);
-  // Storico: requireSuperuser accettava 1 e 2. Manteniamo 1|2 per non rompere gestore partite su endpoint condivisi.
   return n === USER_ROLE.SUPER || n === USER_ROLE.MATCH_MANAGER;
 }
 
