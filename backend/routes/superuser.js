@@ -1142,6 +1142,84 @@ router.get('/official-groups/:groupId/never-played-players', authenticateToken, 
 });
 
 /**
+ * Giocatori delle leghe del gruppo non membri di alcun cluster approvato.
+ */
+router.get('/official-groups/:groupId/unclustered-players', authenticateToken, requireSuperuser, async (req, res) => {
+  try {
+    await ensurePlayerClusterSchema();
+    const groupId = Number(req.params.groupId);
+    if (!groupId || groupId <= 0) return res.status(400).json({ message: 'ID gruppo non valido' });
+
+    const groupRows = await query(
+      `SELECT id, name FROM official_league_groups WHERE id = ? LIMIT 1`,
+      [groupId]
+    );
+    if (!groupRows.length) return res.status(404).json({ message: 'Gruppo ufficiale non trovato' });
+
+    const rows = await query(
+      `SELECT
+         p.id AS player_id,
+         p.first_name,
+         p.last_name,
+         p.role,
+         p.birth_year,
+         t.id AS team_id,
+         t.name AS team_name,
+         l.id AS league_id,
+         l.name AS league_name,
+         NULLIF(to_jsonb(l)->>'reference_year','')::int AS reference_year
+       FROM players p
+       INNER JOIN teams t ON t.id = p.team_id
+       INNER JOIN leagues l ON l.id = t.league_id
+       WHERE l.official_group_id = ?
+         AND NOT EXISTS (
+           SELECT 1
+           FROM player_cluster_members pcm
+           INNER JOIN player_clusters pc ON pc.id = pcm.cluster_id
+           WHERE pcm.player_id = p.id
+             AND pc.official_group_id = ?
+             AND pc.status = 'approved'
+         )
+       ORDER BY
+         p.last_name ASC,
+         p.first_name ASC,
+         NULLIF(to_jsonb(l)->>'reference_year','')::int DESC NULLS LAST,
+         l.name ASC`,
+      [groupId, groupId]
+    );
+
+    const players = (rows || []).map((r) => ({
+      player_id: Number(r.player_id),
+      first_name: String(r.first_name || '').trim(),
+      last_name: String(r.last_name || '').trim(),
+      role: String(r.role || '').trim().toUpperCase() || null,
+      birth_year: r.birth_year != null ? Number(r.birth_year) : null,
+      team_id: Number(r.team_id),
+      team_name: String(r.team_name || '').trim(),
+      league_id: Number(r.league_id),
+      league_name: String(r.league_name || '').trim(),
+      reference_year: r.reference_year != null ? Number(r.reference_year) : null,
+    }));
+
+    return res.json({
+      group_id: groupId,
+      group_name: groupRows[0].name,
+      count: players.length,
+      players,
+    });
+  } catch (error) {
+    console.error('[superuser] GET unclustered-players error:', error?.message || error);
+    if (isMissingDbObjectError(error)) {
+      return res.status(500).json({
+        message: 'Tabelle cluster non configurate sul database',
+        error: error.message,
+      });
+    }
+    return res.status(500).json({ message: 'Errore caricamento giocatori singoli', error: error.message });
+  }
+});
+
+/**
  * Discrepanze tra bonus diretta (eventi) e valori salvati nei voti (player_ratings).
  * Stessa logica di allineamento del salvataggio voti partita.
  */
