@@ -1740,24 +1740,15 @@ export default function SuperUserScreen() {
     });
   }, [userDetailLeagues, userDetailLeagueSearch]);
 
-  const requestDoubleConfirm = ({ title, message, confirmText = 'Conferma', destructive = true, onFinal }) => {
+  const requestConfirm = ({ title, message, confirmText = 'Conferma', destructive = true, onFinal }) => {
     setConfirmModal({
       title,
       message,
-      confirmText: 'Continua',
+      confirmText,
       destructive,
-      onConfirm: () => {
+      onConfirm: async () => {
         setConfirmModal(null);
-        setConfirmModal({
-          title: 'Conferma definitiva',
-          message: `${message}\n\nSei sicuro? L'operazione verrà applicata subito.`,
-          confirmText,
-          destructive,
-          onConfirm: async () => {
-            setConfirmModal(null);
-            await onFinal?.();
-          },
-        });
+        await onFinal?.();
       },
     });
   };
@@ -1774,7 +1765,7 @@ export default function SuperUserScreen() {
       setUserDetailEditingField(null);
       return;
     }
-    requestDoubleConfirm({
+    requestConfirm({
       title: 'Modifica nome utente',
       message: `Cambiare il nome utente da "${user.username}" a "${next}"?`,
       confirmText: 'Salva nome',
@@ -1807,7 +1798,7 @@ export default function SuperUserScreen() {
       setUserDetailEditingField(null);
       return;
     }
-    requestDoubleConfirm({
+    requestConfirm({
       title: 'Modifica email',
       message: `Cambiare l'email da "${user.email}" a "${next}"?`,
       confirmText: 'Salva email',
@@ -1831,24 +1822,15 @@ export default function SuperUserScreen() {
   const unlockUserDetailPassword = () => {
     setConfirmModal({
       title: 'Modificare la password?',
-      message: `Vuoi cambiare la password di "${selectedUserDetail?.username || 'questo utente'}"?`,
-      confirmText: 'Continua',
+      message: `Vuoi impostare una nuova password per "${selectedUserDetail?.username || 'questo utente'}"?`,
+      confirmText: 'Procedi',
       destructive: true,
       onConfirm: () => {
         setConfirmModal(null);
-        setConfirmModal({
-          title: 'Conferma',
-          message: 'Confermi di voler impostare una nuova password per questo account?',
-          confirmText: 'Procedi',
-          destructive: true,
-          onConfirm: () => {
-            setConfirmModal(null);
-            setUserDetailPasswordUnlocked(true);
-            setUserDetailEditingField('password');
-            setUserDetailDraftPassword('');
-            setUserDetailPasswordVisible(false);
-          },
-        });
+        setUserDetailPasswordUnlocked(true);
+        setUserDetailEditingField('password');
+        setUserDetailDraftPassword('');
+        setUserDetailPasswordVisible(false);
       },
     });
   };
@@ -1864,21 +1846,12 @@ export default function SuperUserScreen() {
     }
     setConfirmModal({
       title: 'Mostrare la password?',
-      message: 'Confermi di voler visualizzare la password in chiaro (quella che stai impostando)?',
-      confirmText: 'Continua',
+      message: 'La password sarà visibile a schermo. Procedi solo se sei in un ambiente sicuro.',
+      confirmText: 'Mostra',
       destructive: true,
       onConfirm: () => {
         setConfirmModal(null);
-        setConfirmModal({
-          title: 'Conferma visualizzazione',
-          message: 'La password sarà visibile a schermo. Procedi solo se sei in un ambiente sicuro.',
-          confirmText: 'Mostra',
-          destructive: true,
-          onConfirm: () => {
-            setConfirmModal(null);
-            setUserDetailPasswordVisible(true);
-          },
-        });
+        setUserDetailPasswordVisible(true);
       },
     });
   };
@@ -1891,7 +1864,7 @@ export default function SuperUserScreen() {
       showToast('La password deve essere di almeno 6 caratteri');
       return;
     }
-    requestDoubleConfirm({
+    requestConfirm({
       title: 'Modifica password',
       message: `Impostare una nuova password per "${user.username}"?`,
       confirmText: 'Salva password',

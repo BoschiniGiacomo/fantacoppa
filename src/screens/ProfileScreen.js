@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,7 @@ import {
   Keyboard,
   Share,
   Platform,
+  Animated,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
@@ -28,6 +29,79 @@ import {
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 
 const APP_VERSION = getAppVersionInfo();
+
+function PasswordFloatingField({
+  label,
+  value,
+  onChangeText,
+  visible,
+  onToggleVisible,
+  invalid = false,
+}) {
+  const [focused, setFocused] = useState(false);
+  const floated = focused || String(value || '').length > 0;
+  const anim = useRef(new Animated.Value(floated ? 1 : 0)).current;
+
+  useEffect(() => {
+    Animated.timing(anim, {
+      toValue: floated ? 1 : 0,
+      duration: 160,
+      useNativeDriver: false,
+    }).start();
+  }, [floated, anim]);
+
+  const labelTop = anim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [15, -8],
+  });
+  const labelSize = anim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [15, 11],
+  });
+  const labelColor = invalid
+    ? '#f87171'
+    : focused
+      ? '#667eea'
+      : '#94a3b8';
+
+  return (
+    <View style={[styles.passwordFieldShell, invalid && styles.passwordInputWrapInvalid]}>
+      <Animated.Text
+        pointerEvents="none"
+        style={[
+          styles.passwordFloatingLabel,
+          {
+            top: labelTop,
+            fontSize: labelSize,
+            color: labelColor,
+            backgroundColor: invalid ? '#fff7f7' : '#fafbfc',
+          },
+        ]}
+      >
+        {label}
+      </Animated.Text>
+      <View style={styles.passwordInputRow}>
+        <TextInput
+          style={styles.passwordInput}
+          value={value}
+          onChangeText={onChangeText}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          secureTextEntry={!visible}
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+        <TouchableOpacity onPress={onToggleVisible} style={styles.eyeButton} hitSlop={8}>
+          <Ionicons
+            name={visible ? 'eye-outline' : 'eye-off-outline'}
+            size={18}
+            color={invalid ? '#f87171' : '#94a3b8'}
+          />
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
 
 function notificationStatusLabel(status) {
   switch (status) {
@@ -49,17 +123,19 @@ export default function ProfileScreen() {
   const { user, logout, refreshSession, token } = useAuth();
   const navigation = useNavigation();
   const [showChangePassword, setShowChangePassword] = useState(false);
-  const [passwordStep, setPasswordStep] = useState('current'); // 'current' | 'new'
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [toastMsg, setToastMsg] = useState(null);
   const [confirmModal, setConfirmModal] = useState(null);
   const [passwordFieldErrors, setPasswordFieldErrors] = useState({
     current: false,
     next: false,
+    confirm: false,
   });
   const [notificationStatus, setNotificationStatus] = useState('unknown');
   const [followModalVisible, setFollowModalVisible] = useState(false);
@@ -146,81 +222,72 @@ export default function ProfileScreen() {
     }, 800);
   };
 
-  const resetPasswordForm = () => {
-    setPasswordStep('current');
-    setCurrentPassword('');
-    setNewPassword('');
-    setShowCurrentPassword(false);
-    setShowNewPassword(false);
-    setPasswordFieldErrors({ current: false, next: false });
-  };
-
   const clearPasswordFieldError = (key) => {
     setPasswordFieldErrors((prev) => (prev[key] ? { ...prev, [key]: false } : prev));
-  };
-
-  const handleVerifyCurrentPassword = async () => {
-    Keyboard.dismiss();
-    if (!currentPassword.trim()) {
-      setPasswordFieldErrors({ current: true, next: false });
-      showToast('Inserisci la password attuale');
-      return;
-    }
-    setPasswordFieldErrors({ current: false, next: false });
-    try {
-      setLoading(true);
-      await authService.verifyPassword(currentPassword);
-      setPasswordStep('new');
-    } catch (error) {
-      const errorMessage =
-        error.response?.data?.message || error.message || 'Password attuale non corretta';
-      setPasswordFieldErrors({ current: true, next: false });
-      showToast(errorMessage);
-    } finally {
-      setLoading(false);
-    }
   };
 
   const handleChangePassword = async () => {
     Keyboard.dismiss();
 
-    if (!newPassword.trim()) {
-      setPasswordFieldErrors({ current: false, next: true });
-      showToast('Inserisci la nuova password');
+    const emptyCurrent = !currentPassword.trim();
+    const emptyNext = !newPassword.trim();
+    const emptyConfirm = !confirmPassword.trim();
+
+    if (emptyCurrent || emptyNext || emptyConfirm) {
+      setPasswordFieldErrors({
+        current: emptyCurrent,
+        next: emptyNext,
+        confirm: emptyConfirm,
+      });
+      showToast('Compila tutti i campi');
       return;
     }
 
     if (newPassword.length < 6) {
-      setPasswordFieldErrors({ current: false, next: true });
+      setPasswordFieldErrors({ current: false, next: true, confirm: false });
       showToast('La nuova password deve essere di almeno 6 caratteri');
       return;
     }
 
-    setPasswordFieldErrors({ current: false, next: false });
+    if (newPassword !== confirmPassword) {
+      setPasswordFieldErrors({ current: false, next: true, confirm: true });
+      showToast('Le nuove password non coincidono');
+      return;
+    }
+
+    setPasswordFieldErrors({ current: false, next: false, confirm: false });
 
     try {
       setLoading(true);
-      const res = await authService.changePassword(currentPassword, newPassword);
+      const res = await authService.changePassword(currentPassword, newPassword, confirmPassword);
       showToast(res.data.message || 'Password aggiornata con successo', 'success');
-      resetPasswordForm();
+
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setPasswordFieldErrors({ current: false, next: false, confirm: false });
       setShowChangePassword(false);
     } catch (error) {
       console.error('Error changing password:', error);
       const errorMessage =
         error.response?.data?.message || error.message || 'Errore durante il cambio password';
       const lower = String(errorMessage).toLowerCase();
-      const currentWrong =
-        lower.includes('attuale') ||
-        lower.includes('corrente') ||
-        lower.includes('current') ||
-        lower.includes('errata') ||
-        lower.includes('incorrect') ||
-        lower.includes('wrong');
-      if (currentWrong) {
-        setPasswordStep('current');
-        setPasswordFieldErrors({ current: true, next: false });
+      const mismatch =
+        lower.includes('coincid') ||
+        lower.includes('match') ||
+        lower.includes('conferma') ||
+        lower.includes('confirm');
+      const tooShort =
+        lower.includes('6') ||
+        lower.includes('corto') ||
+        lower.includes('short') ||
+        lower.includes('lunghezza');
+      if (mismatch) {
+        setPasswordFieldErrors({ current: false, next: true, confirm: true });
+      } else if (tooShort) {
+        setPasswordFieldErrors({ current: false, next: true, confirm: false });
       } else {
-        setPasswordFieldErrors({ current: false, next: true });
+        setPasswordFieldErrors({ current: true, next: false, confirm: false });
       }
       showToast(errorMessage);
     } finally {
@@ -231,35 +298,6 @@ export default function ProfileScreen() {
   const handleOpenDeleteAccount = () => {
     navigation.navigate('DeleteAccount');
   };
-
-  const renderPasswordField = ({
-    value,
-    onChangeText,
-    placeholder,
-    visible,
-    onToggleVisible,
-    invalid = false,
-  }) => (
-    <View style={[styles.passwordInputWrap, invalid && styles.passwordInputWrapInvalid]}>
-      <TextInput
-        style={styles.passwordInput}
-        value={value}
-        onChangeText={onChangeText}
-        placeholder={placeholder}
-        placeholderTextColor={invalid ? '#f87171' : '#94a3b8'}
-        secureTextEntry={!visible}
-        autoCapitalize="none"
-        autoCorrect={false}
-      />
-      <TouchableOpacity onPress={onToggleVisible} style={styles.eyeButton} hitSlop={8}>
-        <Ionicons
-          name={visible ? 'eye-outline' : 'eye-off-outline'}
-          size={18}
-          color={invalid ? '#f87171' : '#94a3b8'}
-        />
-      </TouchableOpacity>
-    </View>
-  );
 
   const renderMenuRow = ({
     icon,
@@ -350,7 +388,9 @@ export default function ProfileScreen() {
             style={styles.accordionHeader}
             onPress={() => {
               setShowChangePassword((v) => {
-                if (v) resetPasswordForm();
+                if (v) {
+                  setPasswordFieldErrors({ current: false, next: false, confirm: false });
+                }
                 return !v;
               });
             }}
@@ -369,59 +409,51 @@ export default function ProfileScreen() {
 
           {showChangePassword ? (
             <View style={styles.passwordBody}>
-              {passwordStep === 'current' ? (
-                <>
-                  {renderPasswordField({
-                    value: currentPassword,
-                    onChangeText: (text) => {
-                      clearPasswordFieldError('current');
-                      setCurrentPassword(text);
-                    },
-                    placeholder: 'Password attuale',
-                    visible: showCurrentPassword,
-                    onToggleVisible: () => setShowCurrentPassword((v) => !v),
-                    invalid: passwordFieldErrors.current,
-                  })}
-                  <TouchableOpacity
-                    style={[styles.primaryBtn, loading && styles.primaryBtnDisabled]}
-                    onPress={handleVerifyCurrentPassword}
-                    disabled={loading}
-                    activeOpacity={0.8}
-                  >
-                    {loading ? (
-                      <ActivityIndicator size="small" color="#fff" />
-                    ) : (
-                      <Text style={styles.primaryBtnText}>Continua</Text>
-                    )}
-                  </TouchableOpacity>
-                </>
-              ) : (
-                <>
-                  {renderPasswordField({
-                    value: newPassword,
-                    onChangeText: (text) => {
-                      clearPasswordFieldError('next');
-                      setNewPassword(text);
-                    },
-                    placeholder: 'Nuova password (min. 6)',
-                    visible: showNewPassword,
-                    onToggleVisible: () => setShowNewPassword((v) => !v),
-                    invalid: passwordFieldErrors.next,
-                  })}
-                  <TouchableOpacity
-                    style={[styles.primaryBtn, loading && styles.primaryBtnDisabled]}
-                    onPress={handleChangePassword}
-                    disabled={loading}
-                    activeOpacity={0.8}
-                  >
-                    {loading ? (
-                      <ActivityIndicator size="small" color="#fff" />
-                    ) : (
-                      <Text style={styles.primaryBtnText}>Salva</Text>
-                    )}
-                  </TouchableOpacity>
-                </>
-              )}
+              <PasswordFloatingField
+                label="Attuale"
+                value={currentPassword}
+                onChangeText={(text) => {
+                  clearPasswordFieldError('current');
+                  setCurrentPassword(text);
+                }}
+                visible={showCurrentPassword}
+                onToggleVisible={() => setShowCurrentPassword((v) => !v)}
+                invalid={passwordFieldErrors.current}
+              />
+              <PasswordFloatingField
+                label="Nuova"
+                value={newPassword}
+                onChangeText={(text) => {
+                  clearPasswordFieldError('next');
+                  setNewPassword(text);
+                }}
+                visible={showNewPassword}
+                onToggleVisible={() => setShowNewPassword((v) => !v)}
+                invalid={passwordFieldErrors.next}
+              />
+              <PasswordFloatingField
+                label="Conferma"
+                value={confirmPassword}
+                onChangeText={(text) => {
+                  clearPasswordFieldError('confirm');
+                  setConfirmPassword(text);
+                }}
+                visible={showConfirmPassword}
+                onToggleVisible={() => setShowConfirmPassword((v) => !v)}
+                invalid={passwordFieldErrors.confirm}
+              />
+              <TouchableOpacity
+                style={[styles.primaryBtn, loading && styles.primaryBtnDisabled]}
+                onPress={handleChangePassword}
+                disabled={loading}
+                activeOpacity={0.8}
+              >
+                {loading ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.primaryBtnText}>Salva</Text>
+                )}
+              </TouchableOpacity>
             </View>
           ) : null}
         </View>
@@ -750,17 +782,27 @@ const styles = StyleSheet.create({
     paddingBottom: 14,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: '#e8edf5',
-    paddingTop: 12,
-    gap: 8,
+    paddingTop: 16,
+    gap: 14,
   },
-  passwordInputWrap: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  passwordFieldShell: {
     borderWidth: 1,
     borderColor: '#e8edf5',
     backgroundColor: '#fafbfc',
     borderRadius: 10,
     paddingHorizontal: 12,
+    position: 'relative',
+  },
+  passwordFloatingLabel: {
+    position: 'absolute',
+    left: 10,
+    zIndex: 2,
+    paddingHorizontal: 4,
+    fontWeight: '600',
+  },
+  passwordInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   passwordInputWrapInvalid: {
     borderColor: '#fecaca',
@@ -768,7 +810,8 @@ const styles = StyleSheet.create({
   },
   passwordInput: {
     flex: 1,
-    paddingVertical: 12,
+    paddingTop: 14,
+    paddingBottom: 12,
     fontSize: 15,
     color: '#0f172a',
   },
