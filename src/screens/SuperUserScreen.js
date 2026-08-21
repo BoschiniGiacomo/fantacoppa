@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -12,9 +12,13 @@ import {
   Modal,
   Image,
   Switch,
+  Platform,
+  Pressable,
+  useWindowDimensions,
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import LoopingVideoView from '../components/LoopingVideoView';
 import AppLoadingFullScreenModal from '../components/AppLoadingFullScreenModal';
 import { useAuth } from '../context/AuthContext';
@@ -352,7 +356,19 @@ export default function SuperUserScreen() {
   const [savingUserDetail, setSavingUserDetail] = useState(false);
   const [userDetailLeagues, setUserDetailLeagues] = useState([]);
   const [loadingUserDetailLeagues, setLoadingUserDetailLeagues] = useState(false);
+  const [userDetailLeagueSearch, setUserDetailLeagueSearch] = useState('');
   const [searchText, setSearchText] = useState('');
+  const [showUserFilters, setShowUserFilters] = useState(false);
+  const [userFilters, setUserFilters] = useState({
+    statuses: [], // 'online' | 'offline'
+    roles: [], // 0 | 1 | 2
+    accessFrom: null, // Date | null
+    accessTo: null, // Date | null
+  });
+  const [userAccessDatePicker, setUserAccessDatePicker] = useState(null); // 'from' | 'to' | null
+  const [userFilterMenuLayout, setUserFilterMenuLayout] = useState(null);
+  const userFilterBtnRef = useRef(null);
+  const { width: windowWidth } = useWindowDimensions();
   const [filterOfficialOnly, setFilterOfficialOnly] = useState(false);
   const [showOfficialGroupModal, setShowOfficialGroupModal] = useState(false);
   const [selectedLeagueForOfficial, setSelectedLeagueForOfficial] = useState(null);
@@ -1611,6 +1627,7 @@ export default function SuperUserScreen() {
     setUserDetailPasswordVisible(false);
     setUserDetailPasswordUnlocked(false);
     setUserDetailLeagues([]);
+    setUserDetailLeagueSearch('');
     void loadUserDetailLeagues(user.id);
   };
 
@@ -1624,6 +1641,7 @@ export default function SuperUserScreen() {
     setUserDetailPasswordUnlocked(false);
     setSavingUserDetail(false);
     setUserDetailLeagues([]);
+    setUserDetailLeagueSearch('');
     setLoadingUserDetailLeagues(false);
   };
 
@@ -1643,6 +1661,16 @@ export default function SuperUserScreen() {
       setLoadingUserDetailLeagues(false);
     }
   };
+
+  const filteredUserDetailLeagues = useMemo(() => {
+    const q = userDetailLeagueSearch.trim().toLowerCase();
+    if (!q) return userDetailLeagues;
+    return userDetailLeagues.filter((lg) => {
+      const leagueName = String(lg.league_name || '').toLowerCase();
+      const teamName = String(lg.team_name || '').toLowerCase();
+      return leagueName.includes(q) || teamName.includes(q);
+    });
+  }, [userDetailLeagues, userDetailLeagueSearch]);
 
   const requestDoubleConfirm = ({ title, message, confirmText = 'Conferma', destructive = true, onFinal }) => {
     setConfirmModal({
@@ -2648,25 +2676,66 @@ export default function SuperUserScreen() {
   // Ordina e filtra gli utenti
   const sortedUsers = useMemo(() => {
     let filtered = users;
-    
+
     // Filtra per nome utente e/o email
     if (searchText.trim()) {
       const searchLower = searchText.toLowerCase().trim();
-      filtered = users.filter(user => {
+      filtered = filtered.filter((user) => {
         const usernameMatch = (user.username || '').toLowerCase().includes(searchLower);
         const emailMatch = (user.email || '').toLowerCase().includes(searchLower);
         return usernameMatch || emailMatch;
       });
     }
-    
+
+    const statuses = Array.isArray(userFilters.statuses) ? userFilters.statuses : [];
+    if (statuses.length > 0) {
+      const wantOnline = statuses.includes('online');
+      const wantOffline = statuses.includes('offline');
+      filtered = filtered.filter((user) => {
+        const online = !!user.is_online;
+        return (wantOnline && online) || (wantOffline && !online);
+      });
+    }
+
+    const roles = Array.isArray(userFilters.roles) ? userFilters.roles : [];
+    if (roles.length > 0) {
+      const roleSet = new Set(roles.map((r) => Number(r)));
+      filtered = filtered.filter((user) => roleSet.has(Number(user.is_superuser || 0)));
+    }
+
+    const fromTs = userFilters.accessFrom
+      ? (() => {
+          const d = new Date(userFilters.accessFrom);
+          d.setHours(0, 0, 0, 0);
+          return d.getTime();
+        })()
+      : null;
+    const toTs = userFilters.accessTo
+      ? (() => {
+          const d = new Date(userFilters.accessTo);
+          d.setHours(23, 59, 59, 999);
+          return d.getTime();
+        })()
+      : null;
+    if (fromTs != null || toTs != null) {
+      filtered = filtered.filter((user) => {
+        if (!user.last_login) return false;
+        const ts = new Date(user.last_login).getTime();
+        if (!Number.isFinite(ts)) return false;
+        if (fromTs != null && ts < fromTs) return false;
+        if (toTs != null && ts > toTs) return false;
+        return true;
+      });
+    }
+
     // Ordina
     if (!sortColumn) return filtered;
-    
+
     const loginTs = (u) => (u?.last_login ? new Date(u.last_login).getTime() : 0);
 
     const sorted = [...filtered].sort((a, b) => {
       let aVal, bVal;
-      
+
       switch (sortColumn) {
         case 'username':
           aVal = (a.username || '').toLowerCase();
@@ -2692,7 +2761,7 @@ export default function SuperUserScreen() {
         default:
           return 0;
       }
-      
+
       if (aVal < bVal) return sortDirection === 'asc' ? -1 : 1;
       if (aVal > bVal) return sortDirection === 'asc' ? 1 : -1;
 
@@ -2704,9 +2773,120 @@ export default function SuperUserScreen() {
       }
       return 0;
     });
-    
+
     return sorted;
-  }, [users, sortColumn, sortDirection, searchText]);
+  }, [users, sortColumn, sortDirection, searchText, userFilters]);
+
+  const hasActiveUserFilters =
+    (userFilters.statuses || []).length > 0
+    || (userFilters.roles || []).length > 0
+    || !!userFilters.accessFrom
+    || !!userFilters.accessTo;
+
+  useEffect(() => {
+    if (!showUserFilters) {
+      setUserFilterMenuLayout(null);
+      return undefined;
+    }
+    let cancelled = false;
+    const measureAnchor = () => {
+      const node = userFilterBtnRef?.current;
+      if (!node || typeof node.measureInWindow !== 'function') return;
+      try {
+        node.measureInWindow((x, y, width, height) => {
+          if (cancelled) return;
+          if (
+            typeof x !== 'number'
+            || typeof y !== 'number'
+            || typeof width !== 'number'
+            || typeof height !== 'number'
+          ) {
+            return;
+          }
+          const panelWidth = Math.min(300, Math.max(240, windowWidth - 24));
+          const left = Math.max(12, Math.min(x + width - panelWidth, windowWidth - panelWidth - 12));
+          setUserFilterMenuLayout({
+            left,
+            top: y + height + 6,
+            width: panelWidth,
+          });
+        });
+      } catch {
+        // Native node non ancora pronto
+      }
+    };
+    measureAnchor();
+    const retryTimer = setTimeout(measureAnchor, 64);
+    return () => {
+      cancelled = true;
+      clearTimeout(retryTimer);
+    };
+  }, [showUserFilters, windowWidth]);
+
+  const toggleUserStatusFilter = (status) => {
+    setUserFilters((prev) => {
+      const current = Array.isArray(prev.statuses) ? prev.statuses : [];
+      const next = current.includes(status)
+        ? current.filter((s) => s !== status)
+        : [...current, status];
+      return { ...prev, statuses: next };
+    });
+  };
+
+  const toggleUserRoleFilter = (role) => {
+    const value = Number(role);
+    setUserFilters((prev) => {
+      const current = Array.isArray(prev.roles) ? prev.roles : [];
+      const next = current.includes(value)
+        ? current.filter((r) => r !== value)
+        : [...current, value];
+      return { ...prev, roles: next };
+    });
+  };
+
+  const clearUserFilters = () => {
+    setUserFilters({
+      statuses: [],
+      roles: [],
+      accessFrom: null,
+      accessTo: null,
+    });
+    setUserAccessDatePicker(null);
+  };
+
+  const closeUserFilters = () => {
+    setShowUserFilters(false);
+    setUserAccessDatePicker(null);
+  };
+
+  const formatUserFilterDate = (d) => {
+    if (!d) return '—';
+    const date = new Date(d);
+    if (!Number.isFinite(date.getTime())) return '—';
+    return date.toLocaleDateString('it-IT', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    });
+  };
+
+  const onUserAccessDateChange = (event, selectedDate) => {
+    const field = userAccessDatePicker;
+    if (Platform.OS === 'android') {
+      setUserAccessDatePicker(null);
+    }
+    if (event?.type === 'dismissed' || !field) return;
+    if (!selectedDate) return;
+    const next = new Date(selectedDate);
+    next.setHours(12, 0, 0, 0);
+    setUserFilters((prev) => ({
+      ...prev,
+      [field === 'from' ? 'accessFrom' : 'accessTo']: next,
+    }));
+    if (Platform.OS === 'ios') {
+      setUserAccessDatePicker(null);
+    }
+  };
 
   const filteredApprovedClustersByPlayer = useMemo(() => {
     const q = clusterTabSearchText.trim();
@@ -3116,22 +3296,52 @@ export default function SuperUserScreen() {
       <View style={styles.content}>
         {activeTab === 'users' && (
           <>
-            <View style={styles.usersSearchContainer}>
-              <Ionicons name="search" size={18} color="#94a3b8" style={styles.searchIcon} />
-              <TextInput
-                style={styles.usersSearchInput}
-                placeholder="Cerca nome o email…"
-                placeholderTextColor="#94a3b8"
-                value={searchText}
-                onChangeText={setSearchText}
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
-              {searchText.length > 0 && (
-                <TouchableOpacity onPress={() => setSearchText('')} style={styles.clearButton} hitSlop={8}>
-                  <Ionicons name="close-circle" size={18} color="#94a3b8" />
-                </TouchableOpacity>
-              )}
+            <View style={styles.usersSearchRow}>
+              <View style={[styles.usersSearchContainer, styles.usersSearchContainerFlex]}>
+                <Ionicons name="search" size={18} color="#94a3b8" style={styles.searchIcon} />
+                <TextInput
+                  style={styles.usersSearchInput}
+                  placeholder="Cerca nome o email…"
+                  placeholderTextColor="#94a3b8"
+                  value={searchText}
+                  onChangeText={setSearchText}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+                {searchText.length > 0 && (
+                  <TouchableOpacity onPress={() => setSearchText('')} style={styles.clearButton} hitSlop={8}>
+                    <Ionicons name="close-circle" size={18} color="#94a3b8" />
+                  </TouchableOpacity>
+                )}
+              </View>
+              <TouchableOpacity
+                ref={userFilterBtnRef}
+                style={[styles.usersFilterBtn, hasActiveUserFilters && styles.usersFilterBtnActive]}
+                onPress={() => setShowUserFilters(true)}
+                activeOpacity={0.7}
+              >
+                <Ionicons
+                  name="options-outline"
+                  size={20}
+                  color={hasActiveUserFilters ? '#667eea' : '#94a3b8'}
+                />
+                <View
+                  style={[
+                    styles.usersFilterCountBadge,
+                    hasActiveUserFilters && styles.usersFilterCountBadgeActive,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.usersFilterCountBadgeText,
+                      hasActiveUserFilters && styles.usersFilterCountBadgeTextActive,
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {sortedUsers.length}
+                  </Text>
+                </View>
+              </TouchableOpacity>
             </View>
 
             <View style={styles.usersSortBar}>
@@ -3227,13 +3437,234 @@ export default function SuperUserScreen() {
                   <View style={styles.emptyContainer}>
                     <Ionicons name="people-outline" size={44} color="#cbd5e1" />
                     <Text style={styles.emptyText}>
-                      {searchText.trim() ? 'Nessun risultato' : 'Nessun utente'}
+                      {searchText.trim() || hasActiveUserFilters ? 'Nessun risultato' : 'Nessun utente'}
                     </Text>
                   </View>
                 }
                 contentContainerStyle={styles.usersListContent}
               />
             )}
+
+            <Modal
+              visible={showUserFilters}
+              transparent
+              animationType="fade"
+              onRequestClose={closeUserFilters}
+            >
+              <View style={styles.userFilterMenuRoot}>
+                <Pressable
+                  style={styles.userFilterMenuBackdrop}
+                  onPress={closeUserFilters}
+                  accessibilityRole="button"
+                  accessibilityLabel="Chiudi filtri utenti"
+                />
+                {userFilterMenuLayout ? (
+                  <View
+                    style={[
+                      styles.userFilterDropdown,
+                      {
+                        top: userFilterMenuLayout.top,
+                        left: userFilterMenuLayout.left,
+                        width: userFilterMenuLayout.width,
+                      },
+                    ]}
+                  >
+                    <View style={styles.userFilterDropdownHeader}>
+                      <Text style={styles.userFilterDropdownTitle}>Filtri</Text>
+                      <TouchableOpacity
+                        style={[
+                          styles.userFilterPresetChip,
+                          !hasActiveUserFilters && styles.userFilterPresetChipActive,
+                        ]}
+                        onPress={clearUserFilters}
+                        activeOpacity={0.75}
+                      >
+                        <Text
+                          style={[
+                            styles.userFilterPresetChipText,
+                            !hasActiveUserFilters && styles.userFilterPresetChipTextActive,
+                          ]}
+                        >
+                          Azzera
+                        </Text>
+                        {!hasActiveUserFilters ? (
+                          <Ionicons name="checkmark" size={12} color="#4f46e5" />
+                        ) : null}
+                      </TouchableOpacity>
+                    </View>
+
+                    <ScrollView
+                      style={styles.userFilterDropdownScroll}
+                      contentContainerStyle={styles.userFilterDropdownScrollContent}
+                      showsVerticalScrollIndicator={false}
+                      keyboardShouldPersistTaps="handled"
+                      bounces={false}
+                      nestedScrollEnabled
+                    >
+                      <Text style={styles.userFilterSectionLabel}>Stato</Text>
+                      {[
+                        { key: 'online', label: 'Online', icon: 'radio-button-on' },
+                        { key: 'offline', label: 'Offline', icon: 'radio-button-off' },
+                      ].map((opt, idx, arr) => {
+                        const on = (userFilters.statuses || []).includes(opt.key);
+                        return (
+                          <TouchableOpacity
+                            key={opt.key}
+                            style={[
+                              styles.userFilterDropdownItem,
+                              on && styles.userFilterDropdownItemOn,
+                              idx === arr.length - 1 && styles.userFilterDropdownItemLast,
+                            ]}
+                            onPress={() => toggleUserStatusFilter(opt.key)}
+                            activeOpacity={0.8}
+                          >
+                            <View style={styles.userFilterDropdownItemLeft}>
+                              <Ionicons
+                                name={opt.icon}
+                                size={15}
+                                color={on ? '#4f46e5' : '#94a3b8'}
+                              />
+                              <Text
+                                style={[
+                                  styles.userFilterDropdownItemText,
+                                  on && styles.userFilterDropdownItemTextOn,
+                                ]}
+                              >
+                                {opt.label}
+                              </Text>
+                            </View>
+                            <View style={[styles.userFilterCheck, on && styles.userFilterCheckOn]}>
+                              {on ? <Ionicons name="checkmark" size={12} color="#fff" /> : null}
+                            </View>
+                          </TouchableOpacity>
+                        );
+                      })}
+
+                      <Text style={styles.userFilterSectionLabel}>Ruolo</Text>
+                      {[
+                        { key: 0, label: 'Utente', icon: 'person-outline' },
+                        { key: 2, label: 'Gestore partite', icon: 'football' },
+                        { key: 1, label: 'Super user', icon: 'star-outline' },
+                      ].map((opt, idx, arr) => {
+                        const on = (userFilters.roles || []).includes(opt.key);
+                        return (
+                          <TouchableOpacity
+                            key={`role-${opt.key}`}
+                            style={[
+                              styles.userFilterDropdownItem,
+                              on && styles.userFilterDropdownItemOn,
+                              idx === arr.length - 1 && styles.userFilterDropdownItemLast,
+                            ]}
+                            onPress={() => toggleUserRoleFilter(opt.key)}
+                            activeOpacity={0.8}
+                          >
+                            <View style={styles.userFilterDropdownItemLeft}>
+                              <Ionicons
+                                name={opt.icon}
+                                size={15}
+                                color={on ? '#4f46e5' : '#94a3b8'}
+                              />
+                              <Text
+                                style={[
+                                  styles.userFilterDropdownItemText,
+                                  on && styles.userFilterDropdownItemTextOn,
+                                ]}
+                              >
+                                {opt.label}
+                              </Text>
+                            </View>
+                            <View style={[styles.userFilterCheck, on && styles.userFilterCheckOn]}>
+                              {on ? <Ionicons name="checkmark" size={12} color="#fff" /> : null}
+                            </View>
+                          </TouchableOpacity>
+                        );
+                      })}
+
+                      <Text style={styles.userFilterSectionLabel}>Accesso</Text>
+                      {[
+                        { field: 'from', key: 'accessFrom', label: 'Dal' },
+                        { field: 'to', key: 'accessTo', label: 'Al' },
+                      ].map((opt, idx, arr) => {
+                        const value = userFilters[opt.key];
+                        const on = !!value;
+                        return (
+                          <View
+                            key={opt.field}
+                            style={[
+                              styles.userFilterDropdownItem,
+                              on && styles.userFilterDropdownItemOn,
+                              idx === arr.length - 1 && styles.userFilterDropdownItemLast,
+                            ]}
+                          >
+                            <TouchableOpacity
+                              style={styles.userFilterDropdownItemLeft}
+                              onPress={() => setUserAccessDatePicker(opt.field)}
+                              activeOpacity={0.8}
+                            >
+                              <Ionicons
+                                name="calendar-outline"
+                                size={15}
+                                color={on ? '#4f46e5' : '#94a3b8'}
+                              />
+                              <Text
+                                style={[
+                                  styles.userFilterDropdownItemText,
+                                  on && styles.userFilterDropdownItemTextOn,
+                                ]}
+                              >
+                                {opt.label}
+                              </Text>
+                              <Text
+                                style={[
+                                  styles.userFilterDateValue,
+                                  on && styles.userFilterDateValueOn,
+                                ]}
+                                numberOfLines={1}
+                              >
+                                {formatUserFilterDate(value)}
+                              </Text>
+                            </TouchableOpacity>
+                            {on ? (
+                              <TouchableOpacity
+                                onPress={() =>
+                                  setUserFilters((prev) => ({ ...prev, [opt.key]: null }))
+                                }
+                                hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                              >
+                                <Ionicons name="close-circle" size={18} color="#94a3b8" />
+                              </TouchableOpacity>
+                            ) : (
+                              <TouchableOpacity
+                                onPress={() => setUserAccessDatePicker(opt.field)}
+                                hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                              >
+                                <Ionicons name="add-circle-outline" size={18} color="#94a3b8" />
+                              </TouchableOpacity>
+                            )}
+                          </View>
+                        );
+                      })}
+
+                      {userAccessDatePicker ? (
+                        <View style={styles.userFilterDatePickerWrap}>
+                          <DateTimePicker
+                            value={
+                              (userAccessDatePicker === 'from'
+                                ? userFilters.accessFrom
+                                : userFilters.accessTo) || new Date()
+                            }
+                            mode="date"
+                            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                            onChange={onUserAccessDateChange}
+                            maximumDate={new Date()}
+                          />
+                        </View>
+                      ) : null}
+                    </ScrollView>
+                  </View>
+                ) : null}
+              </View>
+            </Modal>
           </>
         )}
 
@@ -6687,40 +7118,68 @@ export default function SuperUserScreen() {
                       Questo utente non è iscritto a nessuna lega.
                     </Text>
                   ) : (
-                    userDetailLeagues.map((lg, idx) => (
-                      <View key={`ud-lg-${lg.league_id}`}>
-                        {idx > 0 ? <View style={styles.userDetailCardDivider} /> : null}
-                        <View style={styles.userDetailLeagueRow}>
-                          <View style={styles.userDetailCardIcon}>
-                            <Ionicons
-                              name={lg.is_official ? 'ribbon' : 'trophy-outline'}
-                              size={18}
-                              color="#667eea"
-                            />
-                          </View>
-                          <View style={styles.userDetailCardBody}>
-                            <View style={styles.userDetailLeagueTitleRow}>
-                              <Text style={styles.userDetailCardValue} numberOfLines={1}>
-                                {lg.league_name}
-                              </Text>
-                              {lg.reference_year != null ? (
-                                <View style={styles.userDetailLeagueYearChip}>
-                                  <Text style={styles.userDetailLeagueYearChipText}>
-                                    {lg.reference_year}
-                                  </Text>
-                                </View>
-                              ) : null}
-                            </View>
-                            <Text style={styles.userDetailLeagueTeam} numberOfLines={1}>
-                              Squadra · {lg.team_name || '—'}
-                            </Text>
-                            {String(lg.member_role) === 'admin' ? (
-                              <Text style={styles.userDetailLeagueRole}>Admin lega</Text>
-                            ) : null}
-                          </View>
-                        </View>
+                    <>
+                      <View style={styles.userDetailLeagueSearch}>
+                        <Ionicons name="search" size={16} color="#94a3b8" />
+                        <TextInput
+                          style={styles.userDetailLeagueSearchInput}
+                          placeholder="Cerca lega o squadra…"
+                          placeholderTextColor="#94a3b8"
+                          value={userDetailLeagueSearch}
+                          onChangeText={setUserDetailLeagueSearch}
+                          autoCapitalize="none"
+                          autoCorrect={false}
+                        />
+                        {userDetailLeagueSearch.length > 0 ? (
+                          <TouchableOpacity
+                            onPress={() => setUserDetailLeagueSearch('')}
+                            hitSlop={8}
+                          >
+                            <Ionicons name="close-circle" size={16} color="#94a3b8" />
+                          </TouchableOpacity>
+                        ) : null}
                       </View>
-                    ))
+                      {filteredUserDetailLeagues.length === 0 ? (
+                        <Text style={[styles.userDetailCardHint, { marginBottom: 0 }]}>
+                          Nessuna lega o squadra trovata.
+                        </Text>
+                      ) : (
+                        filteredUserDetailLeagues.map((lg, idx) => (
+                          <View key={`ud-lg-${lg.league_id}`}>
+                            {idx > 0 ? <View style={styles.userDetailCardDivider} /> : null}
+                            <View style={styles.userDetailLeagueRow}>
+                              <View style={styles.userDetailCardIcon}>
+                                <Ionicons
+                                  name={lg.is_official ? 'ribbon' : 'trophy-outline'}
+                                  size={18}
+                                  color="#667eea"
+                                />
+                              </View>
+                              <View style={styles.userDetailCardBody}>
+                                <View style={styles.userDetailLeagueTitleRow}>
+                                  <Text style={styles.userDetailCardValue} numberOfLines={1}>
+                                    {lg.league_name}
+                                  </Text>
+                                  {lg.reference_year != null ? (
+                                    <View style={styles.userDetailLeagueYearChip}>
+                                      <Text style={styles.userDetailLeagueYearChipText}>
+                                        {lg.reference_year}
+                                      </Text>
+                                    </View>
+                                  ) : null}
+                                </View>
+                                <Text style={styles.userDetailLeagueTeam} numberOfLines={1}>
+                                  Squadra: {lg.team_name || '—'}
+                                </Text>
+                                {String(lg.member_role) === 'admin' ? (
+                                  <Text style={styles.userDetailLeagueRole}>Admin lega</Text>
+                                ) : null}
+                              </View>
+                            </View>
+                          </View>
+                        ))
+                      )}
+                    </>
                   )}
                 </View>
               </ScrollView>
@@ -7140,6 +7599,198 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#dbe3ef',
   },
+  usersSearchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 16,
+    marginTop: 12,
+    marginBottom: 8,
+    gap: 8,
+  },
+  usersSearchContainerFlex: {
+    flex: 1,
+    marginHorizontal: 0,
+    marginTop: 0,
+    marginBottom: 0,
+  },
+  usersFilterBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#dbe3ef',
+    backgroundColor: '#f8fafc',
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+    overflow: 'visible',
+  },
+  usersFilterBtnActive: {
+    borderColor: '#c7d2fe',
+    backgroundColor: '#eef2ff',
+  },
+  usersFilterCountBadge: {
+    position: 'absolute',
+    right: -4,
+    bottom: -4,
+    minWidth: 18,
+    height: 18,
+    paddingHorizontal: 4,
+    borderRadius: 9,
+    backgroundColor: '#e2e8f0',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: '#fff',
+  },
+  usersFilterCountBadgeActive: {
+    backgroundColor: '#667eea',
+  },
+  usersFilterCountBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#475569',
+  },
+  usersFilterCountBadgeTextActive: {
+    color: '#fff',
+  },
+  userFilterMenuRoot: {
+    flex: 1,
+  },
+  userFilterMenuBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  userFilterDropdown: {
+    position: 'absolute',
+    maxHeight: 420,
+    borderWidth: 1,
+    borderColor: '#dbe3ef',
+    borderRadius: 12,
+    backgroundColor: '#fff',
+    overflow: 'hidden',
+    elevation: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.14,
+    shadowRadius: 12,
+  },
+  userFilterDropdownHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#e8edf5',
+    backgroundColor: '#f8fafc',
+  },
+  userFilterDropdownTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#64748b',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
+  userFilterPresetChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    backgroundColor: '#fff',
+  },
+  userFilterPresetChipActive: {
+    borderColor: '#c7d2fe',
+    backgroundColor: '#eef2ff',
+  },
+  userFilterPresetChipText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#94a3b8',
+  },
+  userFilterPresetChipTextActive: {
+    color: '#4f46e5',
+  },
+  userFilterDropdownScroll: {
+    maxHeight: 372,
+  },
+  userFilterDropdownScrollContent: {
+    paddingVertical: 4,
+    paddingBottom: 8,
+  },
+  userFilterSectionLabel: {
+    marginTop: 8,
+    marginBottom: 2,
+    paddingHorizontal: 12,
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#94a3b8',
+    textTransform: 'uppercase',
+    letterSpacing: 0.35,
+  },
+  userFilterDropdownItem: {
+    minHeight: 42,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#f1f5f9',
+  },
+  userFilterDropdownItemLast: {
+    borderBottomWidth: 0,
+  },
+  userFilterDropdownItemOn: {
+    backgroundColor: '#eef2ff',
+  },
+  userFilterDropdownItemLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+    minWidth: 0,
+    paddingRight: 8,
+  },
+  userFilterDropdownItemText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#64748b',
+    flexShrink: 1,
+  },
+  userFilterDropdownItemTextOn: {
+    color: '#4f46e5',
+    fontWeight: '700',
+  },
+  userFilterDateValue: {
+    marginLeft: 'auto',
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#94a3b8',
+  },
+  userFilterDateValueOn: {
+    color: '#4f46e5',
+  },
+  userFilterCheck: {
+    width: 18,
+    height: 18,
+    borderRadius: 5,
+    borderWidth: 1.5,
+    borderColor: '#cbd5e1',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fff',
+  },
+  userFilterCheckOn: {
+    borderColor: '#667eea',
+    backgroundColor: '#667eea',
+  },
+  userFilterDatePickerWrap: {
+    paddingHorizontal: 8,
+    paddingBottom: 4,
+  },
   usersSearchInput: {
     flex: 1,
     fontSize: 15,
@@ -7498,6 +8149,24 @@ const styles = StyleSheet.create({
     backgroundColor: '#f1f5f9',
     marginVertical: 6,
     marginLeft: 44,
+  },
+  userDetailLeagueSearch: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginBottom: 10,
+  },
+  userDetailLeagueSearchInput: {
+    flex: 1,
+    fontSize: 14,
+    color: '#0f172a',
+    paddingVertical: 0,
   },
   userDetailLeagueRow: {
     flexDirection: 'row',
