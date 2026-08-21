@@ -95,11 +95,13 @@ export default function ProfileScreen() {
   };
 
   const handleInviteFriends = async () => {
-    const playStoreUrl = 'https://play.google.com/store/apps/details?id=com.fantacoppa.app';
+    const storeUrl =
+      Platform.OS === 'ios'
+        ? 'https://apps.apple.com/us/app/fantacoppa/id6761119410'
+        : 'https://play.google.com/store/apps/details?id=com.fantacoppa.app';
     const message =
-      Platform.OS === 'android'
-        ? `Ti consiglio FantaCoppa, il fantacalcio della Coppa Montecavolo!\n\nScaricala qui: ${playStoreUrl}`
-        : 'Ti consiglio FantaCoppa, il fantacalcio della Coppa Montecavolo! Cercala sullo store o chiedimi il link.';
+      `Sto giocando a FantaCoppa — il fantacalcio della Coppa Montecavolo.\n\n` +
+      `Scaricala e unisciti a me:\n${storeUrl}`;
     try {
       await Share.share({
         message,
