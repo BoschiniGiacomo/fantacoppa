@@ -1498,6 +1498,11 @@ export default function SuperUserScreen() {
         setConfirmModal(null);
         try {
           await superuserService.setSuperuserLevel(userId, nextLevel);
+          setSelectedUserDetail((prev) => (
+            prev && Number(prev.id) === Number(userId)
+              ? { ...prev, is_superuser: nextLevel }
+              : prev
+          ));
           await loadUsers();
           showToast(`Ruolo aggiornato: ${labels[nextLevel] || 'nessun ruolo'}`, 'success');
         } catch (error) {
@@ -1513,6 +1518,80 @@ export default function SuperUserScreen() {
     if (n === 2) return 'Gestore partite (GM)';
     if (n === 1) return 'Super user (SU)';
     return 'Utente';
+  };
+
+  const renderUserRoleIcon = (suLevel, { size = 16 } = {}) => {
+    const n = Number(suLevel || 0);
+    if (n === 2) {
+      return (
+        <View style={[styles.userRoleBadge, styles.roleOptionActiveManager]}>
+          <Ionicons name="football" size={size} color="#fff" />
+        </View>
+      );
+    }
+    if (n === 1) {
+      return (
+        <View style={[styles.userRoleBadge, styles.roleOptionActiveSuper]}>
+          <Ionicons name="star" size={size} color="#fff" />
+        </View>
+      );
+    }
+    return (
+      <View style={[styles.userRoleBadge, styles.roleOptionActiveUser]}>
+        <Ionicons name="person" size={size} color="#fff" />
+      </View>
+    );
+  };
+
+  const renderUserRoleSelector = (user, { compact = false } = {}) => {
+    const suLevel = Number(user?.is_superuser || 0);
+    const iconSize = compact ? 14 : 18;
+    return (
+      <View style={[styles.roleSelector, !compact && styles.roleSelectorInDetail]}>
+        <TouchableOpacity
+          style={[
+            styles.roleOption,
+            !compact && styles.roleOptionInDetail,
+            suLevel === 0 && styles.roleOptionActiveUser,
+          ]}
+          onPress={() => handleSetSuperuserLevel(user.id, suLevel, 0)}
+        >
+          <Ionicons
+            name={suLevel === 0 ? 'person' : 'person-outline'}
+            size={iconSize}
+            color={suLevel === 0 ? '#fff' : '#2f6fed'}
+          />
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[
+            styles.roleOption,
+            !compact && styles.roleOptionInDetail,
+            suLevel === 1 && styles.roleOptionActiveSuper,
+          ]}
+          onPress={() => handleSetSuperuserLevel(user.id, suLevel, 1)}
+        >
+          <Ionicons
+            name={suLevel === 1 ? 'star' : 'star-outline'}
+            size={iconSize}
+            color={suLevel === 1 ? '#fff' : '#f4b400'}
+          />
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[
+            styles.roleOption,
+            !compact && styles.roleOptionInDetail,
+            suLevel === 2 && styles.roleOptionActiveManager,
+          ]}
+          onPress={() => handleSetSuperuserLevel(user.id, suLevel, 2)}
+        >
+          <Ionicons
+            name={suLevel === 2 ? 'football' : 'football-outline'}
+            size={iconSize}
+            color={suLevel === 2 ? '#fff' : '#2e7d32'}
+          />
+        </TouchableOpacity>
+      </View>
+    );
   };
 
   const openUserDetail = (user) => {
@@ -2704,8 +2783,6 @@ export default function SuperUserScreen() {
   
   const renderUserItem = ({ item }) => {
     const suLevel = Number(item?.is_superuser || 0);
-    const isSuper = suLevel > 0;
-    const badgeText = suLevel === 2 ? 'GM' : 'SU';
     return (
     <View style={styles.userItem}>
       {/* Colonna 1: Nome utente (tap → scheda) */}
@@ -2714,20 +2791,7 @@ export default function SuperUserScreen() {
         onPress={() => openUserDetail(item)}
         activeOpacity={0.7}
       >
-        <View style={styles.userHeader}>
-          <Text style={styles.userName} numberOfLines={1}>{item.username}</Text>
-          {isSuper && (
-            <View
-              style={[
-                styles.superuserBadge,
-                suLevel === 2 ? styles.superuserBadgeManager : styles.superuserBadgeSuper,
-              ]}
-            >
-              <Text style={styles.superuserBadgeText}>{badgeText}</Text>
-            </View>
-          )}
-          <Ionicons name="chevron-forward" size={16} color="#cbd5e1" style={{ marginLeft: 'auto' }} />
-        </View>
+        <Text style={styles.userName} numberOfLines={1}>{item.username}</Text>
       </TouchableOpacity>
       
       {/* Colonna 2: Ultimo accesso */}
@@ -2743,49 +2807,9 @@ export default function SuperUserScreen() {
         </Text>
       </View>
       
-      {/* Colonna 4: Ruolo utente */}
+      {/* Colonna 4: Ruolo attuale */}
       <View style={[styles.buttonColumn, styles.columnWithPaddingRight]}>
-        <View style={styles.roleSelector}>
-          <TouchableOpacity
-            style={[
-              styles.roleOption,
-              suLevel === 0 && styles.roleOptionActiveUser,
-            ]}
-            onPress={() => handleSetSuperuserLevel(item.id, suLevel, 0)}
-          >
-            <Ionicons
-              name={suLevel === 0 ? 'person' : 'person-outline'}
-              size={14}
-              color={suLevel === 0 ? '#fff' : '#2f6fed'}
-            />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[
-              styles.roleOption,
-              suLevel === 1 && styles.roleOptionActiveSuper,
-            ]}
-            onPress={() => handleSetSuperuserLevel(item.id, suLevel, 1)}
-          >
-            <Ionicons
-              name={suLevel === 1 ? 'star' : 'star-outline'}
-              size={14}
-              color={suLevel === 1 ? '#fff' : '#f4b400'}
-            />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[
-              styles.roleOption,
-              suLevel === 2 && styles.roleOptionActiveManager,
-            ]}
-            onPress={() => handleSetSuperuserLevel(item.id, suLevel, 2)}
-          >
-            <Ionicons
-              name={suLevel === 2 ? 'football' : 'football-outline'}
-              size={14}
-              color={suLevel === 2 ? '#fff' : '#2e7d32'}
-            />
-          </TouchableOpacity>
-        </View>
+        {renderUserRoleIcon(suLevel)}
       </View>
     </View>
   );
@@ -6444,9 +6468,10 @@ export default function SuperUserScreen() {
 
                 <View style={styles.userDetailField}>
                   <Text style={styles.userDetailLabel}>Ruolo</Text>
-                  <Text style={styles.userDetailValue}>
+                  <Text style={styles.userDetailRoleCaption}>
                     {roleLabelForUser(selectedUserDetail.is_superuser)}
                   </Text>
+                  {renderUserRoleSelector(selectedUserDetail)}
                 </View>
 
                 {/* Password */}
@@ -7055,6 +7080,11 @@ const styles = StyleSheet.create({
     padding: 2,
     width: '100%',
   },
+  roleSelectorInDetail: {
+    marginTop: 8,
+    borderRadius: 12,
+    padding: 4,
+  },
   roleOption: {
     flex: 1,
     minHeight: 28,
@@ -7063,6 +7093,23 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 4,
     paddingVertical: 4,
+  },
+  roleOptionInDetail: {
+    minHeight: 40,
+    borderRadius: 10,
+  },
+  userRoleBadge: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  userDetailRoleCaption: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#0f172a',
+    marginBottom: 2,
   },
   roleOptionActiveUser: {
     backgroundColor: '#2f6fed',
