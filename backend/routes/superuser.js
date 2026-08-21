@@ -884,17 +884,43 @@ router.get('/leagues', authenticateToken, requireSuperuser, async (_req, res) =>
   try {
     await ensureSuperuserTables();
     const rows = await query(
-      `SELECT l.id, l.name, l.access_code, l.created_at,
-              COALESCE(l.is_official, 0) AS is_official, l.official_group_id,
-              COALESCE(l.is_visible_for_linking, 1) AS is_visible_for_linking,
-              COALESCE(l.is_hidden_from_discovery, 0) AS is_hidden_from_discovery,
-              og.name AS official_group_name,
-              (SELECT COUNT(*)::int FROM league_members lm WHERE lm.league_id = l.id) AS member_count
+      `SELECT
+         l.id,
+         l.name,
+         l.created_at,
+         COALESCE(l.is_official, 0) AS is_official,
+         l.official_group_id,
+         COALESCE(l.is_visible_for_linking, 1) AS is_visible_for_linking,
+         COALESCE(l.is_hidden_from_discovery, 0) AS is_hidden_from_discovery,
+         og.name AS official_group_name,
+         COALESCE(mc.member_count, 0)::int AS member_count,
+         CASE
+           WHEN NULLIF(BTRIM(COALESCE(l.access_code, '')), '') IS NOT NULL THEN 1
+           ELSE 0
+         END AS is_private
        FROM leagues l
        LEFT JOIN official_league_groups og ON og.id = l.official_group_id
+       LEFT JOIN (
+         SELECT league_id, COUNT(*)::int AS member_count
+         FROM league_members
+         GROUP BY league_id
+       ) mc ON mc.league_id = l.id
        ORDER BY l.created_at DESC NULLS LAST, l.id DESC`
     );
-    return res.json(rows);
+    return res.json(
+      (Array.isArray(rows) ? rows : []).map((r) => ({
+        id: Number(r.id),
+        name: r.name,
+        created_at: r.created_at || null,
+        is_official: Number(r.is_official || 0),
+        official_group_id: r.official_group_id != null ? Number(r.official_group_id) : null,
+        is_visible_for_linking: Number(r.is_visible_for_linking ?? 1),
+        is_hidden_from_discovery: Number(r.is_hidden_from_discovery || 0),
+        official_group_name: r.official_group_name || null,
+        member_count: Number(r.member_count || 0),
+        is_private: Number(r.is_private || 0),
+      }))
+    );
   } catch (error) {
     return res.status(500).json({ message: 'Errore caricamento leghe', error: error.message });
   }
@@ -963,10 +989,39 @@ router.put('/leagues/:id/official', authenticateToken, requireSuperuser, async (
   try {
     await ensureSuperuserTables();
     const leagueId = Number(req.params.id);
+    if (!leagueId || leagueId <= 0) return res.status(400).json({ message: 'ID lega non valido' });
     const isOfficial = Number(req.body?.is_official ? 1 : 0);
     const groupId = req.body?.official_group_id ? Number(req.body.official_group_id) : null;
-    await query(`UPDATE leagues SET is_official = ?, official_group_id = ? WHERE id = ?`, [isOfficial, groupId, leagueId]);
-    return res.json({ success: true });
+    await query(
+      `UPDATE leagues SET is_official = ?, official_group_id = ? WHERE id = ?`,
+      [isOfficial, isOfficial ? groupId : null, leagueId]
+    );
+    const rows = await query(
+      `SELECT
+         l.id,
+         COALESCE(l.is_official, 0) AS is_official,
+         l.official_group_id,
+         COALESCE(l.is_visible_for_linking, 1) AS is_visible_for_linking,
+         og.name AS official_group_name
+       FROM leagues l
+       LEFT JOIN official_league_groups og ON og.id = l.official_group_id
+       WHERE l.id = ?
+       LIMIT 1`,
+      [leagueId]
+    );
+    const row = rows[0] || null;
+    return res.json({
+      success: true,
+      league: row
+        ? {
+            id: Number(row.id),
+            is_official: Number(row.is_official || 0),
+            official_group_id: row.official_group_id != null ? Number(row.official_group_id) : null,
+            is_visible_for_linking: Number(row.is_visible_for_linking ?? 1),
+            official_group_name: row.official_group_name || null,
+          }
+        : null,
+    });
   } catch (error) {
     return res.status(500).json({ message: 'Errore aggiornamento stato ufficiale', error: error.message });
   }

@@ -370,6 +370,7 @@ export default function SuperUserScreen() {
   const userFilterBtnRef = useRef(null);
   const { width: windowWidth } = useWindowDimensions();
   const [filterOfficialOnly, setFilterOfficialOnly] = useState(false);
+  const [leagueSearchText, setLeagueSearchText] = useState('');
   const [showOfficialGroupModal, setShowOfficialGroupModal] = useState(false);
   const [selectedLeagueForOfficial, setSelectedLeagueForOfficial] = useState(null);
   const [showCreateGroupModal, setShowCreateGroupModal] = useState(false);
@@ -529,10 +530,10 @@ export default function SuperUserScreen() {
   };
   
   // Carica leghe
-  const loadLeagues = async () => {
+  const loadLeagues = async ({ silent = false } = {}) => {
     if (!isSuperuser) return;
     try {
-      setLoadingLeagues(true);
+      if (!silent) setLoadingLeagues(true);
       const response = await superuserService.getLeagues();
       const raw = response?.data;
       setLeagues(Array.isArray(raw) ? raw : []);
@@ -543,6 +544,16 @@ export default function SuperUserScreen() {
       setLoadingLeagues(false);
       setRefreshingLeagues(false);
     }
+  };
+
+  const patchLeagueLocal = (leagueId, patch) => {
+    const id = Number(leagueId);
+    if (!id) return;
+    setLeagues((prev) =>
+      (Array.isArray(prev) ? prev : []).map((l) =>
+        Number(l.id) === id ? { ...l, ...patch } : l
+      )
+    );
   };
   
   // Carica gruppi ufficiali
@@ -1308,7 +1319,7 @@ export default function SuperUserScreen() {
       if (activeTab === 'users') {
         void loadUsers({ silent: users.length > 0 });
       } else if (activeTab === 'leagues') {
-        loadLeagues();
+        void loadLeagues({ silent: leagues.length > 0 });
       } else if (activeTab === 'officials') {
         loadOfficialGroups();
       }
@@ -1856,7 +1867,9 @@ export default function SuperUserScreen() {
         setConfirmModal(null);
         try {
           await superuserService.deleteLeague(leagueId);
-          await loadLeagues();
+          setLeagues((prev) =>
+            (Array.isArray(prev) ? prev : []).filter((l) => Number(l.id) !== Number(leagueId))
+          );
           showToast('Lega eliminata con successo', 'success');
         } catch (error) {
           console.error('Error deleting league:', error);
@@ -1889,9 +1902,14 @@ export default function SuperUserScreen() {
         onConfirm: async () => {
           setConfirmModal(null);
           try {
-            await superuserService.setLeagueOfficial(league.id, { is_official: false });
-            await loadLeagues();
-            await loadOfficialGroups();
+            const res = await superuserService.setLeagueOfficial(league.id, { is_official: false });
+            const updated = res?.data?.league;
+            patchLeagueLocal(league.id, {
+              is_official: 0,
+              official_group_id: null,
+              official_group_name: null,
+              ...(updated || {}),
+            });
           } catch (error) {
             console.error('Error removing official status:', error);
             showToast(error.response?.data?.message || 'Errore durante l\'operazione');
@@ -1912,16 +1930,23 @@ export default function SuperUserScreen() {
   // Gestisce la selezione di un gruppo per una lega
   const handleSelectGroupForLeague = async (groupId) => {
     if (!selectedLeagueForOfficial) return;
+    const leagueId = selectedLeagueForOfficial.id;
+    const group = (officialGroups || []).find((g) => Number(g.id) === Number(groupId));
     
     try {
-      await superuserService.setLeagueOfficial(selectedLeagueForOfficial.id, {
+      const res = await superuserService.setLeagueOfficial(leagueId, {
         is_official: true,
         official_group_id: groupId,
       });
+      const updated = res?.data?.league;
       setShowOfficialGroupModal(false);
       setSelectedLeagueForOfficial(null);
-      await loadLeagues();
-      await loadOfficialGroups();
+      patchLeagueLocal(leagueId, {
+        is_official: 1,
+        official_group_id: Number(groupId),
+        official_group_name: updated?.official_group_name || group?.name || null,
+        ...(updated || {}),
+      });
     } catch (error) {
       console.error('Error setting league official:', error);
       if (isFeatureDisabledError(error)) {
@@ -1947,10 +1972,19 @@ export default function SuperUserScreen() {
       setShowCreateGroupModal(false);
       setNewGroupName('');
       setNewGroupDescription('');
-      await loadOfficialGroups();
+      const created = response?.data?.group || response?.data;
+      if (created?.id) {
+        setOfficialGroups((prev) => {
+          const list = Array.isArray(prev) ? prev : [];
+          if (list.some((g) => Number(g.id) === Number(created.id))) return list;
+          return [created, ...list];
+        });
+      } else {
+        await loadOfficialGroups();
+      }
       // Se c'era una lega selezionata, assegnala al nuovo gruppo
-      if (selectedLeagueForOfficial && response.data?.id) {
-        await handleSelectGroupForLeague(response.data.id);
+      if (selectedLeagueForOfficial && created?.id) {
+        await handleSelectGroupForLeague(created.id);
       }
     } catch (error) {
       console.error('Error creating official group:', error);
@@ -2177,8 +2211,13 @@ export default function SuperUserScreen() {
   // Gestisce il toggle "visibile per collegamento"
   const handleToggleVisibleForLinking = async (league) => {
     try {
-      await superuserService.toggleVisibleForLinking(league.id);
-      await loadLeagues();
+      const res = await superuserService.toggleVisibleForLinking(league.id);
+      const next = res?.data?.is_visible_for_linking;
+      if (next == null) {
+        await loadLeagues({ silent: true });
+        return;
+      }
+      patchLeagueLocal(league.id, { is_visible_for_linking: Number(next) });
     } catch (error) {
       console.error('Error toggling visible for linking:', error);
       showToast(error.response?.data?.message || 'Errore durante l\'operazione');
@@ -2187,20 +2226,35 @@ export default function SuperUserScreen() {
 
   const handleToggleHiddenFromDiscovery = async (league) => {
     try {
-      await superuserService.toggleLeagueHiddenFromDiscovery(league.id);
-      await loadLeagues();
+      const res = await superuserService.toggleLeagueHiddenFromDiscovery(league.id);
+      const next = res?.data?.is_hidden_from_discovery;
+      if (next == null) {
+        await loadLeagues({ silent: true });
+        return;
+      }
+      patchLeagueLocal(league.id, { is_hidden_from_discovery: Number(next) });
     } catch (error) {
       console.error('Error toggling hidden from discovery:', error);
       showToast(error.response?.data?.message || 'Errore durante l\'operazione');
     }
   };
   
-  // Filtra le leghe (ufficiali o tutte)
+  // Filtra le leghe (ricerca + ufficiali)
   const filteredLeagues = useMemo(() => {
-    const list = Array.isArray(leagues) ? leagues : [];
-    if (!filterOfficialOnly) return list;
-    return list.filter((league) => league.is_official);
-  }, [leagues, filterOfficialOnly]);
+    let list = Array.isArray(leagues) ? leagues : [];
+    if (filterOfficialOnly) {
+      list = list.filter((league) => Number(league.is_official) > 0);
+    }
+    const q = leagueSearchText.trim().toLowerCase();
+    if (q) {
+      list = list.filter((league) => {
+        const name = String(league.name || '').toLowerCase();
+        const group = String(league.official_group_name || '').toLowerCase();
+        return name.includes(q) || group.includes(q);
+      });
+    }
+    return list;
+  }, [leagues, filterOfficialOnly, leagueSearchText]);
   
   // Formatta data/ora
   const formatDateTime = (dateString) => {
@@ -3053,143 +3107,145 @@ export default function SuperUserScreen() {
       ))}
     </View>
   );
+
+  const renderLeaguesSkeleton = () => (
+    <View style={styles.leaguesSkeletonWrap}>
+      {Array.from({ length: 6 }).map((_, idx) => (
+        <View key={`lsk-${idx}`} style={styles.leagueRowSkeleton}>
+          <View style={styles.leagueIconSkeleton} />
+          <View style={styles.leagueSkeletonLines}>
+            <View style={[styles.userSkeletonBar, { width: `${52 + (idx % 3) * 12}%` }]} />
+            <View style={[styles.userSkeletonBar, styles.userSkeletonBarShort]} />
+            <View style={[styles.userSkeletonBar, { width: '42%', marginTop: 8 }]} />
+          </View>
+        </View>
+      ))}
+    </View>
+  );
   
   const renderLeagueItem = ({ item }) => {
     const isOfficial = Number(item?.is_official || 0) > 0;
     const isHiddenFromDiscovery = Number(item?.is_hidden_from_discovery || 0) === 1;
+    const isVisibleForLinking = Number(item?.is_visible_for_linking ?? 1) === 1;
+    const isPrivate = Number(item?.is_private || 0) === 1 || !!item?.access_code;
+    const memberCount = Number(item?.member_count || 0);
+
     return (
-    <View style={styles.leagueItem}>
-      <View style={styles.leagueInfo}>
-        <View style={styles.leagueNameRow}>
-          <Text style={styles.leagueName}>{item.name}</Text>
-          <TouchableOpacity
-            onPress={() => handleToggleLeagueOfficial(item)}
-            style={styles.officialCheckbox}
-          >
-            <Ionicons 
-              name={isOfficial ? "checkmark-circle" : "ellipse-outline"} 
-              size={24} 
-              color={isOfficial ? "#667eea" : "#ccc"} 
+      <View style={styles.leagueRow}>
+        <View style={styles.leagueRowTop}>
+          <View style={[styles.leagueAvatar, isOfficial && styles.leagueAvatarOfficial]}>
+            <Ionicons
+              name={isOfficial ? 'ribbon' : 'trophy-outline'}
+              size={18}
+              color={isOfficial ? '#667eea' : '#94a3b8'}
             />
+          </View>
+          <View style={styles.leagueRowMain}>
+            <View style={styles.leagueNameRow}>
+              <Text style={styles.leagueName} numberOfLines={1}>{item.name}</Text>
+              <TouchableOpacity
+                onPress={() => handleToggleLeagueOfficial(item)}
+                style={styles.officialCheckbox}
+                hitSlop={8}
+              >
+                <Ionicons
+                  name={isOfficial ? 'checkmark-circle' : 'ellipse-outline'}
+                  size={22}
+                  color={isOfficial ? '#667eea' : '#cbd5e1'}
+                />
+              </TouchableOpacity>
+            </View>
+            {isOfficial && item.official_group_name ? (
+              <Text style={styles.leagueOfficialGroup} numberOfLines={1}>
+                Gruppo · {item.official_group_name}
+              </Text>
+            ) : null}
+            <Text style={styles.leagueMeta} numberOfLines={1}>
+              {memberCount} {memberCount === 1 ? 'membro' : 'membri'}
+              {' · '}
+              {isPrivate ? 'Privata' : 'Pubblica'}
+              {' · '}
+              {formatCreationDate(item.created_at)}
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.leagueChipRow}>
+          {isOfficial ? (
+            <TouchableOpacity
+              onPress={() => handleToggleVisibleForLinking(item)}
+              activeOpacity={0.75}
+              style={[
+                styles.leagueChip,
+                isVisibleForLinking ? styles.leagueChipLinkOn : styles.leagueChipMuted,
+              ]}
+            >
+              <Ionicons
+                name={isVisibleForLinking ? 'link' : 'unlink-outline'}
+                size={14}
+                color={isVisibleForLinking ? '#4f46e5' : '#94a3b8'}
+              />
+              <Text
+                style={[
+                  styles.leagueChipText,
+                  isVisibleForLinking && styles.leagueChipTextOn,
+                ]}
+                numberOfLines={1}
+              >
+                {isVisibleForLinking ? 'Collegamento on' : 'Collegamento off'}
+              </Text>
+            </TouchableOpacity>
+          ) : null}
+          <TouchableOpacity
+            onPress={() => handleToggleHiddenFromDiscovery(item)}
+            activeOpacity={0.75}
+            style={[
+              styles.leagueChip,
+              isHiddenFromDiscovery ? styles.leagueChipWarn : styles.leagueChipMuted,
+            ]}
+          >
+            <Ionicons
+              name={isHiddenFromDiscovery ? 'eye-off-outline' : 'eye-outline'}
+              size={14}
+              color={isHiddenFromDiscovery ? '#c2410c' : '#94a3b8'}
+            />
+            <Text
+              style={[
+                styles.leagueChipText,
+                isHiddenFromDiscovery && styles.leagueChipTextWarn,
+              ]}
+              numberOfLines={1}
+            >
+              {isHiddenFromDiscovery ? 'Solo iscritti' : 'In discovery'}
+            </Text>
           </TouchableOpacity>
         </View>
-        {isOfficial && item.official_group_name && (
-          <Text style={styles.leagueOfficialGroup}>
-            Gruppo: {item.official_group_name}
-          </Text>
-        )}
-        {isOfficial && (
+
+        <View style={styles.leagueActions}>
           <TouchableOpacity
-            onPress={() => handleToggleVisibleForLinking(item)}
-            activeOpacity={0.7}
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              marginTop: 8,
-              marginBottom: 4,
-              paddingVertical: 8,
-              paddingHorizontal: 12,
-              borderRadius: 8,
-              backgroundColor: item.is_visible_for_linking ? '#e8f5e9' : '#f5f5f5',
-              borderWidth: 1,
-              borderColor: item.is_visible_for_linking ? '#a5d6a7' : '#ddd',
-              alignSelf: 'flex-start',
-            }}
+            style={styles.leagueActionButton}
+            onPress={() => navigation.navigate('League', { leagueId: item.id })}
           >
-            <Ionicons 
-              name={item.is_visible_for_linking ? "eye" : "eye-off-outline"} 
-              size={18} 
-              color={item.is_visible_for_linking ? "#2e7d32" : "#888"} 
-            />
-            <Text style={{ 
-              fontSize: 13, 
-              fontWeight: '600',
-              color: item.is_visible_for_linking ? "#2e7d32" : "#888", 
-              marginLeft: 6,
-            }}>
-              {item.is_visible_for_linking ? 'Visibile per collegamento' : 'Non visibile per collegamento'}
-            </Text>
-            <Ionicons 
-              name={item.is_visible_for_linking ? "toggle" : "toggle-outline"} 
-              size={22} 
-              color={item.is_visible_for_linking ? "#2e7d32" : "#bbb"} 
-              style={{ marginLeft: 8 }}
-            />
+            <Ionicons name="eye-outline" size={16} color="#667eea" />
+            <Text style={styles.leagueActionText}>Vedi</Text>
           </TouchableOpacity>
-        )}
-        <TouchableOpacity
-          onPress={() => handleToggleHiddenFromDiscovery(item)}
-          activeOpacity={0.7}
-          style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            marginTop: 8,
-            marginBottom: 4,
-            paddingVertical: 8,
-            paddingHorizontal: 12,
-            borderRadius: 8,
-            backgroundColor: isHiddenFromDiscovery ? '#fff3e0' : '#f5f5f5',
-            borderWidth: 1,
-            borderColor: isHiddenFromDiscovery ? '#ffcc80' : '#ddd',
-            alignSelf: 'flex-start',
-          }}
-        >
-          <Ionicons
-            name={isHiddenFromDiscovery ? 'eye-off-outline' : 'eye-outline'}
-            size={18}
-            color={isHiddenFromDiscovery ? '#e65100' : '#666'}
-          />
-          <Text style={{
-            fontSize: 13,
-            fontWeight: '600',
-            color: isHiddenFromDiscovery ? '#e65100' : '#555',
-            marginLeft: 6,
-            flexShrink: 1,
-          }}
+          <TouchableOpacity
+            style={[styles.leagueActionButton, styles.leagueActionButtonAdmin]}
+            onPress={() => handleJoinLeagueAsAdmin(item.id)}
           >
-            {isHiddenFromDiscovery
-              ? 'Nascosta: solo chi inscritto la vede'
-              : 'Visibile: la vede anche chi non è iscritto'}
-          </Text>
-          <Ionicons
-            name={isHiddenFromDiscovery ? 'toggle' : 'toggle-outline'}
-            size={22}
-            color={isHiddenFromDiscovery ? '#e65100' : '#bbb'}
-            style={{ marginLeft: 8 }}
-          />
-        </TouchableOpacity>
-        <Text style={styles.leagueDetails}>
-          {item.member_count} membri • {item.access_code ? 'Privata' : 'Pubblica'}
-        </Text>
-        <Text style={styles.leagueCreated}>
-          Creata: {formatDateTime(item.created_at)}
-        </Text>
+            <Ionicons name="shield-outline" size={16} color="#15803d" />
+            <Text style={[styles.leagueActionText, styles.leagueActionTextAdmin]}>Admin</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.leagueActionButton, styles.leagueActionButtonDanger]}
+            onPress={() => handleDeleteLeague(item.id, item.name)}
+          >
+            <Ionicons name="trash-outline" size={16} color="#dc2626" />
+            <Text style={[styles.leagueActionText, styles.leagueActionTextDanger]}>Elimina</Text>
+          </TouchableOpacity>
+        </View>
       </View>
-      <View style={styles.leagueActions}>
-        <TouchableOpacity
-          style={styles.leagueActionButton}
-          onPress={() => navigation.navigate('League', { leagueId: item.id })}
-        >
-          <Ionicons name="eye" size={18} color="#667eea" />
-          <Text style={styles.leagueActionText}>Vedi</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.leagueActionButton, styles.leagueActionButtonAdmin]}
-          onPress={() => handleJoinLeagueAsAdmin(item.id)}
-        >
-          <Ionicons name="shield" size={18} color="#28a745" />
-          <Text style={[styles.leagueActionText, styles.leagueActionTextAdmin]}>Admin</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.leagueActionButton, styles.leagueActionButtonDanger]}
-          onPress={() => handleDeleteLeague(item.id, item.name)}
-        >
-          <Ionicons name="trash" size={18} color="#dc3545" />
-          <Text style={[styles.leagueActionText, styles.leagueActionTextDanger]}>Elimina</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
+    );
   };
   
   return (
@@ -3670,46 +3726,103 @@ export default function SuperUserScreen() {
 
         {activeTab === 'leagues' && (
           <>
-            {/* Filtro leghe ufficiali */}
-            <View style={styles.filterContainer}>
-              <TouchableOpacity
-                style={[styles.filterButton, filterOfficialOnly && styles.filterButtonActive]}
-                onPress={() => setFilterOfficialOnly(!filterOfficialOnly)}
-              >
-                <Ionicons 
-                  name={filterOfficialOnly ? "checkbox" : "square-outline"} 
-                  size={20} 
-                  color={filterOfficialOnly ? "#667eea" : "#666"} 
+            <View style={styles.leaguesSearchRow}>
+              <View style={[styles.usersSearchContainer, styles.usersSearchContainerFlex]}>
+                <Ionicons name="search" size={18} color="#94a3b8" style={styles.searchIcon} />
+                <TextInput
+                  style={styles.usersSearchInput}
+                  placeholder="Cerca lega o gruppo…"
+                  placeholderTextColor="#94a3b8"
+                  value={leagueSearchText}
+                  onChangeText={setLeagueSearchText}
+                  autoCapitalize="none"
+                  autoCorrect={false}
                 />
-                <Text style={[styles.filterText, filterOfficialOnly && styles.filterTextActive]}>
-                  Solo Leghe Ufficiali
-                </Text>
+                {leagueSearchText.length > 0 ? (
+                  <TouchableOpacity
+                    onPress={() => setLeagueSearchText('')}
+                    style={styles.clearButton}
+                    hitSlop={8}
+                  >
+                    <Ionicons name="close-circle" size={18} color="#94a3b8" />
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+              <TouchableOpacity
+                style={[styles.usersFilterBtn, filterOfficialOnly && styles.usersFilterBtnActive]}
+                onPress={() => setFilterOfficialOnly((v) => !v)}
+                activeOpacity={0.7}
+              >
+                <Ionicons
+                  name="ribbon-outline"
+                  size={18}
+                  color={filterOfficialOnly ? '#667eea' : '#94a3b8'}
+                />
+                <View
+                  style={[
+                    styles.usersFilterCountBadge,
+                    filterOfficialOnly && styles.usersFilterCountBadgeActive,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.usersFilterCountBadgeText,
+                      filterOfficialOnly && styles.usersFilterCountBadgeTextActive,
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {filteredLeagues.length}
+                  </Text>
+                </View>
               </TouchableOpacity>
             </View>
-            {loadingLeagues ? (
-              <View style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color="#667eea" />
+
+            {filterOfficialOnly ? (
+              <View style={styles.leaguesFilterHintRow}>
+                <View style={styles.leaguesFilterHintChip}>
+                  <Ionicons name="ribbon" size={12} color="#4f46e5" />
+                  <Text style={styles.leaguesFilterHintText}>Solo ufficiali</Text>
+                  <TouchableOpacity onPress={() => setFilterOfficialOnly(false)} hitSlop={8}>
+                    <Ionicons name="close" size={14} color="#64748b" />
+                  </TouchableOpacity>
+                </View>
               </View>
+            ) : null}
+
+            {loadingLeagues && leagues.length === 0 ? (
+              renderLeaguesSkeleton()
             ) : (
               <FlatList
                 data={filteredLeagues}
-                keyExtractor={(item) => item.id.toString()}
+                keyExtractor={(item) => String(item.id)}
                 renderItem={renderLeagueItem}
+                initialNumToRender={12}
+                maxToRenderPerBatch={16}
+                windowSize={9}
+                removeClippedSubviews
+                keyboardShouldPersistTaps="handled"
                 refreshControl={
-                  <RefreshControl refreshing={refreshingLeagues} onRefresh={() => {
-                    setRefreshingLeagues(true);
-                    loadLeagues();
-                  }} />
+                  <RefreshControl
+                    refreshing={refreshingLeagues}
+                    tintColor="#667eea"
+                    colors={['#667eea']}
+                    onRefresh={() => {
+                      setRefreshingLeagues(true);
+                      void loadLeagues({ silent: true });
+                    }}
+                  />
                 }
                 ListEmptyComponent={
                   <View style={styles.emptyContainer}>
-                    <Ionicons name="trophy-outline" size={48} color="#ccc" />
+                    <Ionicons name="trophy-outline" size={44} color="#cbd5e1" />
                     <Text style={styles.emptyText}>
-                      {filterOfficialOnly ? 'Nessuna lega ufficiale trovata' : 'Nessuna lega trovata'}
+                      {leagueSearchText.trim() || filterOfficialOnly
+                        ? 'Nessun risultato'
+                        : 'Nessuna lega'}
                     </Text>
                   </View>
                 }
-                contentContainerStyle={styles.listContent}
+                contentContainerStyle={styles.leaguesListContent}
               />
             )}
           </>
@@ -4972,7 +5085,7 @@ export default function SuperUserScreen() {
                             await superuserService.deleteOfficialGroup(selectedGroupForEdit.id);
                             closeGroupDetailModal();
                             await loadOfficialGroups();
-                            await loadLeagues();
+                            await loadLeagues({ silent: true });
                             showToast('Gruppo eliminato con successo', 'success');
                           } catch (error) {
                             console.error('Error deleting group:', error);
@@ -8457,84 +8570,198 @@ const styles = StyleSheet.create({
   toggleSuperuserTextActive: {
     color: '#fff',
   },
-  leagueItem: {
-    padding: 16,
+  leagueRow: {
+    marginHorizontal: 16,
+    marginBottom: 10,
+    padding: 14,
     backgroundColor: '#fff',
-    borderRadius: 12,
-    marginBottom: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#ececec',
   },
-  leagueInfo: {
-    marginBottom: 12,
+  leagueRowTop: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+  },
+  leagueAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  leagueAvatarOfficial: {
+    backgroundColor: '#eef2ff',
+    borderColor: '#c7d2fe',
+  },
+  leagueRowMain: {
     flex: 1,
+    minWidth: 0,
   },
   leagueNameRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 4,
+    gap: 8,
   },
   leagueName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
     flex: 1,
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#0f172a',
   },
   officialCheckbox: {
-    padding: 4,
-    marginLeft: 8,
+    padding: 2,
   },
   leagueOfficialGroup: {
+    marginTop: 2,
     fontSize: 12,
+    fontWeight: '600',
     color: '#667eea',
-    fontWeight: '500',
-    marginBottom: 4,
   },
-  leagueDetails: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 2,
-  },
-  leagueCreated: {
+  leagueMeta: {
+    marginTop: 4,
     fontSize: 12,
-    color: '#999',
+    fontWeight: '500',
+    color: '#64748b',
+  },
+  leagueChipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 12,
+  },
+  leagueChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  leagueChipMuted: {
+    backgroundColor: '#f8fafc',
+    borderColor: '#e2e8f0',
+  },
+  leagueChipLinkOn: {
+    backgroundColor: '#eef2ff',
+    borderColor: '#c7d2fe',
+  },
+  leagueChipWarn: {
+    backgroundColor: '#fff7ed',
+    borderColor: '#fed7aa',
+  },
+  leagueChipText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#64748b',
+  },
+  leagueChipTextOn: {
+    color: '#4f46e5',
+  },
+  leagueChipTextWarn: {
+    color: '#c2410c',
   },
   leagueActions: {
     flexDirection: 'row',
     gap: 8,
+    marginTop: 12,
   },
   leagueActionButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
+    paddingHorizontal: 10,
     paddingVertical: 8,
-    borderRadius: 6,
+    borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#667eea',
+    borderColor: '#c7d2fe',
+    backgroundColor: '#f8f9ff',
     gap: 4,
     flex: 1,
     justifyContent: 'center',
   },
   leagueActionButtonAdmin: {
-    borderColor: '#28a745',
+    borderColor: '#bbf7d0',
+    backgroundColor: '#f0fdf4',
   },
   leagueActionButtonDanger: {
-    borderColor: '#dc3545',
+    borderColor: '#fecaca',
+    backgroundColor: '#fef2f2',
   },
   leagueActionText: {
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: '700',
     color: '#667eea',
   },
   leagueActionTextAdmin: {
-    color: '#28a745',
+    color: '#15803d',
   },
   leagueActionTextDanger: {
-    color: '#dc3545',
+    color: '#dc2626',
+  },
+  leaguesSearchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 16,
+    marginTop: 12,
+    marginBottom: 8,
+    gap: 8,
+  },
+  leaguesFilterHintRow: {
+    paddingHorizontal: 16,
+    paddingBottom: 6,
+  },
+  leaguesFilterHintChip: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: '#eef2ff',
+    borderWidth: 1,
+    borderColor: '#c7d2fe',
+  },
+  leaguesFilterHintText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#4f46e5',
+  },
+  leaguesListContent: {
+    paddingTop: 4,
+    paddingBottom: 24,
+    flexGrow: 1,
+  },
+  leaguesSkeletonWrap: {
+    paddingTop: 4,
+  },
+  leagueRowSkeleton: {
+    marginHorizontal: 16,
+    marginBottom: 10,
+    padding: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#ececec',
+    backgroundColor: '#fff',
+    flexDirection: 'row',
+    gap: 12,
+  },
+  leagueIconSkeleton: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: '#eef2ff',
+  },
+  leagueSkeletonLines: {
+    flex: 1,
+    justifyContent: 'center',
+    gap: 6,
   },
   errorsPlaceholder: {
     flex: 1,
