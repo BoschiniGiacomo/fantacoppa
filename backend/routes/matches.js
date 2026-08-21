@@ -2552,6 +2552,27 @@ function resolveClosedMatchScoresFromEvents(m, events) {
   };
 }
 
+/** Parametro SQL sicuro per confrontare kickoff (evita String(Date) non parseabile da PG). */
+function coerceTimestampForSql(value) {
+  if (value == null || value === '') return null;
+  if (value instanceof Date) {
+    const ms = value.getTime();
+    return Number.isFinite(ms) ? value.toISOString() : null;
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    const d = new Date(value);
+    return Number.isFinite(d.getTime()) ? d.toISOString() : null;
+  }
+  const s = String(value).trim();
+  if (!s) return null;
+  // pg può restituire 'YYYY-MM-DD HH:mm:ss(.sss)' senza T / timezone
+  const normalized = /[Tt]|Z$|[+-]\d{2}(:?\d{2})?$/.test(s) ? s : s.replace(' ', 'T');
+  const ms = Date.parse(normalized);
+  if (Number.isFinite(ms)) return new Date(ms).toISOString();
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s;
+  return null;
+}
+
 /**
  * Ultimi risultati casa/ospite + ultimi incontri diretti (stesso gruppo ufficiale).
  * Solo match chiusi (match_end) **precedenti** alla partita corrente (per kickoff),
@@ -2575,9 +2596,7 @@ async function loadMatchDetailOverviewExtras({
   const empty = { recent_form: { home: [], away: [] }, previous_meetings: [] };
   if (!(compId > 0) || !homeNorm || !awayNorm) return empty;
 
-  const beforeKickoff = beforeKickoffAt != null && String(beforeKickoffAt).trim()
-    ? String(beforeKickoffAt).trim()
-    : null;
+  const beforeKickoff = coerceTimestampForSql(beforeKickoffAt);
   const cacheKey = `overview:${compId}:${mid}:${homeNorm}:${awayNorm}:${beforeKickoff || 'nokick'}:${formLimit}:${meetingsLimit}`;
   return RECENT_FORM_CACHE.getOrSet(cacheKey, async () => {
     const formCandidateLimit = Math.max(12, formLimit * 8);
@@ -2882,7 +2901,10 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
         beforeKickoffAt: matchRow.kickoff_at || null,
         formLimit: RECENT_FORM_LIMIT,
         meetingsLimit: PREVIOUS_MEETINGS_LIMIT,
-      }).catch(() => emptyOverviewExtras),
+      }).catch((err) => {
+        console.error('[matches] overview extras failed:', err?.message || err);
+        return emptyOverviewExtras;
+      }),
       loadOfficialMatchPrediction(matchId, userId).catch(() => emptyPrediction(null)),
     ]);
 
