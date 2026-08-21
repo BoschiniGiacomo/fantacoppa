@@ -369,8 +369,18 @@ export default function SuperUserScreen() {
   const [userFilterMenuLayout, setUserFilterMenuLayout] = useState(null);
   const userFilterBtnRef = useRef(null);
   const { width: windowWidth } = useWindowDimensions();
-  const [filterOfficialOnly, setFilterOfficialOnly] = useState(false);
+  const [leagueFilters, setLeagueFilters] = useState({
+    officialOnly: false,
+    linking: [], // 'on' | 'off'
+    visibility: [], // 'visible' | 'members_only'
+    privacy: [], // 'public' | 'private'
+    membersMin: '', // string digits
+    membersMax: '',
+  });
   const [leagueSearchText, setLeagueSearchText] = useState('');
+  const [showLeagueFilters, setShowLeagueFilters] = useState(false);
+  const [leagueFilterMenuLayout, setLeagueFilterMenuLayout] = useState(null);
+  const leagueFilterBtnRef = useRef(null);
   const [showOfficialGroupModal, setShowOfficialGroupModal] = useState(false);
   const [selectedLeagueForOfficial, setSelectedLeagueForOfficial] = useState(null);
   const [showCreateGroupModal, setShowCreateGroupModal] = useState(false);
@@ -2239,12 +2249,58 @@ export default function SuperUserScreen() {
     }
   };
   
-  // Filtra le leghe (ricerca + ufficiali)
+  // Filtra le leghe (ricerca + filtri)
   const filteredLeagues = useMemo(() => {
     let list = Array.isArray(leagues) ? leagues : [];
-    if (filterOfficialOnly) {
+    if (leagueFilters.officialOnly) {
       list = list.filter((league) => Number(league.is_official) > 0);
     }
+
+    const linking = Array.isArray(leagueFilters.linking) ? leagueFilters.linking : [];
+    if (linking.length > 0) {
+      const wantOn = linking.includes('on');
+      const wantOff = linking.includes('off');
+      list = list.filter((league) => {
+        // Collegamento ha senso solo per ufficiali; off include anche le non ufficiali
+        const isOfficial = Number(league.is_official) > 0;
+        const on = isOfficial && Number(league.is_visible_for_linking ?? 1) === 1;
+        return (wantOn && on) || (wantOff && !on);
+      });
+    }
+
+    const visibility = Array.isArray(leagueFilters.visibility) ? leagueFilters.visibility : [];
+    if (visibility.length > 0) {
+      const wantVisible = visibility.includes('visible');
+      const wantMembersOnly = visibility.includes('members_only');
+      list = list.filter((league) => {
+        const membersOnly = Number(league.is_hidden_from_discovery || 0) === 1;
+        return (wantVisible && !membersOnly) || (wantMembersOnly && membersOnly);
+      });
+    }
+
+    const privacy = Array.isArray(leagueFilters.privacy) ? leagueFilters.privacy : [];
+    if (privacy.length > 0) {
+      const wantPublic = privacy.includes('public');
+      const wantPrivate = privacy.includes('private');
+      list = list.filter((league) => {
+        const isPrivate = Number(league.is_private || 0) === 1 || !!league.access_code;
+        return (wantPrivate && isPrivate) || (wantPublic && !isPrivate);
+      });
+    }
+
+    const minRaw = String(leagueFilters.membersMin || '').trim();
+    const maxRaw = String(leagueFilters.membersMax || '').trim();
+    const minN = minRaw === '' ? null : Number(minRaw);
+    const maxN = maxRaw === '' ? null : Number(maxRaw);
+    if ((minN != null && Number.isFinite(minN)) || (maxN != null && Number.isFinite(maxN))) {
+      list = list.filter((league) => {
+        const count = Number(league.member_count || 0);
+        if (minN != null && Number.isFinite(minN) && count < minN) return false;
+        if (maxN != null && Number.isFinite(maxN) && count > maxN) return false;
+        return true;
+      });
+    }
+
     const q = leagueSearchText.trim().toLowerCase();
     if (q) {
       list = list.filter((league) => {
@@ -2254,7 +2310,65 @@ export default function SuperUserScreen() {
       });
     }
     return list;
-  }, [leagues, filterOfficialOnly, leagueSearchText]);
+  }, [leagues, leagueFilters, leagueSearchText]);
+
+  const hasActiveLeagueFilters =
+    !!leagueFilters.officialOnly
+    || (leagueFilters.linking || []).length > 0
+    || (leagueFilters.visibility || []).length > 0
+    || (leagueFilters.privacy || []).length > 0
+    || String(leagueFilters.membersMin || '').trim() !== ''
+    || String(leagueFilters.membersMax || '').trim() !== '';
+
+  const clearLeagueFilters = () => {
+    setLeagueFilters({
+      officialOnly: false,
+      linking: [],
+      visibility: [],
+      privacy: [],
+      membersMin: '',
+      membersMax: '',
+    });
+  };
+
+  const closeLeagueFilters = () => {
+    setShowLeagueFilters(false);
+  };
+
+  const toggleLeagueLinkingFilter = (value) => {
+    setLeagueFilters((prev) => {
+      const current = Array.isArray(prev.linking) ? prev.linking : [];
+      const next = current.includes(value)
+        ? current.filter((v) => v !== value)
+        : [...current, value];
+      return { ...prev, linking: next };
+    });
+  };
+
+  const toggleLeagueVisibilityFilter = (value) => {
+    setLeagueFilters((prev) => {
+      const current = Array.isArray(prev.visibility) ? prev.visibility : [];
+      const next = current.includes(value)
+        ? current.filter((v) => v !== value)
+        : [...current, value];
+      return { ...prev, visibility: next };
+    });
+  };
+
+  const toggleLeaguePrivacyFilter = (value) => {
+    setLeagueFilters((prev) => {
+      const current = Array.isArray(prev.privacy) ? prev.privacy : [];
+      const next = current.includes(value)
+        ? current.filter((v) => v !== value)
+        : [...current, value];
+      return { ...prev, privacy: next };
+    });
+  };
+
+  const setLeagueMembersBound = (key, raw) => {
+    const digits = String(raw || '').replace(/[^\d]/g, '');
+    setLeagueFilters((prev) => ({ ...prev, [key]: digits }));
+  };
   
   // Formatta data/ora
   const formatDateTime = (dateString) => {
@@ -2877,6 +2991,46 @@ export default function SuperUserScreen() {
     };
   }, [showUserFilters, windowWidth]);
 
+  useEffect(() => {
+    if (!showLeagueFilters) {
+      setLeagueFilterMenuLayout(null);
+      return undefined;
+    }
+    let cancelled = false;
+    const measureAnchor = () => {
+      const node = leagueFilterBtnRef?.current;
+      if (!node || typeof node.measureInWindow !== 'function') return;
+      try {
+        node.measureInWindow((x, y, width, height) => {
+          if (cancelled) return;
+          if (
+            typeof x !== 'number'
+            || typeof y !== 'number'
+            || typeof width !== 'number'
+            || typeof height !== 'number'
+          ) {
+            return;
+          }
+          const panelWidth = Math.min(300, Math.max(240, windowWidth - 24));
+          const left = Math.max(12, Math.min(x + width - panelWidth, windowWidth - panelWidth - 12));
+          setLeagueFilterMenuLayout({
+            left,
+            top: y + height + 6,
+            width: panelWidth,
+          });
+        });
+      } catch {
+        // Native node non ancora pronto
+      }
+    };
+    measureAnchor();
+    const retryTimer = setTimeout(measureAnchor, 64);
+    return () => {
+      cancelled = true;
+      clearTimeout(retryTimer);
+    };
+  }, [showLeagueFilters, windowWidth]);
+
   const toggleUserStatusFilter = (status) => {
     setUserFilters((prev) => {
       const current = Array.isArray(prev.statuses) ? prev.statuses : [];
@@ -3216,7 +3370,7 @@ export default function SuperUserScreen() {
               ]}
               numberOfLines={1}
             >
-              {isHiddenFromDiscovery ? 'Solo iscritti' : 'In discovery'}
+              {isHiddenFromDiscovery ? 'Solo iscritti' : 'Visibile'}
             </Text>
           </TouchableOpacity>
         </View>
@@ -3749,25 +3903,26 @@ export default function SuperUserScreen() {
                 ) : null}
               </View>
               <TouchableOpacity
-                style={[styles.usersFilterBtn, filterOfficialOnly && styles.usersFilterBtnActive]}
-                onPress={() => setFilterOfficialOnly((v) => !v)}
+                ref={leagueFilterBtnRef}
+                style={[styles.usersFilterBtn, hasActiveLeagueFilters && styles.usersFilterBtnActive]}
+                onPress={() => setShowLeagueFilters(true)}
                 activeOpacity={0.7}
               >
                 <Ionicons
-                  name="ribbon-outline"
-                  size={18}
-                  color={filterOfficialOnly ? '#667eea' : '#94a3b8'}
+                  name="options-outline"
+                  size={20}
+                  color={hasActiveLeagueFilters ? '#667eea' : '#94a3b8'}
                 />
                 <View
                   style={[
                     styles.usersFilterCountBadge,
-                    filterOfficialOnly && styles.usersFilterCountBadgeActive,
+                    hasActiveLeagueFilters && styles.usersFilterCountBadgeActive,
                   ]}
                 >
                   <Text
                     style={[
                       styles.usersFilterCountBadgeText,
-                      filterOfficialOnly && styles.usersFilterCountBadgeTextActive,
+                      hasActiveLeagueFilters && styles.usersFilterCountBadgeTextActive,
                     ]}
                     numberOfLines={1}
                   >
@@ -3777,15 +3932,61 @@ export default function SuperUserScreen() {
               </TouchableOpacity>
             </View>
 
-            {filterOfficialOnly ? (
+            {hasActiveLeagueFilters ? (
               <View style={styles.leaguesFilterHintRow}>
-                <View style={styles.leaguesFilterHintChip}>
-                  <Ionicons name="ribbon" size={12} color="#4f46e5" />
-                  <Text style={styles.leaguesFilterHintText}>Solo ufficiali</Text>
-                  <TouchableOpacity onPress={() => setFilterOfficialOnly(false)} hitSlop={8}>
-                    <Ionicons name="close" size={14} color="#64748b" />
-                  </TouchableOpacity>
-                </View>
+                {leagueFilters.officialOnly ? (
+                  <View style={styles.leaguesFilterHintChip}>
+                    <Ionicons name="ribbon" size={12} color="#4f46e5" />
+                    <Text style={styles.leaguesFilterHintText}>Ufficiali</Text>
+                  </View>
+                ) : null}
+                {(leagueFilters.linking || []).includes('on') ? (
+                  <View style={styles.leaguesFilterHintChip}>
+                    <Text style={styles.leaguesFilterHintText}>Collegamento on</Text>
+                  </View>
+                ) : null}
+                {(leagueFilters.linking || []).includes('off') ? (
+                  <View style={styles.leaguesFilterHintChip}>
+                    <Text style={styles.leaguesFilterHintText}>Collegamento off</Text>
+                  </View>
+                ) : null}
+                {(leagueFilters.visibility || []).includes('visible') ? (
+                  <View style={styles.leaguesFilterHintChip}>
+                    <Text style={styles.leaguesFilterHintText}>Visibile</Text>
+                  </View>
+                ) : null}
+                {(leagueFilters.visibility || []).includes('members_only') ? (
+                  <View style={styles.leaguesFilterHintChip}>
+                    <Text style={styles.leaguesFilterHintText}>Solo iscritti</Text>
+                  </View>
+                ) : null}
+                {(leagueFilters.privacy || []).includes('public') ? (
+                  <View style={styles.leaguesFilterHintChip}>
+                    <Text style={styles.leaguesFilterHintText}>Pubblica</Text>
+                  </View>
+                ) : null}
+                {(leagueFilters.privacy || []).includes('private') ? (
+                  <View style={styles.leaguesFilterHintChip}>
+                    <Text style={styles.leaguesFilterHintText}>Privata</Text>
+                  </View>
+                ) : null}
+                {String(leagueFilters.membersMin || '').trim() !== ''
+                  || String(leagueFilters.membersMax || '').trim() !== '' ? (
+                  <View style={styles.leaguesFilterHintChip}>
+                    <Text style={styles.leaguesFilterHintText}>
+                      Membri
+                      {String(leagueFilters.membersMin || '').trim() !== ''
+                        ? ` ≥${String(leagueFilters.membersMin).trim()}`
+                        : ''}
+                      {String(leagueFilters.membersMax || '').trim() !== ''
+                        ? ` ≤${String(leagueFilters.membersMax).trim()}`
+                        : ''}
+                    </Text>
+                  </View>
+                ) : null}
+                <TouchableOpacity onPress={clearLeagueFilters} hitSlop={8} style={styles.leaguesFilterClearChip}>
+                  <Ionicons name="close" size={14} color="#64748b" />
+                </TouchableOpacity>
               </View>
             ) : null}
 
@@ -3816,7 +4017,7 @@ export default function SuperUserScreen() {
                   <View style={styles.emptyContainer}>
                     <Ionicons name="trophy-outline" size={44} color="#cbd5e1" />
                     <Text style={styles.emptyText}>
-                      {leagueSearchText.trim() || filterOfficialOnly
+                      {leagueSearchText.trim() || hasActiveLeagueFilters
                         ? 'Nessun risultato'
                         : 'Nessuna lega'}
                     </Text>
@@ -3825,6 +4026,254 @@ export default function SuperUserScreen() {
                 contentContainerStyle={styles.leaguesListContent}
               />
             )}
+
+            <Modal
+              visible={showLeagueFilters}
+              transparent
+              animationType="fade"
+              onRequestClose={closeLeagueFilters}
+            >
+              <View style={styles.userFilterMenuRoot}>
+                <Pressable
+                  style={styles.userFilterMenuBackdrop}
+                  onPress={closeLeagueFilters}
+                  accessibilityRole="button"
+                  accessibilityLabel="Chiudi filtri leghe"
+                />
+                {leagueFilterMenuLayout ? (
+                  <View
+                    style={[
+                      styles.userFilterDropdown,
+                      {
+                        top: leagueFilterMenuLayout.top,
+                        left: leagueFilterMenuLayout.left,
+                        width: leagueFilterMenuLayout.width,
+                      },
+                    ]}
+                  >
+                    <View style={styles.userFilterDropdownHeader}>
+                      <Text style={styles.userFilterDropdownTitle}>Filtri</Text>
+                      <TouchableOpacity
+                        style={[
+                          styles.userFilterPresetChip,
+                          !hasActiveLeagueFilters && styles.userFilterPresetChipActive,
+                        ]}
+                        onPress={clearLeagueFilters}
+                        activeOpacity={0.75}
+                      >
+                        <Text
+                          style={[
+                            styles.userFilterPresetChipText,
+                            !hasActiveLeagueFilters && styles.userFilterPresetChipTextActive,
+                          ]}
+                        >
+                          Azzera
+                        </Text>
+                        {!hasActiveLeagueFilters ? (
+                          <Ionicons name="checkmark" size={12} color="#4f46e5" />
+                        ) : null}
+                      </TouchableOpacity>
+                    </View>
+
+                    <ScrollView
+                      style={styles.userFilterDropdownScroll}
+                      contentContainerStyle={styles.userFilterDropdownScrollContent}
+                      showsVerticalScrollIndicator={false}
+                      keyboardShouldPersistTaps="handled"
+                      bounces={false}
+                    >
+                      <Text style={styles.userFilterSectionLabel}>Tipo</Text>
+                      <TouchableOpacity
+                        style={[
+                          styles.userFilterDropdownItem,
+                          leagueFilters.officialOnly && styles.userFilterDropdownItemOn,
+                          styles.userFilterDropdownItemLast,
+                        ]}
+                        onPress={() =>
+                          setLeagueFilters((prev) => ({
+                            ...prev,
+                            officialOnly: !prev.officialOnly,
+                          }))
+                        }
+                        activeOpacity={0.8}
+                      >
+                        <View style={styles.userFilterDropdownItemLeft}>
+                          <Ionicons
+                            name="ribbon-outline"
+                            size={15}
+                            color={leagueFilters.officialOnly ? '#4f46e5' : '#94a3b8'}
+                          />
+                          <Text
+                            style={[
+                              styles.userFilterDropdownItemText,
+                              leagueFilters.officialOnly && styles.userFilterDropdownItemTextOn,
+                            ]}
+                          >
+                            Solo ufficiali
+                          </Text>
+                        </View>
+                        <View
+                          style={[
+                            styles.userFilterCheck,
+                            leagueFilters.officialOnly && styles.userFilterCheckOn,
+                          ]}
+                        >
+                          {leagueFilters.officialOnly ? (
+                            <Ionicons name="checkmark" size={12} color="#fff" />
+                          ) : null}
+                        </View>
+                      </TouchableOpacity>
+
+                      <Text style={styles.userFilterSectionLabel}>Collegamento</Text>
+                      {[
+                        { key: 'on', label: 'Collegamento on', icon: 'link' },
+                        { key: 'off', label: 'Collegamento off', icon: 'unlink-outline' },
+                      ].map((opt, idx, arr) => {
+                        const on = (leagueFilters.linking || []).includes(opt.key);
+                        return (
+                          <TouchableOpacity
+                            key={opt.key}
+                            style={[
+                              styles.userFilterDropdownItem,
+                              on && styles.userFilterDropdownItemOn,
+                              idx === arr.length - 1 && styles.userFilterDropdownItemLast,
+                            ]}
+                            onPress={() => toggleLeagueLinkingFilter(opt.key)}
+                            activeOpacity={0.8}
+                          >
+                            <View style={styles.userFilterDropdownItemLeft}>
+                              <Ionicons
+                                name={opt.icon}
+                                size={15}
+                                color={on ? '#4f46e5' : '#94a3b8'}
+                              />
+                              <Text
+                                style={[
+                                  styles.userFilterDropdownItemText,
+                                  on && styles.userFilterDropdownItemTextOn,
+                                ]}
+                              >
+                                {opt.label}
+                              </Text>
+                            </View>
+                            <View style={[styles.userFilterCheck, on && styles.userFilterCheckOn]}>
+                              {on ? <Ionicons name="checkmark" size={12} color="#fff" /> : null}
+                            </View>
+                          </TouchableOpacity>
+                        );
+                      })}
+
+                      <Text style={styles.userFilterSectionLabel}>Visibilità</Text>
+                      {[
+                        { key: 'visible', label: 'Visibile', icon: 'eye-outline' },
+                        { key: 'members_only', label: 'Solo iscritti', icon: 'eye-off-outline' },
+                      ].map((opt, idx, arr) => {
+                        const on = (leagueFilters.visibility || []).includes(opt.key);
+                        return (
+                          <TouchableOpacity
+                            key={opt.key}
+                            style={[
+                              styles.userFilterDropdownItem,
+                              on && styles.userFilterDropdownItemOn,
+                              idx === arr.length - 1 && styles.userFilterDropdownItemLast,
+                            ]}
+                            onPress={() => toggleLeagueVisibilityFilter(opt.key)}
+                            activeOpacity={0.8}
+                          >
+                            <View style={styles.userFilterDropdownItemLeft}>
+                              <Ionicons
+                                name={opt.icon}
+                                size={15}
+                                color={on ? '#4f46e5' : '#94a3b8'}
+                              />
+                              <Text
+                                style={[
+                                  styles.userFilterDropdownItemText,
+                                  on && styles.userFilterDropdownItemTextOn,
+                                ]}
+                              >
+                                {opt.label}
+                              </Text>
+                            </View>
+                            <View style={[styles.userFilterCheck, on && styles.userFilterCheckOn]}>
+                              {on ? <Ionicons name="checkmark" size={12} color="#fff" /> : null}
+                            </View>
+                          </TouchableOpacity>
+                        );
+                      })}
+
+                      <Text style={styles.userFilterSectionLabel}>Accesso lega</Text>
+                      {[
+                        { key: 'public', label: 'Pubblica', icon: 'globe-outline' },
+                        { key: 'private', label: 'Privata', icon: 'lock-closed-outline' },
+                      ].map((opt, idx, arr) => {
+                        const on = (leagueFilters.privacy || []).includes(opt.key);
+                        return (
+                          <TouchableOpacity
+                            key={opt.key}
+                            style={[
+                              styles.userFilterDropdownItem,
+                              on && styles.userFilterDropdownItemOn,
+                              idx === arr.length - 1 && styles.userFilterDropdownItemLast,
+                            ]}
+                            onPress={() => toggleLeaguePrivacyFilter(opt.key)}
+                            activeOpacity={0.8}
+                          >
+                            <View style={styles.userFilterDropdownItemLeft}>
+                              <Ionicons
+                                name={opt.icon}
+                                size={15}
+                                color={on ? '#4f46e5' : '#94a3b8'}
+                              />
+                              <Text
+                                style={[
+                                  styles.userFilterDropdownItemText,
+                                  on && styles.userFilterDropdownItemTextOn,
+                                ]}
+                              >
+                                {opt.label}
+                              </Text>
+                            </View>
+                            <View style={[styles.userFilterCheck, on && styles.userFilterCheckOn]}>
+                              {on ? <Ionicons name="checkmark" size={12} color="#fff" /> : null}
+                            </View>
+                          </TouchableOpacity>
+                        );
+                      })}
+
+                      <Text style={styles.userFilterSectionLabel}>Numero membri</Text>
+                      <View style={styles.leagueMembersFilterRow}>
+                        <View style={styles.leagueMembersFilterField}>
+                          <Text style={styles.leagueMembersFilterLabel}>Min</Text>
+                          <TextInput
+                            style={styles.leagueMembersFilterInput}
+                            value={String(leagueFilters.membersMin || '')}
+                            onChangeText={(t) => setLeagueMembersBound('membersMin', t)}
+                            placeholder="—"
+                            placeholderTextColor="#94a3b8"
+                            keyboardType="number-pad"
+                            maxLength={5}
+                          />
+                        </View>
+                        <Text style={styles.leagueMembersFilterSep}>–</Text>
+                        <View style={styles.leagueMembersFilterField}>
+                          <Text style={styles.leagueMembersFilterLabel}>Max</Text>
+                          <TextInput
+                            style={styles.leagueMembersFilterInput}
+                            value={String(leagueFilters.membersMax || '')}
+                            onChangeText={(t) => setLeagueMembersBound('membersMax', t)}
+                            placeholder="—"
+                            placeholderTextColor="#94a3b8"
+                            keyboardType="number-pad"
+                            maxLength={5}
+                          />
+                        </View>
+                      </View>
+                    </ScrollView>
+                  </View>
+                ) : null}
+              </View>
+            </Modal>
           </>
         )}
 
@@ -8713,11 +9162,14 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   leaguesFilterHintRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 6,
     paddingHorizontal: 16,
     paddingBottom: 6,
   },
   leaguesFilterHintChip: {
-    alignSelf: 'flex-start',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
@@ -8728,10 +9180,54 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#c7d2fe',
   },
+  leaguesFilterClearChip: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#f1f5f9',
+  },
   leaguesFilterHintText: {
     fontSize: 12,
     fontWeight: '700',
     color: '#4f46e5',
+  },
+  leagueMembersFilterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingBottom: 10,
+    paddingTop: 4,
+  },
+  leagueMembersFilterField: {
+    flex: 1,
+  },
+  leagueMembersFilterLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#94a3b8',
+    marginBottom: 4,
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
+  },
+  leagueMembersFilterInput: {
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    backgroundColor: '#f8fafc',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#0f172a',
+  },
+  leagueMembersFilterSep: {
+    marginTop: 16,
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#94a3b8',
   },
   leaguesListContent: {
     paddingTop: 4,
