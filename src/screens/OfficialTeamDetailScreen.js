@@ -23,6 +23,7 @@ import Reanimated, {
   withTiming,
 } from 'react-native-reanimated';
 import { matchesService } from '../services/api';
+import { refreshStripTeams } from '../services/matchesStripPrefetch';
 import { TeamLogoImage } from '../components/StableCachedImage';
 import { EMPTY_OFFICIAL_KNOCKOUT, hasOfficialKnockoutBracket } from '../utils/knockoutBracket';
 import OfficialKnockoutBracket from '../components/OfficialKnockoutBracket';
@@ -943,6 +944,7 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
     });
     try {
       await matchesService.setFavoriteTeam(competitionId, teamName, nextIsFav);
+      refreshStripTeams(null).catch(() => {});
     } catch (_) {
       setData((prev) => {
         if (!prev) return prev;

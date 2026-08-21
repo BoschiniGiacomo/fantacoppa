@@ -20,6 +20,11 @@ import {
   openSystemNotificationSettings,
   getNotificationPermissionStatus,
 } from '../services/notificationService';
+import FollowTeamsPreferencesModal from '../components/FollowTeamsPreferencesModal';
+import {
+  peekStripTeamsMemory,
+  readStripTeamsDisk,
+} from '../services/matchesStripTeamsCache';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 
 const APP_VERSION = getAppVersionInfo();
@@ -41,7 +46,7 @@ function notificationStatusLabel(status) {
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
-  const { user, logout, refreshSession } = useAuth();
+  const { user, logout, refreshSession, token } = useAuth();
   const navigation = useNavigation();
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
@@ -54,6 +59,22 @@ export default function ProfileScreen() {
   const [toastMsg, setToastMsg] = useState(null);
   const [confirmModal, setConfirmModal] = useState(null);
   const [notificationStatus, setNotificationStatus] = useState('unknown');
+  const [followModalVisible, setFollowModalVisible] = useState(false);
+  const [favoriteTeamsCount, setFavoriteTeamsCount] = useState(() => {
+    const mem = peekStripTeamsMemory();
+    return Array.isArray(mem) ? mem.filter((t) => Number(t?.is_heart) === 1).length : 0;
+  });
+
+  const refreshFavoriteTeamsCount = useCallback(async () => {
+    const mem = peekStripTeamsMemory();
+    if (Array.isArray(mem) && mem.length) {
+      setFavoriteTeamsCount(mem.filter((t) => Number(t?.is_heart) === 1).length);
+      return;
+    }
+    const disk = await readStripTeamsDisk();
+    const list = Array.isArray(disk) ? disk : [];
+    setFavoriteTeamsCount(list.filter((t) => Number(t?.is_heart) === 1).length);
+  }, []);
 
   const refreshNotificationStatus = useCallback(async () => {
     const res = await getNotificationPermissionStatus();
@@ -64,7 +85,8 @@ export default function ProfileScreen() {
     useCallback(() => {
       refreshSession?.().catch(() => {});
       refreshNotificationStatus().catch(() => {});
-    }, [refreshSession, refreshNotificationStatus])
+      refreshFavoriteTeamsCount().catch(() => {});
+    }, [refreshSession, refreshNotificationStatus, refreshFavoriteTeamsCount])
   );
 
   const showToast = (text, type = 'error') => {
@@ -368,6 +390,17 @@ export default function ProfileScreen() {
         <Text style={styles.sectionLabel}>Preferenze</Text>
         <View style={styles.card}>
           {renderMenuRow({
+            icon: 'star',
+            iconColor: '#ca8a04',
+            iconBg: '#fefce8',
+            label: 'Squadre preferite',
+            subtitle:
+              favoriteTeamsCount > 0
+                ? `${favoriteTeamsCount} preferit${favoriteTeamsCount === 1 ? 'a' : 'e'} · notifiche`
+                : 'Scegli squadre e notifiche',
+            onPress: () => setFollowModalVisible(true),
+          })}
+          {renderMenuRow({
             icon: notifGranted ? 'notifications' : 'notifications-outline',
             iconColor: notifGranted ? '#15803d' : '#667eea',
             iconBg: notifGranted ? '#f0fdf4' : '#eef2ff',
@@ -492,6 +525,15 @@ export default function ProfileScreen() {
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
+
+      <FollowTeamsPreferencesModal
+        visible={followModalVisible}
+        onClose={() => setFollowModalVisible(false)}
+        token={token}
+        onSaved={() => {
+          refreshFavoriteTeamsCount().catch(() => {});
+        }}
+      />
     </View>
   );
 }

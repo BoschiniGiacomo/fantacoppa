@@ -28,6 +28,7 @@ import {
   isStripTeamsFresh,
 } from '../services/matchesStripTeamsCache';
 import { PlayerPhotoImage, TeamLogoImage } from '../components/StableCachedImage';
+import FollowTeamsPreferencesModal from '../components/FollowTeamsPreferencesModal';
 import { useAuth } from '../context/AuthContext';
 import {
   computeLiveHeroClock,
@@ -319,10 +320,6 @@ export default function MatchesScreen() {
   const [dayLayouts, setDayLayouts] = useState({});
   const daysScrollRef = useRef(null);
   const [followModalVisible, setFollowModalVisible] = useState(false);
-  const [followLoading, setFollowLoading] = useState(false);
-  const [followSaving, setFollowSaving] = useState(false);
-  const [followDraft, setFollowDraft] = useState([]);
-  const [followError, setFollowError] = useState(null);
   const [liveListTick, setLiveListTick] = useState(0);
   const [heartTeams, setHeartTeams] = useState(() => peekStripTeamsMemory() || []);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -514,18 +511,6 @@ export default function MatchesScreen() {
     navigation.navigate('MatchDetail', { matchId, from: 'matches-main' });
   };
 
-  const goToOfficialTeamDetailFromModal = useCallback((teamId, competitionId, teamName) => {
-    const tid = Number(teamId);
-    const cid = Number(competitionId);
-    if (!tid || !cid) return;
-    setFollowModalVisible(false);
-    navigation.navigate('OfficialTeamDetail', {
-      teamId: tid,
-      competitionId: cid,
-      teamName: String(teamName || '').trim() || undefined,
-    });
-  }, [navigation]);
-
   const goToManageMatches = () => {
     navigation.navigate('ManageMatches');
   };
@@ -670,71 +655,19 @@ export default function MatchesScreen() {
     } catch (_) {}
   };
 
-  const openFollowModal = async () => {
+  const openFollowModal = () => {
     if (!token) return;
     setFollowModalVisible(true);
-    setFollowError(null);
-    setFollowLoading(true);
-    try {
-      const res = await matchesService.getFollowSetup();
-      const comps = Array.isArray(res?.data?.competitions) ? res.data.competitions : [];
-      setFollowDraft(
-        comps.map((c) => ({
-          ...c,
-          heart_team_names: [...(c.heart_team_names || [])],
-          notify_team_names: [...(c.notify_team_names || [])],
-        }))
-      );
-    } catch (e) {
-      setFollowError(e?.response?.data?.message || e?.message || 'Impossibile caricare le preferenze');
-      setFollowDraft([]);
-    } finally {
-      setFollowLoading(false);
-    }
   };
 
-  const toggleDraftHeart = (compId, teamName) => {
-    setFollowDraft((prev) =>
-      prev.map((c) => {
-        if (c.id !== compId) return c;
-        const has = (c.heart_team_names || []).includes(teamName);
-        const next = has ? c.heart_team_names.filter((t) => t !== teamName) : [...(c.heart_team_names || []), teamName];
-        return { ...c, heart_team_names: next };
-      })
-    );
-  };
+  const onFollowPreferencesSaved = useCallback(async () => {
+    await Promise.all([load(selectedDate, true), loadStripTeams(true)]);
+  }, [load, selectedDate, loadStripTeams]);
 
-  const toggleDraftNotify = (compId, teamName) => {
-    setFollowDraft((prev) =>
-      prev.map((c) => {
-        if (c.id !== compId) return c;
-        const has = (c.notify_team_names || []).includes(teamName);
-        const next = has ? c.notify_team_names.filter((t) => t !== teamName) : [...(c.notify_team_names || []), teamName];
-        return { ...c, notify_team_names: next };
-      })
-    );
-  };
-
-  const saveFollowPreferences = async () => {
-    if (!token) return;
-    setFollowSaving(true);
-    setFollowError(null);
-    try {
-      await matchesService.saveFollowPreferences({
-        competitions: followDraft.map((c) => ({
-          official_group_id: c.id,
-          heart_team_names: c.heart_team_names || [],
-          notify_team_names: c.notify_team_names || [],
-        })),
-      });
-      setFollowModalVisible(false);
-      await Promise.all([load(selectedDate, true), loadStripTeams(true)]);
-    } catch (e) {
-      setFollowError(e?.response?.data?.message || e?.message || 'Salvataggio non riuscito');
-    } finally {
-      setFollowSaving(false);
-    }
-  };
+  const hasFavoriteTeams = useMemo(
+    () => heartTeams.some((t) => Number(t?.is_heart) === 1),
+    [heartTeams]
+  );
 
   return (
     <View style={styles.container}>
@@ -980,7 +913,7 @@ export default function MatchesScreen() {
         )
       ) : null}
 
-      {token ? (
+      {token && !hasFavoriteTeams ? (
         <TouchableOpacity style={styles.fabStar} onPress={openFollowModal} accessibilityLabel="Squadre preferite e notifiche">
           <Ionicons name="star" size={26} color="#fff" />
         </TouchableOpacity>
@@ -1047,76 +980,12 @@ export default function MatchesScreen() {
         </View>
       ) : null}
 
-      <Modal visible={followModalVisible} transparent animationType="fade" onRequestClose={() => setFollowModalVisible(false)}>
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalBox, { maxHeight: '85%' }]}>
-            <Text style={styles.modalTitle}>Squadre preferite</Text>
-            {followLoading ? (
-              <ActivityIndicator style={{ marginVertical: 24 }} color="#667eea" />
-            ) : (
-              <ScrollView style={styles.modalScroll} keyboardShouldPersistTaps="handled">
-                {followError ? <Text style={styles.errorText}>{followError}</Text> : null}
-                {followDraft.map((c) => (
-                  <View key={`follow-comp-${c.id}`} style={styles.followCompBlock}>
-                    <Text style={styles.followCompTitle}>{c.name}</Text>
-                    {(c.teams || []).length === 0 ? (
-                      <Text style={styles.mutedSmall}>Nessuna squadra in elenco</Text>
-                    ) : (
-                      (c.teams || []).map((t) => {
-                        const team = typeof t === 'string' ? { name: t } : (t || {});
-                        const tname = String(team.name || '').trim();
-                        if (!tname) return null;
-                        const isHeart = (c.heart_team_names || []).includes(tname);
-                        const isNotify = (c.notify_team_names || []).includes(tname);
-                        return (
-                          <View key={`${c.id}-${tname}`} style={styles.followTeamRow}>
-                            <TouchableOpacity
-                              style={styles.followTeamMain}
-                              activeOpacity={0.75}
-                              onPress={() => goToOfficialTeamDetailFromModal(team.id, c.id, tname)}
-                            >
-                              <TeamRowLogo logoUrl={team.logo_url} logoPath={team.logo_path} />
-                              <Text style={styles.followTeamName} numberOfLines={1}>
-                                {tname}
-                              </Text>
-                            </TouchableOpacity>
-                            <View style={styles.followIcons}>
-                              <TouchableOpacity
-                                style={[styles.followIconBtn, isHeart && styles.followIconBtnActive]}
-                                onPress={() => toggleDraftHeart(c.id, tname)}
-                              >
-                                <Ionicons name={isHeart ? 'star' : 'star-outline'} size={22} color={isHeart ? '#ffc107' : '#888'} />
-                              </TouchableOpacity>
-                              <TouchableOpacity
-                                style={[styles.followIconBtn, isNotify && styles.followIconBtnActive]}
-                                onPress={() => toggleDraftNotify(c.id, tname)}
-                              >
-                                <Ionicons name={isNotify ? 'notifications' : 'notifications-outline'} size={22} color={isNotify ? '#667eea' : '#888'} />
-                              </TouchableOpacity>
-                            </View>
-                          </View>
-                        );
-                      })
-                    )}
-                  </View>
-                ))}
-              </ScrollView>
-            )}
-            <View style={styles.modalActions}>
-              <TouchableOpacity style={styles.modalBtnSecondary} onPress={() => setFollowModalVisible(false)} disabled={followSaving}>
-                <Text style={styles.modalBtnSecondaryText}>Chiudi</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.modalBtnPrimary, followSaving && styles.modalBtnDisabled]}
-                onPress={saveFollowPreferences}
-                disabled={followLoading || followSaving}
-              >
-                <Text style={styles.modalBtnPrimaryText}>{followSaving ? 'Salvo…' : 'Salva'}</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+      <FollowTeamsPreferencesModal
+        visible={followModalVisible}
+        onClose={() => setFollowModalVisible(false)}
+        token={token}
+        onSaved={onFollowPreferencesSaved}
+      />
     </View>
   );
 }
@@ -1413,55 +1282,6 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 5,
   },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.45)',
-    justifyContent: 'center',
-    paddingHorizontal: 16,
-  },
-  modalBox: {
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 16,
-  },
-  modalTitle: { fontSize: 18, fontWeight: '800', color: '#222', marginBottom: 6 },
-  modalHint: { fontSize: 12, color: '#666', marginBottom: 12, lineHeight: 18 },
-  modalScroll: { flexGrow: 0 },
-  modalActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10, marginTop: 12 },
-  modalBtnSecondary: {
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#ddd',
-  },
-  modalBtnSecondaryText: { fontWeight: '700', color: '#444' },
-  modalBtnPrimary: { backgroundColor: '#667eea', paddingVertical: 10, paddingHorizontal: 18, borderRadius: 10 },
-  modalBtnPrimaryText: { fontWeight: '700', color: '#fff' },
-  modalBtnDisabled: { opacity: 0.55 },
-  followCompBlock: { borderTopWidth: 1, borderTopColor: '#eee', paddingTop: 12, marginTop: 8 },
-  followCompTitle: { fontSize: 14, fontWeight: '800', color: '#333', marginBottom: 8 },
-  followTeamRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#f0f0f0',
-  },
-  followTeamMain: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 8, marginRight: 8 },
-  followTeamName: { flex: 1, minWidth: 0, fontSize: 14, fontWeight: '600', color: '#222' },
-  followIcons: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  followIconBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#f5f5f5',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  followIconBtnActive: { backgroundColor: '#f0f4ff' },
-  mutedSmall: { fontSize: 12, color: '#999' },
   heartStripWrap: {
     backgroundColor: '#f5f5f5',
   },
