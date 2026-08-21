@@ -21,7 +21,7 @@ import VotesPlayerRow, {
   LIVE_DIRECT_VOTE_FIELDS,
 } from './VotesPlayerRow';
 import ConfirmAlertModal from './ConfirmAlertModal';
-import { normalizeVoteRating, isSvVoteRating, SV_VOTE_RATING } from '../utils/voteRating';
+import { normalizeVoteRating, isSvVoteRating, SV_VOTE_RATING, isLegacyFlexibleVotesYear } from '../utils/voteRating';
 import { useScrollInputAboveKeyboard, VOTE_INPUT_FIXED_ABOVE_KEYBOARD } from '../utils/scrollInputAboveKeyboard';
 
 function pickInitialDraft(links, side) {
@@ -42,8 +42,11 @@ function getVoteUiMode(playerId, vote, savedVotePlayerIds, explicitNdPlayerIds) 
   return 'unset';
 }
 
-function clearsBonusFields(rating) {
-  return rating === 0 || isSvVoteRating(rating);
+/** N.D. (0) azzera sempre i bonus; S.V. solo se non siamo in modalità legacy ≤2005. */
+function clearsBonusFields(rating, allowBonusWithSv = false) {
+  if (Number(rating) === 0 && !isSvVoteRating(rating)) return true;
+  if (isSvVoteRating(rating)) return !allowBonusWithSv;
+  return false;
 }
 
 /** Copia i bonus automatici da eventi partita (non azzerarli con S.V./N.D.). */
@@ -375,6 +378,7 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
   const [savedVotePlayerIds, setSavedVotePlayerIds] = useState(() => new Set());
   const [explicitNdPlayerIds, setExplicitNdPlayerIds] = useState(() => new Set());
   const [bonusSettings, setBonusSettings] = useState(DEFAULT_BONUS_SETTINGS);
+  const [referenceYear, setReferenceYear] = useState(null);
   const [expandedTeams, setExpandedTeams] = useState({});
   const [picker, setPicker] = useState(null);
   const [draftHomeMd, setDraftHomeMd] = useState(null);
@@ -403,6 +407,7 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
   }, []);
 
   const enableOfficialSvVote = Number(bonusSettings?.enable_official_sv_vote) === 1;
+  const allowBonusWithSv = isLegacyFlexibleVotesYear(referenceYear);
 
   const focusablePlayerEntries = useMemo(() => {
     const entries = [];
@@ -495,6 +500,7 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
       });
       const bonus = data.bonus_settings || DEFAULT_BONUS_SETTINGS;
       const svEnabled = Number(bonus.enable_official_sv_vote) === 1;
+      setReferenceYear(data.reference_year != null ? Number(data.reference_year) : null);
       const savedIds = new Set(
         (data.saved_vote_player_ids || []).map(Number).filter((n) => Number.isFinite(n) && n > 0)
       );
@@ -516,6 +522,8 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
       setVotesData(null);
       setVotes({});
       liveBonusRef.current = {};
+      setBonusSettings(DEFAULT_BONUS_SETTINGS);
+      setReferenceYear(null);
       setSavedVotePlayerIds(new Set());
       setExplicitNdPlayerIds(new Set());
       savedSnapshot.current = '{}';
@@ -674,7 +682,7 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
           return next;
         });
       }
-      const zeroBonus = clearsBonusFields(nr);
+      const zeroBonus = clearsBonusFields(nr, allowBonusWithSv);
       const nextVote = {
         ...current,
         rating: nr,
@@ -688,7 +696,7 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
         [pid]: pinLiveDirectBonusFields(nextVote, liveSnap || current),
       };
     });
-  }, [enableOfficialSvVote, clearExplicitNd]);
+  }, [enableOfficialSvVote, clearExplicitNd, allowBonusWithSv]);
 
   const setRatingValue = useCallback((playerId, value) => {
     // Campo lasciato vuoto: non forzare N.D., resta il voto precedente (es. S.V.)
@@ -707,7 +715,7 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
     setVotes((prev) => {
       const current = prev[pid] || { ...EMPTY_VOTE };
       const liveSnap = liveBonusRef.current[pid];
-      const zeroBonus = clearsBonusFields(rating);
+      const zeroBonus = clearsBonusFields(rating, allowBonusWithSv);
       const nextVote = {
         ...current,
         rating,
@@ -721,7 +729,7 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
         [pid]: pinLiveDirectBonusFields(nextVote, liveSnap || current),
       };
     });
-  }, [clearExplicitNd]);
+  }, [clearExplicitNd, allowBonusWithSv]);
 
   const activateND = useCallback((playerId) => {
     const pid = Number(playerId);
@@ -755,29 +763,29 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
     if (isLiveDirectField(field)) return;
     setVotes((prev) => {
       const current = prev[playerId] || prev[String(playerId)] || { ...EMPTY_VOTE };
-      if (clearsBonusFields(current.rating)) return prev;
+      if (clearsBonusFields(current.rating, allowBonusWithSv)) return prev;
       return { ...prev, [playerId]: { ...current, [field]: value } };
     });
-  }, [isLiveDirectField]);
+  }, [isLiveDirectField, allowBonusWithSv]);
 
   const incrementBonus = useCallback((playerId, field) => {
     if (isLiveDirectField(field)) return;
     setVotes((prev) => {
       const current = prev[playerId] || prev[String(playerId)] || { ...EMPTY_VOTE };
-      if (clearsBonusFields(current.rating)) return prev;
+      if (clearsBonusFields(current.rating, allowBonusWithSv)) return prev;
       return { ...prev, [playerId]: { ...current, [field]: (current[field] || 0) + 1 } };
     });
-  }, [isLiveDirectField]);
+  }, [isLiveDirectField, allowBonusWithSv]);
 
   const decrementBonus = useCallback((playerId, field) => {
     if (isLiveDirectField(field)) return;
     setVotes((prev) => {
       const current = prev[playerId] || prev[String(playerId)] || { ...EMPTY_VOTE };
-      if (clearsBonusFields(current.rating)) return prev;
+      if (clearsBonusFields(current.rating, allowBonusWithSv)) return prev;
       const val = (current[field] || 0) - 1;
       return { ...prev, [playerId]: { ...current, [field]: val < 0 ? 0 : val } };
     });
-  }, [isLiveDirectField]);
+  }, [isLiveDirectField, allowBonusWithSv]);
 
   const flushPendingVoteInputs = useCallback((players) => {
     Keyboard.dismiss();
@@ -794,7 +802,7 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
 
       const current = merged[pid] || merged[String(pid)] || EMPTY_VOTE;
       const liveSnap = liveBonusRef.current[pid];
-      const committed = applyVoteInputCommitToVote(current, commit);
+      const committed = applyVoteInputCommitToVote(current, commit, { allowBonusWithSv });
       merged = {
         ...merged,
         [pid]: pinLiveDirectBonusFields(committed, liveSnap || current),
@@ -814,7 +822,7 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
       setVotes(merged);
     }
     return merged;
-  }, [clearExplicitNd]);
+  }, [clearExplicitNd, allowBonusWithSv]);
 
   const buildSavePayload = useCallback((teamId = null, votesMap = votesRef.current) => {
     const teamList = votesData?.teams || [];
@@ -1050,6 +1058,7 @@ export default function MatchVotesTab({ matchId, canManageLinks, onLinksUpdated,
                             voteUiMode={voteUiMode}
                             bonusSettings={bonusSettings}
                             bonusEnabled={bonusEnabled}
+                            allowBonusWithSv={allowBonusWithSv}
                             enableOfficialSvVote={enableOfficialSvVote}
                             liveDirectFields={LIVE_DIRECT_VOTE_FIELDS}
                             onSetRating={setRatingValue}

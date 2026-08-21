@@ -1,6 +1,6 @@
 const { query } = require('../config/database');
 const { isOfficialLeague } = require('./matchdayGhost');
-const { normalizeVoteRating, isSvVoteRating } = require('./voteRating');
+const { normalizeVoteRating, isSvVoteRating, isLegacyFlexibleVotesYear } = require('./voteRating');
 const { isOfficialMatchWalkover } = require('./officialMatchWalkover');
 const { tallyOfficialMatchEventScores } = require('./officialMatchOutcome');
 const {
@@ -1109,7 +1109,7 @@ async function buildVotesBundleFromOptions(matchId, options) {
   const homeTeamId = Number(options.home_team.id);
   const awayTeamId = Number(options.away_team.id);
 
-  const [players, bonusSettings, liveEvents, unavailable] = await Promise.all([
+  const [players, bonusSettings, liveEvents, unavailable, leagueYearRows] = await Promise.all([
     query(
       `SELECT p.id, p.first_name, p.last_name, p.role, p.team_id, t.name AS team_name
        FROM players p
@@ -1124,8 +1124,16 @@ async function buildVotesBundleFromOptions(matchId, options) {
     getBonusSettings(options.league_id),
     fetchMatchLiveDirectEvents(matchId),
     loadUnavailablePlayerIds(matchId, [homeTeamId, awayTeamId]),
+    query(
+      `SELECT reference_year FROM leagues WHERE id = ? LIMIT 1`,
+      [options.league_id]
+    ).catch(() => []),
   ]);
 
+  const referenceYearRaw = leagueYearRows?.[0]?.reference_year;
+  const referenceYear = referenceYearRaw != null && referenceYearRaw !== ''
+    ? Number(referenceYearRaw)
+    : null;
   const homePlayerIds = [];
   const awayPlayerIds = [];
   for (const p of players || []) {
@@ -1173,6 +1181,7 @@ async function buildVotesBundleFromOptions(matchId, options) {
   return {
     league_id: options.league_id,
     effective_league_id: effectiveLeagueId,
+    reference_year: Number.isFinite(referenceYear) ? referenceYear : null,
     links: options.links,
     teams,
     votes: mergedVotes,
@@ -1251,8 +1260,9 @@ async function saveMatchVotes(matchId, body) {
       requireMvbPresence = await teamHasAnySavedVotesInDb(opponentTeam, effectiveLeagueId);
     }
   }
+  const legacyFlexibleVotes = isLegacyFlexibleVotesYear(bundle.reference_year);
   assertMvbPerMatch(matchRatingsForMvb, bonusSettings, {
-    requireMvbPresence: isWalkoverMatch ? false : requireMvbPresence,
+    requireMvbPresence: isWalkoverMatch || legacyFlexibleVotes ? false : requireMvbPresence,
   });
 
   const homeTeam = (bundle.teams || []).find((t) => t.side === 'home') || bundle.teams?.[0];

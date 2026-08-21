@@ -36,3 +36,9 @@ export function formatVoteRating(value, { empty = '-' } = {}) {
   if (n <= 0) return empty;
   return n.toFixed(2);
 }
+
+/** Leghe con reference_year <= 2005: voti più liberi (bonus con S.V., MVP non obbligatorio). */
+export function isLegacyFlexibleVotesYear(year) {
+  const y = Number(year);
+  return Number.isFinite(y) && y > 0 && y <= 2005;
+}

@@ -10,8 +10,8 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 
 const BANDS = [
   { key: '≥7.5', title: 'Eccellente', range: '≥ 7.5', color: '#0f766e', track: '#ccfbf1' },
-  { key: '7-7.5', title: 'Buono', range: '7 – 7.5', color: '#15803d', track: '#dcfce7' },
-  { key: '6.5-7', title: 'Discreto', range: '6.5 – 7', color: '#65a30d', track: '#ecfccb' },
+  { key: '7-7.5', title: 'Ottimo', range: '7 – 7.5', color: '#15803d', track: '#dcfce7' },
+  { key: '6.5-7', title: 'Buono', range: '6.5 – 7', color: '#65a30d', track: '#ecfccb' },
   { key: '6-6.5', title: 'Sufficiente', range: '6 – 6.5', color: '#ca8a04', track: '#fef9c3' },
   { key: '<6', title: 'Insufficiente', range: '< 6', color: '#b91c1c', track: '#fee2e2' },
 ];

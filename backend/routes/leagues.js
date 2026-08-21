@@ -779,6 +779,7 @@ async function getLeagueByIdForUser(leagueId, userId) {
             l.linked_to_league_id,
             COALESCE(l.is_official, 0) AS is_official,
             l.official_group_id,
+            l.reference_year,
             COALESCE(l.recover_previous_lineup_if_missing, 1) AS recover_previous_lineup_if_missing,
             ll.name AS linked_league_name,
             lm.role, ub.team_name, ub.coach_name, ub.team_logo,

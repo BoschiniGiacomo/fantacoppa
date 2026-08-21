@@ -41,6 +41,12 @@ function formatVoteRating(value, { empty = '-' } = {}) {
   return n.toFixed(2);
 }
 
+/** Leghe con reference_year <= 2005: voti più liberi (bonus con S.V., MVP non obbligatorio). */
+function isLegacyFlexibleVotesYear(year) {
+  const y = Number(year);
+  return Number.isFinite(y) && y > 0 && y <= 2005;
+}
+
 /** SQL: voto che conta come presenza (voto reale o S.V.). */
 const SQL_WHERE_PRESENCE_VOTE = '(pr.rating > 0 OR ABS(pr.rating + 0.25) < 0.001)';
 
@@ -55,6 +61,7 @@ module.exports = {
   isScoredVoteRating,
   normalizeVoteRating,
   formatVoteRating,
+  isLegacyFlexibleVotesYear,
   SQL_WHERE_PRESENCE_VOTE,
   SQL_WHERE_SCORED_VOTE,
 };

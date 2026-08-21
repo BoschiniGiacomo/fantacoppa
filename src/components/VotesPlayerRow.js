@@ -283,6 +283,7 @@ const VotesPlayerRow = forwardRef(function VotesPlayerRow({
   voteUiMode = 'unset',
   bonusSettings,
   bonusEnabled,
+  allowBonusWithSv = false,
   liveDirectFields,
   onUpdateRating,
   onSetRating,
@@ -304,6 +305,7 @@ const VotesPlayerRow = forwardRef(function VotesPlayerRow({
   const isUnset = voteUiMode === 'unset';
   const hasVote = voteUiMode === 'has_vote';
   const hasSv = voteUiMode === 'has_sv';
+  const showBonusPanel = bonusEnabled && bonusSettings && (hasVote || (allowBonusWithSv && hasSv));
   const ratingDisplay = hasVote ? formatVoteRating(pv.rating, { empty: '' }) : '';
   const [editingText, setEditingText] = useState(null);
   const isEditing = editingText !== null;
@@ -465,7 +467,7 @@ const VotesPlayerRow = forwardRef(function VotesPlayerRow({
         )}
       </View>
 
-      {bonusEnabled && hasVote && bonusSettings ? (
+      {showBonusPanel ? (
         <VotesBonusMalusBlock
           player={player}
           playerVote={pv}
@@ -484,6 +486,7 @@ export default memo(VotesPlayerRow, (prev, next) => (
   prev.playerVote === next.playerVote
   && prev.voteUiMode === next.voteUiMode
   && prev.bonusEnabled === next.bonusEnabled
+  && prev.allowBonusWithSv === next.allowBonusWithSv
   && prev.liveDirectFields === next.liveDirectFields
   && prev.isLastInput === next.isLastInput
 ));
@@ -524,7 +527,7 @@ export function resolveVoteInputCommit(text, { enableOfficialSvVote = false } = 
   return { type: 'rating', rating };
 }
 
-export function applyVoteInputCommitToVote(current, commit) {
+export function applyVoteInputCommitToVote(current, commit, { allowBonusWithSv = false } = {}) {
   const base = current || EMPTY_VOTE;
   if (!commit) return base;
   if (commit.type === 'nd') {
@@ -535,7 +538,8 @@ export function applyVoteInputCommitToVote(current, commit) {
     return cleared;
   }
   const rating = commit.type === 'sv' ? SV_VOTE_RATING : commit.rating;
-  const zeroBonus = rating === 0 || isSvVoteRating(rating);
+  const zeroBonus = (Number(rating) === 0 && !isSvVoteRating(rating))
+    || (isSvVoteRating(rating) && !allowBonusWithSv);
   const next = {
     ...base,
     rating,
