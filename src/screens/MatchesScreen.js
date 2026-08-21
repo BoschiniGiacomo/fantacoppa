@@ -303,7 +303,7 @@ export default function MatchesScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const isFocused = useIsFocused();
-  const { user, token } = useAuth();
+  const { user, token, refreshSession } = useAuth();
   const superuserLevel = Number(user?.is_superuser || 0);
   const canOpenMatchManagement = superuserLevel === 1 || superuserLevel === 2;
   const [selectedDate, setSelectedDate] = useState(toDateKey(withOffset(0)));
@@ -364,7 +364,9 @@ export default function MatchesScreen() {
   useFocusEffect(
     useCallback(() => {
       void loadStripTeams(false);
-    }, [loadStripTeams])
+      // Ruolo admin/GM può essere cambiato da SuperUser: riallinea subito.
+      refreshSession?.().catch(() => {});
+    }, [loadStripTeams, refreshSession])
   );
 
   const selectDate = useCallback((dateKey) => {

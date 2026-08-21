@@ -62,6 +62,27 @@ async function clearPersistedAuth() {
   await AsyncStorage.multiRemove([AUTH_TOKEN_KEY, AUTH_USER_KEY]);
 }
 
+/** Normalizza lo user remoto (ruolo sempre numerico). */
+function normalizeAuthUser(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  return {
+    ...raw,
+    id: raw.id != null ? Number(raw.id) : raw.id,
+    is_superuser: Number(raw.is_superuser || 0),
+  };
+}
+
+function authUserSnapshotChanged(prev, next) {
+  if (!next) return false;
+  if (!prev) return true;
+  return (
+    Number(prev.id) !== Number(next.id)
+    || Number(prev.is_superuser || 0) !== Number(next.is_superuser || 0)
+    || String(prev.username || '') !== String(next.username || '')
+    || String(prev.email || '') !== String(next.email || '')
+  );
+}
+
 /**
  * Solo errori che dimostrano sessione non più valida.
  * Timeout/rete/5xx NON devono far uscire l’utente (tipico dopo OTA / cold start Render).
@@ -99,9 +120,13 @@ export const AuthProvider = ({ children }) => {
     let intervalId = null;
     let isForeground = AppState.currentState === 'active';
 
-    const sendPresencePing = async () => {
+    const syncUserFromPing = async () => {
       try {
-        await authService.presencePing();
+        const res = await authService.presencePing();
+        const remoteUser = res?.data?.user;
+        if (remoteUser && typeof remoteUser === 'object') {
+          await applyRemoteUser(remoteUser);
+        }
       } catch (_) {
         // Silent fail: presenza non deve disturbare UX.
       }
@@ -109,9 +134,11 @@ export const AuthProvider = ({ children }) => {
 
     const startHeartbeat = () => {
       if (intervalId != null) return;
-      // Ping immediato quando torni in foreground
-      sendPresencePing();
-      intervalId = setInterval(sendPresencePing, HEARTBEAT_MS);
+      // Ping leggero subito in foreground (ruolo via snapshot user, senza /auth/verify)
+      void syncUserFromPing();
+      intervalId = setInterval(() => {
+        void syncUserFromPing();
+      }, HEARTBEAT_MS);
     };
 
     const stopHeartbeat = () => {
@@ -135,7 +162,7 @@ export const AuthProvider = ({ children }) => {
       stopHeartbeat();
       subscription?.remove?.();
     };
-  }, [token, user]);
+  }, [token, user?.id]);
 
   useEffect(() => {
     setUnauthorizedHandler(async () => {
@@ -168,11 +195,62 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   const persistSession = async (newToken, newUser) => {
+    const normalizedUser = normalizeAuthUser(newUser) || newUser;
     await AsyncStorage.setItem(AUTH_TOKEN_KEY, newToken);
-    await AsyncStorage.setItem(AUTH_USER_KEY, JSON.stringify(newUser));
+    await AsyncStorage.setItem(AUTH_USER_KEY, JSON.stringify(normalizedUser));
     setToken(newToken);
-    setUser(newUser);
+    setUser(normalizedUser);
     authService.setAuthToken(newToken);
+  };
+
+  const applyRemoteUser = async (remoteUser) => {
+    const normalized = normalizeAuthUser(remoteUser);
+    if (!normalized) return null;
+    setUser((prev) => {
+      const merged = { ...(prev || {}), ...normalized };
+      const next = normalizeAuthUser(merged);
+      if (!authUserSnapshotChanged(prev, next)) return prev;
+      AsyncStorage.setItem(AUTH_USER_KEY, JSON.stringify(next)).catch(() => {});
+      return next;
+    });
+    return normalized;
+  };
+
+  const refreshSession = async ({ forceTokenRefresh = false } = {}) => {
+    try {
+      const verifyRes = await authService.validateSession();
+      const remoteUser = verifyRes?.data?.user;
+      if (remoteUser && typeof remoteUser === 'object') {
+        await applyRemoteUser(remoteUser);
+      }
+      const refreshedToken = verifyRes?.data?.token;
+      if (
+        forceTokenRefresh
+        && refreshedToken
+        && typeof refreshedToken === 'string'
+      ) {
+        await AsyncStorage.setItem(AUTH_TOKEN_KEY, refreshedToken);
+        setToken(refreshedToken);
+        authService.setAuthToken(refreshedToken);
+      } else if (refreshedToken && typeof refreshedToken === 'string') {
+        const current = await AsyncStorage.getItem(AUTH_TOKEN_KEY);
+        if (refreshedToken !== current) {
+          await AsyncStorage.setItem(AUTH_TOKEN_KEY, refreshedToken);
+          setToken(refreshedToken);
+          authService.setAuthToken(refreshedToken);
+        }
+      }
+      return { ok: true };
+    } catch (error) {
+      if (isDefinitiveSessionInvalid(error)) {
+        await clearPersistedAuth();
+        setToken(null);
+        setUser(null);
+        authService.setAuthToken(null);
+        return { ok: false, invalid: true };
+      }
+      return { ok: false, invalid: false };
+    }
   };
 
   const loadStoredAuth = async () => {
@@ -191,7 +269,7 @@ export const AuthProvider = ({ children }) => {
 
       let parsedUser = null;
       try {
-        parsedUser = JSON.parse(storedUser);
+        parsedUser = normalizeAuthUser(JSON.parse(storedUser));
       } catch (_) {
         await clearPersistedAuth();
         authService.setAuthToken(null);
@@ -219,7 +297,7 @@ export const AuthProvider = ({ children }) => {
         const remoteUser = verifyRes?.data?.user;
         let nextUser = parsedUser;
         if (remoteUser && typeof remoteUser === 'object') {
-          nextUser = { ...parsedUser, ...remoteUser };
+          nextUser = normalizeAuthUser({ ...parsedUser, ...remoteUser });
           setUser(nextUser);
           await AsyncStorage.setItem(AUTH_USER_KEY, JSON.stringify(nextUser));
         }
@@ -359,6 +437,7 @@ export const AuthProvider = ({ children }) => {
     login,
     register,
     logout,
+    refreshSession,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

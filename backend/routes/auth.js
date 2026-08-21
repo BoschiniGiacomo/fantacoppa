@@ -182,9 +182,35 @@ router.post('/logout', (req, res) => {
 });
 
 // Presence ping: chiamata periodica dal client quando l'app è in foreground.
-// Il middleware auth aggiorna last_login con heartbeat.
-router.post('/presence/ping', authenticateToken, async (_req, res) => {
-  return res.json({ ok: true, server_time: new Date().toISOString() });
+// Restituisce anche lo snapshot utente (ruolo) così i cambi admin si propagano senza re-login.
+router.post('/presence/ping', authenticateToken, async (req, res) => {
+  try {
+    const userId = Number(req.user?.userId);
+    if (!Number.isFinite(userId) || userId <= 0) {
+      return res.json({ ok: true, server_time: new Date().toISOString() });
+    }
+    const rows = await query(
+      `SELECT id, username, email, COALESCE(is_superuser, 0) AS is_superuser
+       FROM users WHERE id = ? LIMIT 1`,
+      [userId]
+    );
+    const row = rows[0];
+    if (!row) {
+      return res.json({ ok: true, server_time: new Date().toISOString() });
+    }
+    return res.json({
+      ok: true,
+      server_time: new Date().toISOString(),
+      user: {
+        id: Number(row.id),
+        username: row.username,
+        email: row.email,
+        is_superuser: Number(row.is_superuser || 0),
+      },
+    });
+  } catch (_) {
+    return res.json({ ok: true, server_time: new Date().toISOString() });
+  }
 });
 
 const FORGOT_PASSWORD_GENERIC_MESSAGE =

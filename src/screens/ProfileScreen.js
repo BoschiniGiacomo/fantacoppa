@@ -14,10 +14,10 @@ import { useAuth } from '../context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import { authService } from '../services/api';
 import { openSystemNotificationSettings } from '../services/notificationService';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 
 export default function ProfileScreen() {
-  const { user, logout } = useAuth();
+  const { user, logout, refreshSession } = useAuth();
   const navigation = useNavigation();
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
@@ -29,6 +29,12 @@ export default function ProfileScreen() {
   const [loading, setLoading] = useState(false);
   const [toastMsg, setToastMsg] = useState(null);
   const [confirmModal, setConfirmModal] = useState(null);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      refreshSession?.().catch(() => {});
+    }, [refreshSession])
+  );
 
   const showToast = (text, type = 'error') => {
     setToastMsg({ text, type });
