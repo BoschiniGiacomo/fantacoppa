@@ -640,56 +640,71 @@ async function loadClusterMeta(clusterId) {
 }
 
 router.get('/users', authenticateToken, requireSuperuser, async (_req, res) => {
-  try {
-    // Compatibile con schema legacy: prova con user_presence, fallback se tabella assente/non accessibile.
-    try {
-      const rows = await query(
-        `SELECT
-           u.id,
-           u.username,
-           u.email,
-           COALESCE(u.is_superuser, 0) AS is_superuser,
-           COALESCE(
-             up.last_seen_at,
-             NULLIF(to_jsonb(u)->>'last_login', '')::timestamp
-           ) AS last_login,
-           CASE
-             WHEN COALESCE(
-               up.last_seen_at,
-               NULLIF(to_jsonb(u)->>'last_login', '')::timestamp
-             ) >= (NOW() - INTERVAL '2 minutes') THEN 1
-             ELSE 0
-           END AS is_online
-         FROM users u
-         LEFT JOIN user_presence up ON up.user_id = u.id
-         ORDER BY u.username ASC, u.id ASC`
-      );
-      return res.json(rows);
-    } catch (innerError) {
-      const code = String(innerError?.code || '').toLowerCase();
-      const msg = String(innerError?.message || '').toLowerCase();
-      const isPresenceUnavailable =
-        code === '42p01' ||
-        msg.includes('user_presence') ||
-        msg.includes('relation') ||
-        msg.includes('does not exist');
-      if (!isPresenceUnavailable) throw innerError;
+  const normalizeRows = (rows) =>
+    (Array.isArray(rows) ? rows : []).map((r) => ({
+      id: Number(r.id),
+      username: r.username,
+      email: r.email,
+      is_superuser: Number(r.is_superuser || 0),
+      last_login: r.last_login || null,
+      is_online: Number(r.is_online) ? 1 : 0,
+    }));
 
-      const fallbackRows = await query(
-        `SELECT
-           u.id,
-           u.username,
-           u.email,
-           COALESCE(u.is_superuser, 0) AS is_superuser,
-           NULLIF(to_jsonb(u)->>'last_login', '')::timestamp AS last_login,
-           CASE
-             WHEN NULLIF(to_jsonb(u)->>'last_login', '')::timestamp >= (NOW() - INTERVAL '2 minutes') THEN 1
-             ELSE 0
-           END AS is_online
-         FROM users u
-         ORDER BY u.username ASC, u.id ASC`
-      );
-      return res.json(fallbackRows);
+  const selectUsersSql = ({ withPresence, withLastLoginCol }) => {
+    const lastLoginExpr = withLastLoginCol ? 'u.last_login' : 'NULL::timestamptz';
+    const lastSeenExpr = withPresence
+      ? `COALESCE(up.last_seen_at, ${lastLoginExpr})`
+      : lastLoginExpr;
+    const fromSql = withPresence
+      ? `FROM users u
+         LEFT JOIN user_presence up ON up.user_id = u.id`
+      : `FROM users u`;
+    return `
+      SELECT
+        u.id,
+        u.username,
+        u.email,
+        COALESCE(u.is_superuser, 0) AS is_superuser,
+        ${lastSeenExpr} AS last_login,
+        CASE
+          WHEN ${lastSeenExpr} >= (NOW() - INTERVAL '2 minutes') THEN 1
+          ELSE 0
+        END AS is_online
+      ${fromSql}
+      ORDER BY u.username ASC, u.id ASC
+    `;
+  };
+
+  try {
+    // Preferenza: presence + last_login colonna (niente to_jsonb).
+    try {
+      const rows = await query(selectUsersSql({ withPresence: true, withLastLoginCol: true }));
+      return res.json(normalizeRows(rows));
+    } catch (err1) {
+      const code1 = String(err1?.code || '');
+      const msg1 = String(err1?.message || '').toLowerCase();
+      const noPresence = code1 === '42P01' || msg1.includes('user_presence');
+      const noLastLogin = code1 === '42703' || msg1.includes('last_login');
+
+      try {
+        if (noPresence) {
+          const rows = await query(selectUsersSql({ withPresence: false, withLastLoginCol: true }));
+          return res.json(normalizeRows(rows));
+        }
+        if (noLastLogin) {
+          const rows = await query(selectUsersSql({ withPresence: true, withLastLoginCol: false }));
+          return res.json(normalizeRows(rows));
+        }
+        throw err1;
+      } catch (err2) {
+        const code2 = String(err2?.code || '');
+        const msg2 = String(err2?.message || '').toLowerCase();
+        if (code2 === '42P01' || code2 === '42703' || msg2.includes('user_presence') || msg2.includes('last_login')) {
+          const rows = await query(selectUsersSql({ withPresence: false, withLastLoginCol: false }));
+          return res.json(normalizeRows(rows));
+        }
+        throw err2;
+      }
     }
   } catch (error) {
     return res.status(500).json({ message: 'Errore caricamento utenti', error: error.message });

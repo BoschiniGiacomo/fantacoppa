@@ -494,12 +494,13 @@ export default function SuperUserScreen() {
   }, [isSuperuser, clusterFilters.includeSingles]);
   
   // Carica utenti
-  const loadUsers = async () => {
+  const loadUsers = async ({ silent = false } = {}) => {
     if (!isSuperuser) return;
     try {
-      setLoadingUsers(true);
+      // Spinner a pieno schermo solo al primo caricamento (lista vuota)
+      if (!silent && users.length === 0) setLoadingUsers(true);
       const response = await superuserService.getUsers();
-      setUsers(response.data || []);
+      setUsers(Array.isArray(response.data) ? response.data : []);
     } catch (error) {
       console.error('Error loading users:', error);
       showToast('Impossibile caricare gli utenti');
@@ -1287,7 +1288,7 @@ export default function SuperUserScreen() {
   useEffect(() => {
     if (isSuperuser) {
       if (activeTab === 'users') {
-        loadUsers();
+        void loadUsers({ silent: users.length > 0 });
       } else if (activeTab === 'leagues') {
         loadLeagues();
       } else if (activeTab === 'officials') {
@@ -1503,7 +1504,7 @@ export default function SuperUserScreen() {
               ? { ...prev, is_superuser: nextLevel }
               : prev
           ));
-          await loadUsers();
+          await loadUsers({ silent: true });
           showToast(`Ruolo aggiornato: ${labels[nextLevel] || 'nessun ruolo'}`, 'success');
         } catch (error) {
           console.error('Error updating superuser level:', error);
@@ -1660,7 +1661,7 @@ export default function SuperUserScreen() {
           await superuserService.updateUserUsername(user.id, next);
           setSelectedUserDetail((prev) => (prev ? { ...prev, username: next } : prev));
           setUserDetailEditingField(null);
-          await loadUsers();
+          await loadUsers({ silent: true });
           showToast('Nome utente aggiornato', 'success');
         } catch (error) {
           showToast(error.response?.data?.message || 'Errore aggiornamento nome utente');
@@ -1693,7 +1694,7 @@ export default function SuperUserScreen() {
           await superuserService.updateUserEmail(user.id, next);
           setSelectedUserDetail((prev) => (prev ? { ...prev, email: next } : prev));
           setUserDetailEditingField(null);
-          await loadUsers();
+          await loadUsers({ silent: true });
           showToast('Email aggiornata', 'success');
         } catch (error) {
           showToast(error.response?.data?.message || 'Errore aggiornamento email');
@@ -2158,6 +2159,27 @@ export default function SuperUserScreen() {
       year: 'numeric',
       hour: '2-digit',
       minute: '2-digit',
+    });
+  };
+
+  /** Ultimo accesso compatto per la lista utenti */
+  const formatUserLastAccessCompact = (dateString) => {
+    if (!dateString) return 'Mai';
+    const date = new Date(dateString);
+    if (!Number.isFinite(date.getTime())) return 'Mai';
+    const now = new Date();
+    const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const startThat = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+    const dayDiff = Math.round((startToday - startThat) / 86400000);
+    if (dayDiff === 0) {
+      return date.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+    }
+    if (dayDiff === 1) return 'Ieri';
+    if (dayDiff > 1 && dayDiff < 7) return `${dayDiff}g fa`;
+    return date.toLocaleDateString('it-IT', {
+      day: '2-digit',
+      month: '2-digit',
+      year: '2-digit',
     });
   };
 
@@ -2783,37 +2805,49 @@ export default function SuperUserScreen() {
   
   const renderUserItem = ({ item }) => {
     const suLevel = Number(item?.is_superuser || 0);
+    const initial = String(item.username || '?').trim().charAt(0).toUpperCase() || '?';
+    const online = !!item.is_online;
     return (
-    <View style={styles.userItem}>
-      {/* Colonna 1: Nome utente (tap → scheda) */}
       <TouchableOpacity
-        style={[styles.userInfoColumn, styles.columnWithPadding]}
+        style={styles.userRow}
         onPress={() => openUserDetail(item)}
-        activeOpacity={0.7}
+        activeOpacity={0.72}
       >
-        <Text style={styles.userName} numberOfLines={1}>{item.username}</Text>
+        <View style={styles.userAvatar}>
+          <Text style={styles.userAvatarText}>{initial}</Text>
+          <View style={[styles.userOnlineDot, online && styles.userOnlineDotOn]} />
+        </View>
+
+        <View style={styles.userInfoColumn}>
+          <Text style={styles.userName} numberOfLines={1}>{item.username}</Text>
+          <Text style={styles.userLastAccessSub} numberOfLines={1}>
+            {formatUserLastAccessCompact(item.last_login)}
+            {' · '}
+            {online ? 'Online' : 'Offline'}
+          </Text>
+        </View>
+
+        <View style={styles.buttonColumn}>
+          {renderUserRoleIcon(suLevel)}
+        </View>
       </TouchableOpacity>
-      
-      {/* Colonna 2: Ultimo accesso */}
-      <View style={styles.lastAccessColumn}>
-        <Text style={styles.lastAccessText}>{formatDateTime(item.last_login)}</Text>
-      </View>
-      
-      {/* Colonna 3: Stato */}
-      <View style={styles.statusColumn}>
-        <View style={[styles.statusIndicator, item.is_online && styles.statusIndicatorOnline]} />
-        <Text style={styles.userStatus}>
-          {item.is_online ? 'Online' : 'Offline'}
-        </Text>
-      </View>
-      
-      {/* Colonna 4: Ruolo attuale */}
-      <View style={[styles.buttonColumn, styles.columnWithPaddingRight]}>
-        {renderUserRoleIcon(suLevel)}
-      </View>
+    );
+  };
+
+  const renderUsersSkeleton = () => (
+    <View style={styles.usersSkeletonWrap}>
+      {Array.from({ length: 8 }).map((_, idx) => (
+        <View key={`usk-${idx}`} style={styles.userRowSkeleton}>
+          <View style={styles.userAvatarSkeleton} />
+          <View style={styles.userSkeletonLines}>
+            <View style={[styles.userSkeletonBar, { width: `${58 + (idx % 3) * 10}%` }]} />
+            <View style={[styles.userSkeletonBar, styles.userSkeletonBarShort]} />
+          </View>
+          <View style={styles.userRoleSkeleton} />
+        </View>
+      ))}
     </View>
   );
-  };
   
   const renderLeagueItem = ({ item }) => {
     const isOfficial = Number(item?.is_official || 0) > 0;
@@ -2981,7 +3015,7 @@ export default function SuperUserScreen() {
           <Ionicons 
             name={activeTab === 'users' ? "people" : "people-outline"} 
             size={20} 
-            color={activeTab === 'users' ? '#fff' : '#666'} 
+            color={activeTab === 'users' ? '#667eea' : '#666'} 
           />
           <Text style={[styles.tabText, activeTab === 'users' && styles.tabTextActive]}>
             Utenti
@@ -2994,7 +3028,7 @@ export default function SuperUserScreen() {
           <Ionicons 
             name={activeTab === 'leagues' ? "trophy" : "trophy-outline"} 
             size={20} 
-            color={activeTab === 'leagues' ? '#fff' : '#666'} 
+            color={activeTab === 'leagues' ? '#667eea' : '#666'} 
           />
           <Text style={[styles.tabText, activeTab === 'leagues' && styles.tabTextActive]}>
             Leghe
@@ -3007,7 +3041,7 @@ export default function SuperUserScreen() {
           <Ionicons 
             name={activeTab === 'officials' ? "ribbon" : "ribbon-outline"} 
             size={20} 
-            color={activeTab === 'officials' ? '#fff' : '#666'} 
+            color={activeTab === 'officials' ? '#667eea' : '#666'} 
           />
           <Text style={[styles.tabText, activeTab === 'officials' && styles.tabTextActive]}>
             Ufficiali
@@ -3025,7 +3059,7 @@ export default function SuperUserScreen() {
           <Ionicons 
             name={activeTab === 'clusters' ? "people" : "people-outline"} 
             size={20} 
-            color={activeTab === 'clusters' ? '#fff' : '#666'} 
+            color={activeTab === 'clusters' ? '#667eea' : '#666'} 
           />
           <Text style={[styles.tabText, activeTab === 'clusters' && styles.tabTextActive]}>
             Cluster
@@ -3038,7 +3072,7 @@ export default function SuperUserScreen() {
           <Ionicons
             name={activeTab === 'appSettings' ? 'settings' : 'settings-outline'}
             size={20}
-            color={activeTab === 'appSettings' ? '#fff' : '#666'}
+            color={activeTab === 'appSettings' ? '#667eea' : '#666'}
           />
           <Text
             style={[
@@ -3057,104 +3091,123 @@ export default function SuperUserScreen() {
       <View style={styles.content}>
         {activeTab === 'users' && (
           <>
-            {/* Barra di ricerca */}
-            <View style={styles.searchContainer}>
-              <Ionicons name="search" size={20} color="#999" style={styles.searchIcon} />
+            <View style={styles.usersSearchContainer}>
+              <Ionicons name="search" size={18} color="#94a3b8" style={styles.searchIcon} />
               <TextInput
-                style={styles.searchInput}
-                placeholder="Cerca per nome utente o email..."
-                placeholderTextColor="#999"
+                style={styles.usersSearchInput}
+                placeholder="Cerca nome o email…"
+                placeholderTextColor="#94a3b8"
                 value={searchText}
                 onChangeText={setSearchText}
                 autoCapitalize="none"
                 autoCorrect={false}
               />
               {searchText.length > 0 && (
-                <TouchableOpacity onPress={() => setSearchText('')} style={styles.clearButton}>
-                  <Ionicons name="close-circle" size={20} color="#999" />
+                <TouchableOpacity onPress={() => setSearchText('')} style={styles.clearButton} hitSlop={8}>
+                  <Ionicons name="close-circle" size={18} color="#94a3b8" />
                 </TouchableOpacity>
               )}
             </View>
-            {loadingUsers ? (
-              <View style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color="#667eea" />
-              </View>
+
+            <View style={styles.usersSortBar}>
+              <TouchableOpacity
+                style={[styles.usersSortChip, sortColumn === 'username' && styles.usersSortChipActive]}
+                onPress={() => handleSort('username')}
+              >
+                <Text style={[styles.usersSortChipText, sortColumn === 'username' && styles.usersSortChipTextActive]}>
+                  Utente
+                </Text>
+                {sortColumn === 'username' ? (
+                  <Ionicons
+                    name={sortDirection === 'asc' ? 'chevron-up' : 'chevron-down'}
+                    size={14}
+                    color="#667eea"
+                  />
+                ) : null}
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.usersSortChip, sortColumn === 'last_login' && styles.usersSortChipActive]}
+                onPress={() => handleSort('last_login')}
+              >
+                <Text style={[styles.usersSortChipText, sortColumn === 'last_login' && styles.usersSortChipTextActive]}>
+                  Accesso
+                </Text>
+                {sortColumn === 'last_login' ? (
+                  <Ionicons
+                    name={sortDirection === 'asc' ? 'chevron-up' : 'chevron-down'}
+                    size={14}
+                    color="#667eea"
+                  />
+                ) : null}
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.usersSortChip, sortColumn === 'is_online' && styles.usersSortChipActive]}
+                onPress={() => handleSort('is_online')}
+              >
+                <Text style={[styles.usersSortChipText, sortColumn === 'is_online' && styles.usersSortChipTextActive]}>
+                  Stato
+                </Text>
+                {sortColumn === 'is_online' ? (
+                  <Ionicons
+                    name={sortDirection === 'asc' ? 'chevron-up' : 'chevron-down'}
+                    size={14}
+                    color="#667eea"
+                  />
+                ) : null}
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.usersSortChip, sortColumn === 'is_superuser' && styles.usersSortChipActive]}
+                onPress={() => handleSort('is_superuser')}
+              >
+                <Text
+                  style={[styles.usersSortChipText, sortColumn === 'is_superuser' && styles.usersSortChipTextActive]}
+                  numberOfLines={1}
+                >
+                  Ruolo
+                </Text>
+                {sortColumn === 'is_superuser' ? (
+                  <Ionicons
+                    name={sortDirection === 'asc' ? 'chevron-up' : 'chevron-down'}
+                    size={14}
+                    color="#667eea"
+                  />
+                ) : null}
+              </TouchableOpacity>
+            </View>
+
+            {loadingUsers && users.length === 0 ? (
+              renderUsersSkeleton()
             ) : (
-              <>
-                {/* Header colonne */}
-                <View style={styles.columnsHeader}>
-                  <TouchableOpacity 
-                    style={[styles.userInfoColumn, styles.columnWithPadding, styles.sortableColumn]}
-                    onPress={() => handleSort('username')}
-                  >
-                    <Text style={styles.columnHeaderText}>Utente</Text>
-                    {sortColumn === 'username' && (
-                      <Ionicons 
-                        name={sortDirection === 'asc' ? 'chevron-up' : 'chevron-down'} 
-                        size={14} 
-                        color="#667eea" 
-                      />
-                    )}
-                  </TouchableOpacity>
-                  <TouchableOpacity 
-                    style={[styles.lastAccessColumn, styles.sortableColumn]}
-                    onPress={() => handleSort('last_login')}
-                  >
-                    <Text style={styles.columnHeaderText}>Ultimo accesso</Text>
-                    {sortColumn === 'last_login' && (
-                      <Ionicons 
-                        name={sortDirection === 'asc' ? 'chevron-up' : 'chevron-down'} 
-                        size={14} 
-                        color="#fff" 
-                      />
-                    )}
-                  </TouchableOpacity>
-                  <TouchableOpacity 
-                    style={[styles.statusColumn, styles.sortableColumn]}
-                    onPress={() => handleSort('is_online')}
-                  >
-                    <Text style={styles.columnHeaderText}>Stato</Text>
-                    {sortColumn === 'is_online' && (
-                      <Ionicons 
-                        name={sortDirection === 'asc' ? 'chevron-up' : 'chevron-down'} 
-                        size={14} 
-                        color="#fff" 
-                      />
-                    )}
-                  </TouchableOpacity>
-                  <TouchableOpacity 
-                    style={[styles.buttonColumnHeader, styles.columnWithPaddingRight, styles.sortableColumn]}
-                    onPress={() => handleSort('is_superuser')}
-                  >
-                    <Text style={styles.columnHeaderText} numberOfLines={1}>Ruolo</Text>
-                    {sortColumn === 'is_superuser' && (
-                      <Ionicons 
-                        name={sortDirection === 'asc' ? 'chevron-up' : 'chevron-down'} 
-                        size={14} 
-                        color="#fff" 
-                      />
-                    )}
-                  </TouchableOpacity>
-                </View>
-                <FlatList
-                  data={sortedUsers}
-                  keyExtractor={(item) => item.id.toString()}
-                  renderItem={renderUserItem}
-                  refreshControl={
-                    <RefreshControl refreshing={refreshingUsers} onRefresh={() => {
+              <FlatList
+                data={sortedUsers}
+                keyExtractor={(item) => String(item.id)}
+                renderItem={renderUserItem}
+                initialNumToRender={16}
+                maxToRenderPerBatch={20}
+                windowSize={9}
+                removeClippedSubviews
+                keyboardShouldPersistTaps="handled"
+                refreshControl={
+                  <RefreshControl
+                    refreshing={refreshingUsers}
+                    tintColor="#667eea"
+                    colors={['#667eea']}
+                    onRefresh={() => {
                       setRefreshingUsers(true);
-                      loadUsers();
-                    }} />
-                  }
-                  ListEmptyComponent={
-                    <View style={styles.emptyContainer}>
-                      <Ionicons name="people-outline" size={48} color="#ccc" />
-                      <Text style={styles.emptyText}>Nessun utente trovato</Text>
-                    </View>
-                  }
-                  contentContainerStyle={styles.listContent}
-                />
-              </>
+                      void loadUsers({ silent: true });
+                    }}
+                  />
+                }
+                ListEmptyComponent={
+                  <View style={styles.emptyContainer}>
+                    <Ionicons name="people-outline" size={44} color="#cbd5e1" />
+                    <Text style={styles.emptyText}>
+                      {searchText.trim() ? 'Nessun risultato' : 'Nessun utente'}
+                    </Text>
+                  </View>
+                }
+                contentContainerStyle={styles.usersListContent}
+              />
             )}
           </>
         )}
@@ -6625,9 +6678,12 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 10,
     gap: 6,
+    borderBottomWidth: 2,
+    borderBottomColor: 'transparent',
   },
   tabActive: {
-    backgroundColor: '#667eea',
+    backgroundColor: '#eef2ff',
+    borderBottomColor: '#667eea',
   },
   tabText: {
     fontSize: 14,
@@ -6635,8 +6691,8 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   tabTextActive: {
-    color: '#fff',
-    fontWeight: '600',
+    color: '#667eea',
+    fontWeight: '700',
   },
   tabAppSettingsLabel: {
     fontSize: 11,
@@ -6913,14 +6969,155 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   userInfoColumn: {
-    flex: 3.2,
-    minWidth: 140,
+    flex: 1,
+    minWidth: 0,
+    paddingRight: 8,
   },
   columnWithPadding: {
     paddingLeft: 16,
   },
   columnWithPaddingRight: {
     paddingRight: 12,
+  },
+  usersSearchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f8fafc',
+    marginHorizontal: 16,
+    marginTop: 12,
+    marginBottom: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#dbe3ef',
+  },
+  usersSearchInput: {
+    flex: 1,
+    fontSize: 15,
+    color: '#0f172a',
+    paddingVertical: 0,
+  },
+  usersSortBar: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+  },
+  usersSortChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  usersSortChipActive: {
+    backgroundColor: '#eef2ff',
+    borderColor: '#c7d2fe',
+  },
+  usersSortChipText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#64748b',
+  },
+  usersSortChipTextActive: {
+    color: '#667eea',
+  },
+  usersListContent: {
+    paddingHorizontal: 16,
+    paddingBottom: 24,
+    flexGrow: 1,
+  },
+  userRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#ececec',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    marginBottom: 8,
+    gap: 10,
+  },
+  userAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#eef2ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  userAvatarText: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#667eea',
+  },
+  userOnlineDot: {
+    position: 'absolute',
+    right: -1,
+    bottom: -1,
+    width: 11,
+    height: 11,
+    borderRadius: 6,
+    backgroundColor: '#cbd5e1',
+    borderWidth: 2,
+    borderColor: '#fff',
+  },
+  userOnlineDotOn: {
+    backgroundColor: '#22c55e',
+  },
+  userLastAccessSub: {
+    marginTop: 2,
+    fontSize: 12,
+    color: '#64748b',
+  },
+  usersSkeletonWrap: {
+    paddingHorizontal: 16,
+    paddingTop: 4,
+  },
+  userRowSkeleton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#ececec',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    marginBottom: 8,
+    gap: 10,
+  },
+  userAvatarSkeleton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#eef2f7',
+  },
+  userSkeletonLines: {
+    flex: 1,
+    gap: 8,
+  },
+  userSkeletonBar: {
+    height: 11,
+    borderRadius: 6,
+    backgroundColor: '#eef2f7',
+  },
+  userSkeletonBarShort: {
+    width: '42%',
+    height: 9,
+  },
+  userRoleSkeleton: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: '#eef2f7',
   },
   userHeader: {
     flexDirection: 'row',
@@ -6961,7 +7158,7 @@ const styles = StyleSheet.create({
   userDetailEditLink: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#4338ca',
+    color: '#667eea',
   },
   userDetailValue: {
     fontSize: 16,
@@ -6999,7 +7196,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: 10,
-    backgroundColor: '#4338ca',
+    backgroundColor: '#667eea',
     minWidth: 88,
     alignItems: 'center',
   },
@@ -7061,8 +7258,8 @@ const styles = StyleSheet.create({
   },
   buttonColumn: {
     flex: 0,
-    width: 68,
-    minWidth: 68,
+    width: 36,
+    minWidth: 36,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -7103,9 +7300,9 @@ const styles = StyleSheet.create({
     borderRadius: 10,
   },
   userRoleBadge: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
+    width: 34,
+    height: 34,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
   },
