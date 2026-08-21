@@ -388,6 +388,15 @@ export default function SuperUserScreen() {
   const [expandedDiscrepancyMatchIds, setExpandedDiscrepancyMatchIds] = useState({});
   const [expandedDiscrepancyPlayerKeys, setExpandedDiscrepancyPlayerKeys] = useState({});
   const [discrepancyInfoOpen, setDiscrepancyInfoOpen] = useState(false);
+  const [showClusterYearGapsModal, setShowClusterYearGapsModal] = useState(false);
+  const [yearGapsGroupId, setYearGapsGroupId] = useState(null);
+  const [loadingClusterYearGaps, setLoadingClusterYearGaps] = useState(false);
+  const [clusterYearGapsResult, setClusterYearGapsResult] = useState(null);
+  const [yearGapsSearchText, setYearGapsSearchText] = useState('');
+  const [yearGapsFillTarget, setYearGapsFillTarget] = useState(null); // { cluster, gap }
+  const [yearGapsFillRole, setYearGapsFillRole] = useState('C');
+  const [yearGapsFillTeamId, setYearGapsFillTeamId] = useState(null);
+  const [savingYearGapsFill, setSavingYearGapsFill] = useState(false);
   const [clusterFilterStatus, setClusterFilterStatus] = useState(null); // null, 'pending', 'approved', 'rejected'
   const [clusterTabSearchText, setClusterTabSearchText] = useState('');
   const [showClusterFilters, setShowClusterFilters] = useState(false);
@@ -1939,6 +1948,109 @@ export default function SuperUserScreen() {
     setShowLiveBonusDiscrepancyModal(true);
   };
 
+  const openClusterYearGapsModal = () => {
+    setClusterYearGapsResult(null);
+    setYearGapsSearchText('');
+    setYearGapsFillTarget(null);
+    setYearGapsFillRole('C');
+    setYearGapsFillTeamId(null);
+    const firstId = officialGroups?.[0]?.id != null ? Number(officialGroups[0].id) : null;
+    setYearGapsGroupId(firstId);
+    setShowClusterYearGapsModal(true);
+  };
+
+  const closeClusterYearGapsModal = () => {
+    setShowClusterYearGapsModal(false);
+    setLoadingClusterYearGaps(false);
+    setClusterYearGapsResult(null);
+    setYearGapsSearchText('');
+    setYearGapsFillTarget(null);
+    setSavingYearGapsFill(false);
+  };
+
+  const loadClusterYearGaps = async (groupId) => {
+    const gid = Number(groupId);
+    if (!gid) {
+      showToast('Seleziona un gruppo ufficiale');
+      return;
+    }
+    try {
+      setLoadingClusterYearGaps(true);
+      setClusterYearGapsResult(null);
+      setYearGapsFillTarget(null);
+      const res = await superuserService.getClusterYearGaps(gid);
+      setClusterYearGapsResult(res.data || null);
+    } catch (error) {
+      console.error('Error loading cluster year gaps:', error);
+      showToast(error.response?.data?.message || 'Errore scansione buchi anni');
+      setClusterYearGapsResult(null);
+    } finally {
+      setLoadingClusterYearGaps(false);
+    }
+  };
+
+  const openYearGapsFill = (cluster, gap) => {
+    setYearGapsFillTarget({ cluster, gap });
+    setYearGapsFillRole(gap?.suggested_role || 'C');
+    setYearGapsFillTeamId(
+      gap?.suggested_team_id != null ? Number(gap.suggested_team_id) : null
+    );
+  };
+
+  const submitYearGapsFill = async ({ useExistingPlayerId = null } = {}) => {
+    const cluster = yearGapsFillTarget?.cluster;
+    const gap = yearGapsFillTarget?.gap;
+    if (!cluster?.cluster_id || !gap?.reference_year) return;
+    if (!useExistingPlayerId && !yearGapsFillTeamId) {
+      showToast('Seleziona una squadra');
+      return;
+    }
+    try {
+      setSavingYearGapsFill(true);
+      const body = useExistingPlayerId
+        ? {
+            reference_year: gap.reference_year,
+            player_id: useExistingPlayerId,
+          }
+        : {
+            reference_year: gap.reference_year,
+            team_id: Number(yearGapsFillTeamId),
+            role: yearGapsFillRole,
+            birth_year: gap.suggested_birth_year ?? null,
+          };
+      const res = await superuserService.fillClusterYearGap(cluster.cluster_id, body);
+      showToast(res.data?.message || 'Anno aggiunto al cluster');
+      setYearGapsFillTarget(null);
+      await loadClusterYearGaps(yearGapsGroupId);
+    } catch (error) {
+      console.error('Error filling cluster year gap:', error);
+      showToast(error.response?.data?.message || 'Errore creazione/aggiunta giocatore');
+    } finally {
+      setSavingYearGapsFill(false);
+    }
+  };
+
+  const filteredClusterYearGaps = useMemo(() => {
+    const list = Array.isArray(clusterYearGapsResult?.clusters)
+      ? clusterYearGapsResult.clusters
+      : [];
+    const q = yearGapsSearchText.trim().toLowerCase();
+    if (!q) return list;
+    return list.filter((c) => {
+      const hay = [
+        c.name,
+        c.first_name,
+        c.last_name,
+        ...(c.present_years || []).map(String),
+        ...(c.gaps || []).flatMap((g) => [String(g.reference_year), g.league_name, g.suggested_team_name]),
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return q.split(/\s+/).every((part) => hay.includes(part));
+    });
+  }, [clusterYearGapsResult, yearGapsSearchText]);
+
   const closeLiveBonusDiscrepancyModal = () => {
     setShowLiveBonusDiscrepancyModal(false);
     setLoadingLiveBonusDiscrepancies(false);
@@ -2890,6 +3002,22 @@ export default function SuperUserScreen() {
                   }
                   contentContainerStyle={styles.listContent}
                 />
+                <TouchableOpacity
+                  style={[styles.liveBonusRepairBtn, styles.clusterYearGapsBtn]}
+                  onPress={openClusterYearGapsModal}
+                  activeOpacity={0.85}
+                >
+                  <View style={[styles.liveBonusRepairBtnIcon, styles.clusterYearGapsBtnIcon]}>
+                    <Ionicons name="git-commit-outline" size={20} color="#fff" />
+                  </View>
+                  <View style={styles.liveBonusRepairBtnTextWrap}>
+                    <Text style={styles.liveBonusRepairBtnTitle}>Buchi anni cluster</Text>
+                    <Text style={styles.liveBonusRepairBtnSub}>
+                      Es. 2004+2006 senza 2005
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={18} color="#bfdbfe" />
+                </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.liveBonusRepairBtn, { marginBottom: 12 + Math.max(insets.bottom, 8) }]}
                   onPress={openLiveBonusDiscrepancyModal}
@@ -4593,6 +4721,306 @@ export default function SuperUserScreen() {
                 </ScrollView>
               </View>
             ) : null}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modal buchi anni cluster */}
+      <Modal
+        visible={showClusterYearGapsModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={closeClusterYearGapsModal}
+      >
+        <View style={styles.modalOverlay}>
+          <View
+            style={[
+              styles.modalContent,
+              styles.discrepancyModalContent,
+              { paddingBottom: Math.max(insets.bottom, 8) },
+            ]}
+          >
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, { flex: 1, marginRight: 8 }]} numberOfLines={1}>
+                Buchi anni cluster
+              </Text>
+              <TouchableOpacity onPress={closeClusterYearGapsModal} hitSlop={8}>
+                <Ionicons name="close" size={24} color="#666" />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.discrepancyModalBody}>
+              <View style={styles.discrepancyInfoBanner}>
+                <Text style={styles.discrepancyInfoBannerText}>
+                  Trova cluster con anni saltati (es. presenti nel 2004 e 2006 ma non nel 2005).
+                  Da qui puoi creare il giocatore nell’anno mancante e aggiungerlo al cluster.
+                </Text>
+              </View>
+
+              <Text style={styles.discrepancySectionLabel}>Gruppo ufficiale</Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={styles.neverPlayedYearFilters}
+                contentContainerStyle={styles.neverPlayedYearFiltersContent}
+              >
+                {(officialGroups || []).map((g) => {
+                  const active = Number(yearGapsGroupId) === Number(g.id);
+                  return (
+                    <TouchableOpacity
+                      key={`yg-g-${g.id}`}
+                      style={[
+                        styles.neverPlayedYearChipBtn,
+                        active && styles.neverPlayedYearChipBtnActive,
+                      ]}
+                      onPress={() => {
+                        setYearGapsGroupId(Number(g.id));
+                        setClusterYearGapsResult(null);
+                        setYearGapsFillTarget(null);
+                      }}
+                    >
+                      <Text
+                        style={[
+                          styles.neverPlayedYearChipBtnText,
+                          active && styles.neverPlayedYearChipBtnTextActive,
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {g.name}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+
+              <TouchableOpacity
+                style={[
+                  styles.discrepancyScanBtn,
+                  (!yearGapsGroupId || loadingClusterYearGaps) && styles.discrepancyScanBtnDisabled,
+                ]}
+                onPress={() => void loadClusterYearGaps(yearGapsGroupId)}
+                disabled={!yearGapsGroupId || loadingClusterYearGaps}
+                activeOpacity={0.85}
+              >
+                {loadingClusterYearGaps ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Ionicons name="search" size={18} color="#fff" />
+                )}
+                <Text style={styles.discrepancyScanBtnText}>
+                  {loadingClusterYearGaps ? 'Scansione in corso…' : 'Avvia ricerca'}
+                </Text>
+              </TouchableOpacity>
+
+              {clusterYearGapsResult ? (
+                <View style={{ flex: 1, minHeight: 0 }}>
+                  <View style={styles.discrepancySummaryBar}>
+                    <Text style={styles.discrepancySummaryText}>
+                      {clusterYearGapsResult.count || 0} cluster con buchi
+                      {filteredClusterYearGaps.length !== (clusterYearGapsResult.count || 0)
+                        ? ` · ${filteredClusterYearGaps.length} filtrati`
+                        : ''}
+                    </Text>
+                  </View>
+
+                  <View style={[styles.searchContainer, { marginHorizontal: 0, marginBottom: 8 }]}>
+                    <Ionicons name="search" size={18} color="#999" style={styles.searchIcon} />
+                    <TextInput
+                      style={styles.searchInput}
+                      placeholder="Cerca giocatore o anno…"
+                      placeholderTextColor="#999"
+                      value={yearGapsSearchText}
+                      onChangeText={setYearGapsSearchText}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                    />
+                    {yearGapsSearchText.length > 0 ? (
+                      <TouchableOpacity onPress={() => setYearGapsSearchText('')} style={styles.clearButton}>
+                        <Ionicons name="close-circle" size={18} color="#999" />
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
+
+                  <ScrollView style={styles.modalScrollView} contentContainerStyle={{ paddingBottom: 24 }}>
+                    {filteredClusterYearGaps.length === 0 ? (
+                      <View style={styles.neverPlayedEmpty}>
+                        <Ionicons name="checkmark-circle-outline" size={36} color="#94a3b8" />
+                        <Text style={styles.neverPlayedEmptyTitle}>
+                          {yearGapsSearchText.trim() ? 'Nessun risultato' : 'Nessun buco trovato'}
+                        </Text>
+                        <Text style={styles.neverPlayedEmptySub}>
+                          {yearGapsSearchText.trim()
+                            ? 'Prova un altro filtro di ricerca.'
+                            : 'Tutti i cluster hanno gli anni continui tra il primo e l’ultimo.'}
+                        </Text>
+                      </View>
+                    ) : (
+                      filteredClusterYearGaps.map((cluster) => {
+                        const fillOpen =
+                          yearGapsFillTarget?.cluster?.cluster_id === cluster.cluster_id;
+                        return (
+                          <View key={`yg-c-${cluster.cluster_id}`} style={styles.yearGapsClusterCard}>
+                            <Text style={styles.yearGapsClusterName} numberOfLines={1}>
+                              {cluster.name}
+                            </Text>
+                            <Text style={styles.yearGapsPresentLine}>
+                              Presente: {(cluster.present_years || []).join(' · ') || '—'}
+                            </Text>
+                            <View style={styles.yearGapsMissingRow}>
+                              {(cluster.gaps || []).map((gap) => {
+                                const active =
+                                  fillOpen
+                                  && Number(yearGapsFillTarget?.gap?.reference_year) === Number(gap.reference_year);
+                                return (
+                                  <TouchableOpacity
+                                    key={`yg-g-${cluster.cluster_id}-${gap.reference_year}`}
+                                    style={[
+                                      styles.yearGapsMissingChip,
+                                      active && styles.yearGapsMissingChipActive,
+                                    ]}
+                                    onPress={() => openYearGapsFill(cluster, gap)}
+                                    activeOpacity={0.8}
+                                  >
+                                    <Text
+                                      style={[
+                                        styles.yearGapsMissingChipText,
+                                        active && styles.yearGapsMissingChipTextActive,
+                                      ]}
+                                    >
+                                      Manca {gap.reference_year}
+                                    </Text>
+                                  </TouchableOpacity>
+                                );
+                              })}
+                            </View>
+
+                            {fillOpen && yearGapsFillTarget?.gap ? (
+                              <View style={styles.yearGapsFillPanel}>
+                                <Text style={styles.yearGapsFillTitle}>
+                                  Aggiungi {cluster.name} · {yearGapsFillTarget.gap.reference_year}
+                                </Text>
+                                <Text style={styles.yearGapsFillHint}>
+                                  {yearGapsFillTarget.gap.league_name || 'Lega'}
+                                  {yearGapsFillTarget.gap.suggested_birth_year
+                                    ? ` · nascita ${yearGapsFillTarget.gap.suggested_birth_year}`
+                                    : ''}
+                                </Text>
+
+                                {(yearGapsFillTarget.gap.existing_players || []).length > 0 ? (
+                                  <View style={styles.yearGapsExistingBlock}>
+                                    <Text style={styles.discrepancySectionLabel}>Già in rosa</Text>
+                                    {yearGapsFillTarget.gap.existing_players.map((ep) => (
+                                      <TouchableOpacity
+                                        key={`yg-ex-${ep.player_id}`}
+                                        style={[
+                                          styles.yearGapsExistingBtn,
+                                          savingYearGapsFill && styles.discrepancyScanBtnDisabled,
+                                        ]}
+                                        disabled={savingYearGapsFill}
+                                        onPress={() => void submitYearGapsFill({ useExistingPlayerId: ep.player_id })}
+                                      >
+                                        <Ionicons name="link" size={16} color="#1d4ed8" />
+                                        <Text style={styles.yearGapsExistingBtnText} numberOfLines={2}>
+                                          Aggiungi esistente · {ep.team_name || 'Squadra'}
+                                          {ep.role ? ` (${ep.role})` : ''}
+                                        </Text>
+                                      </TouchableOpacity>
+                                    ))}
+                                  </View>
+                                ) : null}
+
+                                <Text style={styles.discrepancySectionLabel}>Ruolo</Text>
+                                <View style={styles.yearGapsRoleRow}>
+                                  {['P', 'D', 'C', 'A'].map((r) => {
+                                    const active = yearGapsFillRole === r;
+                                    return (
+                                      <TouchableOpacity
+                                        key={`yg-role-${r}`}
+                                        style={[
+                                          styles.yearGapsRoleChip,
+                                          active && styles.yearGapsRoleChipActive,
+                                          r === 'P' && active && { backgroundColor: '#1d4ed8' },
+                                          r === 'D' && active && { backgroundColor: '#15803d' },
+                                          r === 'C' && active && { backgroundColor: '#a16207' },
+                                          r === 'A' && active && { backgroundColor: '#b91c1c' },
+                                        ]}
+                                        onPress={() => setYearGapsFillRole(r)}
+                                      >
+                                        <Text
+                                          style={[
+                                            styles.yearGapsRoleChipText,
+                                            active && styles.yearGapsRoleChipTextActive,
+                                          ]}
+                                        >
+                                          {r}
+                                        </Text>
+                                      </TouchableOpacity>
+                                    );
+                                  })}
+                                </View>
+
+                                <Text style={styles.discrepancySectionLabel}>Squadra</Text>
+                                <ScrollView
+                                  horizontal
+                                  showsHorizontalScrollIndicator={false}
+                                  contentContainerStyle={styles.yearGapsTeamChips}
+                                >
+                                  {(yearGapsFillTarget.gap.teams || []).map((t) => {
+                                    const active = Number(yearGapsFillTeamId) === Number(t.team_id);
+                                    const suggested =
+                                      Number(yearGapsFillTarget.gap.suggested_team_id) === Number(t.team_id);
+                                    return (
+                                      <TouchableOpacity
+                                        key={`yg-t-${t.team_id}`}
+                                        style={[
+                                          styles.yearGapsTeamChip,
+                                          suggested && !active && styles.yearGapsTeamChipSuggested,
+                                          active && styles.yearGapsTeamChipActive,
+                                        ]}
+                                        onPress={() => setYearGapsFillTeamId(Number(t.team_id))}
+                                      >
+                                        <Text
+                                          style={[
+                                            styles.yearGapsTeamChipText,
+                                            active && styles.yearGapsTeamChipTextActive,
+                                          ]}
+                                          numberOfLines={1}
+                                        >
+                                          {suggested ? '★ ' : ''}{t.team_name}
+                                        </Text>
+                                      </TouchableOpacity>
+                                    );
+                                  })}
+                                </ScrollView>
+
+                                <TouchableOpacity
+                                  style={[
+                                    styles.yearGapsCreateBtn,
+                                    (savingYearGapsFill || !yearGapsFillTeamId) && styles.discrepancyScanBtnDisabled,
+                                  ]}
+                                  disabled={savingYearGapsFill || !yearGapsFillTeamId}
+                                  onPress={() => void submitYearGapsFill()}
+                                  activeOpacity={0.85}
+                                >
+                                  {savingYearGapsFill ? (
+                                    <ActivityIndicator size="small" color="#fff" />
+                                  ) : (
+                                    <Ionicons name="person-add" size={18} color="#fff" />
+                                  )}
+                                  <Text style={styles.yearGapsCreateBtnText}>
+                                    Crea e aggiungi al cluster
+                                  </Text>
+                                </TouchableOpacity>
+                              </View>
+                            ) : null}
+                          </View>
+                        );
+                      })
+                    )}
+                  </ScrollView>
+                </View>
+              ) : null}
+            </View>
           </View>
         </View>
       </Modal>
@@ -6316,6 +6744,164 @@ const styles = StyleSheet.create({
     color: '#c7d2fe',
     fontSize: 12,
     marginTop: 2,
+  },
+  clusterYearGapsBtn: {
+    backgroundColor: '#0369a1',
+    marginBottom: 8,
+  },
+  clusterYearGapsBtnIcon: {
+    backgroundColor: 'rgba(255,255,255,0.18)',
+  },
+  yearGapsClusterCard: {
+    backgroundColor: '#f8fafc',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    padding: 12,
+    marginBottom: 10,
+  },
+  yearGapsClusterName: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  yearGapsPresentLine: {
+    marginTop: 4,
+    fontSize: 12,
+    color: '#64748b',
+  },
+  yearGapsMissingRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 10,
+  },
+  yearGapsMissingChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: '#fee2e2',
+    borderWidth: 1,
+    borderColor: '#fecaca',
+  },
+  yearGapsMissingChipActive: {
+    backgroundColor: '#b91c1c',
+    borderColor: '#991b1b',
+  },
+  yearGapsMissingChipText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#991b1b',
+  },
+  yearGapsMissingChipTextActive: {
+    color: '#fff',
+  },
+  yearGapsFillPanel: {
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#e2e8f0',
+  },
+  yearGapsFillTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  yearGapsFillHint: {
+    marginTop: 2,
+    marginBottom: 8,
+    fontSize: 12,
+    color: '#64748b',
+  },
+  yearGapsExistingBlock: {
+    marginBottom: 8,
+  },
+  yearGapsExistingBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: '#eff6ff',
+    borderWidth: 1,
+    borderColor: '#bfdbfe',
+    marginBottom: 6,
+  },
+  yearGapsExistingBtnText: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#1d4ed8',
+  },
+  yearGapsRoleRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 10,
+  },
+  yearGapsRoleChip: {
+    width: 40,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#e2e8f0',
+  },
+  yearGapsRoleChipActive: {
+    backgroundColor: '#334155',
+  },
+  yearGapsRoleChipText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#475569',
+  },
+  yearGapsRoleChipTextActive: {
+    color: '#fff',
+  },
+  yearGapsTeamChips: {
+    gap: 8,
+    paddingBottom: 4,
+    marginBottom: 12,
+  },
+  yearGapsTeamChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    maxWidth: 200,
+  },
+  yearGapsTeamChipSuggested: {
+    borderColor: '#38bdf8',
+    backgroundColor: '#f0f9ff',
+  },
+  yearGapsTeamChipActive: {
+    borderColor: '#0369a1',
+    backgroundColor: '#0369a1',
+  },
+  yearGapsTeamChipText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#334155',
+  },
+  yearGapsTeamChipTextActive: {
+    color: '#fff',
+  },
+  yearGapsCreateBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#0369a1',
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+  },
+  yearGapsCreateBtnText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '700',
   },
   discrepancySectionLabel: {
     fontSize: 12,

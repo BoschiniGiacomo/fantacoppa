@@ -810,6 +810,10 @@ export const superuserService = {
     api.get(`/superuser/official-groups/${encodeURIComponent(Number(groupId))}/never-played-players`, { timeout: 60000 }),
   getUnclusteredPlayers: (groupId) =>
     api.get(`/superuser/official-groups/${encodeURIComponent(Number(groupId))}/unclustered-players`, { timeout: 60000 }),
+  getClusterYearGaps: (groupId) =>
+    api.get(`/superuser/official-groups/${encodeURIComponent(Number(groupId))}/cluster-year-gaps`, { timeout: 90000 }),
+  fillClusterYearGap: (clusterId, data) =>
+    api.post(`/superuser/player-clusters/${encodeURIComponent(Number(clusterId))}/fill-year-gap`, data),
   getLiveBonusDiscrepancies: (groupId, leagueId) => {
     const gid = encodeURIComponent(Number(groupId));
     const q =

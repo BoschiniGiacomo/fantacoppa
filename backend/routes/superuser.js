@@ -1219,6 +1219,472 @@ router.get('/official-groups/:groupId/unclustered-players', authenticateToken, r
   }
 });
 
+function normalizeTeamNameKey(name) {
+  return String(name || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+}
+
+function majorityValue(values) {
+  const counts = new Map();
+  for (const raw of values || []) {
+    const v = raw == null ? '' : String(raw).trim();
+    if (!v) continue;
+    counts.set(v, (counts.get(v) || 0) + 1);
+  }
+  let best = null;
+  let bestN = 0;
+  for (const [k, n] of counts.entries()) {
+    if (n > bestN) {
+      best = k;
+      bestN = n;
+    }
+  }
+  return best;
+}
+
+function computeYearGaps(presentYearsSorted) {
+  const years = [...new Set((presentYearsSorted || []).map(Number).filter((y) => Number.isFinite(y) && y > 0))]
+    .sort((a, b) => a - b);
+  if (years.length < 2) return [];
+  const gaps = [];
+  for (let y = years[0] + 1; y < years[years.length - 1]; y += 1) {
+    if (!years.includes(y)) gaps.push(y);
+  }
+  return gaps;
+}
+
+/**
+ * Cluster approvati con buchi di anni (es. 2004+2006 senza 2005) nel gruppo ufficiale.
+ */
+router.get('/official-groups/:groupId/cluster-year-gaps', authenticateToken, requireSuperuser, async (req, res) => {
+  try {
+    await ensurePlayerClusterSchema();
+    const groupId = Number(req.params.groupId);
+    if (!groupId || groupId <= 0) return res.status(400).json({ message: 'ID gruppo non valido' });
+
+    const groupRows = await query(
+      `SELECT id, name FROM official_league_groups WHERE id = ? LIMIT 1`,
+      [groupId]
+    );
+    if (!groupRows.length) return res.status(404).json({ message: 'Gruppo ufficiale non trovato' });
+
+    const leagueYearRows = await query(
+      `SELECT
+         l.id AS league_id,
+         l.name AS league_name,
+         NULLIF(to_jsonb(l)->>'reference_year','')::int AS reference_year
+       FROM leagues l
+       WHERE l.official_group_id = ?
+         AND COALESCE(l.is_official, 0) = 1
+         AND NULLIF(to_jsonb(l)->>'reference_year','')::int IS NOT NULL
+       ORDER BY reference_year ASC, l.name ASC`,
+      [groupId]
+    );
+    const leagueByYear = new Map();
+    for (const row of leagueYearRows || []) {
+      const y = Number(row.reference_year);
+      if (!Number.isFinite(y) || y <= 0) continue;
+      if (!leagueByYear.has(y)) {
+        leagueByYear.set(y, {
+          league_id: Number(row.league_id),
+          league_name: String(row.league_name || '').trim(),
+          reference_year: y,
+        });
+      }
+    }
+
+    const memberRows = await query(
+      `SELECT
+         pc.id AS cluster_id,
+         p.id AS player_id,
+         p.first_name,
+         p.last_name,
+         p.role,
+         p.birth_year,
+         t.id AS team_id,
+         t.name AS team_name,
+         l.id AS league_id,
+         l.name AS league_name,
+         NULLIF(to_jsonb(l)->>'reference_year','')::int AS reference_year
+       FROM player_clusters pc
+       INNER JOIN player_cluster_members pcm ON pcm.cluster_id = pc.id
+       INNER JOIN players p ON p.id = pcm.player_id
+       INNER JOIN teams t ON t.id = p.team_id
+       INNER JOIN leagues l ON l.id = t.league_id
+       WHERE pc.official_group_id = ?
+         AND pc.status = 'approved'
+         AND COALESCE(l.is_official, 0) = 1
+       ORDER BY pc.id ASC, reference_year ASC NULLS LAST, p.last_name ASC, p.first_name ASC`,
+      [groupId]
+    );
+
+    const byCluster = new Map();
+    for (const row of memberRows || []) {
+      const clusterId = Number(row.cluster_id);
+      if (!byCluster.has(clusterId)) byCluster.set(clusterId, []);
+      byCluster.get(clusterId).push(row);
+    }
+
+    // Prima passa: individua cluster con buchi (senza ancora team/existing)
+    const draftClusters = [];
+    const neededLeagueIds = new Set();
+    for (const [clusterId, members] of byCluster.entries()) {
+      const presentYears = [...new Set(
+        members
+          .map((m) => Number(m.reference_year))
+          .filter((y) => Number.isFinite(y) && y > 0)
+      )].sort((a, b) => a - b);
+
+      const rawGaps = computeYearGaps(presentYears).filter((y) => leagueByYear.has(y));
+      if (!rawGaps.length) continue;
+
+      const first = members[0];
+      const displayName = `${first?.first_name || ''} ${first?.last_name || ''}`.trim() || '—';
+      const suggestedRole = majorityValue(members.map((m) => String(m.role || '').trim().toUpperCase())) || 'C';
+      const suggestedBirthYear = (() => {
+        const years = [...new Set(
+          members.map((m) => Number(m.birth_year)).filter((y) => Number.isFinite(y) && y >= 1900)
+        )];
+        return years.length === 1 ? years[0] : null;
+      })();
+      const suggestedTeamName = majorityValue(members.map((m) => m.team_name)) || null;
+
+      const present = presentYears.map((y) => {
+        const league = leagueByYear.get(y);
+        const member = members.find((m) => Number(m.reference_year) === y);
+        return {
+          reference_year: y,
+          league_id: league?.league_id || Number(member?.league_id) || null,
+          league_name: league?.league_name || String(member?.league_name || ''),
+          player_id: Number(member?.player_id) || null,
+          team_id: Number(member?.team_id) || null,
+          team_name: String(member?.team_name || ''),
+          role: String(member?.role || '').trim().toUpperCase() || null,
+        };
+      });
+
+      const gapYears = [];
+      for (const year of rawGaps) {
+        const league = leagueByYear.get(year);
+        if (!league) continue;
+        neededLeagueIds.add(league.league_id);
+        gapYears.push(year);
+      }
+      if (!gapYears.length) continue;
+
+      draftClusters.push({
+        cluster_id: clusterId,
+        name: displayName,
+        first_name: String(first?.first_name || '').trim(),
+        last_name: String(first?.last_name || '').trim(),
+        present_years: presentYears,
+        present,
+        members_count: members.length,
+        suggested_role: suggestedRole,
+        suggested_birth_year: suggestedBirthYear,
+        suggested_team_name: suggestedTeamName,
+        gap_years: gapYears,
+      });
+    }
+
+    const teamsByLeagueId = new Map();
+    if (neededLeagueIds.size > 0) {
+      const leagueIdList = [...neededLeagueIds];
+      const placeholders = leagueIdList.map(() => '?').join(',');
+      const teamRows = await query(
+        `SELECT id, name, league_id
+         FROM teams
+         WHERE league_id IN (${placeholders})
+         ORDER BY name ASC`,
+        leagueIdList
+      );
+      for (const t of teamRows || []) {
+        const lid = Number(t.league_id);
+        if (!teamsByLeagueId.has(lid)) teamsByLeagueId.set(lid, []);
+        teamsByLeagueId.get(lid).push({
+          team_id: Number(t.id),
+          team_name: String(t.name || '').trim(),
+        });
+      }
+    }
+
+    // Omonimi nelle leghe con buco (una query per tutti i draft)
+    const existingByKey = new Map(); // `${leagueId}|${fn}|${ln}` -> players[]
+    if (draftClusters.length > 0 && neededLeagueIds.size > 0) {
+      const namePairs = [];
+      const seenNames = new Set();
+      for (const d of draftClusters) {
+        const fn = d.first_name;
+        const ln = d.last_name;
+        if (!fn || !ln) continue;
+        const nk = `${fn.toLowerCase()}|${ln.toLowerCase()}`;
+        if (seenNames.has(nk)) continue;
+        seenNames.add(nk);
+        namePairs.push([fn, ln]);
+      }
+      if (namePairs.length > 0) {
+        const leagueIdList = [...neededLeagueIds];
+        const leaguePh = leagueIdList.map(() => '?').join(',');
+        const nameConds = namePairs.map(() =>
+          `(LOWER(TRIM(p.first_name)) = LOWER(TRIM(?)) AND LOWER(TRIM(p.last_name)) = LOWER(TRIM(?)))`
+        ).join(' OR ');
+        const params = [
+          ...leagueIdList,
+          ...namePairs.flatMap(([fn, ln]) => [fn, ln]),
+        ];
+        const existingRows = await query(
+          `SELECT p.id AS player_id, p.first_name, p.last_name, p.role, p.birth_year,
+                  t.id AS team_id, t.name AS team_name, t.league_id
+           FROM players p
+           INNER JOIN teams t ON t.id = p.team_id
+           WHERE t.league_id IN (${leaguePh})
+             AND (${nameConds})`,
+          params
+        );
+        for (const r of existingRows || []) {
+          const key = `${Number(r.league_id)}|${String(r.first_name || '').trim().toLowerCase()}|${String(r.last_name || '').trim().toLowerCase()}`;
+          if (!existingByKey.has(key)) existingByKey.set(key, []);
+          existingByKey.get(key).push({
+            player_id: Number(r.player_id),
+            role: String(r.role || '').trim().toUpperCase() || null,
+            birth_year: r.birth_year != null ? Number(r.birth_year) : null,
+            team_id: Number(r.team_id),
+            team_name: String(r.team_name || '').trim(),
+          });
+        }
+      }
+    }
+
+    const clusters = draftClusters.map((d) => {
+      const suggestedTeamKey = normalizeTeamNameKey(d.suggested_team_name);
+      const gaps = d.gap_years.map((year) => {
+        const league = leagueByYear.get(year);
+        const teamList = teamsByLeagueId.get(league.league_id) || [];
+        const suggestedTeam = suggestedTeamKey
+          ? (teamList.find((t) => normalizeTeamNameKey(t.team_name) === suggestedTeamKey) || null)
+          : null;
+        const existKey = `${league.league_id}|${d.first_name.toLowerCase()}|${d.last_name.toLowerCase()}`;
+        return {
+          reference_year: year,
+          league_id: league.league_id,
+          league_name: league.league_name,
+          suggested_role: d.suggested_role,
+          suggested_birth_year: d.suggested_birth_year,
+          suggested_team_id: suggestedTeam?.team_id || null,
+          suggested_team_name: suggestedTeam?.team_name || d.suggested_team_name,
+          teams: teamList,
+          existing_players: existingByKey.get(existKey) || [],
+        };
+      });
+      return {
+        cluster_id: d.cluster_id,
+        name: d.name,
+        first_name: d.first_name,
+        last_name: d.last_name,
+        present_years: d.present_years,
+        present: d.present,
+        gaps,
+        members_count: d.members_count,
+      };
+    }).filter((c) => c.gaps.length > 0);
+
+    clusters.sort((a, b) => a.name.localeCompare(b.name, 'it'));
+
+    return res.json({
+      group_id: groupId,
+      group_name: groupRows[0].name,
+      count: clusters.length,
+      clusters,
+    });
+  } catch (error) {
+    console.error('[superuser] GET cluster-year-gaps error:', error?.message || error);
+    if (isMissingDbObjectError(error)) {
+      return res.status(500).json({
+        message: 'Tabelle cluster non configurate sul database',
+        error: error.message,
+      });
+    }
+    return res.status(500).json({ message: 'Errore scansione buchi anni cluster', error: error.message });
+  }
+});
+
+/**
+ * Crea (o riusa) un giocatore nell'anno mancante e lo aggiunge al cluster.
+ * Body: { reference_year, team_id, role?, birth_year?, player_id? }
+ */
+router.post('/player-clusters/:clusterId/fill-year-gap', authenticateToken, requireSuperuser, async (req, res) => {
+  try {
+    await ensurePlayerClusterSchema();
+    const userId = Number(req.user?.userId);
+    const clusterId = Number(req.params.clusterId);
+    const referenceYear = Number(req.body?.reference_year);
+    const teamId = Number(req.body?.team_id);
+    const existingPlayerId = req.body?.player_id != null ? Number(req.body.player_id) : null;
+    const roleRaw = String(req.body?.role || '').trim().toUpperCase();
+    const role = ['P', 'D', 'C', 'A'].includes(roleRaw) ? roleRaw : null;
+    const birthParsed = parseClusterBirthYearInput(req.body?.birth_year);
+
+    if (!clusterId || !Number.isFinite(referenceYear) || referenceYear <= 0) {
+      return res.status(400).json({ message: 'Parametri non validi' });
+    }
+    if (birthParsed.error) {
+      return res.status(400).json({ message: 'Anno di nascita non valido' });
+    }
+
+    const cluster = await loadClusterMeta(clusterId);
+    if (!cluster || cluster.status !== 'approved') {
+      return res.status(404).json({ message: 'Cluster approvato non trovato' });
+    }
+    const groupId = Number(cluster.official_group_id);
+
+    const memberRows = await query(
+      `SELECT p.id, p.first_name, p.last_name, p.role, p.birth_year
+       FROM player_cluster_members pcm
+       INNER JOIN players p ON p.id = pcm.player_id
+       WHERE pcm.cluster_id = ?
+       ORDER BY p.id ASC`,
+      [clusterId]
+    );
+    if (!memberRows.length) return res.status(400).json({ message: 'Cluster senza membri' });
+
+    const first = memberRows[0];
+    const firstName = String(first.first_name || '').trim();
+    const lastName = String(first.last_name || '').trim();
+    if (!firstName || !lastName) {
+      return res.status(400).json({ message: 'Nome cluster non valido' });
+    }
+
+    const leagueRows = await query(
+      `SELECT id, name
+       FROM leagues l
+       WHERE l.official_group_id = ?
+         AND COALESCE(l.is_official, 0) = 1
+         AND NULLIF(to_jsonb(l)->>'reference_year','')::int = ?
+       LIMIT 1`,
+      [groupId, referenceYear]
+    );
+    if (!leagueRows.length) {
+      return res.status(400).json({ message: `Nessuna lega ufficiale per l'anno ${referenceYear}` });
+    }
+    const leagueId = Number(leagueRows[0].id);
+
+    let playerId = Number.isFinite(existingPlayerId) && existingPlayerId > 0 ? existingPlayerId : null;
+    let created = false;
+
+    if (playerId) {
+      const ok = await query(
+        `SELECT p.id
+         FROM players p
+         INNER JOIN teams t ON t.id = p.team_id
+         WHERE p.id = ? AND t.league_id = ?
+         LIMIT 1`,
+        [playerId, leagueId]
+      );
+      if (!ok.length) {
+        return res.status(400).json({ message: 'Il giocatore selezionato non appartiene alla lega dell\'anno' });
+      }
+    } else {
+      if (!Number.isFinite(teamId) || teamId <= 0) {
+        return res.status(400).json({ message: 'Seleziona una squadra' });
+      }
+      const teamOk = await query(
+        `SELECT id, name FROM teams WHERE id = ? AND league_id = ? LIMIT 1`,
+        [teamId, leagueId]
+      );
+      if (!teamOk.length) {
+        return res.status(400).json({ message: 'Squadra non valida per la lega dell\'anno' });
+      }
+
+      const resolvedRole = role
+        || majorityValue(memberRows.map((m) => String(m.role || '').trim().toUpperCase()))
+        || 'C';
+      const resolvedBirth = birthParsed.value != null
+        ? birthParsed.value
+        : (() => {
+          const years = [...new Set(
+            memberRows.map((m) => Number(m.birth_year)).filter((y) => Number.isFinite(y) && y >= 1900)
+          )];
+          return years.length === 1 ? years[0] : null;
+        })();
+
+      let ins;
+      try {
+        ins = await query(
+          `INSERT INTO players (team_id, first_name, last_name, role, rating, birth_year)
+           VALUES (?, ?, ?, ?, 0, ?)
+           RETURNING id`,
+          [teamId, firstName, lastName, resolvedRole, resolvedBirth]
+        );
+      } catch (_) {
+        ins = await query(
+          `INSERT INTO players (team_id, first_name, last_name, role, rating)
+           VALUES (?, ?, ?, ?, 0)
+           RETURNING id`,
+          [teamId, firstName, lastName, resolvedRole]
+        );
+      }
+      playerId = Number(ins?.[0]?.id || ins?.insertId);
+      if (!Number.isFinite(playerId) || playerId <= 0) {
+        return res.status(500).json({ message: 'Creazione giocatore fallita' });
+      }
+      created = true;
+    }
+
+    const alreadyIn = await query(
+      `SELECT player_id FROM player_cluster_members WHERE cluster_id = ? AND player_id = ? LIMIT 1`,
+      [clusterId, playerId]
+    );
+    if (!alreadyIn.length) {
+      const dupApproved = await query(
+        `SELECT pcm.player_id
+         FROM player_cluster_members pcm
+         JOIN player_clusters pc ON pcm.cluster_id = pc.id
+         WHERE pcm.player_id = ?
+           AND pc.id <> ?
+           AND pc.official_group_id = ?
+           AND pc.status = 'approved'
+         LIMIT 1`,
+        [playerId, clusterId, groupId]
+      );
+      if (dupApproved.length > 0) {
+        return res.status(400).json({ message: 'Il giocatore appartiene già a un altro cluster approvato' });
+      }
+      try {
+        await assertClusterPlayerBirthYearsCompatible([playerId], clusterId);
+      } catch (compatErr) {
+        if (compatErr?.message === 'BIRTH_YEAR_MISMATCH') {
+          return res.status(400).json({
+            message: 'Anni di nascita diversi: non puoi associare omonimi con anno diverso nello stesso cluster',
+            years: compatErr.years || [],
+          });
+        }
+        throw compatErr;
+      }
+      await query(
+        `INSERT INTO player_cluster_members (cluster_id, player_id, added_by)
+         VALUES (?, ?, ?)`,
+        [clusterId, playerId, userId]
+      );
+    }
+
+    return res.json({
+      message: created
+        ? `Giocatore creato e aggiunto al cluster per il ${referenceYear}`
+        : `Giocatore aggiunto al cluster per il ${referenceYear}`,
+      created,
+      player_id: playerId,
+      cluster_id: clusterId,
+      reference_year: referenceYear,
+      league_id: leagueId,
+    });
+  } catch (error) {
+    console.error('[superuser] POST fill-year-gap error:', error?.message || error);
+    return res.status(500).json({ message: 'Errore riempimento anno mancante', error: error.message });
+  }
+});
+
 /**
  * Discrepanze tra bonus diretta (eventi) e valori salvati nei voti (player_ratings).
  * Stessa logica di allineamento del salvataggio voti partita.
