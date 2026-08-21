@@ -791,6 +791,14 @@ export const superuserService = {
     api.put(`/superuser/player-clusters/${encodeURIComponent(Number(clusterId))}/role`, {
       role: String(role || '').trim().toUpperCase(),
     }),
+  setPlayerBirthYear: (playerId, birthYear) =>
+    api.put(`/superuser/players/${encodeURIComponent(Number(playerId))}/birth-year`, {
+      birth_year: birthYear === '' || birthYear == null ? null : Number(birthYear),
+    }),
+  setPlayerRole: (playerId, role) =>
+    api.put(`/superuser/players/${encodeURIComponent(Number(playerId))}/role`, {
+      role: String(role || '').trim().toUpperCase(),
+    }),
   getPlayerClusters: (groupId, status) => {
     const gid = encodeURIComponent(Number(groupId));
     const url = `/superuser/player-clusters/${gid}${status ? `?status=${encodeURIComponent(status)}` : ''}`;

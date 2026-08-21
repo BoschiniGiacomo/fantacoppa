@@ -725,9 +725,30 @@ export default function SuperUserScreen() {
     });
   };
 
+  const refreshSelectedSinglePlayerAfterChange = async (playerId) => {
+    const allSingles = await fetchAllUnclusteredPlayers();
+    setUnclusteredPlayersByPlayer(allSingles);
+    const updated = allSingles.find((s) => Number(s.player_id) === Number(playerId));
+    if (updated) {
+      setSelectedPlayerCluster(updated);
+      setClusterBirthYearDraft(getSuggestedClusterBirthYear(updated.leagues));
+      setClusterRoleDraft(getSuggestedClusterRole(updated.leagues));
+      return;
+    }
+    setShowPlayerClusterDetail(false);
+    setSelectedPlayerCluster(null);
+  };
+
   const handleApplyClusterBirthYear = async (yearOverride) => {
-    if (!selectedPlayerCluster?.cluster_id) return;
+    if (!selectedPlayerCluster) return;
+    const isSingle = !!selectedPlayerCluster.is_single_player;
     const clusterId = selectedPlayerCluster.cluster_id;
+    const playerId = Number(
+      selectedPlayerCluster.player_id || selectedPlayerCluster.leagues?.[0]?.player_id,
+    );
+    if (!isSingle && !clusterId) return;
+    if (isSingle && (!Number.isFinite(playerId) || playerId <= 0)) return;
+
     const leagues = selectedPlayerCluster.leagues || [];
     const yearStr = String(yearOverride !== undefined ? yearOverride : clusterBirthYearDraft || '').trim();
     if (!yearStr) {
@@ -743,10 +764,19 @@ export default function SuperUserScreen() {
     if (yearOverride !== undefined) setClusterBirthYearDraft(yearStr);
     setSavingClusterBirthYear(true);
     try {
-      await superuserService.setClusterBirthYear(clusterId, yearStr || null);
-      await refreshSelectedPlayerClusterAfterChange(clusterId);
+      if (isSingle) {
+        await superuserService.setPlayerBirthYear(playerId, yearStr || null);
+        showToast(
+          yearStr ? `Anno ${yearStr} aggiornato` : 'Anno di nascita rimosso',
+          'success',
+        );
+        await refreshSelectedSinglePlayerAfterChange(playerId);
+      } else {
+        await superuserService.setClusterBirthYear(clusterId, yearStr || null);
+        await refreshSelectedPlayerClusterAfterChange(clusterId);
+      }
     } catch (error) {
-      console.error('Error setting cluster birth year:', error);
+      console.error('Error setting birth year:', error);
       showToast(error.response?.data?.message || 'Errore aggiornamento anno');
     } finally {
       setSavingClusterBirthYear(false);
@@ -754,8 +784,15 @@ export default function SuperUserScreen() {
   };
 
   const handleApplyClusterRole = async (roleOverride) => {
-    if (!selectedPlayerCluster?.cluster_id) return;
+    if (!selectedPlayerCluster) return;
+    const isSingle = !!selectedPlayerCluster.is_single_player;
     const clusterId = selectedPlayerCluster.cluster_id;
+    const playerId = Number(
+      selectedPlayerCluster.player_id || selectedPlayerCluster.leagues?.[0]?.player_id,
+    );
+    if (!isSingle && !clusterId) return;
+    if (isSingle && (!Number.isFinite(playerId) || playerId <= 0)) return;
+
     const leagues = selectedPlayerCluster.leagues || [];
     const roleCode = normalizeClusterRoleCode(
       roleOverride !== undefined ? roleOverride : clusterRoleDraft,
@@ -766,11 +803,17 @@ export default function SuperUserScreen() {
     if (roleOverride !== undefined) setClusterRoleDraft(roleCode);
     setSavingClusterRole(true);
     try {
-      await superuserService.setClusterRole(clusterId, roleCode);
-      showToast(`Ruolo ${roleCode} applicato a tutto il cluster`, 'success');
-      await refreshSelectedPlayerClusterAfterChange(clusterId);
+      if (isSingle) {
+        await superuserService.setPlayerRole(playerId, roleCode);
+        showToast(`Ruolo ${roleCode} aggiornato`, 'success');
+        await refreshSelectedSinglePlayerAfterChange(playerId);
+      } else {
+        await superuserService.setClusterRole(clusterId, roleCode);
+        showToast(`Ruolo ${roleCode} applicato a tutto il cluster`, 'success');
+        await refreshSelectedPlayerClusterAfterChange(clusterId);
+      }
     } catch (error) {
-      console.error('Error setting cluster role:', error);
+      console.error('Error setting role:', error);
       showToast(error.response?.data?.message || 'Errore aggiornamento ruolo');
     } finally {
       setSavingClusterRole(false);
@@ -2898,6 +2941,21 @@ export default function SuperUserScreen() {
                   size={20}
                   color={hasActiveClusterFilters ? '#667eea' : '#94a3b8'}
                 />
+                <View style={[
+                  styles.clusterFilterCountBadge,
+                  hasActiveClusterFilters && styles.clusterFilterCountBadgeActive,
+                ]}
+                >
+                  <Text
+                    style={[
+                      styles.clusterFilterCountBadgeText,
+                      hasActiveClusterFilters && styles.clusterFilterCountBadgeTextActive,
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {filteredApprovedClustersByPlayer.length}
+                  </Text>
+                </View>
               </TouchableOpacity>
             </View>
             {loadingApprovedClusters ? (
@@ -3229,8 +3287,7 @@ export default function SuperUserScreen() {
                 {openClusterFilterSection === 'singles' ? (
                   <View style={styles.clusterFilterAccordionBody}>
                     <Text style={styles.clusterFilterHint}>
-                      Di base nascosti. Attiva per includere anche i giocatori non in un cluster approvato;
-                      si combina con gli altri filtri.
+                      Attiva per includere anche i giocatori non in un cluster.
                     </Text>
                     <View style={styles.clusterFilterChips}>
                       <TouchableOpacity
@@ -5148,7 +5205,7 @@ export default function SuperUserScreen() {
               </TouchableOpacity>
             </View>
 
-            {selectedPlayerCluster && !selectedPlayerCluster.is_single_player ? (() => {
+            {selectedPlayerCluster ? (() => {
               const missingBirthYearCount = countClusterMembersMissingBirthYear(selectedPlayerCluster.leagues);
               const mismatchedRoleCount = countClusterMembersNotMatchingRole(
                 selectedPlayerCluster.leagues,
@@ -5162,7 +5219,9 @@ export default function SuperUserScreen() {
                   <TouchableOpacity
                     style={[
                       styles.clusterMetaPill,
-                      missingBirthYearCount > 0 && clusterBirthYearDraft
+                      !selectedPlayerCluster.is_single_player
+                        && missingBirthYearCount > 0
+                        && clusterBirthYearDraft
                         ? styles.clusterMetaPillPending
                         : null,
                     ]}
@@ -5191,7 +5250,9 @@ export default function SuperUserScreen() {
                   <TouchableOpacity
                     style={[
                       styles.clusterMetaPill,
-                      mismatchedRoleCount > 0 && clusterRoleDraft
+                      !selectedPlayerCluster.is_single_player
+                        && mismatchedRoleCount > 0
+                        && clusterRoleDraft
                         ? styles.clusterMetaPillPending
                         : null,
                     ]}
@@ -5217,11 +5278,11 @@ export default function SuperUserScreen() {
 
                 </View>
 
-                {missingBirthYearCount > 0 && clusterBirthYearDraft ? (
+                {!selectedPlayerCluster.is_single_player && missingBirthYearCount > 0 && clusterBirthYearDraft ? (
                   <Text style={styles.clusterMetaPendingHint}>
                     {missingBirthYearCount} senza anno
                   </Text>
-                ) : mismatchedRoleCount > 0 && clusterRoleDraft ? (
+                ) : !selectedPlayerCluster.is_single_player && mismatchedRoleCount > 0 && clusterRoleDraft ? (
                   <Text style={styles.clusterMetaPendingHint}>
                     {mismatchedRoleCount === 1
                       ? '1 ruolo diverso'
@@ -5594,10 +5655,37 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     alignItems: 'center',
     justifyContent: 'center',
+    position: 'relative',
+    overflow: 'visible',
   },
   clusterFilterBtnActive: {
     borderColor: '#c7d2fe',
     backgroundColor: '#f8f9ff',
+  },
+  clusterFilterCountBadge: {
+    position: 'absolute',
+    right: -4,
+    bottom: -4,
+    minWidth: 18,
+    height: 18,
+    paddingHorizontal: 4,
+    borderRadius: 9,
+    backgroundColor: '#e2e8f0',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: '#fff',
+  },
+  clusterFilterCountBadgeActive: {
+    backgroundColor: '#667eea',
+  },
+  clusterFilterCountBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#475569',
+  },
+  clusterFilterCountBadgeTextActive: {
+    color: '#fff',
   },
   clusterFiltersSheet: {
     backgroundColor: '#fff',

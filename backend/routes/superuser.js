@@ -2124,6 +2124,63 @@ router.delete('/player-clusters/:clusterId/players/:playerId', authenticateToken
   }
 });
 
+router.put('/players/:playerId/birth-year', authenticateToken, requireSuperuser, async (req, res) => {
+  try {
+    const playerId = Number(req.params.playerId);
+    if (!playerId || playerId <= 0) return res.status(400).json({ message: 'Player ID non valido' });
+
+    const existing = await query(`SELECT id FROM players WHERE id = ? LIMIT 1`, [playerId]);
+    if (!existing.length) return res.status(404).json({ message: 'Giocatore non trovato' });
+
+    const parsed = parseClusterBirthYearInput(req.body?.birth_year);
+    if (parsed.error === 'invalid') {
+      return res.status(400).json({ message: 'Anno di nascita non valido (4 cifre, es. 1998)' });
+    }
+    if (parsed.error === 'range') {
+      return res.status(400).json({ message: 'Anno di nascita fuori intervallo consentito' });
+    }
+
+    const birthYear = parsed.value;
+    await query(`UPDATE players SET birth_year = ? WHERE id = ?`, [birthYear, playerId]);
+
+    return res.json({
+      message: birthYear != null
+        ? `Anno di nascita ${birthYear} aggiornato`
+        : 'Anno di nascita rimosso',
+      birth_year: birthYear,
+      player_id: playerId,
+    });
+  } catch (error) {
+    return res.status(500).json({ message: 'Errore aggiornamento anno di nascita', error: error.message });
+  }
+});
+
+router.put('/players/:playerId/role', authenticateToken, requireSuperuser, async (req, res) => {
+  try {
+    const playerId = Number(req.params.playerId);
+    if (!playerId || playerId <= 0) return res.status(400).json({ message: 'Player ID non valido' });
+
+    const existing = await query(`SELECT id FROM players WHERE id = ? LIMIT 1`, [playerId]);
+    if (!existing.length) return res.status(404).json({ message: 'Giocatore non trovato' });
+
+    const parsed = parseClusterRoleInput(req.body?.role);
+    if (parsed.error === 'invalid') {
+      return res.status(400).json({ message: 'Ruolo non valido (P, D, C o A)' });
+    }
+
+    const role = parsed.value;
+    await query(`UPDATE players SET role = ? WHERE id = ?`, [role, playerId]);
+
+    return res.json({
+      message: `Ruolo ${role} aggiornato`,
+      role,
+      player_id: playerId,
+    });
+  } catch (error) {
+    return res.status(500).json({ message: 'Errore aggiornamento ruolo', error: error.message });
+  }
+});
+
 router.get('/players/search/:groupId', authenticateToken, requireSuperuser, async (req, res) => {
   try {
     const groupId = Number(req.params.groupId);
