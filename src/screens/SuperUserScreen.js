@@ -393,6 +393,8 @@ export default function SuperUserScreen() {
   const [loadingClusterYearGaps, setLoadingClusterYearGaps] = useState(false);
   const [clusterYearGapsResult, setClusterYearGapsResult] = useState(null);
   const [yearGapsSearchText, setYearGapsSearchText] = useState('');
+  const [yearGapsYearFilter, setYearGapsYearFilter] = useState(null); // null = tutti gli anni buco
+  const [yearGapsInfoOpen, setYearGapsInfoOpen] = useState(false);
   const [yearGapsFillTarget, setYearGapsFillTarget] = useState(null); // { cluster, gap }
   const [yearGapsFillRole, setYearGapsFillRole] = useState('C');
   const [yearGapsFillTeamId, setYearGapsFillTeamId] = useState(null);
@@ -1951,6 +1953,8 @@ export default function SuperUserScreen() {
   const openClusterYearGapsModal = () => {
     setClusterYearGapsResult(null);
     setYearGapsSearchText('');
+    setYearGapsYearFilter(null);
+    setYearGapsInfoOpen(false);
     setYearGapsFillTarget(null);
     setYearGapsFillRole('C');
     setYearGapsFillTeamId(null);
@@ -1964,6 +1968,8 @@ export default function SuperUserScreen() {
     setLoadingClusterYearGaps(false);
     setClusterYearGapsResult(null);
     setYearGapsSearchText('');
+    setYearGapsYearFilter(null);
+    setYearGapsInfoOpen(false);
     setYearGapsFillTarget(null);
     setSavingYearGapsFill(false);
   };
@@ -2030,26 +2036,52 @@ export default function SuperUserScreen() {
     }
   };
 
+  const yearGapsYearOptions = useMemo(() => {
+    const years = new Set();
+    const list = Array.isArray(clusterYearGapsResult?.clusters)
+      ? clusterYearGapsResult.clusters
+      : [];
+    for (const c of list) {
+      for (const g of c.gaps || []) {
+        const y = Number(g.reference_year);
+        if (Number.isFinite(y) && y > 0) years.add(y);
+      }
+    }
+    return [...years].sort((a, b) => a - b);
+  }, [clusterYearGapsResult]);
+
   const filteredClusterYearGaps = useMemo(() => {
     const list = Array.isArray(clusterYearGapsResult?.clusters)
       ? clusterYearGapsResult.clusters
       : [];
+    const yearFilter = yearGapsYearFilter != null ? Number(yearGapsYearFilter) : null;
     const q = yearGapsSearchText.trim().toLowerCase();
-    if (!q) return list;
-    return list.filter((c) => {
-      const hay = [
-        c.name,
-        c.first_name,
-        c.last_name,
-        ...(c.present_years || []).map(String),
-        ...(c.gaps || []).flatMap((g) => [String(g.reference_year), g.league_name, g.suggested_team_name]),
-      ]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase();
-      return q.split(/\s+/).every((part) => hay.includes(part));
-    });
-  }, [clusterYearGapsResult, yearGapsSearchText]);
+
+    return list
+      .map((c) => {
+        const gaps = Array.isArray(c.gaps) ? c.gaps : [];
+        const filteredGaps = yearFilter != null
+          ? gaps.filter((g) => Number(g.reference_year) === yearFilter)
+          : gaps;
+        if (yearFilter != null && filteredGaps.length === 0) return null;
+        return { ...c, gaps: filteredGaps };
+      })
+      .filter(Boolean)
+      .filter((c) => {
+        if (!q) return true;
+        const hay = [
+          c.name,
+          c.first_name,
+          c.last_name,
+          ...(c.present_years || []).map(String),
+          ...(c.gaps || []).flatMap((g) => [String(g.reference_year), g.league_name, g.suggested_team_name]),
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+        return q.split(/\s+/).every((part) => hay.includes(part));
+      });
+  }, [clusterYearGapsResult, yearGapsSearchText, yearGapsYearFilter]);
 
   const closeLiveBonusDiscrepancyModal = () => {
     setShowLiveBonusDiscrepancyModal(false);
@@ -2269,9 +2301,9 @@ export default function SuperUserScreen() {
       // Se già ordinato per questa colonna, inverte la direzione
       setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
     } else {
-      // Nuova colonna, ordine crescente di default
+      // Nuova colonna: di base freccia in basso (desc)
       setSortColumn(column);
-      setSortDirection('asc');
+      setSortDirection('desc');
     }
   };
   
@@ -2292,6 +2324,8 @@ export default function SuperUserScreen() {
     // Ordina
     if (!sortColumn) return filtered;
     
+    const loginTs = (u) => (u?.last_login ? new Date(u.last_login).getTime() : 0);
+
     const sorted = [...filtered].sort((a, b) => {
       let aVal, bVal;
       
@@ -2301,8 +2335,8 @@ export default function SuperUserScreen() {
           bVal = (b.username || '').toLowerCase();
           break;
         case 'last_login':
-          aVal = a.last_login ? new Date(a.last_login).getTime() : 0;
-          bVal = b.last_login ? new Date(b.last_login).getTime() : 0;
+          aVal = loginTs(a);
+          bVal = loginTs(b);
           break;
         case 'is_online':
           aVal = a.is_online ? 1 : 0;
@@ -2323,6 +2357,13 @@ export default function SuperUserScreen() {
       
       if (aVal < bVal) return sortDirection === 'asc' ? -1 : 1;
       if (aVal > bVal) return sortDirection === 'asc' ? 1 : -1;
+
+      // A parità (es. stesso stato): secondo criterio = ultimo accesso (più recente prima)
+      if (sortColumn !== 'last_login') {
+        const aLogin = loginTs(a);
+        const bLogin = loginTs(b);
+        if (aLogin !== bLogin) return bLogin - aLogin;
+      }
       return 0;
     });
     
@@ -3012,9 +3053,6 @@ export default function SuperUserScreen() {
                   </View>
                   <View style={styles.liveBonusRepairBtnTextWrap}>
                     <Text style={styles.liveBonusRepairBtnTitle}>Buchi anni cluster</Text>
-                    <Text style={styles.liveBonusRepairBtnSub}>
-                      Es. 2004+2006 senza 2005
-                    </Text>
                   </View>
                   <Ionicons name="chevron-forward" size={18} color="#bfdbfe" />
                 </TouchableOpacity>
@@ -4744,18 +4782,36 @@ export default function SuperUserScreen() {
               <Text style={[styles.modalTitle, { flex: 1, marginRight: 8 }]} numberOfLines={1}>
                 Buchi anni cluster
               </Text>
+              <TouchableOpacity
+                style={[
+                  styles.discrepancyInfoIconBtn,
+                  yearGapsInfoOpen && styles.discrepancyInfoIconBtnActive,
+                ]}
+                onPress={() => setYearGapsInfoOpen((v) => !v)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityLabel="Info sui buchi anni"
+              >
+                <Ionicons
+                  name="information-circle-outline"
+                  size={22}
+                  color={yearGapsInfoOpen ? '#0369a1' : '#64748b'}
+                />
+              </TouchableOpacity>
               <TouchableOpacity onPress={closeClusterYearGapsModal} hitSlop={8}>
                 <Ionicons name="close" size={24} color="#666" />
               </TouchableOpacity>
             </View>
 
             <View style={styles.discrepancyModalBody}>
-              <View style={styles.discrepancyInfoBanner}>
-                <Text style={styles.discrepancyInfoBannerText}>
-                  Trova cluster con anni saltati (es. presenti nel 2004 e 2006 ma non nel 2005).
-                  Da qui puoi creare il giocatore nell’anno mancante e aggiungerlo al cluster.
-                </Text>
-              </View>
+              {yearGapsInfoOpen ? (
+                <View style={styles.discrepancyInfoBanner}>
+                  <Text style={styles.discrepancyInfoBannerText}>
+                    Trova cluster con anni saltati (es. presenti nel 2004 e 2006 ma non nel 2005).
+                    {'\n'}
+                    Da qui puoi creare il giocatore nell’anno mancante e aggiungerlo al cluster.
+                  </Text>
+                </View>
+              ) : null}
 
               <Text style={styles.discrepancySectionLabel}>Gruppo ufficiale</Text>
               <ScrollView
@@ -4777,6 +4833,7 @@ export default function SuperUserScreen() {
                         setYearGapsGroupId(Number(g.id));
                         setClusterYearGapsResult(null);
                         setYearGapsFillTarget(null);
+                        setYearGapsYearFilter(null);
                       }}
                     >
                       <Text
@@ -4818,16 +4875,75 @@ export default function SuperUserScreen() {
                     <Text style={styles.discrepancySummaryText}>
                       {clusterYearGapsResult.count || 0} cluster con buchi
                       {filteredClusterYearGaps.length !== (clusterYearGapsResult.count || 0)
-                        ? ` · ${filteredClusterYearGaps.length} filtrati`
+                        || yearGapsYearFilter != null
+                        || yearGapsSearchText.trim()
+                        ? ` · ${filteredClusterYearGaps.length} in elenco`
                         : ''}
                     </Text>
                   </View>
+
+                  {yearGapsYearOptions.length > 0 ? (
+                    <>
+                      <Text style={styles.discrepancySectionLabel}>Anno buco</Text>
+                      <ScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        style={styles.neverPlayedYearFilters}
+                        contentContainerStyle={styles.neverPlayedYearFiltersContent}
+                      >
+                        <TouchableOpacity
+                          style={[
+                            styles.neverPlayedYearChipBtn,
+                            yearGapsYearFilter == null && styles.neverPlayedYearChipBtnActive,
+                          ]}
+                          onPress={() => {
+                            setYearGapsYearFilter(null);
+                            setYearGapsFillTarget(null);
+                          }}
+                        >
+                          <Text
+                            style={[
+                              styles.neverPlayedYearChipBtnText,
+                              yearGapsYearFilter == null && styles.neverPlayedYearChipBtnTextActive,
+                            ]}
+                          >
+                            Tutti
+                          </Text>
+                        </TouchableOpacity>
+                        {yearGapsYearOptions.map((year) => {
+                          const active = Number(yearGapsYearFilter) === Number(year);
+                          return (
+                            <TouchableOpacity
+                              key={`yg-yf-${year}`}
+                              style={[
+                                styles.neverPlayedYearChipBtn,
+                                active && styles.neverPlayedYearChipBtnActive,
+                              ]}
+                              onPress={() => {
+                                setYearGapsYearFilter(Number(year));
+                                setYearGapsFillTarget(null);
+                              }}
+                            >
+                              <Text
+                                style={[
+                                  styles.neverPlayedYearChipBtnText,
+                                  active && styles.neverPlayedYearChipBtnTextActive,
+                                ]}
+                              >
+                                {year}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </ScrollView>
+                    </>
+                  ) : null}
 
                   <View style={[styles.searchContainer, { marginHorizontal: 0, marginBottom: 8 }]}>
                     <Ionicons name="search" size={18} color="#999" style={styles.searchIcon} />
                     <TextInput
                       style={styles.searchInput}
-                      placeholder="Cerca giocatore o anno…"
+                      placeholder="Cerca giocatore…"
                       placeholderTextColor="#999"
                       value={yearGapsSearchText}
                       onChangeText={setYearGapsSearchText}
@@ -4846,11 +4962,13 @@ export default function SuperUserScreen() {
                       <View style={styles.neverPlayedEmpty}>
                         <Ionicons name="checkmark-circle-outline" size={36} color="#94a3b8" />
                         <Text style={styles.neverPlayedEmptyTitle}>
-                          {yearGapsSearchText.trim() ? 'Nessun risultato' : 'Nessun buco trovato'}
+                          {yearGapsSearchText.trim() || yearGapsYearFilter != null
+                            ? 'Nessun risultato'
+                            : 'Nessun buco trovato'}
                         </Text>
                         <Text style={styles.neverPlayedEmptySub}>
-                          {yearGapsSearchText.trim()
-                            ? 'Prova un altro filtro di ricerca.'
+                          {yearGapsSearchText.trim() || yearGapsYearFilter != null
+                            ? 'Prova un altro anno o filtro di ricerca.'
                             : 'Tutti i cluster hanno gli anni continui tra il primo e l’ultimo.'}
                         </Text>
                       </View>
