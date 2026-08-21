@@ -2554,13 +2554,15 @@ function resolveClosedMatchScoresFromEvents(m, events) {
 
 /**
  * Ultimi risultati casa/ospite + ultimi incontri diretti (stesso gruppo ufficiale).
- * Match chiusi (match_end), esclusa la partita corrente; una sola mappa logo + un batch eventi.
+ * Solo match chiusi (match_end) **precedenti** alla partita corrente (per kickoff),
+ * non le ultime in assoluto della competizione.
  */
 async function loadMatchDetailOverviewExtras({
   competitionId,
   matchId,
   homeTeamName,
   awayTeamName,
+  beforeKickoffAt = null,
   formLimit = RECENT_FORM_LIMIT,
   meetingsLimit = PREVIOUS_MEETINGS_LIMIT,
 } = {}) {
@@ -2573,7 +2575,10 @@ async function loadMatchDetailOverviewExtras({
   const empty = { recent_form: { home: [], away: [] }, previous_meetings: [] };
   if (!(compId > 0) || !homeNorm || !awayNorm) return empty;
 
-  const cacheKey = `overview:${compId}:${mid}:${homeNorm}:${awayNorm}:${formLimit}:${meetingsLimit}`;
+  const beforeKickoff = beforeKickoffAt != null && String(beforeKickoffAt).trim()
+    ? String(beforeKickoffAt).trim()
+    : null;
+  const cacheKey = `overview:${compId}:${mid}:${homeNorm}:${awayNorm}:${beforeKickoff || 'nokick'}:${formLimit}:${meetingsLimit}`;
   return RECENT_FORM_CACHE.getOrSet(cacheKey, async () => {
     const formCandidateLimit = Math.max(12, formLimit * 8);
     const meetingsCandidateLimit = Math.max(meetingsLimit, meetingsLimit + 3);
@@ -2596,6 +2601,18 @@ async function loadMatchDetailOverviewExtras({
         AND (? <= 0 OR m.id <> ?)
         AND COALESCE(m.is_admin_only, 0) = 0
     `;
+    // Solo partite giocate prima di quella corrente (kickoff), non le ultime in assoluto.
+    const beforeCurrentSql = beforeKickoff
+      ? `
+        AND m.kickoff_at IS NOT NULL
+        AND (
+          m.kickoff_at < ?
+          OR (m.kickoff_at = ? AND m.id < ?)
+        )
+      `
+      : `
+        AND (? <= 0 OR m.id < ?)
+      `;
     const endedExistsSql = `
         AND EXISTS (
           SELECT 1 FROM official_match_events e
@@ -2605,6 +2622,10 @@ async function loadMatchDetailOverviewExtras({
       LIMIT ?
     `;
 
+    const beforeParams = beforeKickoff
+      ? [beforeKickoff, beforeKickoff, mid]
+      : [mid, mid];
+
     const [formRows, meetingRows, logoMap] = await Promise.all([
       query(
         `${matchSelectSql}
@@ -2612,8 +2633,9 @@ async function loadMatchDetailOverviewExtras({
           LOWER(TRIM(ht.name)) IN (LOWER(TRIM(?)), LOWER(TRIM(?)))
           OR LOWER(TRIM(at.name)) IN (LOWER(TRIM(?)), LOWER(TRIM(?)))
         )
+        ${beforeCurrentSql}
         ${endedExistsSql}`,
-        [compId, mid, mid, homeName, awayName, homeName, awayName, formCandidateLimit]
+        [compId, mid, mid, homeName, awayName, homeName, awayName, ...beforeParams, formCandidateLimit]
       ),
       query(
         `${matchSelectSql}
@@ -2621,8 +2643,9 @@ async function loadMatchDetailOverviewExtras({
           (LOWER(TRIM(ht.name)) = LOWER(TRIM(?)) AND LOWER(TRIM(at.name)) = LOWER(TRIM(?)))
           OR (LOWER(TRIM(ht.name)) = LOWER(TRIM(?)) AND LOWER(TRIM(at.name)) = LOWER(TRIM(?)))
         )
+        ${beforeCurrentSql}
         ${endedExistsSql}`,
-        [compId, mid, mid, homeName, awayName, awayName, homeName, meetingsCandidateLimit]
+        [compId, mid, mid, homeName, awayName, awayName, homeName, ...beforeParams, meetingsCandidateLimit]
       ),
       buildBestOfficialTeamLogoMap([compId], false).catch(() => new Map()),
     ]);
@@ -2856,6 +2879,7 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
         matchId,
         homeTeamName: matchRow.home_team_name,
         awayTeamName: matchRow.away_team_name,
+        beforeKickoffAt: matchRow.kickoff_at || null,
         formLimit: RECENT_FORM_LIMIT,
         meetingsLimit: PREVIOUS_MEETINGS_LIMIT,
       }).catch(() => emptyOverviewExtras),
