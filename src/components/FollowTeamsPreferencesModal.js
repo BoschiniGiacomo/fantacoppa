@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Modal,
@@ -27,7 +27,7 @@ function TeamRowLogo({ logoUrl, logoPath }) {
 
 /**
  * Modal condiviso: preferiti (stella) + notifiche squadre ufficiali.
- * Usato da Partite (onboarding FAB) e Profilo → Preferenze.
+ * Ogni tap su stella/campanella salva subito (come in scheda squadra).
  */
 export default function FollowTeamsPreferencesModal({
   visible,
@@ -37,9 +37,11 @@ export default function FollowTeamsPreferencesModal({
 }) {
   const navigation = useNavigation();
   const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [draft, setDraft] = useState([]);
+  const [comps, setComps] = useState([]);
   const [error, setError] = useState(null);
+  const [busyKeys, setBusyKeys] = useState(() => new Set());
+  const dirtyRef = useRef(false);
+  const stripRefreshTimer = useRef(null);
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -47,9 +49,9 @@ export default function FollowTeamsPreferencesModal({
     setError(null);
     try {
       const res = await matchesService.getFollowSetup();
-      const comps = Array.isArray(res?.data?.competitions) ? res.data.competitions : [];
-      setDraft(
-        comps.map((c) => ({
+      const list = Array.isArray(res?.data?.competitions) ? res.data.competitions : [];
+      setComps(
+        list.map((c) => ({
           ...c,
           heart_team_names: [...(c.heart_team_names || [])],
           notify_team_names: [...(c.notify_team_names || [])],
@@ -57,7 +59,7 @@ export default function FollowTeamsPreferencesModal({
       );
     } catch (e) {
       setError(e?.response?.data?.message || e?.message || 'Impossibile caricare le preferenze');
-      setDraft([]);
+      setComps([]);
     } finally {
       setLoading(false);
     }
@@ -65,40 +67,139 @@ export default function FollowTeamsPreferencesModal({
 
   useEffect(() => {
     if (!visible) return;
+    dirtyRef.current = false;
     void load();
   }, [visible, load]);
 
-  const toggleDraftHeart = (compId, teamName) => {
-    setDraft((prev) =>
+  useEffect(() => () => {
+    if (stripRefreshTimer.current) clearTimeout(stripRefreshTimer.current);
+  }, []);
+
+  const setBusy = (key, on) => {
+    setBusyKeys((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  };
+
+  const scheduleParentRefresh = useCallback(() => {
+    dirtyRef.current = true;
+    if (stripRefreshTimer.current) clearTimeout(stripRefreshTimer.current);
+    stripRefreshTimer.current = setTimeout(() => {
+      refreshStripTeams(token).catch(() => {});
+      onSaved?.();
+    }, 280);
+  }, [token, onSaved]);
+
+  const patchTeamLists = (compId, teamName, patcher) => {
+    setComps((prev) =>
       prev.map((c) => {
         if (c.id !== compId) return c;
-        const has = (c.heart_team_names || []).includes(teamName);
-        const next = has
-          ? c.heart_team_names.filter((t) => t !== teamName)
-          : [...(c.heart_team_names || []), teamName];
-        return { ...c, heart_team_names: next };
+        return patcher(c, teamName);
       })
     );
   };
 
-  const toggleDraftNotify = (compId, teamName) => {
-    setDraft((prev) =>
-      prev.map((c) => {
-        if (c.id !== compId) return c;
-        const has = (c.notify_team_names || []).includes(teamName);
-        const next = has
-          ? c.notify_team_names.filter((t) => t !== teamName)
-          : [...(c.notify_team_names || []), teamName];
-        return { ...c, notify_team_names: next };
-      })
-    );
+  const toggleHeart = async (compId, teamName) => {
+    const key = `h:${compId}:${teamName}`;
+    if (busyKeys.has(key) || !token) return;
+
+    const comp = comps.find((c) => c.id === compId);
+    const wasHeart = (comp?.heart_team_names || []).includes(teamName);
+    const nextHeart = !wasHeart;
+
+    // Allinea UI al backend: preferito ON attiva anche le notifiche.
+    patchTeamLists(compId, teamName, (c) => {
+      const hearts = new Set(c.heart_team_names || []);
+      const notifies = new Set(c.notify_team_names || []);
+      if (nextHeart) {
+        hearts.add(teamName);
+        notifies.add(teamName);
+      } else {
+        hearts.delete(teamName);
+      }
+      return {
+        ...c,
+        heart_team_names: Array.from(hearts),
+        notify_team_names: Array.from(notifies),
+      };
+    });
+
+    setBusy(key, true);
+    setError(null);
+    try {
+      await matchesService.setFavoriteTeam(compId, teamName, nextHeart);
+      scheduleParentRefresh();
+    } catch (e) {
+      patchTeamLists(compId, teamName, (c) => {
+        const hearts = new Set(c.heart_team_names || []);
+        const notifies = new Set(c.notify_team_names || []);
+        if (wasHeart) {
+          hearts.add(teamName);
+        } else {
+          hearts.delete(teamName);
+          notifies.delete(teamName);
+        }
+        return {
+          ...c,
+          heart_team_names: Array.from(hearts),
+          notify_team_names: Array.from(notifies),
+        };
+      });
+      setError(e?.response?.data?.message || e?.message || 'Aggiornamento preferito non riuscito');
+    } finally {
+      setBusy(key, false);
+    }
+  };
+
+  const toggleNotify = async (compId, teamName) => {
+    const key = `n:${compId}:${teamName}`;
+    if (busyKeys.has(key) || !token) return;
+
+    const comp = comps.find((c) => c.id === compId);
+    const wasNotify = (comp?.notify_team_names || []).includes(teamName);
+    const nextNotify = !wasNotify;
+
+    patchTeamLists(compId, teamName, (c) => {
+      const notifies = new Set(c.notify_team_names || []);
+      if (nextNotify) notifies.add(teamName);
+      else notifies.delete(teamName);
+      return { ...c, notify_team_names: Array.from(notifies) };
+    });
+
+    setBusy(key, true);
+    setError(null);
+    try {
+      await matchesService.setTeamNotifications(compId, teamName, nextNotify);
+      scheduleParentRefresh();
+    } catch (e) {
+      patchTeamLists(compId, teamName, (c) => {
+        const notifies = new Set(c.notify_team_names || []);
+        if (wasNotify) notifies.add(teamName);
+        else notifies.delete(teamName);
+        return { ...c, notify_team_names: Array.from(notifies) };
+      });
+      setError(e?.response?.data?.message || e?.message || 'Aggiornamento notifiche non riuscito');
+    } finally {
+      setBusy(key, false);
+    }
+  };
+
+  const handleClose = () => {
+    if (dirtyRef.current) {
+      refreshStripTeams(token).catch(() => {});
+      onSaved?.();
+    }
+    onClose?.();
   };
 
   const goToOfficialTeam = (teamId, competitionId, teamName) => {
     const tid = Number(teamId);
     const cid = Number(competitionId);
     if (!tid || !cid) return;
-    onClose?.();
+    handleClose();
     navigation.navigate('OfficialTeamDetail', {
       teamId: tid,
       competitionId: cid,
@@ -106,42 +207,27 @@ export default function FollowTeamsPreferencesModal({
     });
   };
 
-  const save = async () => {
-    if (!token) return;
-    setSaving(true);
-    setError(null);
-    try {
-      await matchesService.saveFollowPreferences({
-        competitions: draft.map((c) => ({
-          official_group_id: c.id,
-          heart_team_names: c.heart_team_names || [],
-          notify_team_names: c.notify_team_names || [],
-        })),
-      });
-      await refreshStripTeams(token).catch(() => {});
-      onClose?.();
-      onSaved?.();
-    } catch (e) {
-      setError(e?.response?.data?.message || e?.message || 'Salvataggio non riuscito');
-    } finally {
-      setSaving(false);
-    }
-  };
-
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={handleClose}>
       <View style={styles.overlay}>
         <View style={[styles.box, { maxHeight: '85%' }]}>
-          <Text style={styles.title}>Squadre preferite</Text>
-          <Text style={styles.hint}>
-            Stella per la strip Partite · campanella per le notifiche di quella squadra
-          </Text>
+          <View style={styles.headerRow}>
+            <Text style={styles.title}>Squadre preferite</Text>
+            <TouchableOpacity
+              style={styles.closeBtn}
+              onPress={handleClose}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              accessibilityLabel="Chiudi"
+            >
+              <Ionicons name="close" size={22} color="#64748b" />
+            </TouchableOpacity>
+          </View>
           {loading ? (
             <ActivityIndicator style={{ marginVertical: 24 }} color="#667eea" />
           ) : (
             <ScrollView style={styles.scroll} keyboardShouldPersistTaps="handled">
               {error ? <Text style={styles.errorText}>{error}</Text> : null}
-              {draft.map((c) => (
+              {comps.map((c) => (
                 <View key={`follow-comp-${c.id}`} style={styles.compBlock}>
                   <Text style={styles.compTitle}>{c.name}</Text>
                   {(c.teams || []).length === 0 ? (
@@ -153,6 +239,8 @@ export default function FollowTeamsPreferencesModal({
                       if (!tname) return null;
                       const isHeart = (c.heart_team_names || []).includes(tname);
                       const isNotify = (c.notify_team_names || []).includes(tname);
+                      const heartBusy = busyKeys.has(`h:${c.id}:${tname}`);
+                      const notifyBusy = busyKeys.has(`n:${c.id}:${tname}`);
                       return (
                         <View key={`${c.id}-${tname}`} style={styles.teamRow}>
                           <TouchableOpacity
@@ -167,8 +255,13 @@ export default function FollowTeamsPreferencesModal({
                           </TouchableOpacity>
                           <View style={styles.icons}>
                             <TouchableOpacity
-                              style={[styles.iconBtn, isHeart && styles.iconBtnActive]}
-                              onPress={() => toggleDraftHeart(c.id, tname)}
+                              style={[
+                                styles.iconBtn,
+                                isHeart && styles.iconBtnActive,
+                                heartBusy && styles.iconBtnBusy,
+                              ]}
+                              onPress={() => toggleHeart(c.id, tname)}
+                              disabled={heartBusy}
                             >
                               <Ionicons
                                 name={isHeart ? 'star' : 'star-outline'}
@@ -177,8 +270,13 @@ export default function FollowTeamsPreferencesModal({
                               />
                             </TouchableOpacity>
                             <TouchableOpacity
-                              style={[styles.iconBtn, isNotify && styles.iconBtnActive]}
-                              onPress={() => toggleDraftNotify(c.id, tname)}
+                              style={[
+                                styles.iconBtn,
+                                isNotify && styles.iconBtnActive,
+                                notifyBusy && styles.iconBtnBusy,
+                              ]}
+                              onPress={() => toggleNotify(c.id, tname)}
+                              disabled={notifyBusy}
                             >
                               <Ionicons
                                 name={isNotify ? 'notifications' : 'notifications-outline'}
@@ -195,18 +293,6 @@ export default function FollowTeamsPreferencesModal({
               ))}
             </ScrollView>
           )}
-          <View style={styles.actions}>
-            <TouchableOpacity style={styles.btnSecondary} onPress={onClose} disabled={saving}>
-              <Text style={styles.btnSecondaryText}>Chiudi</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.btnPrimary, saving && styles.btnDisabled]}
-              onPress={save}
-              disabled={loading || saving}
-            >
-              <Text style={styles.btnPrimaryText}>{saving ? 'Salvo…' : 'Salva'}</Text>
-            </TouchableOpacity>
-          </View>
         </View>
       </View>
     </Modal>
@@ -225,27 +311,30 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 16,
   },
-  title: { fontSize: 18, fontWeight: '800', color: '#222', marginBottom: 4 },
+  title: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#222',
+    paddingRight: 8,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  closeBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#f1f5f9',
+  },
   hint: { fontSize: 12, color: '#666', marginBottom: 12, lineHeight: 18 },
   scroll: { flexGrow: 0 },
   errorText: { color: '#c62828', marginBottom: 8, fontSize: 13 },
-  actions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10, marginTop: 12 },
-  btnSecondary: {
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#ddd',
-  },
-  btnSecondaryText: { fontWeight: '700', color: '#444' },
-  btnPrimary: {
-    backgroundColor: '#667eea',
-    paddingVertical: 10,
-    paddingHorizontal: 18,
-    borderRadius: 10,
-  },
-  btnPrimaryText: { fontWeight: '700', color: '#fff' },
-  btnDisabled: { opacity: 0.55 },
   compBlock: { borderTopWidth: 1, borderTopColor: '#eee', paddingTop: 12, marginTop: 8 },
   compTitle: { fontSize: 14, fontWeight: '800', color: '#333', marginBottom: 8 },
   teamRow: {
@@ -277,5 +366,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   iconBtnActive: { backgroundColor: '#f0f4ff' },
+  iconBtnBusy: { opacity: 0.55 },
   muted: { fontSize: 12, color: '#999' },
 });

@@ -49,15 +49,18 @@ export default function ProfileScreen() {
   const { user, logout, refreshSession, token } = useAuth();
   const navigation = useNavigation();
   const [showChangePassword, setShowChangePassword] = useState(false);
+  const [passwordStep, setPasswordStep] = useState('current'); // 'current' | 'new'
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [toastMsg, setToastMsg] = useState(null);
   const [confirmModal, setConfirmModal] = useState(null);
+  const [passwordFieldErrors, setPasswordFieldErrors] = useState({
+    current: false,
+    next: false,
+  });
   const [notificationStatus, setNotificationStatus] = useState('unknown');
   const [followModalVisible, setFollowModalVisible] = useState(false);
   const [favoriteTeamsCount, setFavoriteTeamsCount] = useState(() => {
@@ -143,37 +146,82 @@ export default function ProfileScreen() {
     }, 800);
   };
 
+  const resetPasswordForm = () => {
+    setPasswordStep('current');
+    setCurrentPassword('');
+    setNewPassword('');
+    setShowCurrentPassword(false);
+    setShowNewPassword(false);
+    setPasswordFieldErrors({ current: false, next: false });
+  };
+
+  const clearPasswordFieldError = (key) => {
+    setPasswordFieldErrors((prev) => (prev[key] ? { ...prev, [key]: false } : prev));
+  };
+
+  const handleVerifyCurrentPassword = async () => {
+    Keyboard.dismiss();
+    if (!currentPassword.trim()) {
+      setPasswordFieldErrors({ current: true, next: false });
+      showToast('Inserisci la password attuale');
+      return;
+    }
+    setPasswordFieldErrors({ current: false, next: false });
+    try {
+      setLoading(true);
+      await authService.verifyPassword(currentPassword);
+      setPasswordStep('new');
+    } catch (error) {
+      const errorMessage =
+        error.response?.data?.message || error.message || 'Password attuale non corretta';
+      setPasswordFieldErrors({ current: true, next: false });
+      showToast(errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleChangePassword = async () => {
     Keyboard.dismiss();
 
-    if (!currentPassword.trim() || !newPassword.trim() || !confirmPassword.trim()) {
-      showToast('Compila tutti i campi');
-      return;
-    }
-
-    if (newPassword !== confirmPassword) {
-      showToast('Le nuove password non coincidono');
+    if (!newPassword.trim()) {
+      setPasswordFieldErrors({ current: false, next: true });
+      showToast('Inserisci la nuova password');
       return;
     }
 
     if (newPassword.length < 6) {
+      setPasswordFieldErrors({ current: false, next: true });
       showToast('La nuova password deve essere di almeno 6 caratteri');
       return;
     }
 
+    setPasswordFieldErrors({ current: false, next: false });
+
     try {
       setLoading(true);
-      const res = await authService.changePassword(currentPassword, newPassword, confirmPassword);
+      const res = await authService.changePassword(currentPassword, newPassword);
       showToast(res.data.message || 'Password aggiornata con successo', 'success');
-
-      setCurrentPassword('');
-      setNewPassword('');
-      setConfirmPassword('');
+      resetPasswordForm();
       setShowChangePassword(false);
     } catch (error) {
       console.error('Error changing password:', error);
       const errorMessage =
         error.response?.data?.message || error.message || 'Errore durante il cambio password';
+      const lower = String(errorMessage).toLowerCase();
+      const currentWrong =
+        lower.includes('attuale') ||
+        lower.includes('corrente') ||
+        lower.includes('current') ||
+        lower.includes('errata') ||
+        lower.includes('incorrect') ||
+        lower.includes('wrong');
+      if (currentWrong) {
+        setPasswordStep('current');
+        setPasswordFieldErrors({ current: true, next: false });
+      } else {
+        setPasswordFieldErrors({ current: false, next: true });
+      }
       showToast(errorMessage);
     } finally {
       setLoading(false);
@@ -185,34 +233,31 @@ export default function ProfileScreen() {
   };
 
   const renderPasswordField = ({
-    label,
     value,
     onChangeText,
     placeholder,
     visible,
     onToggleVisible,
+    invalid = false,
   }) => (
-    <View style={styles.passwordField}>
-      <Text style={styles.passwordLabel}>{label}</Text>
-      <View style={styles.passwordInputWrap}>
-        <TextInput
-          style={styles.passwordInput}
-          value={value}
-          onChangeText={onChangeText}
-          placeholder={placeholder}
-          placeholderTextColor="#94a3b8"
-          secureTextEntry={!visible}
-          autoCapitalize="none"
-          autoCorrect={false}
+    <View style={[styles.passwordInputWrap, invalid && styles.passwordInputWrapInvalid]}>
+      <TextInput
+        style={styles.passwordInput}
+        value={value}
+        onChangeText={onChangeText}
+        placeholder={placeholder}
+        placeholderTextColor={invalid ? '#f87171' : '#94a3b8'}
+        secureTextEntry={!visible}
+        autoCapitalize="none"
+        autoCorrect={false}
+      />
+      <TouchableOpacity onPress={onToggleVisible} style={styles.eyeButton} hitSlop={8}>
+        <Ionicons
+          name={visible ? 'eye-outline' : 'eye-off-outline'}
+          size={18}
+          color={invalid ? '#f87171' : '#94a3b8'}
         />
-        <TouchableOpacity onPress={onToggleVisible} style={styles.eyeButton} hitSlop={8}>
-          <Ionicons
-            name={visible ? 'eye-outline' : 'eye-off-outline'}
-            size={20}
-            color="#64748b"
-          />
-        </TouchableOpacity>
-      </View>
+      </TouchableOpacity>
     </View>
   );
 
@@ -303,7 +348,12 @@ export default function ProfileScreen() {
         <View style={[styles.card, showChangePassword && styles.cardOpen]}>
           <TouchableOpacity
             style={styles.accordionHeader}
-            onPress={() => setShowChangePassword((v) => !v)}
+            onPress={() => {
+              setShowChangePassword((v) => {
+                if (v) resetPasswordForm();
+                return !v;
+              });
+            }}
             activeOpacity={0.75}
           >
             <View style={styles.menuIconTile}>
@@ -319,42 +369,59 @@ export default function ProfileScreen() {
 
           {showChangePassword ? (
             <View style={styles.passwordBody}>
-              {renderPasswordField({
-                label: 'Password attuale',
-                value: currentPassword,
-                onChangeText: setCurrentPassword,
-                placeholder: 'Inserisci password attuale',
-                visible: showCurrentPassword,
-                onToggleVisible: () => setShowCurrentPassword((v) => !v),
-              })}
-              {renderPasswordField({
-                label: 'Nuova password',
-                value: newPassword,
-                onChangeText: setNewPassword,
-                placeholder: 'Almeno 6 caratteri',
-                visible: showNewPassword,
-                onToggleVisible: () => setShowNewPassword((v) => !v),
-              })}
-              {renderPasswordField({
-                label: 'Conferma nuova password',
-                value: confirmPassword,
-                onChangeText: setConfirmPassword,
-                placeholder: 'Ripeti la nuova password',
-                visible: showConfirmPassword,
-                onToggleVisible: () => setShowConfirmPassword((v) => !v),
-              })}
-              <TouchableOpacity
-                style={[styles.primaryBtn, loading && styles.primaryBtnDisabled]}
-                onPress={handleChangePassword}
-                disabled={loading}
-                activeOpacity={0.8}
-              >
-                {loading ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Text style={styles.primaryBtnText}>Aggiorna password</Text>
-                )}
-              </TouchableOpacity>
+              {passwordStep === 'current' ? (
+                <>
+                  {renderPasswordField({
+                    value: currentPassword,
+                    onChangeText: (text) => {
+                      clearPasswordFieldError('current');
+                      setCurrentPassword(text);
+                    },
+                    placeholder: 'Password attuale',
+                    visible: showCurrentPassword,
+                    onToggleVisible: () => setShowCurrentPassword((v) => !v),
+                    invalid: passwordFieldErrors.current,
+                  })}
+                  <TouchableOpacity
+                    style={[styles.primaryBtn, loading && styles.primaryBtnDisabled]}
+                    onPress={handleVerifyCurrentPassword}
+                    disabled={loading}
+                    activeOpacity={0.8}
+                  >
+                    {loading ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <Text style={styles.primaryBtnText}>Continua</Text>
+                    )}
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <>
+                  {renderPasswordField({
+                    value: newPassword,
+                    onChangeText: (text) => {
+                      clearPasswordFieldError('next');
+                      setNewPassword(text);
+                    },
+                    placeholder: 'Nuova password (min. 6)',
+                    visible: showNewPassword,
+                    onToggleVisible: () => setShowNewPassword((v) => !v),
+                    invalid: passwordFieldErrors.next,
+                  })}
+                  <TouchableOpacity
+                    style={[styles.primaryBtn, loading && styles.primaryBtnDisabled]}
+                    onPress={handleChangePassword}
+                    disabled={loading}
+                    activeOpacity={0.8}
+                  >
+                    {loading ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <Text style={styles.primaryBtnText}>Salva</Text>
+                    )}
+                  </TouchableOpacity>
+                </>
+              )}
             </View>
           ) : null}
         </View>
@@ -684,28 +751,24 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: '#e8edf5',
     paddingTop: 12,
-    gap: 12,
-  },
-  passwordField: {
-    gap: 6,
-  },
-  passwordLabel: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#64748b',
+    gap: 8,
   },
   passwordInputWrap: {
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    backgroundColor: '#f8fafc',
+    borderColor: '#e8edf5',
+    backgroundColor: '#fafbfc',
     borderRadius: 10,
     paddingHorizontal: 12,
   },
+  passwordInputWrapInvalid: {
+    borderColor: '#fecaca',
+    backgroundColor: '#fff7f7',
+  },
   passwordInput: {
     flex: 1,
-    paddingVertical: 11,
+    paddingVertical: 12,
     fontSize: 15,
     color: '#0f172a',
   },
@@ -716,7 +779,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
     backgroundColor: '#667eea',
     borderRadius: 10,
-    minHeight: 44,
+    minHeight: 42,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -725,7 +788,7 @@ const styles = StyleSheet.create({
   },
   primaryBtnText: {
     color: '#fff',
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '700',
   },
   toast: {

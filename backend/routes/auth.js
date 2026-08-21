@@ -257,15 +257,45 @@ router.post('/forgot-password', async (req, res) => {
   }
 });
 
+// Verifica password attuale (sblocca il cambio)
+router.post('/verify-password', authenticateToken, async (req, res) => {
+  try {
+    const userId = Number(req.user.userId);
+    const password = String(req.body?.password || req.body?.current_password || '').trim();
+    if (!password) {
+      return res.status(400).json({ message: 'Inserisci la password attuale' });
+    }
+
+    const rows = await query('SELECT password FROM users WHERE id = ? LIMIT 1', [userId]);
+    const row = rows[0];
+    if (!row) {
+      return res.status(404).json({ message: 'Utente non trovato' });
+    }
+
+    const ok = await bcrypt.compare(password, row.password);
+    if (!ok) {
+      return res.status(401).json({ message: 'Password attuale non corretta' });
+    }
+    return res.json({ ok: true });
+  } catch (error) {
+    console.error('Verify password error:', error);
+    return res.status(500).json({ message: 'Errore durante la verifica password' });
+  }
+});
+
 // Cambio password
 router.post('/change-password', authenticateToken, async (req, res) => {
   try {
     const userId = Number(req.user.userId);
     const currentPassword = String(req.body?.current_password || '').trim();
     const newPassword = String(req.body?.new_password || '').trim();
-    const confirmPassword = String(req.body?.confirm_password || '').trim();
+    const confirmRaw = req.body?.confirm_password;
+    const confirmPassword =
+      confirmRaw == null || String(confirmRaw).trim() === ''
+        ? newPassword
+        : String(confirmRaw).trim();
 
-    if (!currentPassword || !newPassword || !confirmPassword) {
+    if (!currentPassword || !newPassword) {
       return res.status(400).json({ message: 'Compila tutti i campi' });
     }
     if (newPassword !== confirmPassword) {

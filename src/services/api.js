@@ -166,6 +166,7 @@ api.interceptors.response.use(
         path.includes('/auth/login')
         || path.includes('/auth/register')
         || path.includes('/auth/change-password')
+        || path.includes('/auth/verify-password')
         || path.includes('/auth/delete-account')
         || path.includes('/auth/forgot-password');
 
@@ -223,7 +224,14 @@ export const authService = {
     return api.post('/auth/change-password', {
       current_password: currentPassword,
       new_password: newPassword,
-      confirm_password: confirmPassword,
+      confirm_password: confirmPassword ?? newPassword,
+    });
+  },
+
+  verifyPassword: (password) => {
+    return api.post('/auth/verify-password', {
+      password,
+      current_password: password,
     });
   },
 
