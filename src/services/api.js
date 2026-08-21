@@ -732,6 +732,8 @@ export const superuserService = {
     api.put(`/superuser/users/${encodeURIComponent(Number(userId))}/email`, { email }),
   updateUserPassword: (userId, password) =>
     api.put(`/superuser/users/${encodeURIComponent(Number(userId))}/password`, { password }),
+  getUserLeagues: (userId) =>
+    api.get(`/superuser/users/${encodeURIComponent(Number(userId))}/leagues`),
   getLeagues: () => api.get('/superuser/leagues'),
   deleteLeague: (leagueId) => api.delete(`/superuser/leagues/${leagueId}`),
   joinLeagueAsAdmin: (leagueId) => api.post(`/superuser/leagues/${leagueId}/join-as-admin`),

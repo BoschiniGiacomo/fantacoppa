@@ -837,6 +837,49 @@ router.put('/users/:id/password', authenticateToken, requireSuperuser, async (re
   }
 });
 
+/** Leghe a cui l'utente è iscritto + nome squadra in ciascuna. */
+router.get('/users/:id/leagues', authenticateToken, requireSuperuser, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!id || id <= 0) return res.status(400).json({ message: 'ID utente non valido' });
+
+    const existing = await query(`SELECT id, username FROM users WHERE id = ? LIMIT 1`, [id]);
+    if (!existing.length) return res.status(404).json({ message: 'Utente non trovato' });
+
+    const rows = await query(
+      `SELECT
+         l.id AS league_id,
+         l.name AS league_name,
+         lm.role AS member_role,
+         COALESCE(NULLIF(TRIM(ub.team_name), ''), u.username) AS team_name,
+         COALESCE(l.is_official, 0) AS is_official,
+         l.reference_year
+       FROM league_members lm
+       INNER JOIN leagues l ON l.id = lm.league_id
+       INNER JOIN users u ON u.id = lm.user_id
+       LEFT JOIN user_budget ub ON ub.user_id = lm.user_id AND ub.league_id = lm.league_id
+       WHERE lm.user_id = ?
+       ORDER BY COALESCE(l.is_official, 0) DESC, l.name ASC, l.id ASC`,
+      [id]
+    );
+
+    return res.json({
+      user_id: id,
+      count: (rows || []).length,
+      leagues: (rows || []).map((r) => ({
+        league_id: Number(r.league_id),
+        league_name: String(r.league_name || '').trim() || 'Lega',
+        member_role: String(r.member_role || 'member').trim(),
+        team_name: String(r.team_name || '').trim() || '—',
+        is_official: Number(r.is_official) ? 1 : 0,
+        reference_year: r.reference_year != null ? Number(r.reference_year) : null,
+      })),
+    });
+  } catch (error) {
+    return res.status(500).json({ message: 'Errore caricamento leghe utente', error: error.message });
+  }
+});
+
 router.get('/leagues', authenticateToken, requireSuperuser, async (_req, res) => {
   try {
     await ensureSuperuserTables();
