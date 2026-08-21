@@ -1776,7 +1776,7 @@ export default function SuperUserScreen() {
           setSelectedUserDetail((prev) => (prev ? { ...prev, username: next } : prev));
           setUserDetailEditingField(null);
           await loadUsers({ silent: true });
-          showToast('Nome utente aggiornato', 'success');
+          showToast('Nome utente aggiornato con successo', 'success');
         } catch (error) {
           showToast(error.response?.data?.message || 'Errore aggiornamento nome utente');
         } finally {
@@ -1809,7 +1809,7 @@ export default function SuperUserScreen() {
           setSelectedUserDetail((prev) => (prev ? { ...prev, email: next } : prev));
           setUserDetailEditingField(null);
           await loadUsers({ silent: true });
-          showToast('Email aggiornata', 'success');
+          showToast('Email aggiornata con successo', 'success');
         } catch (error) {
           showToast(error.response?.data?.message || 'Errore aggiornamento email');
         } finally {
@@ -1863,7 +1863,7 @@ export default function SuperUserScreen() {
           setUserDetailEditingField(null);
           setUserDetailPasswordVisible(false);
           setUserDetailPasswordUnlocked(false);
-          showToast('Password aggiornata', 'success');
+          showToast('Password aggiornata con successo', 'success');
         } catch (error) {
           showToast(error.response?.data?.message || 'Errore aggiornamento password');
         } finally {
@@ -7568,12 +7568,27 @@ export default function SuperUserScreen() {
         onClose={() => setMatchBgSimulateOpen(false)}
       />
 
-      {toastMsg && (
-        <View style={[styles.toast, toastMsg.type === 'success' ? styles.toastSuccess : styles.toastError]}>
-          <Ionicons name={toastMsg.type === 'success' ? 'checkmark-circle' : 'alert-circle'} size={18} color="#fff" />
-          <Text style={styles.toastText}>{toastMsg.text}</Text>
-        </View>
-      )}
+      {toastMsg ? (
+        <Modal transparent visible animationType="fade" statusBarTranslucent>
+          <View pointerEvents="box-none" style={styles.toastOverlay}>
+            <View
+              pointerEvents="none"
+              style={[
+                styles.toast,
+                toastMsg.type === 'success' ? styles.toastSuccess : styles.toastError,
+                { top: Math.max(insets.top, 12) + 56 },
+              ]}
+            >
+              <Ionicons
+                name={toastMsg.type === 'success' ? 'checkmark-circle' : 'alert-circle'}
+                size={18}
+                color="#fff"
+              />
+              <Text style={styles.toastText}>{toastMsg.text}</Text>
+            </View>
+          </View>
+        </Modal>
+      ) : null}
 
       <Modal
         visible={!!selectedUserDetail}
@@ -11226,9 +11241,12 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     zIndex: 1000,
   },
+  toastOverlay: {
+    flex: 1,
+    backgroundColor: 'transparent',
+  },
   toast: {
     position: 'absolute',
-    top: 100,
     left: 20,
     right: 20,
     borderRadius: 12,
@@ -11242,7 +11260,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 8,
     elevation: 10,
-    zIndex: 999,
   },
   toastError: { backgroundColor: '#e53935' },
   toastSuccess: { backgroundColor: '#2e7d32' },
