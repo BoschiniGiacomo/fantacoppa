@@ -12,6 +12,8 @@ import {
   Share,
   Platform,
   Animated,
+  Dimensions,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
@@ -37,8 +39,10 @@ function PasswordFloatingField({
   visible,
   onToggleVisible,
   invalid = false,
+  onRequestVisible,
 }) {
   const [focused, setFocused] = useState(false);
+  const shellRef = useRef(null);
   const floated = focused || String(value || '').length > 0;
   const anim = useRef(new Animated.Value(floated ? 1 : 0)).current;
 
@@ -64,8 +68,17 @@ function PasswordFloatingField({
       ? '#667eea'
       : '#94a3b8';
 
+  const handleFocus = () => {
+    setFocused(true);
+    onRequestVisible?.(shellRef);
+  };
+
   return (
-    <View style={[styles.passwordFieldShell, invalid && styles.passwordInputWrapInvalid]}>
+    <View
+      ref={shellRef}
+      collapsable={false}
+      style={[styles.passwordFieldShell, invalid && styles.passwordInputWrapInvalid]}
+    >
       <Animated.Text
         pointerEvents="none"
         style={[
@@ -74,6 +87,7 @@ function PasswordFloatingField({
             top: labelTop,
             fontSize: labelSize,
             color: labelColor,
+            fontWeight: floated ? '400' : '500',
             backgroundColor: invalid ? '#fff7f7' : '#fafbfc',
           },
         ]}
@@ -85,7 +99,7 @@ function PasswordFloatingField({
           style={styles.passwordInput}
           value={value}
           onChangeText={onChangeText}
-          onFocus={() => setFocused(true)}
+          onFocus={handleFocus}
           onBlur={() => setFocused(false)}
           secureTextEntry={!visible}
           autoCapitalize="none"
@@ -122,6 +136,9 @@ export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const { user, logout, refreshSession, token } = useAuth();
   const navigation = useNavigation();
+  const scrollRef = useRef(null);
+  const scrollYRef = useRef(0);
+  const keyboardHeightRef = useRef(0);
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -167,6 +184,52 @@ export default function ProfileScreen() {
       refreshFavoriteTeamsCount().catch(() => {});
     }, [refreshSession, refreshNotificationStatus, refreshFavoriteTeamsCount])
   );
+
+  useEffect(() => {
+    const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const onShow = (e) => {
+      keyboardHeightRef.current = e?.endCoordinates?.height || 0;
+    };
+    const onHide = () => {
+      keyboardHeightRef.current = 0;
+    };
+    const subShow = Keyboard.addListener(showEvt, onShow);
+    const subHide = Keyboard.addListener(hideEvt, onHide);
+    return () => {
+      subShow.remove();
+      subHide.remove();
+    };
+  }, []);
+
+  const scrollPasswordFieldIntoView = useCallback((fieldRef) => {
+    const run = () => {
+      const node = fieldRef?.current;
+      const scroll = scrollRef.current;
+      if (!node || !scroll) return;
+      node.measureInWindow((_x, y, _w, h) => {
+        const winH = Dimensions.get('window').height;
+        const kb = keyboardHeightRef.current || 0;
+        const topSafe = Math.max(insets.top, 12) + 8;
+        const visibleBottom = winH - kb - Math.max(insets.bottom, 8) - 12;
+        const fieldBottom = y + h;
+        let delta = 0;
+        if (fieldBottom > visibleBottom) {
+          delta = fieldBottom - visibleBottom;
+        } else if (y < topSafe) {
+          delta = y - topSafe;
+        }
+        if (Math.abs(delta) < 4) return;
+        scroll.scrollTo({
+          y: Math.max(0, scrollYRef.current + delta),
+          animated: true,
+        });
+      });
+    };
+    // Prima e dopo l’animazione tastiera
+    setTimeout(run, 60);
+    setTimeout(run, Platform.OS === 'ios' ? 280 : 220);
+  }, [insets.top, insets.bottom]);
 
   const showToast = (text, type = 'error') => {
     setToastMsg({ text, type });
@@ -345,8 +408,13 @@ export default function ProfileScreen() {
   );
 
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      keyboardVerticalOffset={0}
+    >
       <ScrollView
+        ref={scrollRef}
         style={styles.scroll}
         contentContainerStyle={[
           styles.scrollContent,
@@ -356,7 +424,13 @@ export default function ProfileScreen() {
           },
         ]}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
+        automaticallyAdjustKeyboardInsets
         showsVerticalScrollIndicator={false}
+        onScroll={(e) => {
+          scrollYRef.current = e.nativeEvent.contentOffset.y;
+        }}
+        scrollEventThrottle={16}
       >
         {/* Hero */}
         <View style={styles.heroCard}>
@@ -419,6 +493,7 @@ export default function ProfileScreen() {
                 visible={showCurrentPassword}
                 onToggleVisible={() => setShowCurrentPassword((v) => !v)}
                 invalid={passwordFieldErrors.current}
+                onRequestVisible={scrollPasswordFieldIntoView}
               />
               <PasswordFloatingField
                 label="Nuova"
@@ -430,6 +505,7 @@ export default function ProfileScreen() {
                 visible={showNewPassword}
                 onToggleVisible={() => setShowNewPassword((v) => !v)}
                 invalid={passwordFieldErrors.next}
+                onRequestVisible={scrollPasswordFieldIntoView}
               />
               <PasswordFloatingField
                 label="Conferma"
@@ -441,6 +517,7 @@ export default function ProfileScreen() {
                 visible={showConfirmPassword}
                 onToggleVisible={() => setShowConfirmPassword((v) => !v)}
                 invalid={passwordFieldErrors.confirm}
+                onRequestVisible={scrollPasswordFieldIntoView}
               />
               <TouchableOpacity
                 style={[styles.primaryBtn, loading && styles.primaryBtnDisabled]}
@@ -633,7 +710,7 @@ export default function ProfileScreen() {
           refreshFavoriteTeamsCount().catch(() => {});
         }}
       />
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -798,7 +875,6 @@ const styles = StyleSheet.create({
     left: 10,
     zIndex: 2,
     paddingHorizontal: 4,
-    fontWeight: '600',
   },
   passwordInputRow: {
     flexDirection: 'row',
@@ -813,6 +889,7 @@ const styles = StyleSheet.create({
     paddingTop: 14,
     paddingBottom: 12,
     fontSize: 15,
+    fontWeight: '400',
     color: '#0f172a',
   },
   eyeButton: {

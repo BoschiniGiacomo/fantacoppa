@@ -1840,20 +1840,7 @@ export default function SuperUserScreen() {
       unlockUserDetailPassword();
       return;
     }
-    if (userDetailPasswordVisible) {
-      setUserDetailPasswordVisible(false);
-      return;
-    }
-    setConfirmModal({
-      title: 'Mostrare la password?',
-      message: 'La password sarà visibile a schermo. Procedi solo se sei in un ambiente sicuro.',
-      confirmText: 'Mostra',
-      destructive: true,
-      onConfirm: () => {
-        setConfirmModal(null);
-        setUserDetailPasswordVisible(true);
-      },
-    });
+    setUserDetailPasswordVisible((v) => !v);
   };
 
   const saveUserDetailPassword = () => {
