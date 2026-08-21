@@ -19,6 +19,10 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
+import {
+  canOpenMatchManagement as roleCanOpenMatchManagement,
+  canOpenSuperUserPanel as roleCanManageMatchDetails,
+} from '../utils/userRoles';
 import { adminCompetitionsService, adminMatchDetailsService, adminMatchesService, superuserService } from '../services/api';
 import { parseAppDate } from '../utils/dateTime';
 
@@ -137,9 +141,9 @@ export default function ManageMatchesScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const su = Number(user?.is_superuser || 0);
-  const canManageMatches = su === 1 || su === 2;
-  const canManageCompetitions = su === 1;
-  const canManageMatchDetails = su === 1;
+  const canManageMatches = roleCanOpenMatchManagement(su);
+  const canManageCompetitions = roleCanManageMatchDetails(su);
+  const canManageMatchDetails = roleCanManageMatchDetails(su);
 
   const [activeTab, setActiveTab] = useState('matches');
   const [showCreateMatchForm, setShowCreateMatchForm] = useState(false);

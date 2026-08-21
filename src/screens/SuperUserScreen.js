@@ -1568,13 +1568,15 @@ export default function SuperUserScreen() {
     }
   };
   
-  // Imposta livello superuser: 0 = nessun ruolo, 1 = super user, 2 = gestore partite
+  // Imposta livello superuser: 0 utente, 1 super, 2 gestore partite, 3 gestore diretta, 4 pagellatore
   const handleSetSuperuserLevel = async (userId, currentLevel, nextLevel) => {
     if (Number(currentLevel || 0) === Number(nextLevel || 0)) return;
     const labels = {
       0: 'nessun ruolo',
       1: 'super user',
       2: 'gestore partite',
+      3: 'gestore diretta',
+      4: 'pagellatore',
     };
     setConfirmModal({
       title: 'Aggiorna ruolo utente',
@@ -1602,6 +1604,8 @@ export default function SuperUserScreen() {
 
   const roleLabelForUser = (suLevel) => {
     const n = Number(suLevel || 0);
+    if (n === 4) return 'Pagellatore';
+    if (n === 3) return 'Gestore diretta';
     if (n === 2) return 'Gestore partite';
     if (n === 1) return 'Super user';
     return 'Utente';
@@ -1612,6 +1616,20 @@ export default function SuperUserScreen() {
     const badgeStyle = compact
       ? [styles.userRoleBadgeCompact]
       : [styles.userRoleBadge];
+    if (n === 4) {
+      return (
+        <View style={[...badgeStyle, styles.roleOptionActiveGrader]}>
+          <Ionicons name="create" size={size} color="#fff" />
+        </View>
+      );
+    }
+    if (n === 3) {
+      return (
+        <View style={[...badgeStyle, styles.roleOptionActiveLive]}>
+          <Ionicons name="radio" size={size} color="#fff" />
+        </View>
+      );
+    }
     if (n === 2) {
       return (
         <View style={[...badgeStyle, styles.roleOptionActiveManager]}>
@@ -1635,52 +1653,37 @@ export default function SuperUserScreen() {
 
   const renderUserRoleSelector = (user, { compact = false } = {}) => {
     const suLevel = Number(user?.is_superuser || 0);
-    const iconSize = compact ? 14 : 18;
-    // Ordine per importanza: utente → gestore partite → super user
+    const iconSize = compact ? 13 : 16;
+    // Ordine: utente → pagellatore → gestore diretta → gestore partite → super user
+    const options = [
+      { level: 0, activeStyle: styles.roleOptionActiveUser, icon: 'person', iconOutline: 'person-outline', color: '#2f6fed' },
+      { level: 4, activeStyle: styles.roleOptionActiveGrader, icon: 'create', iconOutline: 'create-outline', color: '#0d9488' },
+      { level: 3, activeStyle: styles.roleOptionActiveLive, icon: 'radio', iconOutline: 'radio-outline', color: '#ea580c' },
+      { level: 2, activeStyle: styles.roleOptionActiveManager, icon: 'football', iconOutline: 'football-outline', color: '#2e7d32' },
+      { level: 1, activeStyle: styles.roleOptionActiveSuper, icon: 'star', iconOutline: 'star-outline', color: '#f4b400' },
+    ];
     return (
       <View style={[styles.roleSelector, !compact && styles.roleSelectorInDetail]}>
-        <TouchableOpacity
-          style={[
-            styles.roleOption,
-            !compact && styles.roleOptionInDetail,
-            suLevel === 0 && styles.roleOptionActiveUser,
-          ]}
-          onPress={() => handleSetSuperuserLevel(user.id, suLevel, 0)}
-        >
-          <Ionicons
-            name={suLevel === 0 ? 'person' : 'person-outline'}
-            size={iconSize}
-            color={suLevel === 0 ? '#fff' : '#2f6fed'}
-          />
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[
-            styles.roleOption,
-            !compact && styles.roleOptionInDetail,
-            suLevel === 2 && styles.roleOptionActiveManager,
-          ]}
-          onPress={() => handleSetSuperuserLevel(user.id, suLevel, 2)}
-        >
-          <Ionicons
-            name={suLevel === 2 ? 'football' : 'football-outline'}
-            size={iconSize}
-            color={suLevel === 2 ? '#fff' : '#2e7d32'}
-          />
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[
-            styles.roleOption,
-            !compact && styles.roleOptionInDetail,
-            suLevel === 1 && styles.roleOptionActiveSuper,
-          ]}
-          onPress={() => handleSetSuperuserLevel(user.id, suLevel, 1)}
-        >
-          <Ionicons
-            name={suLevel === 1 ? 'star' : 'star-outline'}
-            size={iconSize}
-            color={suLevel === 1 ? '#fff' : '#f4b400'}
-          />
-        </TouchableOpacity>
+        {options.map((opt) => {
+          const active = suLevel === opt.level;
+          return (
+            <TouchableOpacity
+              key={`role-opt-${opt.level}`}
+              style={[
+                styles.roleOption,
+                !compact && styles.roleOptionInDetail,
+                active && opt.activeStyle,
+              ]}
+              onPress={() => handleSetSuperuserLevel(user.id, suLevel, opt.level)}
+            >
+              <Ionicons
+                name={active ? opt.icon : opt.iconOutline}
+                size={iconSize}
+                color={active ? '#fff' : opt.color}
+              />
+            </TouchableOpacity>
+          );
+        })}
       </View>
     );
   };
@@ -2926,7 +2929,7 @@ export default function SuperUserScreen() {
           break;
         case 'is_superuser':
           {
-            const roleOrder = { 0: 0, 2: 1, 1: 2 };
+            const roleOrder = { 0: 0, 4: 1, 3: 2, 2: 3, 1: 4 };
             const aRole = Number(a?.is_superuser || 0);
             const bRole = Number(b?.is_superuser || 0);
             aVal = roleOrder[aRole] ?? 0;
@@ -3759,6 +3762,8 @@ export default function SuperUserScreen() {
                       <Text style={styles.userFilterSectionLabel}>Ruolo</Text>
                       {[
                         { key: 0, label: 'Utente', icon: 'person-outline' },
+                        { key: 4, label: 'Pagellatore', icon: 'create-outline' },
+                        { key: 3, label: 'Gestore diretta', icon: 'radio-outline' },
                         { key: 2, label: 'Gestore partite', icon: 'football' },
                         { key: 1, label: 'Super user', icon: 'star-outline' },
                       ].map((opt, idx, arr) => {
@@ -9180,6 +9185,12 @@ const styles = StyleSheet.create({
   },
   roleOptionActiveManager: {
     backgroundColor: '#2e7d32',
+  },
+  roleOptionActiveLive: {
+    backgroundColor: '#ea580c',
+  },
+  roleOptionActiveGrader: {
+    backgroundColor: '#0d9488',
   },
   roleOptionText: {
     fontSize: 10,

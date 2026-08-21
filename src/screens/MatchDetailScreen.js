@@ -22,6 +22,12 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
+import {
+  canManageMatchLive,
+  canManageMatchOverview,
+  canAccessMatchVotes,
+  canManageMatchVoteLinks,
+} from '../utils/userRoles';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { adminMatchDetailsService, adminMatchesService, matchesService } from '../services/api';
 import { TeamLogoImage } from '../components/StableCachedImage';
@@ -1599,8 +1605,10 @@ export default function MatchDetailScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const superuserLevel = Number(user?.is_superuser || 0);
-  const canManageLive = superuserLevel === 1 || superuserLevel === 2;
-  const canManageVoteLinks = superuserLevel === 1;
+  const canManageLive = canManageMatchLive(superuserLevel);
+  const canManageOverview = canManageMatchOverview(superuserLevel);
+  const canAccessVotes = canAccessMatchVotes(superuserLevel);
+  const canManageVoteLinks = canManageMatchVoteLinks(superuserLevel);
   const matchId = route?.params?.matchId;
   const from = String(route?.params?.from || '').trim();
   const fromTeamId = Number(route?.params?.teamId);
@@ -1678,7 +1686,7 @@ export default function MatchDetailScreen({ navigation, route }) {
   const [votesTabMeta, setVotesTabMeta] = useState(null);
 
   const loadVotesTabMeta = useCallback(async () => {
-    if (!matchId || !canManageLive) {
+    if (!matchId || !canAccessVotes) {
       setVotesTabMeta(null);
       return;
     }
@@ -1688,7 +1696,7 @@ export default function MatchDetailScreen({ navigation, route }) {
     } catch {
       setVotesTabMeta({ visible: false });
     }
-  }, [matchId, canManageLive]);
+  }, [matchId, canAccessVotes]);
 
   const showVotesTab = !!(votesTabMeta?.visible);
 
@@ -2287,8 +2295,8 @@ export default function MatchDetailScreen({ navigation, route }) {
     activeTab === 'live' && canManageLive
       ? insets.bottom + 72
       : activeTab === 'lineup'
-        ? Math.max(insets.bottom, 28) + (canManageLive ? 88 : 32)
-        : activeTab === 'overview' && canManageLive
+        ? Math.max(insets.bottom, 28) + (canManageOverview ? 88 : 32)
+        : activeTab === 'overview' && canManageOverview
           ? Math.max(insets.bottom, 28) + 88
           : activeTab === 'standings'
             ? Math.max(insets.bottom, 28) + 18
@@ -3989,7 +3997,7 @@ export default function MatchDetailScreen({ navigation, route }) {
         ) : null}
       </ScrollView>
 
-      {activeTab === 'overview' && canManageLive ? (
+      {activeTab === 'overview' && canManageOverview ? (
         <TouchableOpacity
           style={[styles.liveFab, { bottom: Math.max(insets.bottom, 12) + 8, right: 16 }]}
           activeOpacity={0.85}
@@ -4000,7 +4008,7 @@ export default function MatchDetailScreen({ navigation, route }) {
         </TouchableOpacity>
       ) : null}
 
-      {activeTab === 'lineup' && canManageLive ? (
+      {activeTab === 'lineup' && canManageOverview ? (
         <>
           <TouchableOpacity
             style={[styles.liveFab, { bottom: Math.max(insets.bottom, 12) + 8, right: 16 }]}
@@ -5304,7 +5312,7 @@ export default function MatchDetailScreen({ navigation, route }) {
         </>
       ) : null}
 
-      {canManageLive ? (
+      {canManageOverview ? (
         <>
           <Modal visible={showOverviewEditor} animationType="slide" transparent onRequestClose={closeOverviewEditor}>
             <View style={styles.eventModalRoot}>

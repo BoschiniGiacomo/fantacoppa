@@ -30,6 +30,7 @@ import {
 import { PlayerPhotoImage, TeamLogoImage } from '../components/StableCachedImage';
 import FollowTeamsPreferencesModal from '../components/FollowTeamsPreferencesModal';
 import { useAuth } from '../context/AuthContext';
+import { canOpenMatchManagement as roleCanOpenMatchManagement } from '../utils/userRoles';
 import {
   computeLiveHeroClock,
   getLastLivePhaseEvent,
@@ -306,7 +307,7 @@ export default function MatchesScreen() {
   const isFocused = useIsFocused();
   const { user, token, refreshSession } = useAuth();
   const superuserLevel = Number(user?.is_superuser || 0);
-  const canOpenMatchManagement = superuserLevel === 1 || superuserLevel === 2;
+  const canOpenMatchManagement = roleCanOpenMatchManagement(superuserLevel);
   const [selectedDate, setSelectedDate] = useState(toDateKey(withOffset(0)));
   const selectedDateRef = useRef(selectedDate);
   const [showCalendarPicker, setShowCalendarPicker] = useState(false);

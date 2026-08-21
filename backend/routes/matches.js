@@ -17,6 +17,11 @@ const {
   isOfficialLeague,
 } = require('../utils/officialMatchMatchdayLinks');
 const {
+  canSeeAdminOnlyMatches,
+  canManageMatchVoteLinks,
+  canAccessMatchVotes,
+} = require('../utils/userRoles');
+const {
   resolveOfficialMatchOutcome,
   tallyOfficialMatchEventScores,
   determineKnockoutMatchWinner,
@@ -1808,7 +1813,7 @@ async function attachMatchesListUserPrefs(sharedMatches, userId) {
 
 async function resolveMatchesListIncludeAdminOnly(userId) {
   const suRows = await query(
-    `SELECT CASE WHEN COALESCE(is_superuser, 0) IN (1, 2) THEN 1 ELSE 0 END AS can_see
+    `SELECT CASE WHEN COALESCE(is_superuser, 0) IN (1, 2, 3, 4) THEN 1 ELSE 0 END AS can_see
      FROM users WHERE id = ? LIMIT 1`,
     [userId]
   );
@@ -2385,7 +2390,7 @@ router.get('/matches/search', authenticateToken, async (req, res) => {
     }
 
     const su = await getSuperuserLevel(userId);
-    const canSeeAdminOnly = su === 1 || su === 2 ? 1 : 0;
+    const canSeeAdminOnly = canSeeAdminOnlyMatches(su) ? 1 : 0;
     const competitions = await listCompetitionsOnlyEnabled();
     const compIds = competitions.map((c) => Number(c.id)).filter((x) => x > 0);
     if (!compIds.length) {
@@ -3247,7 +3252,7 @@ router.get('/matches/teams/:teamId/matches', authenticateToken, async (req, res)
     const rows = await query(
       `
       WITH su AS (
-        SELECT CASE WHEN COALESCE(is_superuser, 0) IN (1, 2) THEN 1 ELSE 0 END AS can_see
+        SELECT CASE WHEN COALESCE(is_superuser, 0) IN (1, 2, 3, 4) THEN 1 ELSE 0 END AS can_see
         FROM users WHERE id = ?
       ),
       ev_scores AS (
@@ -6044,7 +6049,7 @@ async function queryOfficialGroupMatchYears({ userId, groupId }) {
     WHERE m.competition_id = ?
       AND m.kickoff_at IS NOT NULL
       AND (
-        EXISTS (SELECT 1 FROM users u WHERE u.id = ? AND COALESCE(u.is_superuser, 0) IN (1, 2))
+        EXISTS (SELECT 1 FROM users u WHERE u.id = ? AND COALESCE(u.is_superuser, 0) IN (1, 2, 3, 4))
         OR COALESCE(m.is_admin_only, 0) = 0
       )
       AND EXISTS (
@@ -6074,7 +6079,7 @@ function parseKickoffYearsQuery(raw) {
 
 async function queryOfficialGroupMatchesRows({ userId, groupId, kickoffYear = null, kickoffYears = null }) {
   const visibilityClause =
-    '(EXISTS (SELECT 1 FROM users u WHERE u.id = ? AND COALESCE(u.is_superuser, 0) IN (1, 2)) OR COALESCE(m.is_admin_only, 0) = 0)';
+    '(EXISTS (SELECT 1 FROM users u WHERE u.id = ? AND COALESCE(u.is_superuser, 0) IN (1, 2, 3, 4)) OR COALESCE(m.is_admin_only, 0) = 0)';
   const params = [groupId, userId];
 
   const yearsList = parseKickoffYearsQuery(kickoffYears);
@@ -6792,7 +6797,7 @@ router.get('/matches/strip-teams', authenticateToken, async (req, res) => {
         : Promise.resolve([]),
     ]);
 
-    const canSeeAdminOnly = su === 1 || su === 2 ? 1 : 0;
+    const canSeeAdminOnly = canSeeAdminOnlyMatches(su) ? 1 : 0;
     const stripCompIds = comps.map((c) => Number(c.id)).filter((x) => x > 0);
     if (stripCompIds.length === 0) return res.json({ teams: [] });
 
@@ -6870,7 +6875,7 @@ router.get('/matches/follow-setup', authenticateToken, async (req, res) => {
   try {
     const userId = Number(req.user?.userId);
     const su = await getSuperuserLevel(userId);
-    const canSeeAdminOnly = su === 1 || su === 2 ? 1 : 0;
+    const canSeeAdminOnly = canSeeAdminOnlyMatches(su) ? 1 : 0;
 
     const competitions = await listCompetitionsOnlyEnabled();
     const compIds = competitions.map((c) => Number(c.id)).filter((x) => x > 0);
@@ -7693,7 +7698,7 @@ router.put('/admin/matches/:matchId/stats', authenticateToken, requireSuperuserL
 });
 
 // POST /admin/matches/:matchId/events — add event
-router.post('/admin/matches/:matchId/events', authenticateToken, requireSuperuserLevels([1, 2]), async (req, res) => {
+router.post('/admin/matches/:matchId/events', authenticateToken, requireSuperuserLevels([1, 2, 3]), async (req, res) => {
   try {
     const userId = Number(req.user?.userId);
     const matchId = Number(req.params.matchId);
@@ -7822,7 +7827,7 @@ router.post('/admin/matches/:matchId/events', authenticateToken, requireSuperuse
 });
 
 // PUT /admin/matches/:matchId/events/:eventId — update single live event
-router.put('/admin/matches/:matchId/events/:eventId', authenticateToken, requireSuperuserLevels([1, 2]), async (req, res) => {
+router.put('/admin/matches/:matchId/events/:eventId', authenticateToken, requireSuperuserLevels([1, 2, 3]), async (req, res) => {
   try {
     const matchId = Number(req.params.matchId);
     const eventId = Number(req.params.eventId);
@@ -7873,7 +7878,7 @@ router.put('/admin/matches/:matchId/events/:eventId', authenticateToken, require
 });
 
 // DELETE /admin/matches/:matchId/events/:eventId — delete single live event
-router.delete('/admin/matches/:matchId/events/:eventId', authenticateToken, requireSuperuserLevels([1, 2]), async (req, res) => {
+router.delete('/admin/matches/:matchId/events/:eventId', authenticateToken, requireSuperuserLevels([1, 2, 3]), async (req, res) => {
   try {
     const matchId = Number(req.params.matchId);
     const eventId = Number(req.params.eventId);
@@ -8230,7 +8235,7 @@ router.delete('/admin/match-details/stages/:id', authenticateToken, requireSuper
 router.get(
   '/admin/matches/:matchId/matchday-links',
   authenticateToken,
-  requireSuperuserLevels([1, 2]),
+  requireSuperuserLevels([1, 2, 4]),
   async (req, res) => {
     try {
       const matchId = Number(req.params.matchId);
@@ -8240,7 +8245,7 @@ router.get(
       const data = await getMatchdayLinkOptions(matchId, { full });
       return res.json({
         ...data,
-        can_manage_links: level === 1,
+        can_manage_links: canManageMatchVoteLinks(level),
       });
     } catch (err) {
       if (err?.status) return res.status(err.status).json({ message: err.message });
@@ -8279,14 +8284,14 @@ router.put(
 router.get(
   '/admin/matches/:matchId/votes-tab',
   authenticateToken,
-  requireSuperuserLevels([1, 2]),
+  requireSuperuserLevels([1, 2, 4]),
   async (req, res) => {
     try {
       const matchId = Number(req.params.matchId);
       if (!matchId || matchId <= 0) return res.status(400).json({ message: 'matchId non valido' });
       const level = await getSuperuserLevel(req.user?.userId);
       const data = await getMatchVotesTabBundle(matchId);
-      return res.json({ ...data, can_manage_links: level === 1 });
+      return res.json({ ...data, can_manage_links: canManageMatchVoteLinks(level) });
     } catch (err) {
       if (err?.status) return res.status(err.status).json({ message: err.message });
       if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
@@ -8298,14 +8303,14 @@ router.get(
 router.get(
   '/admin/matches/:matchId/votes',
   authenticateToken,
-  requireSuperuserLevels([1, 2]),
+  requireSuperuserLevels([1, 2, 4]),
   async (req, res) => {
     try {
       const matchId = Number(req.params.matchId);
       if (!matchId || matchId <= 0) return res.status(400).json({ message: 'matchId non valido' });
       const level = await getSuperuserLevel(req.user?.userId);
       const data = await getMatchVotesBundle(matchId);
-      return res.json({ ...data, can_manage_links: level === 1 });
+      return res.json({ ...data, can_manage_links: canManageMatchVoteLinks(level) });
     } catch (err) {
       if (err?.status) return res.status(err.status).json({ message: err.message });
       if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
@@ -8317,7 +8322,7 @@ router.get(
 router.post(
   '/admin/matches/:matchId/votes',
   authenticateToken,
-  requireSuperuserLevels([1, 2]),
+  requireSuperuserLevels([1, 2, 4]),
   async (req, res) => {
     try {
       const matchId = Number(req.params.matchId);
@@ -8338,7 +8343,7 @@ router.post(
 router.get(
   '/admin/matches/:matchId/votes-tab-meta',
   authenticateToken,
-  requireSuperuserLevels([1, 2]),
+  requireSuperuserLevels([1, 2, 4]),
   async (req, res) => {
     try {
       const matchId = Number(req.params.matchId);
@@ -8362,12 +8367,12 @@ router.get(
       } catch (_) {
         hasLinks = false;
       }
-      const visible = level === 1 || hasLinks;
+      const visible = canManageMatchVoteLinks(level) || (canAccessMatchVotes(level) && hasLinks);
       return res.json({
         visible,
         is_official: true,
         has_links: hasLinks,
-        can_manage_links: level === 1,
+        can_manage_links: canManageMatchVoteLinks(level),
         league_id: ctx.leagueId,
       });
     } catch (err) {

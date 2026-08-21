@@ -29,6 +29,11 @@ import {
   readStripTeamsDisk,
 } from '../services/matchesStripTeamsCache';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import {
+  canOpenSuperUserPanel as roleCanOpenSuperUser,
+  canOpenMatchManagement as roleCanOpenMatchManagement,
+  roleLabelForLevel,
+} from '../utils/userRoles';
 
 const APP_VERSION = getAppVersionInfo();
 
@@ -236,12 +241,24 @@ export default function ProfileScreen() {
     setTimeout(() => setToastMsg(null), 2500);
   };
 
-  // Livelli superuser: 1 = admin completo, 2 = gestione partite.
+  // Livelli: 1 super, 2 gestore partite, 3 gestore diretta, 4 pagellatore
   const superuserLevel = Number(user?.is_superuser || 0);
-  const canOpenSuperUserPanel = superuserLevel === 1;
-  const canOpenMatchManagement = superuserLevel === 1 || superuserLevel === 2;
+  const canOpenSuperUserPanel = roleCanOpenSuperUser(superuserLevel);
+  const canOpenMatchManagement = roleCanOpenMatchManagement(superuserLevel);
   const roleLabel =
-    superuserLevel === 1 ? 'Super user' : superuserLevel === 2 ? 'Gestore partite' : null;
+    superuserLevel === 1 || superuserLevel === 2 || superuserLevel === 3 || superuserLevel === 4
+      ? roleLabelForLevel(superuserLevel)
+      : null;
+  const roleIconName =
+    superuserLevel === 1
+      ? 'star'
+      : superuserLevel === 2
+        ? 'football'
+        : superuserLevel === 3
+          ? 'radio'
+          : superuserLevel === 4
+            ? 'create'
+            : 'person';
   const initial = String(user?.username || '?').trim().charAt(0).toUpperCase() || '?';
   const notifGranted = notificationStatus === 'granted' || notificationStatus === 'provisional';
 
@@ -446,7 +463,7 @@ export default function ProfileScreen() {
           {roleLabel ? (
             <View style={styles.roleChip}>
               <Ionicons
-                name={superuserLevel === 1 ? 'star' : 'football'}
+                name={roleIconName}
                 size={12}
                 color="#4f46e5"
               />

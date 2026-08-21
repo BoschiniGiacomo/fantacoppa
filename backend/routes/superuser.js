@@ -6,6 +6,10 @@ const { createClient } = require('@supabase/supabase-js');
 const router = express.Router();
 const { query } = require('../config/database');
 const { authenticateToken } = require('../middleware/auth');
+const {
+  canAccessSuperuserRoutes,
+  VALID_USER_ROLE_LEVELS,
+} = require('../utils/userRoles');
 const { ensureAppSettingsTable } = require('../utils/appSettingsStore');
 const { ensureLeagueOfficialGironiSchema } = require('../utils/leagueOfficialGironi');
 const { SQL_WHERE_PRESENCE_VOTE } = require('../utils/voteRating');
@@ -91,7 +95,7 @@ async function requireSuperuser(req, res, next) {
   try {
     const rows = await query(`SELECT COALESCE(is_superuser, 0) AS is_superuser FROM users WHERE id = ? LIMIT 1`, [Number(req.user?.userId)]);
     const level = Number(rows[0]?.is_superuser || 0);
-    if (level === 1 || level === 2) return next();
+    if (canAccessSuperuserRoutes(level)) return next();
     return res.status(403).json({ message: 'Accesso non autorizzato' });
   } catch (_) {
     return res.status(403).json({ message: 'Accesso non autorizzato' });
@@ -738,8 +742,8 @@ async function setSuperuserLevelHandler(req, res) {
     const level = Number.isFinite(rawLevel) ? rawLevel : 0;
     if (!id || id <= 0) return res.status(400).json({ message: 'ID utente non valido' });
     if (id === me) return res.status(400).json({ message: 'Non puoi modificare te stesso' });
-    if (![0, 1, 2].includes(level)) {
-      return res.status(400).json({ message: 'Livello non valido (consentiti: 0, 1, 2)' });
+    if (!VALID_USER_ROLE_LEVELS.includes(level)) {
+      return res.status(400).json({ message: 'Livello non valido (consentiti: 0, 1, 2, 3, 4)' });
     }
     const current = await query(`SELECT id FROM users WHERE id = ? LIMIT 1`, [id]);
     if (!current.length) return res.status(404).json({ message: 'Utente non trovato' });
