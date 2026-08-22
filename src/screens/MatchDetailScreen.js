@@ -2292,12 +2292,12 @@ export default function MatchDetailScreen({ navigation, route }) {
   ]);
 
   const mainScrollPaddingBottom =
-    activeTab === 'live' && canManageLive
-      ? insets.bottom + 72
+    activeTab === 'live'
+      ? Math.max(insets.bottom, 28) + (canManageLive ? 88 : 32)
       : activeTab === 'lineup'
         ? Math.max(insets.bottom, 28) + (canManageOverview ? 88 : 32)
-        : activeTab === 'overview' && canManageOverview
-          ? Math.max(insets.bottom, 28) + 88
+        : activeTab === 'overview'
+          ? Math.max(insets.bottom, 28) + (canManageOverview ? 88 : 32)
           : activeTab === 'standings'
             ? Math.max(insets.bottom, 28) + 18
             : activeTab === 'votes'

@@ -14,6 +14,7 @@ import {
   Animated,
   Dimensions,
   KeyboardAvoidingView,
+  Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
@@ -45,6 +46,7 @@ function PasswordFloatingField({
   onToggleVisible,
   invalid = false,
   onRequestVisible,
+  helpHint = null,
 }) {
   const [focused, setFocused] = useState(false);
   const shellRef = useRef(null);
@@ -76,6 +78,11 @@ function PasswordFloatingField({
   const handleFocus = () => {
     setFocused(true);
     onRequestVisible?.(shellRef);
+  };
+
+  const showHelp = () => {
+    if (!helpHint) return;
+    Alert.alert(helpHint.title, helpHint.message);
   };
 
   return (
@@ -110,6 +117,18 @@ function PasswordFloatingField({
           autoCapitalize="none"
           autoCorrect={false}
         />
+        {helpHint ? (
+          <TouchableOpacity
+            onPress={showHelp}
+            style={styles.passwordHelpBtn}
+            hitSlop={8}
+            accessibilityLabel={helpHint.title}
+          >
+            <View style={styles.passwordHelpCircle}>
+              <Text style={styles.passwordHelpMark}>?</Text>
+            </View>
+          </TouchableOpacity>
+        ) : null}
         <TouchableOpacity onPress={onToggleVisible} style={styles.eyeButton} hitSlop={8}>
           <Ionicons
             name={visible ? 'eye-outline' : 'eye-off-outline'}
@@ -501,7 +520,7 @@ export default function ProfileScreen() {
           {showChangePassword ? (
             <View style={styles.passwordBody}>
               <PasswordFloatingField
-                label="Attuale"
+                label="Vecchia password*"
                 value={currentPassword}
                 onChangeText={(text) => {
                   clearPasswordFieldError('current');
@@ -513,7 +532,7 @@ export default function ProfileScreen() {
                 onRequestVisible={scrollPasswordFieldIntoView}
               />
               <PasswordFloatingField
-                label="Nuova"
+                label="Password*"
                 value={newPassword}
                 onChangeText={(text) => {
                   clearPasswordFieldError('next');
@@ -523,9 +542,13 @@ export default function ProfileScreen() {
                 onToggleVisible={() => setShowNewPassword((v) => !v)}
                 invalid={passwordFieldErrors.next}
                 onRequestVisible={scrollPasswordFieldIntoView}
+                helpHint={{
+                  title: 'Password',
+                  message: 'La password deve contenere almeno 6 caratteri.',
+                }}
               />
               <PasswordFloatingField
-                label="Conferma"
+                label="Conferma password*"
                 value={confirmPassword}
                 onChangeText={(text) => {
                   clearPasswordFieldError('confirm');
@@ -896,6 +919,25 @@ const styles = StyleSheet.create({
   passwordInputRow: {
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  passwordHelpBtn: {
+    marginLeft: 4,
+    marginRight: 2,
+  },
+  passwordHelpCircle: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 1.5,
+    borderColor: '#94a3b8',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  passwordHelpMark: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#64748b',
+    lineHeight: 15,
   },
   passwordInputWrapInvalid: {
     borderColor: '#fecaca',
