@@ -827,6 +827,13 @@ export const superuserService = {
     const url = `/superuser/player-clusters/${gid}${status ? `?status=${encodeURIComponent(status)}` : ''}`;
     return api.get(url, { timeout: 45000 });
   },
+  getPlayerClustersOverview: (status = 'approved') =>
+    api.get(
+      `/superuser/player-clusters/overview${status ? `?status=${encodeURIComponent(status)}` : ''}`,
+      { timeout: 90000 },
+    ),
+  getAllUnclusteredPlayers: () =>
+    api.get('/superuser/unclustered-players', { timeout: 90000 }),
   getPlayerClusterSuggestions: (groupId) =>
     api.get(`/superuser/player-clusters/suggestions/${encodeURIComponent(Number(groupId))}`, { timeout: 45000 }),
   getNeverPlayedPlayers: (groupId) =>

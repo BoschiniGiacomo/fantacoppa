@@ -295,10 +295,36 @@ function buildApprovedClustersList(allClusters) {
     });
 }
 
+function availablePlayersFromUnclustered(singles, playerName, groupId, existingLeagueIds) {
+  const name = String(playerName || '').trim().toLowerCase();
+  const gid = Number(groupId);
+  const existing = new Set((existingLeagueIds || []).map(Number).filter((id) => Number.isFinite(id)));
+  if (!name || !Number.isFinite(gid) || gid <= 0) return [];
+  const out = [];
+  for (const item of singles || []) {
+    if (Number(item.group_id) !== gid) continue;
+    if (String(item.name || '').trim().toLowerCase() !== name) continue;
+    const league = item.leagues?.[0] || {};
+    const leagueId = Number(league.id);
+    if (existing.has(leagueId)) continue;
+    out.push({
+      id: Number(item.player_id),
+      first_name: item.first_name || '',
+      last_name: item.last_name || '',
+      league_id: leagueId,
+      league_name: league.name || '',
+      birth_year: league.birth_year,
+      team_name: league.team_name || '',
+      role: league.role || null,
+    });
+  }
+  return out;
+}
+
 function buildUnclusteredPlayersList(players, groupMeta) {
-  const groupId = Number(groupMeta?.group_id);
-  const groupName = groupMeta?.group_name || '';
   return (players || []).map((player) => {
+    const groupId = Number(player.group_id != null ? player.group_id : groupMeta?.group_id);
+    const groupName = player.group_name || groupMeta?.group_name || '';
     const playerId = Number(player.player_id || player.id);
     const displayName = `${player.first_name || ''} ${player.last_name || ''}`.trim() || '—';
     const league = {
@@ -319,6 +345,8 @@ function buildUnclusteredPlayersList(players, groupMeta) {
       cluster_id: null,
       is_single_player: true,
       player_id: playerId,
+      first_name: player.first_name || '',
+      last_name: player.last_name || '',
       name: displayName,
       group_name: groupName,
       group_id: groupId,
@@ -495,6 +523,8 @@ export default function SuperUserScreen() {
   const [pickingMatchBackground, setPickingMatchBackground] = useState(false);
   const [refreshingAppSettings, setRefreshingAppSettings] = useState(false);
   const appSettingsHydratedRef = useRef(false);
+  const clustersOverviewHydratedRef = useRef(false);
+  const unclusteredHydratedRef = useRef(false);
   
   const isSuperuser = !!(user?.is_superuser === true || user?.is_superuser === 1 || user?.is_superuser === '1');
   const activeAppLoadingPreview = appLoadingPickStaging || appLoadingPreview;
@@ -508,14 +538,17 @@ export default function SuperUserScreen() {
     }
   }, [isSuperuser, navigation]);
 
-  // Carica giocatori singoli solo quando il filtro è attivo
+  // Carica giocatori singoli solo quando il filtro è attivo (1 HTTP, non per gruppo)
   useEffect(() => {
     if (!isSuperuser || !clusterFilters.includeSingles) return undefined;
+    if (unclusteredHydratedRef.current) return undefined;
     let cancelled = false;
     (async () => {
       try {
         const allSingles = await fetchAllUnclusteredPlayers();
-        if (!cancelled) setUnclusteredPlayersByPlayer(allSingles);
+        if (cancelled) return;
+        setUnclusteredPlayersByPlayer(allSingles);
+        unclusteredHydratedRef.current = true;
       } catch (error) {
         if (cancelled) return;
         console.error('Error loading unclustered players:', error);
@@ -662,44 +695,14 @@ export default function SuperUserScreen() {
   };
   
   const fetchAllApprovedClusters = async () => {
-    const groupsResponse = await superuserService.getOfficialGroups();
-    const groups = groupsResponse.data || [];
-    const allClusters = [];
-    for (const group of groups) {
-      try {
-        const clustersResponse = await superuserService.getPlayerClusters(group.id, 'approved');
-        const clusters = clustersResponse.data?.clusters || [];
-        clusters.forEach((cluster) => {
-          cluster.group_name = group.name;
-          cluster.group_id = group.id;
-        });
-        allClusters.push(...clusters);
-      } catch (error) {
-        console.error(`Error loading clusters for group ${group.id}:`, error);
-      }
-    }
-    return allClusters;
+    const response = await superuserService.getPlayerClustersOverview('approved');
+    return Array.isArray(response.data?.clusters) ? response.data.clusters : [];
   };
 
   const fetchAllUnclusteredPlayers = async () => {
-    const groupsResponse = await superuserService.getOfficialGroups();
-    const groups = groupsResponse.data || [];
-    const allSingles = [];
-    for (const group of groups) {
-      try {
-        const res = await superuserService.getUnclusteredPlayers(group.id);
-        const players = res.data?.players || [];
-        allSingles.push(
-          ...buildUnclusteredPlayersList(players, {
-            group_id: group.id,
-            group_name: group.name,
-          }),
-        );
-      } catch (error) {
-        console.error(`Error loading unclustered players for group ${group.id}:`, error);
-      }
-    }
-    return allSingles.sort((a, b) => {
+    const res = await superuserService.getAllUnclusteredPlayers();
+    const players = res.data?.players || [];
+    return buildUnclusteredPlayersList(players).sort((a, b) => {
       const nameCmp = a.name.localeCompare(b.name, 'it');
       if (nameCmp !== 0) return nameCmp;
       return Number(a.player_id) - Number(b.player_id);
@@ -707,10 +710,10 @@ export default function SuperUserScreen() {
   };
 
   // Carica tutti i cluster approvati raggruppati per giocatore
-  const loadApprovedClustersByPlayer = async ({ includeSingles = false } = {}) => {
+  const loadApprovedClustersByPlayer = async ({ includeSingles = false, silent = false } = {}) => {
     if (!isSuperuser) return;
     try {
-      setLoadingApprovedClusters(true);
+      if (!silent || approvedClustersByPlayer.length === 0) setLoadingApprovedClusters(true);
       if (includeSingles) {
         const [allClusters, allSingles] = await Promise.all([
           fetchAllApprovedClusters(),
@@ -718,10 +721,12 @@ export default function SuperUserScreen() {
         ]);
         setApprovedClustersByPlayer(buildApprovedClustersList(allClusters));
         setUnclusteredPlayersByPlayer(allSingles);
+        unclusteredHydratedRef.current = true;
       } else {
         const allClusters = await fetchAllApprovedClusters();
         setApprovedClustersByPlayer(buildApprovedClustersList(allClusters));
       }
+      clustersOverviewHydratedRef.current = true;
     } catch (error) {
       if (isFeatureDisabledError(error)) {
         setApprovedClustersByPlayer([]);
@@ -730,7 +735,7 @@ export default function SuperUserScreen() {
         return;
       }
       console.error('Error loading approved clusters:', error);
-      showToast('Impossibile caricare i cluster approvati');
+      showToast(clusterApiErrorMessage(error, 'Impossibile caricare i cluster approvati'));
     } finally {
       setLoadingApprovedClusters(false);
       setRefreshingApprovedClusters(false);
@@ -738,9 +743,17 @@ export default function SuperUserScreen() {
   };
 
   const refreshSelectedPlayerClusterAfterChange = async (clusterId) => {
-    const allClusters = await fetchAllApprovedClusters();
+    const needSingles = unclusteredHydratedRef.current || clusterFilters.includeSingles;
+    const [allClusters, allSingles] = await Promise.all([
+      fetchAllApprovedClusters(),
+      needSingles ? fetchAllUnclusteredPlayers() : Promise.resolve(null),
+    ]);
     const updatedList = buildApprovedClustersList(allClusters);
     setApprovedClustersByPlayer(updatedList);
+    if (Array.isArray(allSingles)) {
+      setUnclusteredPlayersByPlayer(allSingles);
+      unclusteredHydratedRef.current = true;
+    }
     const updatedCluster = updatedList.find((c) => Number(c.cluster_id) === Number(clusterId));
     if (updatedCluster && (updatedCluster.leagues || []).length > 0) {
       setSelectedPlayerCluster(updatedCluster);
@@ -1122,8 +1135,17 @@ export default function SuperUserScreen() {
       setHasAvailablePlayers(false);
       return;
     }
+    if (unclusteredHydratedRef.current) {
+      const available = availablePlayersFromUnclustered(
+        unclusteredPlayersByPlayer,
+        playerName,
+        groupId,
+        existingLeagueIds,
+      );
+      setHasAvailablePlayers(available.length > 0);
+      return;
+    }
     try {
-      // Estrai nome e cognome dal nome completo
       const nameParts = playerName.trim().split(' ');
       if (nameParts.length < 2) {
         setHasAvailablePlayers(false);
@@ -1133,24 +1155,18 @@ export default function SuperUserScreen() {
       const firstName = nameParts[0];
       const lastName = nameParts.slice(1).join(' ');
       
-      // Cerca giocatori con lo stesso nome nelle leghe del gruppo
       const response = await superuserService.searchPlayers(groupId, `${firstName} ${lastName}`);
       const allPlayers = response.data.players || [];
       
-      // Filtra solo quelli che non sono già nelle leghe del giocatore cluster
       const availablePlayers = allPlayers.filter(player => {
-        // Costruisci il nome completo del giocatore
         const playerFullName = `${player.first_name || ''} ${player.last_name || ''}`.trim();
-        // Verifica che il nome corrisponda esattamente
         if (playerFullName.toLowerCase() !== playerName.toLowerCase()) {
           return false;
         }
-        // Verifica che non sia già in una lega del cluster
         return !existingLeagueIds.includes(player.league_id);
       });
       
-      const hasAvailable = availablePlayers.length > 0;
-      setHasAvailablePlayers(hasAvailable);
+      setHasAvailablePlayers(availablePlayers.length > 0);
       
     } catch (error) {
       console.error('Error checking available players:', error);
@@ -1163,8 +1179,20 @@ export default function SuperUserScreen() {
     if (!isSuperuser || !groupId || !playerName) return;
     try {
       setLoadingAvailablePlayers(true);
+
+      if (unclusteredHydratedRef.current) {
+        const availablePlayers = availablePlayersFromUnclustered(
+          unclusteredPlayersByPlayer,
+          playerName,
+          groupId,
+          existingLeagueIds,
+        );
+        setAvailablePlayersToAdd(availablePlayers);
+        setShowAddPlayers(true);
+        setHasAvailablePlayers(availablePlayers.length > 0);
+        return;
+      }
       
-      // Estrai nome e cognome dal nome completo
       const nameParts = playerName.trim().split(' ');
       if (nameParts.length < 2) {
         setAvailablePlayersToAdd([]);
@@ -1337,6 +1365,10 @@ export default function SuperUserScreen() {
         void loadLeagues({ silent: leagues.length > 0 });
       } else if (activeTab === 'officials') {
         loadOfficialGroups();
+      } else if (activeTab === 'clusters') {
+        if (!clustersOverviewHydratedRef.current) {
+          void loadApprovedClustersByPlayer({ includeSingles: clusterFilters.includeSingles });
+        }
       }
     }
   }, [activeTab, isSuperuser]);
@@ -3221,6 +3253,79 @@ export default function SuperUserScreen() {
     if (!q) return clusters;
     return clusters.filter((c) => clusterMatchesNameSearch(c, q));
   }, [clusters, clusterModalSearchText]);
+
+  const openPlayerCluster = (item) => {
+    setSelectedPlayerCluster(item);
+    setClusterBirthYearDraft(getSuggestedClusterBirthYear(item.leagues));
+    setClusterRoleDraft(getSuggestedClusterRole(item.leagues));
+    setShowAddPlayers(false);
+    setAvailablePlayersToAdd([]);
+    setShowPlayerClusterDetail(true);
+    if (item.is_single_player || !item.leagues?.length) {
+      setHasAvailablePlayers(false);
+      return;
+    }
+    const groupId = item.leagues[0]?.group_id;
+    const existingLeagueIds = item.leagues.map((l) => l.id);
+    if (unclusteredHydratedRef.current && groupId) {
+      void checkAvailablePlayers(item.name, groupId, existingLeagueIds);
+      return;
+    }
+    setHasAvailablePlayers(true);
+  };
+
+  const renderClusterItem = ({ item }) => {
+    const title = formatClusterListTitle(item.name, item.leagues);
+    const initial = String(title || '?').trim().charAt(0).toUpperCase() || '?';
+    const editions = item.is_single_player
+      ? 1
+      : Number(item.players_count || item.leagues?.length || 0);
+    const birth = summarizeBirthYears(item.leagues);
+    const subtitle = [
+      `${editions} ${editions === 1 ? 'edizione' : 'edizioni'}`,
+      item.group_name || null,
+      birth ? `n. ${birth}` : null,
+    ].filter(Boolean).join(' · ');
+    return (
+      <TouchableOpacity
+        style={styles.clusterRow}
+        onPress={() => openPlayerCluster(item)}
+        activeOpacity={0.72}
+      >
+        <View style={[styles.clusterAvatar, item.is_single_player && styles.clusterAvatarSingle]}>
+          <Text style={styles.clusterAvatarText}>{initial}</Text>
+        </View>
+        <View style={styles.playerClusterInfo}>
+          <View style={styles.playerClusterNameRow}>
+            <Text style={styles.clusterRowName} numberOfLines={1}>
+              {title}
+            </Text>
+            {item.is_single_player ? (
+              <View style={styles.playerClusterSingleBadge}>
+                <Text style={styles.playerClusterSingleBadgeText}>Singolo</Text>
+              </View>
+            ) : null}
+          </View>
+          <Text style={styles.clusterRowSub} numberOfLines={1}>{subtitle}</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={18} color="#cbd5e1" />
+      </TouchableOpacity>
+    );
+  };
+
+  const renderClustersSkeleton = () => (
+    <View style={styles.usersSkeletonWrap}>
+      {Array.from({ length: 8 }).map((_, idx) => (
+        <View key={`csk-${idx}`} style={styles.userRowSkeleton}>
+          <View style={styles.userAvatarSkeleton} />
+          <View style={styles.userSkeletonLines}>
+            <View style={[styles.userSkeletonBar, { width: `${54 + (idx % 3) * 12}%` }]} />
+            <View style={[styles.userSkeletonBar, styles.userSkeletonBarShort]} />
+          </View>
+        </View>
+      ))}
+    </View>
+  );
   
   if (!isSuperuser) {
     return null; // Non mostrare nulla se non è superuser
@@ -3474,15 +3579,10 @@ export default function SuperUserScreen() {
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.tab, activeTab === 'clusters' && styles.tabActive]}
-          onPress={() => {
-            setActiveTab('clusters');
-            if (approvedClustersByPlayer.length === 0) {
-              loadApprovedClustersByPlayer();
-            }
-          }}
+          onPress={() => setActiveTab('clusters')}
         >
           <Ionicons 
-            name={activeTab === 'clusters' ? "people" : "people-outline"} 
+            name={activeTab === 'clusters' ? "git-network" : "git-network-outline"} 
             size={20} 
             color={activeTab === 'clusters' ? '#667eea' : '#666'} 
           />
@@ -4398,26 +4498,26 @@ export default function SuperUserScreen() {
 
         {activeTab === 'clusters' && (
           <>
-            <View style={styles.clusterSearchRow}>
-              <View style={[styles.searchContainer, styles.clusterSearchContainer]}>
-                <Ionicons name="search" size={20} color="#999" style={styles.searchIcon} />
+            <View style={styles.usersSearchRow}>
+              <View style={[styles.usersSearchContainer, styles.usersSearchContainerFlex]}>
+                <Ionicons name="search" size={18} color="#94a3b8" style={styles.searchIcon} />
                 <TextInput
-                  style={styles.searchInput}
-                  placeholder="Cerca per nome o cognome..."
-                  placeholderTextColor="#999"
+                  style={styles.usersSearchInput}
+                  placeholder="Cerca nome o cognome…"
+                  placeholderTextColor="#94a3b8"
                   value={clusterTabSearchText}
                   onChangeText={setClusterTabSearchText}
                   autoCapitalize="none"
                   autoCorrect={false}
                 />
                 {clusterTabSearchText.length > 0 && (
-                  <TouchableOpacity onPress={() => setClusterTabSearchText('')} style={styles.clearButton}>
-                    <Ionicons name="close-circle" size={20} color="#999" />
+                  <TouchableOpacity onPress={() => setClusterTabSearchText('')} style={styles.clearButton} hitSlop={8}>
+                    <Ionicons name="close-circle" size={18} color="#94a3b8" />
                   </TouchableOpacity>
                 )}
               </View>
               <TouchableOpacity
-                style={[styles.clusterFilterBtn, hasActiveClusterFilters && styles.clusterFilterBtnActive]}
+                style={[styles.usersFilterBtn, hasActiveClusterFilters && styles.usersFilterBtnActive]}
                 onPress={() => {
                   setOpenClusterFilterSection(null);
                   setShowClusterFilters(true);
@@ -4430,14 +4530,14 @@ export default function SuperUserScreen() {
                   color={hasActiveClusterFilters ? '#667eea' : '#94a3b8'}
                 />
                 <View style={[
-                  styles.clusterFilterCountBadge,
-                  hasActiveClusterFilters && styles.clusterFilterCountBadgeActive,
+                  styles.usersFilterCountBadge,
+                  hasActiveClusterFilters && styles.usersFilterCountBadgeActive,
                 ]}
                 >
                   <Text
                     style={[
-                      styles.clusterFilterCountBadgeText,
-                      hasActiveClusterFilters && styles.clusterFilterCountBadgeTextActive,
+                      styles.usersFilterCountBadgeText,
+                      hasActiveClusterFilters && styles.usersFilterCountBadgeTextActive,
                     ]}
                     numberOfLines={1}
                   >
@@ -4446,10 +4546,8 @@ export default function SuperUserScreen() {
                 </View>
               </TouchableOpacity>
             </View>
-            {loadingApprovedClusters ? (
-              <View style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color="#667eea" />
-              </View>
+            {loadingApprovedClusters && approvedClustersByPlayer.length === 0 ? (
+              renderClustersSkeleton()
             ) : (
               <FlatList
                 data={filteredApprovedClustersByPlayer}
@@ -4458,46 +4556,14 @@ export default function SuperUserScreen() {
                     ? `single-${item.group_id}-${item.player_id}`
                     : `cluster-${item.cluster_id}`
                 )}
-                renderItem={({ item }) => (
-                  <TouchableOpacity
-                    style={styles.playerClusterItem}
-                    onPress={async () => {
-                      setSelectedPlayerCluster(item);
-                      setClusterBirthYearDraft(getSuggestedClusterBirthYear(item.leagues));
-                      setClusterRoleDraft(getSuggestedClusterRole(item.leagues));
-                      setShowPlayerClusterDetail(true);
-                      if (item.leagues.length > 0) {
-                        const groupId = item.leagues[0]?.group_id;
-                        const existingLeagueIds = item.leagues.map((l) => l.id);
-                        if (groupId) {
-                          await checkAvailablePlayers(item.name, groupId, existingLeagueIds);
-                        }
-                      }
-                    }}
-                  >
-                    <View style={styles.playerClusterInfo}>
-                      <View style={styles.playerClusterNameRow}>
-                        <Text style={styles.playerClusterName}>
-                          {formatClusterListTitle(item.name, item.leagues)}
-                        </Text>
-                        {item.is_single_player ? (
-                          <View style={styles.playerClusterSingleBadge}>
-                            <Text style={styles.playerClusterSingleBadgeText}>Singolo</Text>
-                          </View>
-                        ) : null}
-                      </View>
-                      <Text style={styles.playerClusterLeaguesCount}>
-                        {item.is_single_player
-                          ? `1 edizione${item.group_name ? ` · ${item.group_name}` : ''}`
-                          : `${item.players_count} ${item.players_count === 1 ? 'edizione' : 'edizioni'}${item.group_name ? ` · ${item.group_name}` : ''}`}
-                      </Text>
-                    </View>
-                    <Ionicons name="chevron-forward" size={20} color="#999" />
-                  </TouchableOpacity>
-                )}
+                renderItem={renderClusterItem}
+                initialNumToRender={16}
+                maxToRenderPerBatch={16}
+                windowSize={8}
+                removeClippedSubviews
                 ListEmptyComponent={
                   <View style={styles.emptyContainer}>
-                    <Ionicons name="people-outline" size={64} color="#ccc" />
+                    <Ionicons name="git-network-outline" size={48} color="#cbd5e1" />
                     <Text style={styles.emptyText}>
                       {clusterTabSearchText.trim() || hasActiveClusterFilters
                         ? 'Nessun risultato trovato'
@@ -4513,13 +4579,17 @@ export default function SuperUserScreen() {
                 refreshControl={
                   <RefreshControl
                     refreshing={refreshingApprovedClusters}
+                    tintColor="#667eea"
+                    colors={['#667eea']}
                     onRefresh={() => {
                       setRefreshingApprovedClusters(true);
+                      clustersOverviewHydratedRef.current = false;
+                      unclusteredHydratedRef.current = false;
                       loadApprovedClustersByPlayer({ includeSingles: clusterFilters.includeSingles });
                     }}
                   />
                 }
-                contentContainerStyle={styles.listContent}
+                contentContainerStyle={styles.usersListContent}
               />
             )}
           </>
@@ -4534,13 +4604,17 @@ export default function SuperUserScreen() {
         <View style={styles.modalOverlay}>
           <View style={[styles.clusterFiltersSheet, { paddingBottom: Math.max(insets.bottom, 12) + 8 }]}>
             <View style={styles.clusterFiltersHeader}>
-              <Text style={styles.clusterFiltersTitle}>Filtri</Text>
-              <TouchableOpacity
-                onPress={() => setShowClusterFilters(false)}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              >
-                <Ionicons name="close" size={22} color="#94a3b8" />
-              </TouchableOpacity>
+              <View style={styles.userDetailSheetHandle} />
+              <View style={styles.clusterFiltersHeaderRow}>
+                <Text style={styles.clusterFiltersTitle}>Filtri</Text>
+                <TouchableOpacity
+                  style={styles.userDetailCloseBtn}
+                  onPress={() => setShowClusterFilters(false)}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Ionicons name="close" size={20} color="#64748b" />
+                </TouchableOpacity>
+              </View>
             </View>
             <ScrollView
               showsVerticalScrollIndicator={false}
@@ -7219,37 +7293,48 @@ export default function SuperUserScreen() {
         onRequestClose={() => setShowPlayerClusterDetail(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <View style={{ flex: 1, paddingRight: 8 }}>
-                <Text style={styles.modalTitle}>
-                  {selectedPlayerCluster
-                    ? formatClusterListTitle(selectedPlayerCluster.name, selectedPlayerCluster.leagues)
-                    : 'Dettagli Giocatore'}
-                </Text>
-                {selectedPlayerCluster ? (
-                  <Text style={styles.modalTitleSub}>
-                    {selectedPlayerCluster.is_single_player
-                      ? `Giocatore singolo${selectedPlayerCluster.group_name ? ` · ${selectedPlayerCluster.group_name}` : ''}`
-                      : `${selectedPlayerCluster.players_count ?? selectedPlayerCluster.leagues?.length ?? 0} ${(selectedPlayerCluster.players_count ?? selectedPlayerCluster.leagues?.length ?? 0) === 1 ? 'edizione' : 'edizioni'}${selectedPlayerCluster.group_name ? ` · ${selectedPlayerCluster.group_name}` : ''}`}
+          <View
+            style={[
+              styles.modalContent,
+              styles.clusterDetailSheet,
+              { paddingBottom: Math.max(insets.bottom, 12) },
+            ]}
+          >
+            <View style={styles.userDetailSheetHeader}>
+              <View style={styles.userDetailSheetHandle} />
+              <View style={styles.userDetailSheetHeaderRow}>
+                <View style={{ flex: 1, paddingRight: 8 }}>
+                  <Text style={styles.userDetailSheetTitle} numberOfLines={1}>
+                    {selectedPlayerCluster
+                      ? formatClusterListTitle(selectedPlayerCluster.name, selectedPlayerCluster.leagues)
+                      : 'Cluster'}
                   </Text>
-                ) : null}
+                  {selectedPlayerCluster ? (
+                    <Text style={styles.clusterDetailHeaderSub} numberOfLines={1}>
+                      {selectedPlayerCluster.is_single_player
+                        ? `Giocatore singolo${selectedPlayerCluster.group_name ? ` · ${selectedPlayerCluster.group_name}` : ''}`
+                        : `${selectedPlayerCluster.players_count ?? selectedPlayerCluster.leagues?.length ?? 0} ${(selectedPlayerCluster.players_count ?? selectedPlayerCluster.leagues?.length ?? 0) === 1 ? 'edizione' : 'edizioni'}${selectedPlayerCluster.group_name ? ` · ${selectedPlayerCluster.group_name}` : ''}`}
+                    </Text>
+                  ) : null}
+                </View>
+                <TouchableOpacity
+                  style={styles.userDetailCloseBtn}
+                  onPress={() => {
+                    setShowPlayerClusterDetail(false);
+                    setSelectedPlayerCluster(null);
+                    setShowAddPlayers(false);
+                    setAvailablePlayersToAdd([]);
+                    setHasAvailablePlayers(false);
+                    setClusterBirthYearDraft('');
+                    setShowClusterBirthYearPicker(false);
+                    setClusterRoleDraft('');
+                    setShowClusterRolePicker(false);
+                  }}
+                  hitSlop={8}
+                >
+                  <Ionicons name="close" size={20} color="#64748b" />
+                </TouchableOpacity>
               </View>
-              <TouchableOpacity
-                onPress={() => {
-                  setShowPlayerClusterDetail(false);
-                  setSelectedPlayerCluster(null);
-                  setShowAddPlayers(false);
-                  setAvailablePlayersToAdd([]);
-                  setHasAvailablePlayers(false);
-                  setClusterBirthYearDraft('');
-                  setShowClusterBirthYearPicker(false);
-                  setClusterRoleDraft('');
-                  setShowClusterRolePicker(false);
-                }}
-              >
-                <Ionicons name="close" size={24} color="#333" />
-              </TouchableOpacity>
             </View>
 
             {selectedPlayerCluster ? (() => {
@@ -7259,7 +7344,7 @@ export default function SuperUserScreen() {
                 clusterRoleDraft,
               );
               return (
-              <View style={styles.clusterMetaWrap}>
+              <View style={styles.clusterMetaCard}>
                 <View style={styles.clusterMetaBar}>
                   <View style={styles.clusterMetaField}>
                     <Text style={styles.clusterMetaLabel} numberOfLines={1}>Anno</Text>
@@ -7341,30 +7426,33 @@ export default function SuperUserScreen() {
             })() : null}
             
             {selectedPlayerCluster && (
-              <ScrollView style={styles.modalScrollView} contentContainerStyle={{ paddingBottom: 20 }}>
-                {/* Sezione giocatori disponibili da aggiungere */}
+              <ScrollView
+                style={styles.clusterDetailScroll}
+                contentContainerStyle={styles.clusterDetailScrollContent}
+                showsVerticalScrollIndicator={false}
+              >
                 {showAddPlayers && !selectedPlayerCluster.is_single_player && availablePlayersToAdd.length > 0 && (
-                  <View style={styles.groupDetailSection}>
-                    <Text style={styles.groupDetailSectionTitle}>
-                      Giocatori Disponibili ({availablePlayersToAdd.length})
+                  <View style={styles.clusterDetailSection}>
+                    <Text style={styles.clusterDetailSectionTitle}>
+                      Da aggiungere ({availablePlayersToAdd.length})
                     </Text>
                     {availablePlayersToAdd.map((player, index) => {
                       const playerFullName = `${player.first_name || ''} ${player.last_name || ''}`.trim() || player.name;
                       return (
-                        <View key={index} style={styles.availablePlayerItem}>
+                        <View key={`${player.id || index}-${player.league_id || index}`} style={styles.clusterAvailRow}>
                           <View style={styles.availablePlayerInfo}>
-                            <Text style={styles.availablePlayerName}>{playerFullName}</Text>
-                            <Text style={styles.availablePlayerLeague}>
+                            <Text style={styles.clusterAvailName}>{playerFullName}</Text>
+                            <Text style={styles.clusterAvailMeta}>
                               {player.league_name}
-                              {formatBirthYear(player.birth_year) ? ` • Anno ${formatBirthYear(player.birth_year)}` : ''}
+                              {formatBirthYear(player.birth_year) ? ` · n. ${formatBirthYear(player.birth_year)}` : ''}
                             </Text>
                           </View>
                           <TouchableOpacity
-                            style={styles.addToClusterButton}
+                            style={styles.clusterAvailAddBtn}
                             onPress={() => handleAddPlayerToApprovedCluster(player)}
                           >
-                            <Ionicons name="checkmark" size={20} color="#4CAF50" />
-                            <Text style={styles.addToClusterButtonText}>Aggiungi</Text>
+                            <Ionicons name="add" size={16} color="#15803d" />
+                            <Text style={styles.clusterAvailAddBtnText}>Aggiungi</Text>
                           </TouchableOpacity>
                         </View>
                       );
@@ -7373,32 +7461,34 @@ export default function SuperUserScreen() {
                 )}
                 
                 {showAddPlayers && !selectedPlayerCluster.is_single_player && availablePlayersToAdd.length === 0 && !loadingAvailablePlayers && (
-                  <View style={styles.groupDetailSection}>
+                  <View style={styles.clusterDetailSection}>
                     <Text style={styles.groupDetailEmpty}>
                       Nessun altro giocatore trovato con lo stesso nome
                     </Text>
                   </View>
                 )}
                 
-                <View style={styles.groupDetailSection}>
-                  <Text style={styles.groupDetailSectionTitle}>
-                    Leghe ({selectedPlayerCluster.leagues.length})
+                <View style={styles.clusterDetailSection}>
+                  <Text style={styles.clusterDetailSectionTitle}>
+                    Edizioni ({selectedPlayerCluster.leagues.length})
                   </Text>
                   {selectedPlayerCluster.leagues.length > 0 ? (
                     selectedPlayerCluster.leagues.map((league, index) => {
                       const removeKey = `${league.cluster_id}-${league.player_id}`;
                       const isRemoving = removingLeagueKey === removeKey;
                       return (
-                        <View key={`${league.cluster_id}-${league.player_id}-${index}`} style={styles.clusterLeagueRow}>
+                        <View key={`${league.cluster_id}-${league.player_id}-${index}`} style={styles.clusterEditionRow}>
                           <View style={styles.clusterLeagueColLeague}>
-                            <Text style={styles.groupLeagueName}>{league.name}</Text>
-                            <Text style={styles.groupLeagueDetails}>{league.group_name}</Text>
+                            <Text style={styles.clusterEditionLeague} numberOfLines={1}>{league.name}</Text>
+                            <Text style={styles.clusterEditionGroup} numberOfLines={1}>
+                              {[league.group_name, league.reference_year].filter(Boolean).join(' · ')}
+                            </Text>
                           </View>
                           <View style={styles.clusterLeagueColTeam}>
-                            <Text style={styles.clusterLeagueTeamName} numberOfLines={2}>
+                            <Text style={styles.clusterEditionTeam} numberOfLines={2}>
                               {league.team_name || '—'}
                             </Text>
-                            <Text style={styles.clusterLeagueRoleText}>
+                            <Text style={styles.clusterEditionRole}>
                               {formatClusterPlayerRole(league.role)}
                             </Text>
                           </View>
@@ -7410,9 +7500,9 @@ export default function SuperUserScreen() {
                               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                             >
                               {isRemoving ? (
-                                <ActivityIndicator size="small" color="#e53935" />
+                                <ActivityIndicator size="small" color="#dc2626" />
                               ) : (
-                                <Ionicons name="close-circle" size={26} color="#e53935" />
+                                <Ionicons name="close-circle-outline" size={22} color="#dc2626" />
                               )}
                             </TouchableOpacity>
                           ) : (
@@ -7430,10 +7520,9 @@ export default function SuperUserScreen() {
               </ScrollView>
             )}
             
-            {/* Floating Action Button per aggiungere giocatori */}
             {selectedPlayerCluster && !selectedPlayerCluster.is_single_player && hasAvailablePlayers && (
               <TouchableOpacity
-                style={styles.fab}
+                style={styles.clusterAddFooterBtn}
                 onPress={() => {
                   const groupId = selectedPlayerCluster.leagues[0]?.group_id;
                   const existingLeagueIds = selectedPlayerCluster.leagues.map(l => l.id);
@@ -7442,11 +7531,15 @@ export default function SuperUserScreen() {
                   }
                 }}
                 disabled={loadingAvailablePlayers}
+                activeOpacity={0.85}
               >
                 {loadingAvailablePlayers ? (
                   <ActivityIndicator size="small" color="#fff" />
                 ) : (
-                  <Ionicons name="add" size={28} color="#fff" />
+                  <>
+                    <Ionicons name="add" size={18} color="#fff" />
+                    <Text style={styles.clusterAddFooterBtnText}>Aggiungi edizione</Text>
+                  </>
                 )}
               </TouchableOpacity>
             )}
@@ -8162,24 +8255,26 @@ const styles = StyleSheet.create({
   },
   clusterFiltersSheet: {
     backgroundColor: '#fff',
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
     maxHeight: '72%',
   },
   clusterFiltersHeader: {
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#ececec',
+  },
+  clusterFiltersHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingTop: 14,
-    paddingBottom: 10,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#e8e8e8',
   },
   clusterFiltersTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#334155',
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#0f172a',
   },
   clusterFiltersBody: {
     paddingHorizontal: 16,
@@ -9508,6 +9603,14 @@ const styles = StyleSheet.create({
     color: '#999',
     marginTop: 16,
   },
+  emptySubtext: {
+    fontSize: 13,
+    color: '#94a3b8',
+    marginTop: 6,
+    textAlign: 'center',
+    lineHeight: 18,
+    paddingHorizontal: 24,
+  },
   playerClusterItem: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -9552,6 +9655,169 @@ const styles = StyleSheet.create({
   playerClusterLeaguesCount: {
     fontSize: 13,
     color: '#666',
+  },
+  clusterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#ececec',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    marginBottom: 8,
+    gap: 10,
+  },
+  clusterAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#eef2ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  clusterAvatarSingle: {
+    backgroundColor: '#f1f5f9',
+  },
+  clusterAvatarText: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#667eea',
+  },
+  clusterRowName: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#0f172a',
+    flexShrink: 1,
+  },
+  clusterRowSub: {
+    marginTop: 2,
+    fontSize: 12,
+    color: '#64748b',
+  },
+  clusterDetailSheet: {
+    maxHeight: '92%',
+    backgroundColor: '#f5f5f5',
+    paddingBottom: 12,
+  },
+  clusterDetailHeaderSub: {
+    marginTop: 2,
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#94a3b8',
+  },
+  clusterMetaCard: {
+    marginHorizontal: 16,
+    marginTop: 12,
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#ececec',
+    paddingBottom: 10,
+  },
+  clusterDetailScroll: {
+    flex: 1,
+  },
+  clusterDetailScrollContent: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 16,
+  },
+  clusterDetailSection: {
+    marginBottom: 12,
+  },
+  clusterDetailSectionTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#94a3b8',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+    marginBottom: 8,
+  },
+  clusterAvailRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#ececec',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 8,
+    gap: 8,
+  },
+  clusterAvailName: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  clusterAvailMeta: {
+    marginTop: 2,
+    fontSize: 12,
+    color: '#64748b',
+  },
+  clusterAvailAddBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 999,
+    backgroundColor: '#ecfdf3',
+    borderWidth: 1,
+    borderColor: '#bbf7d0',
+  },
+  clusterAvailAddBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#15803d',
+  },
+  clusterEditionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#ececec',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    marginBottom: 8,
+  },
+  clusterEditionLeague: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  clusterEditionGroup: {
+    marginTop: 2,
+    fontSize: 12,
+    color: '#64748b',
+  },
+  clusterEditionTeam: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#334155',
+  },
+  clusterEditionRole: {
+    marginTop: 2,
+    fontSize: 12,
+    color: '#64748b',
+  },
+  clusterAddFooterBtn: {
+    marginHorizontal: 16,
+    marginTop: 4,
+    height: 46,
+    borderRadius: 12,
+    backgroundColor: '#667eea',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  clusterAddFooterBtnText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#fff',
   },
   modalHeaderActions: {
     flexDirection: 'row',
@@ -10550,8 +10816,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'nowrap',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingTop: 10,
+    paddingHorizontal: 14,
+    paddingTop: 12,
     gap: 16,
   },
   clusterMetaField: {
@@ -10597,7 +10863,7 @@ const styles = StyleSheet.create({
   clusterMetaPendingHint: {
     fontSize: 12,
     color: '#94a3b8',
-    paddingHorizontal: 16,
+    paddingHorizontal: 14,
     marginTop: 6,
   },
   clusterBirthYearBar: {

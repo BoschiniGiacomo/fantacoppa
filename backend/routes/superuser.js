@@ -59,6 +59,20 @@ async function runPlayerClusterSchemaMigration() {
   } catch (err) {
     if (!isSchemaInitRaceError(err)) throw err;
   }
+  try {
+    await query(
+      `CREATE INDEX IF NOT EXISTS idx_player_cluster_members_player_id ON player_cluster_members (player_id)`
+    );
+  } catch (err) {
+    if (!isSchemaInitRaceError(err)) throw err;
+  }
+  try {
+    await query(
+      `CREATE INDEX IF NOT EXISTS idx_player_clusters_status ON player_clusters (status)`
+    );
+  } catch (err) {
+    if (!isSchemaInitRaceError(err)) throw err;
+  }
 }
 
 async function ensurePlayerClusterSchema() {
@@ -196,8 +210,48 @@ function mapClusterPlayerRow(p) {
 
 function parseClusterPlayersJson(raw) {
   if (!raw) return [];
-  if (Array.isArray(raw)) return raw.map(mapClusterPlayerRow).filter(Boolean);
+  let value = raw;
+  if (typeof raw === 'string') {
+    try {
+      value = JSON.parse(raw);
+    } catch (_) {
+      return [];
+    }
+  }
+  if (Array.isArray(value)) return value.map(mapClusterPlayerRow).filter(Boolean);
   return [];
+}
+
+function mapClusterOverviewRow(row) {
+  const players = parseClusterPlayersJson(row.players_json);
+  return {
+    id: Number(row.id),
+    status: row.status,
+    suggested_by_system: Number(row.suggested_by_system || 0) === 1,
+    created_at: row.created_at || null,
+    approved_at: row.approved_at || null,
+    group_id: Number(row.group_id || row.official_group_id || 0) || null,
+    group_name: String(row.group_name || '').trim(),
+    players_count: Number(row.players_count || players.length || 0),
+    players,
+  };
+}
+
+function mapUnclusteredPlayerRow(r) {
+  return {
+    player_id: Number(r.player_id),
+    first_name: String(r.first_name || '').trim(),
+    last_name: String(r.last_name || '').trim(),
+    role: String(r.role || '').trim().toUpperCase() || null,
+    birth_year: r.birth_year != null ? Number(r.birth_year) : null,
+    team_id: Number(r.team_id),
+    team_name: String(r.team_name || '').trim(),
+    league_id: Number(r.league_id),
+    league_name: String(r.league_name || '').trim(),
+    reference_year: r.reference_year != null ? Number(r.reference_year) : null,
+    group_id: r.group_id != null ? Number(r.group_id) : null,
+    group_name: String(r.group_name || '').trim(),
+  };
 }
 
 function normalizePlayerBirthYear(player) {
@@ -1390,18 +1444,7 @@ router.get('/official-groups/:groupId/unclustered-players', authenticateToken, r
       [groupId, groupId]
     );
 
-    const players = (rows || []).map((r) => ({
-      player_id: Number(r.player_id),
-      first_name: String(r.first_name || '').trim(),
-      last_name: String(r.last_name || '').trim(),
-      role: String(r.role || '').trim().toUpperCase() || null,
-      birth_year: r.birth_year != null ? Number(r.birth_year) : null,
-      team_id: Number(r.team_id),
-      team_name: String(r.team_name || '').trim(),
-      league_id: Number(r.league_id),
-      league_name: String(r.league_name || '').trim(),
-      reference_year: r.reference_year != null ? Number(r.reference_year) : null,
-    }));
+    const players = (rows || []).map(mapUnclusteredPlayerRow);
 
     return res.json({
       group_id: groupId,
@@ -1411,6 +1454,60 @@ router.get('/official-groups/:groupId/unclustered-players', authenticateToken, r
     });
   } catch (error) {
     console.error('[superuser] GET unclustered-players error:', error?.message || error);
+    if (isMissingDbObjectError(error)) {
+      return res.status(500).json({
+        message: 'Tabelle cluster non configurate sul database',
+        error: error.message,
+      });
+    }
+    return res.status(500).json({ message: 'Errore caricamento giocatori singoli', error: error.message });
+  }
+});
+
+/**
+ * Tutti i giocatori non in cluster approvato, una sola query (tutti i gruppi).
+ */
+router.get('/unclustered-players', authenticateToken, requireSuperuser, async (req, res) => {
+  try {
+    await ensurePlayerClusterSchema();
+    const rows = await query(
+      `SELECT
+         p.id AS player_id,
+         p.first_name,
+         p.last_name,
+         p.role,
+         p.birth_year,
+         t.id AS team_id,
+         t.name AS team_name,
+         l.id AS league_id,
+         l.name AS league_name,
+         NULLIF(to_jsonb(l)->>'reference_year','')::int AS reference_year,
+         og.id AS group_id,
+         og.name AS group_name
+       FROM players p
+       INNER JOIN teams t ON t.id = p.team_id
+       INNER JOIN leagues l ON l.id = t.league_id
+       INNER JOIN official_league_groups og ON og.id = l.official_group_id
+       WHERE NOT EXISTS (
+         SELECT 1
+         FROM player_cluster_members pcm
+         INNER JOIN player_clusters pc ON pc.id = pcm.cluster_id
+         WHERE pcm.player_id = p.id
+           AND pc.official_group_id = l.official_group_id
+           AND pc.status = 'approved'
+       )
+       ORDER BY
+         p.last_name ASC,
+         p.first_name ASC,
+         og.name ASC,
+         NULLIF(to_jsonb(l)->>'reference_year','')::int DESC NULLS LAST,
+         l.name ASC`
+    );
+
+    const players = (rows || []).map(mapUnclusteredPlayerRow);
+    return res.json({ count: players.length, players });
+  } catch (error) {
+    console.error('[superuser] GET unclustered-players (all) error:', error?.message || error);
     if (isMissingDbObjectError(error)) {
       return res.status(500).json({
         message: 'Tabelle cluster non configurate sul database',
@@ -2158,6 +2255,69 @@ router.put(
 
 // Due gironi: endpoint su /api/admin/... in routes/matches.js (stessi permessi SU1/SU2)
 
+/**
+ * Tutti i cluster approvati di tutti i gruppi, una sola query.
+ * Deve stare prima di GET /player-clusters/:groupId.
+ */
+router.get('/player-clusters/overview', authenticateToken, requireSuperuser, async (req, res) => {
+  try {
+    await ensurePlayerClusterSchema();
+    const statusRaw = req.query?.status != null ? String(req.query.status).trim() : 'approved';
+    const status = statusRaw && isValidClusterStatus(statusRaw) ? statusRaw : 'approved';
+
+    const clustersRows = await query(
+      `SELECT
+         pc.id,
+         pc.status,
+         pc.suggested_by_system,
+         pc.created_at,
+         pc.approved_at,
+         pc.official_group_id AS group_id,
+         og.name AS group_name,
+         COUNT(DISTINCT pcm.player_id)::int AS players_count,
+         COALESCE(
+           json_agg(
+             json_build_object(
+               'id', p.id,
+               'first_name', p.first_name,
+               'last_name', p.last_name,
+               'role', p.role,
+               'birth_year', p.birth_year,
+               'league_id', t.league_id,
+               'league_name', l.name,
+               'team_name', t.name,
+               'reference_year', NULLIF(to_jsonb(l)->>'reference_year','')::int
+             )
+             ORDER BY l.name NULLS LAST, p.last_name, p.first_name
+           ) FILTER (WHERE p.id IS NOT NULL),
+           '[]'::json
+         ) AS players_json
+       FROM player_clusters pc
+       INNER JOIN official_league_groups og ON og.id = pc.official_group_id
+       LEFT JOIN player_cluster_members pcm ON pcm.cluster_id = pc.id
+       LEFT JOIN players p ON p.id = pcm.player_id
+       LEFT JOIN teams t ON t.id = p.team_id
+       LEFT JOIN leagues l ON l.id = t.league_id
+       WHERE pc.status = ?
+       GROUP BY pc.id, pc.status, pc.suggested_by_system, pc.created_at, pc.approved_at, pc.official_group_id, og.name
+       ORDER BY og.name ASC, pc.id DESC`,
+      [status]
+    );
+
+    const clusters = (clustersRows || []).map(mapClusterOverviewRow);
+    return res.json({ count: clusters.length, clusters });
+  } catch (error) {
+    console.error('[superuser] GET player-clusters/overview error:', error?.message || error);
+    if (isMissingDbObjectError(error)) {
+      return res.status(500).json({
+        message: 'Tabelle cluster non configurate sul database',
+        error: error.message,
+      });
+    }
+    return res.status(500).json({ message: 'Errore caricamento cluster', error: error.message });
+  }
+});
+
 router.get('/player-clusters/suggestions/:groupId', authenticateToken, requireSuperuser, async (req, res) => {
   try {
     await ensurePlayerClusterSchema();
@@ -2477,18 +2637,10 @@ router.get('/player-clusters/:groupId', authenticateToken, requireSuperuser, asy
       params
     );
 
-    const clusters = (clustersRows || []).map((row) => {
-      const players = parseClusterPlayersJson(row.players_json);
-      return {
-        id: Number(row.id),
-        status: row.status,
-        suggested_by_system: Number(row.suggested_by_system || 0) === 1,
-        created_at: row.created_at || null,
-        approved_at: row.approved_at || null,
-        players_count: Number(row.players_count || players.length || 0),
-        players,
-      };
-    });
+    const clusters = (clustersRows || []).map((row) => mapClusterOverviewRow({
+      ...row,
+      group_id: groupId,
+    }));
 
     return res.json({ clusters });
   } catch (error) {
