@@ -2056,7 +2056,6 @@ function sharePhotosAcrossLeaderboardLists(lists) {
   const packs = Array.isArray(lists) ? lists : [];
   const photoByPlayerId = new Map();
   const photoByCluster = new Map();
-  const photosByName = new Map();
   const remember = (row) => {
     const photo = String(row?.photo_path || '').trim();
     if (!photo) return;
@@ -2064,11 +2063,6 @@ function sharePhotosAcrossLeaderboardLists(lists) {
     if (pid > 0) photoByPlayerId.set(pid, photo);
     const cid = Number(row.cluster_id);
     if (cid > 0) photoByCluster.set(cid, photo);
-    const nameKey = leaderboardBaseNameKey(row.name);
-    if (!nameKey) return;
-    const seen = photosByName.get(nameKey) || new Set();
-    seen.add(photo);
-    photosByName.set(nameKey, seen);
   };
   for (const list of packs) {
     for (const row of Array.isArray(list) ? list : []) remember(row);
@@ -2079,11 +2073,9 @@ function sharePhotosAcrossLeaderboardLists(lists) {
       if (String(row?.photo_path || '').trim()) return row;
       const pid = Number(row.player_id);
       const cid = Number(row.cluster_id);
-      const namePhotos = photosByName.get(leaderboardBaseNameKey(row.name));
       const photo =
         (pid > 0 ? photoByPlayerId.get(pid) : null)
         || (cid > 0 ? photoByCluster.get(cid) : null)
-        || (namePhotos && namePhotos.size === 1 ? [...namePhotos][0] : null)
         || '';
       return photo ? { ...row, photo_path: photo } : row;
     });
@@ -2595,6 +2587,12 @@ function roundSquadSnapshotAvg(n) {
   return Math.round(v * 10) / 10;
 }
 
+function roundSquadSnapshotMatches(n) {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return null;
+  return Math.round(v);
+}
+
 function mapSquadSnapshotRows(rows) {
   const out = emptySquadSnapshot();
   for (const row of Array.isArray(rows) ? rows : []) {
@@ -2603,7 +2601,7 @@ function mapSquadSnapshotRows(rows) {
     const withAge = Number(row?.players_with_age || 0) || 0;
     out[side] = {
       avg_age: withAge > 0 ? roundSquadSnapshotAvg(row?.avg_age) : null,
-      avg_matches: players > 0 ? roundSquadSnapshotAvg(row?.avg_matches) : null,
+      avg_matches: players > 0 ? roundSquadSnapshotMatches(row?.avg_matches) : null,
       players,
       players_with_age: withAge,
     };

@@ -405,6 +405,12 @@ function formatSquadAvg(n) {
   return v.toFixed(1).replace('.', ',');
 }
 
+function formatSquadMatches(n) {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return '–';
+  return String(Math.round(v));
+}
+
 function SquadSnapshotCard({
   snapshot,
   homeLogoUrl,
@@ -418,11 +424,12 @@ function SquadSnapshotCard({
   const awayPlayers = Number(away?.players || 0);
   if (homePlayers <= 0 && awayPlayers <= 0) return null;
 
+  const muted = '#666';
   const rows = [
     {
       key: 'age',
-      pack: 'ion',
-      icon: 'people-outline',
+      pack: 'mci',
+      icon: 'cake-variant',
       label: 'Età media',
       home: formatSquadAvg(home?.avg_age),
       away: formatSquadAvg(away?.avg_age),
@@ -431,17 +438,16 @@ function SquadSnapshotCard({
       key: 'matches',
       pack: 'mci',
       icon: 'soccer',
-      label: 'Partite medie',
-      home: formatSquadAvg(home?.avg_matches),
-      away: formatSquadAvg(away?.avg_matches),
+      label: 'Presenze medie',
+      home: formatSquadMatches(home?.avg_matches),
+      away: formatSquadMatches(away?.avg_matches),
     },
   ];
 
   return (
     <View style={styles.card}>
       <View style={styles.squadSnapHead}>
-        <View style={styles.squadSnapLabelCol} />
-        <View style={styles.squadSnapValCol}>
+        <View style={styles.squadSnapSide}>
           <TeamLogoImage
             logoUrl={homeLogoUrl}
             logoPath={homeLogoPath}
@@ -450,7 +456,8 @@ function SquadSnapshotCard({
             fallbackIconSize={11}
           />
         </View>
-        <View style={styles.squadSnapValCol}>
+        <View style={styles.squadSnapCenter} />
+        <View style={styles.squadSnapSide}>
           <TeamLogoImage
             logoUrl={awayLogoUrl}
             logoPath={awayLogoPath}
@@ -465,16 +472,22 @@ function SquadSnapshotCard({
           key={row.key}
           style={[styles.squadSnapRow, idx === rows.length - 1 && styles.squadSnapRowLast]}
         >
-          <View style={styles.squadSnapLabelCol}>
-            {row.pack === 'mci' ? (
-              <MaterialCommunityIcons name={row.icon} size={14} color="#666" />
-            ) : (
-              <Ionicons name={row.icon} size={14} color="#666" />
-            )}
-            <Text style={styles.squadSnapLabel}>{row.label}</Text>
+          <View style={styles.squadSnapSide}>
+            <Text style={styles.squadSnapValue}>{row.home}</Text>
           </View>
-          <Text style={styles.squadSnapValue}>{row.home}</Text>
-          <Text style={styles.squadSnapValue}>{row.away}</Text>
+          <View style={styles.squadSnapCenter}>
+            {row.pack === 'mci' ? (
+              <MaterialCommunityIcons name={row.icon} size={16} color={muted} />
+            ) : (
+              <Ionicons name={row.icon} size={16} color={muted} />
+            )}
+            <Text style={styles.squadSnapLabel} numberOfLines={1}>
+              {row.label}
+            </Text>
+          </View>
+          <View style={styles.squadSnapSide}>
+            <Text style={styles.squadSnapValue}>{row.away}</Text>
+          </View>
         </View>
       ))}
     </View>
@@ -5723,25 +5736,30 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   squadSnapRowLast: { marginBottom: 0 },
-  squadSnapLabelCol: {
-    flex: 1,
-    minWidth: 0,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  squadSnapLabel: { flex: 1, minWidth: 0, color: '#333', fontSize: 14 },
-  squadSnapValCol: {
-    width: 52,
+  squadSnapSide: {
+    width: 56,
     alignItems: 'center',
     justifyContent: 'center',
+    flexShrink: 0,
+  },
+  squadSnapCenter: {
+    flex: 1,
+    minWidth: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
+    paddingHorizontal: 6,
+  },
+  squadSnapLabel: {
+    color: '#666',
+    fontSize: 13,
+    fontWeight: '600',
+    textAlign: 'center',
   },
   squadSnapValue: {
-    width: 52,
+    color: '#333',
+    fontSize: 14,
     textAlign: 'center',
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#111827',
   },
   squadSnapLogo: { width: 22, height: 22 },
   squadSnapLogoFallback: {

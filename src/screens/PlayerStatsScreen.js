@@ -327,6 +327,10 @@ function ProductionStatCell({ type, value, label }) {
   );
 }
 
+function isClusterPhotoPath(path) {
+  return /(?:^|\/)player_cluster_\d+/i.test(String(path || ''));
+}
+
 export default function PlayerStatsScreen({ route, navigation }) {
   const {
     playerId,
@@ -444,6 +448,7 @@ export default function PlayerStatsScreen({ route, navigation }) {
     aggregatedAnalyticsInFlightRef.current = false;
     fantaCacheRef.current = new Map();
     analyticsCacheRef.current = new Map();
+    setPhotoPath(String(initialPlayerPhotoPath || '').trim());
     setFantaEditionData(null);
     setAggregatedFantaStats(null);
     setEditionAnalytics(null);
@@ -532,8 +537,13 @@ export default function PlayerStatsScreen({ route, navigation }) {
     if (cacheKey) {
       fantaCacheRef.current.set(cacheKey, response.data);
     }
-    if (response.data?.player?.photo_path) {
-      setPhotoPath((prev) => prev || String(response.data.player.photo_path || '').trim());
+    if (response.data?.player) {
+      const nextPhoto = String(response.data.player.photo_path || '').trim();
+      if (nextPhoto) {
+        setPhotoPath(nextPhoto);
+      } else if (Number(response.data.player.id) === Number(playerId)) {
+        setPhotoPath('');
+      }
     }
     return true;
   };
@@ -692,12 +702,15 @@ export default function PlayerStatsScreen({ route, navigation }) {
       const response = await playerStatsService.getPlayerFantaStatsAggregated(playerId, leagueId);
       setAggregatedFantaStats(response.data?.stats || {});
       setHasOfficialGroup(true);
-      if (response.data?.player?.photo_path) {
-        setPhotoPath((prev) => prev || String(response.data.player.photo_path || '').trim());
+      if (response.data?.player) {
+        setPhotoPath(String(response.data.player.photo_path || '').trim());
       }
     } catch (error) {
       // Non forzare false se un altro endpoint aggregato ha già confermato il gruppo
       setHasOfficialGroup((prev) => prev);
+      if (error?.response?.status === 404) {
+        setPhotoPath((prev) => (isClusterPhotoPath(prev) ? '' : prev));
+      }
     } finally {
       aggregatedFantaInFlightRef.current = false;
       setLoadingAggregatedFanta(false);

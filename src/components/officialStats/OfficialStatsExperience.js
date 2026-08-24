@@ -1068,20 +1068,10 @@ export function mapOfficialStatsBoards(defs, dataByKey) {
   }));
 }
 
-function leaderboardBaseNameKey(name) {
-  return String(name || '')
-    .replace(/\s*\('\d{2}\)\s*$/u, '')
-    .trim()
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '');
-}
-
 function sharePhotosAcrossBoards(boards) {
   const list = Array.isArray(boards) ? boards : [];
   const photoByPlayerId = new Map();
   const photoByCluster = new Map();
-  const photosByName = new Map();
   const remember = (row) => {
     const photo = String(row?.photo_path || '').trim();
     if (!photo) return;
@@ -1089,11 +1079,6 @@ function sharePhotosAcrossBoards(boards) {
     if (pid > 0) photoByPlayerId.set(pid, photo);
     const cid = Number(row.cluster_id);
     if (cid > 0) photoByCluster.set(cid, photo);
-    const nameKey = leaderboardBaseNameKey(row.name);
-    if (!nameKey) return;
-    const seen = photosByName.get(nameKey) || new Set();
-    seen.add(photo);
-    photosByName.set(nameKey, seen);
   };
   for (const board of list) {
     for (const row of Array.isArray(board.items) ? board.items : []) remember(row);
@@ -1106,11 +1091,9 @@ function sharePhotosAcrossBoards(boards) {
       if (existing) return row;
       const pid = Number(row.player_id);
       const cid = Number(row.cluster_id);
-      const namePhotos = photosByName.get(leaderboardBaseNameKey(row.name));
       const photo =
         (pid > 0 ? photoByPlayerId.get(pid) : '')
         || (cid > 0 ? photoByCluster.get(cid) : '')
-        || (namePhotos && namePhotos.size === 1 ? [...namePhotos][0] : '')
         || '';
       if (!photo) return row;
       changed = true;
