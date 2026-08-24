@@ -98,11 +98,15 @@ async function ensureSuperuserTables() {
   } catch (_) {}
 }
 
+let officialGroupMenuSchemaReady = false;
+
 async function ensureOfficialGroupMenuSchema() {
+  if (officialGroupMenuSchemaReady) return;
   await query(`ALTER TABLE official_league_groups ADD COLUMN IF NOT EXISTS logo_path TEXT`);
   await query(
     `ALTER TABLE official_league_groups ADD COLUMN IF NOT EXISTS show_in_main_menu SMALLINT NOT NULL DEFAULT 0`
   );
+  officialGroupMenuSchemaReady = true;
 }
 
 async function requireSuperuser(req, res, next) {
@@ -1120,14 +1124,18 @@ router.get('/official-groups', authenticateToken, requireSuperuser, async (_req,
     await ensureOfficialGroupMenuSchema();
     const rows = await query(
       `SELECT og.id, og.name, og.description, og.created_by, og.created_at,
-              COALESCE(NULLIF(to_jsonb(og)->>'logo_path',''), NULLIF(og.logo_path, '')) AS logo_path,
+              NULLIF(og.logo_path, '') AS logo_path,
               COALESCE(og.show_in_main_menu, 0)::int AS show_in_main_menu,
               COALESCE(u.username, '') AS created_by_username,
-              COUNT(l.id)::int AS league_count
+              COALESCE(lc.league_count, 0)::int AS league_count
        FROM official_league_groups og
-       LEFT JOIN leagues l ON l.official_group_id = og.id
        LEFT JOIN users u ON u.id = og.created_by
-       GROUP BY og.id, og.name, og.description, og.created_by, og.created_at, og.logo_path, og.show_in_main_menu, u.username
+       LEFT JOIN (
+         SELECT official_group_id, COUNT(*)::int AS league_count
+         FROM leagues
+         WHERE official_group_id IS NOT NULL
+         GROUP BY official_group_id
+       ) lc ON lc.official_group_id = og.id
        ORDER BY og.created_at DESC, og.id DESC`
     );
     return res.json(rows);
@@ -1245,10 +1253,9 @@ router.get('/official-groups/:id/leagues', authenticateToken, requireSuperuser, 
     const groupId = Number(req.params.id);
     if (!groupId || groupId <= 0) return res.status(400).json({ message: 'ID gruppo non valido' });
 
-    await query(`ALTER TABLE official_league_groups ADD COLUMN IF NOT EXISTS logo_path TEXT`);
     const groupRows = await query(
-      `SELECT id, name, COALESCE(NULLIF(to_jsonb(og)->>'logo_path',''), NULLIF(og.logo_path, '')) AS logo_path
-       FROM official_league_groups og
+      `SELECT id, name, NULLIF(logo_path, '') AS logo_path
+       FROM official_league_groups
        WHERE id = ?
        LIMIT 1`,
       [groupId]
@@ -1256,25 +1263,58 @@ router.get('/official-groups/:id/leagues', authenticateToken, requireSuperuser, 
     if (!groupRows.length) return res.status(404).json({ message: 'Gruppo non trovato' });
 
     const leagues = await query(
-      `SELECT l.id, l.name, l.access_code, l.created_at,
-              NULLIF(to_jsonb(l)->>'reference_year','')::int AS reference_year,
+      `SELECT l.id, l.name, l.created_at,
+              l.reference_year,
               COALESCE(l.is_official_squad_public, 0) AS is_official_squad_public,
-              COALESCE(l.official_two_groups, 0) AS official_two_groups,
-              COUNT(DISTINCT lm.user_id)::int AS member_count
+              COALESCE(l.official_two_groups, 0) AS official_two_groups
        FROM leagues l
-       LEFT JOIN league_members lm ON lm.league_id = l.id
        WHERE l.official_group_id = ?
-       GROUP BY l.id, l.name, l.access_code, l.created_at, NULLIF(to_jsonb(l)->>'reference_year','')::int, l.is_official_squad_public, l.official_two_groups
        ORDER BY l.created_at DESC, l.id DESC`,
       [groupId]
     );
+
+    const twoGroupIds = (leagues || [])
+      .filter((l) => Number(l.official_two_groups) === 1)
+      .map((l) => Number(l.id))
+      .filter((id) => Number.isFinite(id) && id > 0);
+    const gironiByLeague = new Map();
+    if (twoGroupIds.length) {
+      const ph = twoGroupIds.map(() => '?').join(', ');
+      const teamRows = await query(
+        `SELECT t.id, t.name, t.league_id, g.girone_index AS girone_index
+         FROM teams t
+         LEFT JOIN league_official_team_gironi g ON g.league_id = t.league_id AND g.team_id = t.id
+         WHERE t.league_id IN (${ph})
+         ORDER BY t.name ASC, t.id ASC`,
+        twoGroupIds
+      );
+      for (const row of teamRows || []) {
+        const lid = Number(row.league_id);
+        if (!gironiByLeague.has(lid)) gironiByLeague.set(lid, []);
+        gironiByLeague.get(lid).push({
+          id: Number(row.id),
+          name: row.name,
+          girone_index: row.girone_index != null ? Number(row.girone_index) : null,
+        });
+      }
+    }
+
+    const leaguesOut = (leagues || []).map((l) => {
+      const lid = Number(l.id);
+      const twoGroups = Number(l.official_two_groups) === 1;
+      return {
+        ...l,
+        gironi_teams: twoGroups ? (gironiByLeague.get(lid) || []) : undefined,
+      };
+    });
+
     return res.json({
       group: {
         id: Number(groupRows[0].id),
         name: groupRows[0].name,
         logo_path: groupRows[0].logo_path || null,
       },
-      leagues,
+      leagues: leaguesOut,
     });
   } catch (error) {
     return res.status(500).json({ message: 'Errore caricamento leghe del gruppo', error: error.message });
