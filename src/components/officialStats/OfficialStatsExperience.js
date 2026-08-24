@@ -556,8 +556,9 @@ function GroupHighlights({ highlights, onPressTeam, onPressMatch }) {
   const defense = h.best_defense || null;
   const hasAttackDefense = !!(attack || defense);
   const winStreak = h.longest_win_streak || null;
+  const unbeatenStreak = h.longest_unbeaten_streak || null;
   const lossStreak = h.longest_loss_streak || null;
-  const hasStreaks = !!(winStreak || lossStreak);
+  const hasStreaks = !!(winStreak || unbeatenStreak || lossStreak);
   const miniDefs = [
     { key: 'yellow', bonusType: 'yellow_card', label: 'Gialli', src: h.most_yellow_cards },
     { key: 'red', bonusType: 'red_card', label: 'Rossi', src: h.most_red_cards },
@@ -616,11 +617,12 @@ function GroupHighlights({ highlights, onPressTeam, onPressMatch }) {
           style={[styles.streakPanel, !topMatch && !hasAttackDefense && { marginTop: 0 }]}
         >
           <StreakCell
+            compact
             icon="flame"
             color="#16a34a"
             value={winStreak && Number(winStreak.value || 0) > 0 ? String(Number(winStreak.value)) : '–'}
             valueColor={winStreak && Number(winStreak.value || 0) > 0 ? '#16a34a' : '#94a3b8'}
-            label="Vittorie di fila"
+            label={"Vittorie\ndi fila"}
             detail={winStreak && Number(winStreak.value || 0) > 0
               ? formatStreakRange(winStreak.started_at, winStreak.ended_at)
               : null}
@@ -633,11 +635,30 @@ function GroupHighlights({ highlights, onPressTeam, onPressMatch }) {
             showDivider
           />
           <StreakCell
+            compact
+            icon="shield-checkmark"
+            color="#0f766e"
+            value={unbeatenStreak && Number(unbeatenStreak.value || 0) > 0 ? String(Number(unbeatenStreak.value)) : '–'}
+            valueColor={unbeatenStreak && Number(unbeatenStreak.value || 0) > 0 ? '#0f766e' : '#94a3b8'}
+            label={"Striscia di\nimbattibilità"}
+            detail={unbeatenStreak && Number(unbeatenStreak.value || 0) > 0
+              ? formatStreakRange(unbeatenStreak.started_at, unbeatenStreak.ended_at)
+              : null}
+            teamName={unbeatenStreak?.team_name}
+            logoUrl={unbeatenStreak?.team_logo_url}
+            logoPath={unbeatenStreak?.team_logo_path}
+            onPress={Number(unbeatenStreak?.team_id) > 0
+              ? () => onPressTeam?.(Number(unbeatenStreak.team_id), unbeatenStreak.team_name)
+              : null}
+            showDivider
+          />
+          <StreakCell
+            compact
             icon="trending-down"
             color="#b91c1c"
             value={lossStreak && Number(lossStreak.value || 0) > 0 ? String(Number(lossStreak.value)) : '–'}
             valueColor={lossStreak && Number(lossStreak.value || 0) > 0 ? '#b91c1c' : '#94a3b8'}
-            label="Sconfitte di fila"
+            label={"Sconfitte\ndi fila"}
             detail={lossStreak && Number(lossStreak.value || 0) > 0
               ? formatStreakRange(lossStreak.started_at, lossStreak.ended_at)
               : null}
@@ -768,26 +789,43 @@ function StreakCell({
   logoUrl,
   logoPath,
   onPress,
+  compact = false,
 }) {
   const name = String(teamName || '').trim();
   const inner = (
-    <View style={[styles.goalsKpiCell, showDivider && styles.goalsKpiCellDivider]}>
-      <View style={styles.goalsKpiHead}>
-        <View style={styles.goalsKpiBadge}>
+    <View style={[
+      styles.goalsKpiCell,
+      compact && styles.streakCellCompact,
+      showDivider && styles.goalsKpiCellDivider,
+    ]}
+    >
+      <View style={[styles.goalsKpiHead, compact && styles.streakHeadCompact]}>
+        <View style={[styles.goalsKpiBadge, compact && styles.streakBadgeCompact]}>
           {bonusType ? (
-            <BonusIcon type={bonusType} size={16} />
+            <BonusIcon type={bonusType} size={compact ? 14 : 16} />
           ) : (
-            <Ionicons name={icon} size={15} color={color} />
+            <Ionicons name={icon} size={compact ? 13 : 15} color={color} />
           )}
         </View>
-        <Text style={styles.goalsKpiLabel} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
+        <Text
+          style={[styles.goalsKpiLabel, compact && styles.streakLabelCompact]}
+          numberOfLines={compact ? 2 : 1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.72}
+        >
           {label}
         </Text>
       </View>
       <View style={styles.streakValueBlock}>
         <Text
-          style={[styles.goalsKpiValue, valueColor ? { color: valueColor } : null]}
+          style={[
+            styles.goalsKpiValue,
+            compact && styles.streakValueCompact,
+            valueColor ? { color: valueColor } : null,
+          ]}
           numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.75}
         >
           {value}
         </Text>
@@ -803,7 +841,7 @@ function StreakCell({
             <Text style={styles.streakTeamName} numberOfLines={1}>{name}</Text>
           </View>
         ) : null}
-        <Text style={styles.streakDetail} numberOfLines={1}>
+        <Text style={[styles.streakDetail, compact && styles.streakDetailCompact]} numberOfLines={1}>
           {detail || ' '}
         </Text>
       </View>
@@ -926,6 +964,7 @@ function TeamGeneral({ general, outcomes, onPressMatch }) {
   const drawPct = totalOut > 0 ? draws / totalOut : 0;
   const lossPct = totalOut > 0 ? losses / totalOut : 0;
   const winStreak = Number(general?.longest_win_streak?.value || 0);
+  const unbeatenStreak = Number(general?.longest_unbeaten_streak?.value || 0);
   const lossStreak = Number(general?.longest_loss_streak?.value || 0);
   const diff = gf - ga;
   const diffColor = diff > 0 ? '#15803d' : diff < 0 ? '#b91c1c' : '#0f766e';
@@ -988,22 +1027,39 @@ function TeamGeneral({ general, outcomes, onPressMatch }) {
 
       <Animated.View entering={FadeInDown.delay(80).duration(280)} style={styles.streakPanel}>
         <StreakCell
+          compact
           icon="flame"
           color="#16a34a"
           value={winStreak > 0 ? String(winStreak) : '–'}
           valueColor={winStreak > 0 ? '#16a34a' : '#94a3b8'}
-          label="Vittorie di fila"
+          label={"Vittorie\ndi fila"}
           detail={winStreak > 0
             ? formatStreakRange(general?.longest_win_streak?.started_at, general?.longest_win_streak?.ended_at)
             : null}
           showDivider
         />
         <StreakCell
+          compact
+          icon="shield-checkmark"
+          color="#0f766e"
+          value={unbeatenStreak > 0 ? String(unbeatenStreak) : '–'}
+          valueColor={unbeatenStreak > 0 ? '#0f766e' : '#94a3b8'}
+          label={"Striscia di\nimbattibilità"}
+          detail={unbeatenStreak > 0
+            ? formatStreakRange(
+              general?.longest_unbeaten_streak?.started_at,
+              general?.longest_unbeaten_streak?.ended_at,
+            )
+            : null}
+          showDivider
+        />
+        <StreakCell
+          compact
           icon="trending-down"
           color="#b91c1c"
           value={lossStreak > 0 ? String(lossStreak) : '–'}
           valueColor={lossStreak > 0 ? '#b91c1c' : '#94a3b8'}
-          label="Sconfitte di fila"
+          label={"Sconfitte\ndi fila"}
           detail={lossStreak > 0
             ? formatStreakRange(general?.longest_loss_streak?.started_at, general?.longest_loss_streak?.ended_at)
             : null}
@@ -1550,6 +1606,35 @@ const styles = StyleSheet.create({
   goalsKpiCellDivider: {
     borderRightWidth: StyleSheet.hairlineWidth,
     borderRightColor: '#e2e8f0',
+  },
+  streakCellCompact: {
+    paddingHorizontal: 4,
+    paddingVertical: 12,
+    gap: 8,
+  },
+  streakHeadCompact: {
+    flexDirection: 'column',
+    gap: 4,
+  },
+  streakBadgeCompact: {
+    width: 24,
+    height: 24,
+    borderRadius: 7,
+  },
+  streakLabelCompact: {
+    fontSize: 10,
+    lineHeight: 12,
+    textAlign: 'center',
+    flexShrink: 1,
+  },
+  streakValueCompact: {
+    fontSize: 22,
+    lineHeight: 26,
+    letterSpacing: -0.5,
+  },
+  streakDetailCompact: {
+    fontSize: 9,
+    minHeight: 12,
   },
   goalsKpiHead: {
     flexDirection: 'row',

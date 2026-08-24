@@ -576,6 +576,7 @@ const EMPTY_TEAM_SEASON_GENERAL = {
   biggest_win: null,
   heaviest_defeat: null,
   longest_win_streak: null,
+  longest_unbeaten_streak: null,
   longest_loss_streak: null,
   highest_scoring_match: null,
 };
@@ -3899,6 +3900,7 @@ function emptyOfficialGroupTeamHighlights() {
     best_attack: null,
     best_defense: null,
     longest_win_streak: null,
+    longest_unbeaten_streak: null,
     longest_loss_streak: null,
     highest_scoring_match: null,
     most_penalties_for: null,
@@ -3932,12 +3934,13 @@ function resultKickoffAt(r) {
   return null;
 }
 
-function longestResultStreak(results, code) {
+function longestResultStreak(results, codeOrCodes) {
+  const codes = new Set(Array.isArray(codeOrCodes) ? codeOrCodes : [codeOrCodes]);
   let best = { length: 0, started_at: null, ended_at: null };
   let cur = 0;
   let curStart = null;
   for (const r of results || []) {
-    if (r?.result === code) {
+    if (codes.has(r?.result)) {
       cur += 1;
       if (cur === 1) curStart = r;
       if (cur > best.length) {
@@ -3953,6 +3956,11 @@ function longestResultStreak(results, code) {
     }
   }
   return best;
+}
+
+/** Vittorie o pareggi consecutivi; si interrompe solo con una sconfitta. */
+function longestUnbeatenStreak(results) {
+  return longestResultStreak(results, ['W', 'D']);
 }
 
 function sortTeamHighlightResults(results) {
@@ -4015,6 +4023,8 @@ function pickOfficialGroupTeamHighlightsFromRaw(raw) {
   let bestDefenseAvg = Infinity;
   let bestWin = null;
   let bestWinStreak = { length: 0, started_at: null, ended_at: null };
+  let bestUnbeaten = null;
+  let bestUnbeatenStreak = { length: 0, started_at: null, ended_at: null };
   let bestLoss = null;
   let bestLossStreak = { length: 0, started_at: null, ended_at: null };
   let bestPenFor = null;
@@ -4028,6 +4038,7 @@ function pickOfficialGroupTeamHighlightsFromRaw(raw) {
     const ga = Number(t.ga) || 0;
     const sorted = sortTeamHighlightResults(t.results);
     const winStreak = longestResultStreak(sorted, 'W');
+    const unbeatenStreak = longestUnbeatenStreak(sorted);
     const lossStreak = longestResultStreak(sorted, 'L');
     const penFor = Number(t.penFor) || 0;
     const penAgainst = Number(t.penAgainst) || 0;
@@ -4059,6 +4070,12 @@ function pickOfficialGroupTeamHighlightsFromRaw(raw) {
       if (winStreak.length > 0) {
         bestWin = t;
         bestWinStreak = winStreak;
+      }
+    }
+    if (unbeatenStreak.length > bestUnbeatenStreak.length || (unbeatenStreak.length === bestUnbeatenStreak.length && bestUnbeaten && nameCmp(bestUnbeaten) < 0) || (unbeatenStreak.length > 0 && !bestUnbeaten)) {
+      if (unbeatenStreak.length > 0) {
+        bestUnbeaten = t;
+        bestUnbeatenStreak = unbeatenStreak;
       }
     }
     if (lossStreak.length > bestLossStreak.length || (lossStreak.length === bestLossStreak.length && bestLoss && nameCmp(bestLoss) < 0) || (lossStreak.length > 0 && !bestLoss)) {
@@ -4100,6 +4117,13 @@ function pickOfficialGroupTeamHighlightsFromRaw(raw) {
       value: bestWinStreak.length,
       started_at: bestWinStreak.started_at || null,
       ended_at: bestWinStreak.ended_at || null,
+    });
+  }
+  if (bestUnbeaten && bestUnbeatenStreak.length > 0) {
+    out.longest_unbeaten_streak = packOfficialTeamHighlight(bestUnbeaten, {
+      value: bestUnbeatenStreak.length,
+      started_at: bestUnbeatenStreak.started_at || null,
+      ended_at: bestUnbeatenStreak.ended_at || null,
     });
   }
   if (bestLoss && bestLossStreak.length > 0) {
@@ -4813,6 +4837,7 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
     const pct = (x) => (played > 0 ? Math.round((x / played) * 1000) / 10 : 0);
     const sortedStreaks = sortTeamHighlightResults(streakResults);
     const winStreak = longestResultStreak(sortedStreaks, 'W');
+    const unbeatenStreak = longestUnbeatenStreak(sortedStreaks);
     const lossStreak = longestResultStreak(sortedStreaks, 'L');
     const packStreak = (streak) => (
       streak && Number(streak.length) > 0
@@ -4892,6 +4917,7 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
           ? buildOfficialTeamMatchRecord(heaviestDefeatRecord)
           : null,
         longest_win_streak: packStreak(winStreak),
+        longest_unbeaten_streak: packStreak(unbeatenStreak),
         longest_loss_streak: packStreak(lossStreak),
         highest_scoring_match: highestScoringRecord && Number(highestScoringRecord.total) > 0
           ? buildOfficialTeamMatchRecord(highestScoringRecord)

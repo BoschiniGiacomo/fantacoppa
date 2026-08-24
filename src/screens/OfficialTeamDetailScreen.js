@@ -338,6 +338,7 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
     biggest_win: null,
     heaviest_defeat: null,
     longest_win_streak: null,
+    longest_unbeaten_streak: null,
     longest_loss_streak: null,
     highest_scoring_match: null,
   });
@@ -576,6 +577,7 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
           biggest_win: null,
           heaviest_defeat: null,
           longest_win_streak: null,
+          longest_unbeaten_streak: null,
           longest_loss_streak: null,
           highest_scoring_match: null,
         });

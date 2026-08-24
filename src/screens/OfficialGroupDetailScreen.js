@@ -46,6 +46,7 @@ const EMPTY_TEAM_HIGHLIGHTS = {
   best_attack: null,
   best_defense: null,
   longest_win_streak: null,
+  longest_unbeaten_streak: null,
   longest_loss_streak: null,
   highest_scoring_match: null,
   most_penalties_for: null,
