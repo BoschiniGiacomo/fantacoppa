@@ -1608,6 +1608,17 @@ router.post('/:id/change-role', authenticateToken, async (req, res) => {
     if (!roleRows[0] || String(roleRows[0].role) !== 'admin') {
       return res.status(403).json({ message: 'Solo gli admin possono cambiare ruoli' });
     }
+    if (newRole === 'pagellatore') {
+      const linkRows = await query(
+        `SELECT linked_to_league_id FROM leagues WHERE id = ? LIMIT 1`,
+        [leagueId]
+      );
+      if (Number(linkRows[0]?.linked_to_league_id || 0) > 0) {
+        return res.status(400).json({
+          message: 'Nelle leghe collegate i voti arrivano dalla lega primaria: non puoi assegnare il ruolo Pagellatore',
+        });
+      }
+    }
     await query(
       `UPDATE league_members SET role = ? WHERE league_id = ? AND user_id = ?`,
       [newRole, leagueId, memberId]

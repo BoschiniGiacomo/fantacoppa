@@ -45,6 +45,7 @@ export default function UserManagementScreen({ route, navigation }) {
   const isSuperuserObserver = String(league?.role || '') === 'superuser_viewer';
   const canViewAdminPanels = isAdmin || isSuperuserObserver;
   const isReadOnlyObserver = isSuperuserObserver;
+  const isLinkedLeague = Number(league?.linked_to_league_id || 0) > 0;
 
   // Filtra e ordina i membri
   const filteredMembers = useMemo(() => {
@@ -218,6 +219,10 @@ export default function UserManagementScreen({ route, navigation }) {
 
   const handleChangeRole = async (memberId, newRole) => {
     if (isReadOnlyObserver) return;
+    if (isLinkedLeague && newRole === 'pagellatore') {
+      showToast('Nelle leghe collegate i voti arrivano dalla lega primaria: non puoi assegnare il ruolo Pagellatore');
+      return;
+    }
     try {
       setChangingRole(memberId);
       await leagueService.changeRole(leagueId, memberId, newRole);
@@ -425,26 +430,41 @@ export default function UserManagementScreen({ route, navigation }) {
                   Utente
                 </Text>
               </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.roleOption,
-                  member.role === 'pagellatore' && [styles.roleOptionActive, { backgroundColor: getRoleBadge('pagellatore').color }],
-                ]}
-                onPress={() => handleChangeRole(memberUserId, 'pagellatore')}
-                disabled={changingRole === memberUserId}
-              >
-                {member.role === 'pagellatore' && (
-                  <Ionicons name={getRoleBadge('pagellatore').icon} size={12} color="#fff" style={{ marginRight: 4 }} />
-                )}
-                <Text
+              {!isLinkedLeague ? (
+                <TouchableOpacity
                   style={[
-                    styles.roleOptionText,
-                    member.role === 'pagellatore' && styles.roleOptionTextActive,
+                    styles.roleOption,
+                    member.role === 'pagellatore' && [styles.roleOptionActive, { backgroundColor: getRoleBadge('pagellatore').color }],
+                  ]}
+                  onPress={() => handleChangeRole(memberUserId, 'pagellatore')}
+                  disabled={changingRole === memberUserId}
+                >
+                  {member.role === 'pagellatore' && (
+                    <Ionicons name={getRoleBadge('pagellatore').icon} size={12} color="#fff" style={{ marginRight: 4 }} />
+                  )}
+                  <Text
+                    style={[
+                      styles.roleOptionText,
+                      member.role === 'pagellatore' && styles.roleOptionTextActive,
+                    ]}
+                  >
+                    Pagellatore
+                  </Text>
+                </TouchableOpacity>
+              ) : member.role === 'pagellatore' ? (
+                <View
+                  style={[
+                    styles.roleOption,
+                    styles.roleOptionActive,
+                    { backgroundColor: getRoleBadge('pagellatore').color },
                   ]}
                 >
-                  Pagellatore
-                </Text>
-              </TouchableOpacity>
+                  <Ionicons name={getRoleBadge('pagellatore').icon} size={12} color="#fff" style={{ marginRight: 4 }} />
+                  <Text style={[styles.roleOptionText, styles.roleOptionTextActive]}>
+                    Pagellatore
+                  </Text>
+                </View>
+              ) : null}
               <TouchableOpacity
                 style={[
                   styles.roleOption,
@@ -564,6 +584,7 @@ export default function UserManagementScreen({ route, navigation }) {
               Utente
             </Text>
           </TouchableOpacity>
+          {!isLinkedLeague && (
           <TouchableOpacity
             style={[styles.roleFilterChip, { backgroundColor: roleFilters.pagellatore ? getRoleBadge('pagellatore').color : '#f0f0f0' }]}
             onPress={() => setRoleFilters({...roleFilters, pagellatore: !roleFilters.pagellatore})}
@@ -578,6 +599,7 @@ export default function UserManagementScreen({ route, navigation }) {
               Pagellatore
             </Text>
           </TouchableOpacity>
+          )}
           <TouchableOpacity
             style={[styles.roleFilterChip, { backgroundColor: roleFilters.admin ? getRoleBadge('admin').color : '#f0f0f0' }]}
             onPress={() => setRoleFilters({...roleFilters, admin: !roleFilters.admin})}
