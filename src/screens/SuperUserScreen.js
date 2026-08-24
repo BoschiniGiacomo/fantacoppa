@@ -7018,7 +7018,6 @@ export default function SuperUserScreen() {
         <View style={styles.modalOverlay}>
           <View
             style={[
-              styles.modalContent,
               styles.clusterDetailSheet,
               { paddingBottom: Math.max(insets.bottom, 12) },
             ]}
@@ -9393,9 +9392,14 @@ const styles = StyleSheet.create({
     color: '#64748b',
   },
   clusterDetailSheet: {
-    maxHeight: '92%',
+    maxHeight: '90%',
     backgroundColor: '#f5f5f5',
-    paddingBottom: 12,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    overflow: 'hidden',
+    paddingBottom: 0,
+    flex: 0,
+    flexGrow: 0,
   },
   clusterDetailHeaderSub: {
     marginTop: 2,
@@ -9413,7 +9417,7 @@ const styles = StyleSheet.create({
     paddingBottom: 10,
   },
   clusterDetailScroll: {
-    flex: 1,
+    maxHeight: 520,
   },
   clusterDetailScrollContent: {
     paddingHorizontal: 16,
