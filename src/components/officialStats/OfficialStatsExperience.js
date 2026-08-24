@@ -55,12 +55,12 @@ function formatHighlightDate(value) {
   return `${day} ${MONTH_SHORT_IT[d.getMonth()]} ${d.getFullYear()}`;
 }
 
-function formatStreakRange(startedAt, endedAt) {
+function formatStreakRange(startedAt, endedAt, { stacked = false } = {}) {
   const start = formatHighlightDate(startedAt);
   const end = formatHighlightDate(endedAt);
   if (!start && !end) return '';
   if (start && end && start === end) return start;
-  if (start && end) return `${start} – ${end}`;
+  if (start && end) return stacked ? `${start}\n–\n${end}` : `${start} – ${end}`;
   return start || end;
 }
 
@@ -624,7 +624,7 @@ function GroupHighlights({ highlights, onPressTeam, onPressMatch }) {
             valueColor={winStreak && Number(winStreak.value || 0) > 0 ? '#16a34a' : '#94a3b8'}
             label={"Vittorie\ndi fila"}
             detail={winStreak && Number(winStreak.value || 0) > 0
-              ? formatStreakRange(winStreak.started_at, winStreak.ended_at)
+              ? formatStreakRange(winStreak.started_at, winStreak.ended_at, { stacked: true })
               : null}
             teamName={winStreak?.team_name}
             logoUrl={winStreak?.team_logo_url}
@@ -642,7 +642,7 @@ function GroupHighlights({ highlights, onPressTeam, onPressMatch }) {
             valueColor={unbeatenStreak && Number(unbeatenStreak.value || 0) > 0 ? '#0f766e' : '#94a3b8'}
             label={"Striscia di\nimbattibilità"}
             detail={unbeatenStreak && Number(unbeatenStreak.value || 0) > 0
-              ? formatStreakRange(unbeatenStreak.started_at, unbeatenStreak.ended_at)
+              ? formatStreakRange(unbeatenStreak.started_at, unbeatenStreak.ended_at, { stacked: true })
               : null}
             teamName={unbeatenStreak?.team_name}
             logoUrl={unbeatenStreak?.team_logo_url}
@@ -660,7 +660,7 @@ function GroupHighlights({ highlights, onPressTeam, onPressMatch }) {
             valueColor={lossStreak && Number(lossStreak.value || 0) > 0 ? '#b91c1c' : '#94a3b8'}
             label={"Sconfitte\ndi fila"}
             detail={lossStreak && Number(lossStreak.value || 0) > 0
-              ? formatStreakRange(lossStreak.started_at, lossStreak.ended_at)
+              ? formatStreakRange(lossStreak.started_at, lossStreak.ended_at, { stacked: true })
               : null}
             teamName={lossStreak?.team_name}
             logoUrl={lossStreak?.team_logo_url}
@@ -841,7 +841,11 @@ function StreakCell({
             <Text style={styles.streakTeamName} numberOfLines={1}>{name}</Text>
           </View>
         ) : null}
-        <Text style={[styles.streakDetail, compact && styles.streakDetailCompact]} numberOfLines={1}>
+        <Text
+          style={[styles.streakDetail, compact && styles.streakDetailCompact]}
+          numberOfLines={compact ? 3 : 1}
+          ellipsizeMode="clip"
+        >
           {detail || ' '}
         </Text>
       </View>
@@ -1034,7 +1038,7 @@ function TeamGeneral({ general, outcomes, onPressMatch }) {
           valueColor={winStreak > 0 ? '#16a34a' : '#94a3b8'}
           label={"Vittorie\ndi fila"}
           detail={winStreak > 0
-            ? formatStreakRange(general?.longest_win_streak?.started_at, general?.longest_win_streak?.ended_at)
+            ? formatStreakRange(general?.longest_win_streak?.started_at, general?.longest_win_streak?.ended_at, { stacked: true })
             : null}
           showDivider
         />
@@ -1049,6 +1053,7 @@ function TeamGeneral({ general, outcomes, onPressMatch }) {
             ? formatStreakRange(
               general?.longest_unbeaten_streak?.started_at,
               general?.longest_unbeaten_streak?.ended_at,
+              { stacked: true },
             )
             : null}
           showDivider
@@ -1061,7 +1066,7 @@ function TeamGeneral({ general, outcomes, onPressMatch }) {
           valueColor={lossStreak > 0 ? '#b91c1c' : '#94a3b8'}
           label={"Sconfitte\ndi fila"}
           detail={lossStreak > 0
-            ? formatStreakRange(general?.longest_loss_streak?.started_at, general?.longest_loss_streak?.ended_at)
+            ? formatStreakRange(general?.longest_loss_streak?.started_at, general?.longest_loss_streak?.ended_at, { stacked: true })
             : null}
         />
       </Animated.View>
@@ -1634,7 +1639,8 @@ const styles = StyleSheet.create({
   },
   streakDetailCompact: {
     fontSize: 9,
-    minHeight: 12,
+    lineHeight: 11,
+    minHeight: 33,
   },
   goalsKpiHead: {
     flexDirection: 'row',
