@@ -5699,74 +5699,111 @@ export default function SuperUserScreen() {
         }}
       >
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { maxHeight: '90%' }]}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Gestisci Cluster</Text>
-              <TouchableOpacity
-                onPress={() => {
-                  setShowClusterModal(false);
-                  setClusterFilterStatus(null);
-                  setClusterModalSearchText('');
-                  setSuggestionEditModal(null);
-                }}
-              >
-                <Ionicons name="close" size={24} color="#666" />
-              </TouchableOpacity>
+          <View
+            style={[
+              styles.clusterDetailSheet,
+              { paddingBottom: Math.max(insets.bottom, 12) },
+            ]}
+          >
+            <View style={styles.userDetailSheetHeader}>
+              <View style={styles.userDetailSheetHandle} />
+              <View style={styles.userDetailSheetHeaderRow}>
+                <View style={{ flex: 1, paddingRight: 8 }}>
+                  <Text style={styles.userDetailSheetTitle}>Cluster</Text>
+                  <Text style={styles.clusterDetailHeaderSub} numberOfLines={1}>
+                    {selectedGroupForEdit?.name || 'Gruppo ufficiale'}
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.userDetailCloseBtn}
+                  onPress={() => {
+                    setShowClusterModal(false);
+                    setClusterFilterStatus(null);
+                    setClusterModalSearchText('');
+                    setSuggestionEditModal(null);
+                  }}
+                  hitSlop={8}
+                >
+                  <Ionicons name="close" size={20} color="#64748b" />
+                </TouchableOpacity>
+              </View>
             </View>
-            
-            {selectedGroupForEdit && (
-              <View style={{ flex: 1 }}>
-                {/* Filtri status */}
-                <View style={styles.clusterFilters}>
+
+            {selectedGroupForEdit ? (
+              <>
+                <View style={styles.clusterModalTabs}>
                   <TouchableOpacity
-                    style={[styles.clusterFilterButton, clusterFilterStatus === null && styles.clusterFilterButtonActive]}
+                    style={[
+                      styles.usersSortChip,
+                      clusterFilterStatus === null && styles.usersSortChipActive,
+                    ]}
                     onPress={() => {
                       setClusterFilterStatus(null);
                       loadClusterSuggestions(Number(selectedGroupForEdit.id));
                     }}
                   >
-                    <Text style={[styles.clusterFilterText, clusterFilterStatus === null && styles.clusterFilterTextActive]}>Suggeriti</Text>
+                    <Text
+                      style={[
+                        styles.usersSortChipText,
+                        clusterFilterStatus === null && styles.usersSortChipTextActive,
+                      ]}
+                    >
+                      Suggeriti
+                    </Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    style={[styles.clusterFilterButton, clusterFilterStatus === 'approved' && styles.clusterFilterButtonActive]}
+                    style={[
+                      styles.usersSortChip,
+                      clusterFilterStatus === 'approved' && styles.usersSortChipActive,
+                    ]}
                     onPress={() => {
                       setClusterFilterStatus('approved');
                       loadClusters(Number(selectedGroupForEdit.id), 'approved');
                     }}
                   >
-                    <Text style={[styles.clusterFilterText, clusterFilterStatus === 'approved' && styles.clusterFilterTextActive]}>Approvati</Text>
+                    <Text
+                      style={[
+                        styles.usersSortChipText,
+                        clusterFilterStatus === 'approved' && styles.usersSortChipTextActive,
+                      ]}
+                    >
+                      Approvati
+                    </Text>
                   </TouchableOpacity>
                 </View>
 
-                <View style={styles.clusterModalSearchContainer}>
-                  <Ionicons name="search" size={18} color="#999" style={styles.searchIcon} />
+                <View style={styles.usersSearchContainer}>
+                  <Ionicons name="search" size={18} color="#94a3b8" style={styles.searchIcon} />
                   <TextInput
-                    style={styles.searchInput}
-                    placeholder="Cerca per nome o cognome..."
-                    placeholderTextColor="#999"
+                    style={styles.usersSearchInput}
+                    placeholder="Cerca nome o cognome…"
+                    placeholderTextColor="#94a3b8"
                     value={clusterModalSearchText}
                     onChangeText={setClusterModalSearchText}
                     autoCapitalize="none"
                     autoCorrect={false}
                   />
-                  {clusterModalSearchText.length > 0 && (
+                  {clusterModalSearchText.length > 0 ? (
                     <TouchableOpacity onPress={() => setClusterModalSearchText('')} style={styles.clearButton}>
-                      <Ionicons name="close-circle" size={18} color="#999" />
+                      <Ionicons name="close-circle" size={18} color="#94a3b8" />
                     </TouchableOpacity>
-                  )}
+                  ) : null}
                 </View>
-                
-                <ScrollView 
-                  style={styles.modalScrollView}
+
+                <ScrollView
+                  style={styles.clusterDetailScroll}
+                  contentContainerStyle={styles.clusterDetailScrollContent}
+                  showsVerticalScrollIndicator={false}
+                  keyboardShouldPersistTaps="handled"
                 >
-                  {/* Suggerimenti automatici */}
-                  {clusterFilterStatus === null && (
+                  {clusterFilterStatus === null ? (
                     <>
-                      <Text style={styles.clusterSectionTitle}>
-                        Suggerimenti{clusterModalSearchText.trim() ? ` (${filteredSuggestions.length})` : ''}
+                      <Text style={styles.clusterDetailSectionTitle}>
+                        Suggerimenti
+                        {clusterModalSearchText.trim() ? ` · ${filteredSuggestions.length}` : ''}
                       </Text>
                       {loadingSuggestions ? (
-                        <ActivityIndicator size="small" color="#667eea" style={{ padding: 20 }} />
+                        <ActivityIndicator size="small" color="#667eea" style={{ paddingVertical: 28 }} />
                       ) : filteredSuggestions.length > 0 ? (
                         filteredSuggestions.map((suggestion, index) => (
                           <View
@@ -5774,30 +5811,52 @@ export default function SuperUserScreen() {
                             style={styles.suggestionRow}
                           >
                             <View style={styles.suggestionInfo}>
-                              <Text style={styles.suggestionPlayerName}>{suggestion.name}</Text>
-                              <Text style={styles.suggestionLeagueLabel}>
-                                {(suggestion.existing_leagues || []).length > 0
-                                  ? (suggestion.existing_leagues || []).map((l) => suggestion.role_changed ? `${l.league_name} (${l.role})` : l.league_name).join(', ')
-                                  : 'new'}
-                                {'  →  '}
-                                {(suggestion.new_leagues || []).map((l) => suggestion.role_changed ? `${l.league_name} (${l.role})` : l.league_name).join(', ')}
+                              <Text style={styles.suggestionPlayerName} numberOfLines={1}>
+                                {suggestion.name}
                               </Text>
-                              {suggestion.role_changed && (
-                                <Text style={styles.suggestionRoleWarning}>⚠ Ruolo diverso tra le leghe</Text>
-                              )}
+                              <Text style={styles.suggestionLeagueLabel} numberOfLines={3}>
+                                {(suggestion.existing_leagues || []).length > 0
+                                  ? (suggestion.existing_leagues || [])
+                                      .map((l) =>
+                                        suggestion.role_changed
+                                          ? `${l.league_name} (${l.role})`
+                                          : l.league_name
+                                      )
+                                      .join(', ')
+                                  : 'new'}
+                                {' → '}
+                                {(suggestion.new_leagues || [])
+                                  .map((l) =>
+                                    suggestion.role_changed
+                                      ? `${l.league_name} (${l.role})`
+                                      : l.league_name
+                                  )
+                                  .join(', ')}
+                              </Text>
+                              {suggestion.role_changed ? (
+                                <Text style={styles.suggestionRoleWarning}>
+                                  Ruolo diverso tra le leghe
+                                </Text>
+                              ) : null}
                               {suggestion.birth_year ? (
                                 <Text style={styles.suggestionBirthYearRef}>
-                                  Anno di nascita: {suggestion.birth_year}
+                                  Nascita {suggestion.birth_year}
                                 </Text>
                               ) : null}
                               {(suggestion.missing_birth_year_in_cluster || []).length > 0 ? (
                                 <Text style={styles.suggestionBirthYearWarning}>
-                                  ⚠ In cluster senza anno: {(suggestion.missing_birth_year_in_cluster || []).map((l) => l.league_name).join(', ')}
+                                  In cluster senza anno:{' '}
+                                  {(suggestion.missing_birth_year_in_cluster || [])
+                                    .map((l) => l.league_name)
+                                    .join(', ')}
                                 </Text>
                               ) : null}
                               {(suggestion.missing_birth_year_new || []).length > 0 ? (
                                 <Text style={styles.suggestionBirthYearWarning}>
-                                  ⚠ Da associare senza anno: {(suggestion.missing_birth_year_new || []).map((l) => l.league_name).join(', ')}
+                                  Da associare senza anno:{' '}
+                                  {(suggestion.missing_birth_year_new || [])
+                                    .map((l) => l.league_name)
+                                    .join(', ')}
                                 </Text>
                               ) : null}
                             </View>
@@ -5805,15 +5864,19 @@ export default function SuperUserScreen() {
                               <View style={styles.suggestionActionsRow}>
                                 <TouchableOpacity
                                   style={styles.suggestionApprove}
-                                  onPress={() => handleApproveSuggestion(suggestion, selectedGroupForEdit.id)}
+                                  onPress={() =>
+                                    handleApproveSuggestion(suggestion, selectedGroupForEdit.id)
+                                  }
                                 >
-                                  <Ionicons name="checkmark" size={20} color="#4CAF50" />
+                                  <Ionicons name="checkmark" size={18} color="#16a34a" />
                                 </TouchableOpacity>
                                 <TouchableOpacity
                                   style={styles.suggestionDismiss}
-                                  onPress={() => handleDismissSuggestion(suggestion, selectedGroupForEdit.id)}
+                                  onPress={() =>
+                                    handleDismissSuggestion(suggestion, selectedGroupForEdit.id)
+                                  }
                                 >
-                                  <Ionicons name="close" size={20} color="#F44336" />
+                                  <Ionicons name="close" size={18} color="#dc2626" />
                                 </TouchableOpacity>
                               </View>
                               <View style={styles.suggestionActionsRow}>
@@ -5830,7 +5893,7 @@ export default function SuperUserScreen() {
                                   style={styles.suggestionEdit}
                                   onPress={() => openSuggestionEditModal(suggestion, 'extend')}
                                 >
-                                  <Ionicons name="create-outline" size={18} color="#667eea" />
+                                  <Ionicons name="create-outline" size={16} color="#667eea" />
                                 </TouchableOpacity>
                               </View>
                             </View>
@@ -5843,45 +5906,58 @@ export default function SuperUserScreen() {
                             : 'Nessun suggerimento disponibile'}
                         </Text>
                       )}
-                      
+
                       <TouchableOpacity
-                        style={[styles.modalButton, styles.modalButtonPrimary, { marginTop: 16 }]}
+                        style={styles.clusterCreateRow}
                         onPress={() => {
                           setShowCreateClusterModal(true);
                           searchPlayers(selectedGroupForEdit.id, '');
                         }}
+                        activeOpacity={0.75}
                       >
-                        <Ionicons name="add" size={18} color="#fff" />
-                        <Text style={styles.modalButtonText}>Crea Cluster Manuale</Text>
+                        <View style={styles.officialsToolIcon}>
+                          <Ionicons name="add" size={18} color="#667eea" />
+                        </View>
+                        <Text style={styles.officialsToolTitle}>Crea cluster manuale</Text>
+                        <Ionicons name="chevron-forward" size={18} color="#cbd5e1" />
                       </TouchableOpacity>
                     </>
-                  )}
-                  
-                  {/* Cluster esistenti — solo nel tab Approvati */}
-                  {clusterFilterStatus === 'approved' && (
+                  ) : null}
+
+                  {clusterFilterStatus === 'approved' ? (
                     <>
-                      <Text style={styles.clusterSectionTitle}>
-                        Cluster ({filteredClusters.length}
-                        {clusterModalSearchText.trim() && clusters.length !== filteredClusters.length
+                      <Text style={styles.clusterDetailSectionTitle}>
+                        Approvati · {filteredClusters.length}
+                        {clusterModalSearchText.trim() &&
+                        clusters.length !== filteredClusters.length
                           ? ` / ${clusters.length}`
                           : ''}
-                        )
                       </Text>
                       {loadingClusters ? (
-                        <ActivityIndicator size="small" color="#667eea" />
+                        <ActivityIndicator size="small" color="#667eea" style={{ paddingVertical: 28 }} />
                       ) : filteredClusters.length > 0 ? (
                         filteredClusters.map((cluster) => {
                           const players = Array.isArray(cluster.players) ? cluster.players : [];
                           const playerName = players.length
-                            ? `${players[0].first_name || ''} ${players[0].last_name || ''}`.trim() || '—'
+                            ? `${players[0].first_name || ''} ${players[0].last_name || ''}`.trim() ||
+                              '—'
                             : '—';
-                          const leagues = players.map((p) => p.league_name).filter(Boolean).join(', ') || '—';
+                          const leagues =
+                            players.map((p) => p.league_name).filter(Boolean).join(', ') || '—';
+                          const initial =
+                            String(playerName || '?').trim().charAt(0).toUpperCase() || '?';
                           return (
                             <View key={cluster.id} style={styles.clusterItem}>
+                              <View style={styles.clusterAvatar}>
+                                <Text style={styles.clusterAvatarText}>{initial}</Text>
+                              </View>
                               <View style={styles.clusterInfo}>
-                                <Text style={styles.clusterPlayerName}>{playerName}</Text>
-                                <Text style={styles.clusterPlayerLeague}>
-                                  {players.length} {players.length === 1 ? 'giocatore' : 'giocatori'}
+                                <Text style={styles.clusterPlayerName} numberOfLines={1}>
+                                  {playerName}
+                                </Text>
+                                <Text style={styles.clusterPlayerLeague} numberOfLines={2}>
+                                  {players.length}{' '}
+                                  {players.length === 1 ? 'edizione' : 'edizioni'}
                                   {' · '}
                                   {leagues}
                                 </Text>
@@ -5897,10 +5973,10 @@ export default function SuperUserScreen() {
                         </Text>
                       )}
                     </>
-                  )}
+                  ) : null}
                 </ScrollView>
-              </View>
-            )}
+              </>
+            ) : null}
           </View>
         </View>
       </Modal>
@@ -5913,26 +5989,37 @@ export default function SuperUserScreen() {
         onRequestClose={closeNeverPlayedModal}
       >
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { maxHeight: '90%' }]}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Mai giocato</Text>
-              <TouchableOpacity onPress={closeNeverPlayedModal}>
-                <Ionicons name="close" size={24} color="#666" />
-              </TouchableOpacity>
+          <View
+            style={[
+              styles.clusterDetailSheet,
+              { paddingBottom: Math.max(insets.bottom, 12) },
+            ]}
+          >
+            <View style={styles.userDetailSheetHeader}>
+              <View style={styles.userDetailSheetHandle} />
+              <View style={styles.userDetailSheetHeaderRow}>
+                <View style={{ flex: 1, paddingRight: 8 }}>
+                  <Text style={styles.userDetailSheetTitle}>Mai giocato</Text>
+                  <Text style={styles.clusterDetailHeaderSub} numberOfLines={1}>
+                    {selectedGroupForEdit?.name || 'Gruppo ufficiale'}
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.userDetailCloseBtn}
+                  onPress={closeNeverPlayedModal}
+                  hitSlop={8}
+                >
+                  <Ionicons name="close" size={20} color="#64748b" />
+                </TouchableOpacity>
+              </View>
             </View>
 
             {selectedGroupForEdit ? (
-              <View style={{ flex: 1 }}>
-                <View style={styles.neverPlayedIntro}>
-                  <View style={styles.neverPlayedIntroIcon}>
-                    <Ionicons name="person-remove-outline" size={20} color="#667eea" />
-                  </View>
-                  <Text style={styles.neverPlayedIntroText}>
-                    Giocatori in rosa ufficiale senza alcun voto di presenza in quella lega.
-                    {'\n'}
-                    Contano come “mai giocato”: nessun voto oppure solo N.D. — esclusi chi ha almeno 1 S.V. o 1 voto reale.
-                  </Text>
-                </View>
+              <>
+                <Text style={styles.neverPlayedIntroTextCompact}>
+                  Rosa ufficiale senza presenza (nessun voto o solo N.D.). Esclusi chi ha almeno un
+                  S.V. o un voto reale.
+                </Text>
 
                 {(neverPlayedYearOptions.years.length > 0 || neverPlayedYearOptions.hasNone) ? (
                   <ScrollView
@@ -5943,15 +6030,15 @@ export default function SuperUserScreen() {
                   >
                     <TouchableOpacity
                       style={[
-                        styles.neverPlayedYearChipBtn,
-                        neverPlayedYearFilter == null && styles.neverPlayedYearChipBtnActive,
+                        styles.usersSortChip,
+                        neverPlayedYearFilter == null && styles.usersSortChipActive,
                       ]}
                       onPress={() => setNeverPlayedYearFilter(null)}
                     >
                       <Text
                         style={[
-                          styles.neverPlayedYearChipBtnText,
-                          neverPlayedYearFilter == null && styles.neverPlayedYearChipBtnTextActive,
+                          styles.usersSortChipText,
+                          neverPlayedYearFilter == null && styles.usersSortChipTextActive,
                         ]}
                       >
                         Tutti
@@ -5962,16 +6049,13 @@ export default function SuperUserScreen() {
                       return (
                         <TouchableOpacity
                           key={`np-year-${year}`}
-                          style={[
-                            styles.neverPlayedYearChipBtn,
-                            active && styles.neverPlayedYearChipBtnActive,
-                          ]}
+                          style={[styles.usersSortChip, active && styles.usersSortChipActive]}
                           onPress={() => setNeverPlayedYearFilter(year)}
                         >
                           <Text
                             style={[
-                              styles.neverPlayedYearChipBtnText,
-                              active && styles.neverPlayedYearChipBtnTextActive,
+                              styles.usersSortChipText,
+                              active && styles.usersSortChipTextActive,
                             ]}
                           >
                             {year}
@@ -5982,15 +6066,15 @@ export default function SuperUserScreen() {
                     {neverPlayedYearOptions.hasNone ? (
                       <TouchableOpacity
                         style={[
-                          styles.neverPlayedYearChipBtn,
-                          neverPlayedYearFilter === 'none' && styles.neverPlayedYearChipBtnActive,
+                          styles.usersSortChip,
+                          neverPlayedYearFilter === 'none' && styles.usersSortChipActive,
                         ]}
                         onPress={() => setNeverPlayedYearFilter('none')}
                       >
                         <Text
                           style={[
-                            styles.neverPlayedYearChipBtnText,
-                            neverPlayedYearFilter === 'none' && styles.neverPlayedYearChipBtnTextActive,
+                            styles.usersSortChipText,
+                            neverPlayedYearFilter === 'none' && styles.usersSortChipTextActive,
                           ]}
                         >
                           Senza anno
@@ -6000,33 +6084,38 @@ export default function SuperUserScreen() {
                   </ScrollView>
                 ) : null}
 
-                <View style={styles.clusterModalSearchContainer}>
-                  <Ionicons name="search" size={18} color="#999" style={styles.searchIcon} />
+                <View style={styles.usersSearchContainer}>
+                  <Ionicons name="search" size={18} color="#94a3b8" style={styles.searchIcon} />
                   <TextInput
-                    style={styles.searchInput}
-                    placeholder="Cerca nome, squadra o lega..."
-                    placeholderTextColor="#999"
+                    style={styles.usersSearchInput}
+                    placeholder="Cerca nome, squadra o lega…"
+                    placeholderTextColor="#94a3b8"
                     value={neverPlayedSearchText}
                     onChangeText={setNeverPlayedSearchText}
                     autoCapitalize="none"
                     autoCorrect={false}
                   />
                   {neverPlayedSearchText.length > 0 ? (
-                    <TouchableOpacity onPress={() => setNeverPlayedSearchText('')} style={styles.clearButton}>
-                      <Ionicons name="close-circle" size={18} color="#999" />
+                    <TouchableOpacity
+                      onPress={() => setNeverPlayedSearchText('')}
+                      style={styles.clearButton}
+                    >
+                      <Ionicons name="close-circle" size={18} color="#94a3b8" />
                     </TouchableOpacity>
                   ) : null}
                 </View>
 
                 <View style={styles.neverPlayedCountBar}>
-                  <Text style={styles.neverPlayedCountText}>
+                  <Text style={[styles.clusterDetailSectionTitle, styles.neverPlayedCountTitle]}>
                     {loadingNeverPlayed
                       ? 'Caricamento…'
-                      : `${filteredNeverPlayedPlayers.length} giocator${filteredNeverPlayedPlayers.length === 1 ? 'e' : 'i'}`}
-                    {!loadingNeverPlayed
-                      && (neverPlayedSearchText.trim() || neverPlayedYearFilter != null)
-                      && neverPlayedPlayers.length !== filteredNeverPlayedPlayers.length
-                      ? ` su ${neverPlayedPlayers.length}`
+                      : `${filteredNeverPlayedPlayers.length} giocator${
+                          filteredNeverPlayedPlayers.length === 1 ? 'e' : 'i'
+                        }`}
+                    {!loadingNeverPlayed &&
+                    (neverPlayedSearchText.trim() || neverPlayedYearFilter != null) &&
+                    neverPlayedPlayers.length !== filteredNeverPlayedPlayers.length
+                      ? ` · ${neverPlayedPlayers.length} tot.`
                       : ''}
                   </Text>
                   <TouchableOpacity
@@ -6038,12 +6127,17 @@ export default function SuperUserScreen() {
                   </TouchableOpacity>
                 </View>
 
-                <ScrollView style={styles.modalScrollView} contentContainerStyle={{ paddingBottom: 24 }}>
+                <ScrollView
+                  style={styles.clusterDetailScroll}
+                  contentContainerStyle={styles.clusterDetailScrollContent}
+                  showsVerticalScrollIndicator={false}
+                  keyboardShouldPersistTaps="handled"
+                >
                   {loadingNeverPlayed ? (
-                    <ActivityIndicator size="small" color="#667eea" style={{ padding: 28 }} />
+                    <ActivityIndicator size="small" color="#667eea" style={{ paddingVertical: 28 }} />
                   ) : neverPlayedGrouped.length === 0 ? (
                     <View style={styles.neverPlayedEmpty}>
-                      <Ionicons name="checkmark-circle-outline" size={36} color="#94a3b8" />
+                      <Ionicons name="checkmark-circle-outline" size={40} color="#cbd5e1" />
                       <Text style={styles.neverPlayedEmptyTitle}>
                         {neverPlayedSearchText.trim() || neverPlayedYearFilter != null
                           ? 'Nessun risultato'
@@ -6051,8 +6145,8 @@ export default function SuperUserScreen() {
                       </Text>
                       <Text style={styles.neverPlayedEmptySub}>
                         {neverPlayedSearchText.trim() || neverPlayedYearFilter != null
-                          ? 'Prova un altro filtro di ricerca o anno.'
-                          : 'Tutti i giocatori del gruppo hanno almeno un S.V. o un voto reale.'}
+                          ? 'Prova un altro filtro o anno.'
+                          : 'Tutti hanno almeno un S.V. o un voto reale.'}
                       </Text>
                     </View>
                   ) : (
@@ -6064,7 +6158,9 @@ export default function SuperUserScreen() {
                           </Text>
                           {group.reference_year != null ? (
                             <View style={styles.neverPlayedYearChip}>
-                              <Text style={styles.neverPlayedYearChipText}>{group.reference_year}</Text>
+                              <Text style={styles.neverPlayedYearChipText}>
+                                {group.reference_year}
+                              </Text>
                             </View>
                           ) : null}
                           <Text style={styles.neverPlayedLeagueCount}>{group.players.length}</Text>
@@ -6074,40 +6170,58 @@ export default function SuperUserScreen() {
                           const pid = Number(player.player_id);
                           const locked = !!player.in_user_squad || player.can_delete === false;
                           const deleting = deletingNeverPlayedId === pid;
-                          const name = `${player.first_name || ''} ${player.last_name || ''}`.trim() || '—';
+                          const name =
+                            `${player.first_name || ''} ${player.last_name || ''}`.trim() || '—';
                           return (
                             <View
                               key={`np-${pid}`}
-                              style={[styles.neverPlayedRow, locked && styles.neverPlayedRowLocked]}
+                              style={[
+                                styles.neverPlayedRow,
+                                locked && styles.neverPlayedRowLocked,
+                              ]}
                             >
-                              <View style={[
-                                styles.neverPlayedRoleBadge,
-                                player.role === 'P' && { backgroundColor: '#dbeafe' },
-                                player.role === 'D' && { backgroundColor: '#dcfce7' },
-                                player.role === 'C' && { backgroundColor: '#fef3c7' },
-                                player.role === 'A' && { backgroundColor: '#fee2e2' },
-                              ]}>
-                                <Text style={[
-                                  styles.neverPlayedRoleBadgeText,
-                                  player.role === 'P' && { color: '#1d4ed8' },
-                                  player.role === 'D' && { color: '#15803d' },
-                                  player.role === 'C' && { color: '#a16207' },
-                                  player.role === 'A' && { color: '#b91c1c' },
-                                ]}>{player.role || '?'}</Text>
+                              <View
+                                style={[
+                                  styles.neverPlayedRoleBadge,
+                                  player.role === 'P' && { backgroundColor: '#dbeafe' },
+                                  player.role === 'D' && { backgroundColor: '#dcfce7' },
+                                  player.role === 'C' && { backgroundColor: '#fef3c7' },
+                                  player.role === 'A' && { backgroundColor: '#fee2e2' },
+                                ]}
+                              >
+                                <Text
+                                  style={[
+                                    styles.neverPlayedRoleBadgeText,
+                                    player.role === 'P' && { color: '#1d4ed8' },
+                                    player.role === 'D' && { color: '#15803d' },
+                                    player.role === 'C' && { color: '#a16207' },
+                                    player.role === 'A' && { color: '#b91c1c' },
+                                  ]}
+                                >
+                                  {player.role || '?'}
+                                </Text>
                               </View>
                               <View style={styles.neverPlayedInfo}>
-                                <Text style={styles.neverPlayedName} numberOfLines={1}>{name}</Text>
+                                <Text style={styles.neverPlayedName} numberOfLines={1}>
+                                  {name}
+                                </Text>
                                 <Text style={styles.neverPlayedMeta} numberOfLines={1}>
                                   {player.team_name || 'Squadra'}
-                                  {player.birth_year ? ` · '${String(player.birth_year).slice(-2)}` : ''}
-                                  {player.nd_vote_count > 0 ? ` · ${player.nd_vote_count} N.D.` : ' · nessun voto'}
+                                  {player.birth_year
+                                    ? ` · '${String(player.birth_year).slice(-2)}`
+                                    : ''}
+                                  {player.nd_vote_count > 0
+                                    ? ` · ${player.nd_vote_count} N.D.`
+                                    : ' · nessun voto'}
                                 </Text>
                                 {locked ? (
-                                  <Text style={styles.neverPlayedLockHint}>In rosa utente — non eliminabile</Text>
+                                  <Text style={styles.neverPlayedLockHint}>
+                                    In rosa utente — non eliminabile
+                                  </Text>
                                 ) : null}
                               </View>
                               {deleting ? (
-                                <ActivityIndicator size="small" color="#e53935" />
+                                <ActivityIndicator size="small" color="#dc2626" />
                               ) : (
                                 <TouchableOpacity
                                   style={[
@@ -6116,12 +6230,14 @@ export default function SuperUserScreen() {
                                   ]}
                                   onPress={() => requestDeleteNeverPlayedPlayer(player)}
                                   hitSlop={8}
-                                  accessibilityLabel={locked ? 'Non eliminabile' : 'Elimina giocatore'}
+                                  accessibilityLabel={
+                                    locked ? 'Non eliminabile' : 'Elimina giocatore'
+                                  }
                                 >
                                   <Ionicons
-                                    name={locked ? 'lock-closed' : 'close'}
-                                    size={18}
-                                    color={locked ? '#94a3b8' : '#e53935'}
+                                    name={locked ? 'lock-closed' : 'trash-outline'}
+                                    size={16}
+                                    color={locked ? '#94a3b8' : '#dc2626'}
                                   />
                                 </TouchableOpacity>
                               )}
@@ -6132,7 +6248,7 @@ export default function SuperUserScreen() {
                     ))
                   )}
                 </ScrollView>
-              </View>
+              </>
             ) : null}
           </View>
         </View>
@@ -10266,9 +10382,18 @@ const styles = StyleSheet.create({
     color: '#475569',
     fontWeight: '500',
   },
+  neverPlayedIntroTextCompact: {
+    marginHorizontal: 16,
+    marginTop: 10,
+    marginBottom: 4,
+    fontSize: 12,
+    lineHeight: 17,
+    color: '#64748b',
+  },
   neverPlayedYearFilters: {
     flexGrow: 0,
-    marginBottom: 8,
+    marginTop: 8,
+    marginBottom: 4,
   },
   neverPlayedYearFiltersContent: {
     paddingHorizontal: 16,
@@ -10279,13 +10404,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 7,
     borderRadius: 999,
-    backgroundColor: '#f8fafc',
+    backgroundColor: '#fff',
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: '#ececec',
   },
   neverPlayedYearChipBtnActive: {
     backgroundColor: '#eef2ff',
-    borderColor: '#a5b4fc',
+    borderColor: '#c7d2fe',
   },
   neverPlayedYearChipBtnText: {
     fontSize: 13,
@@ -10293,14 +10418,23 @@ const styles = StyleSheet.create({
     color: '#64748b',
   },
   neverPlayedYearChipBtnTextActive: {
-    color: '#4338ca',
+    color: '#667eea',
   },
   neverPlayedCountBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    marginBottom: 6,
+    marginTop: 4,
+    marginBottom: 0,
+  },
+  neverPlayedCountTitle: {
+    flex: 1,
+    marginBottom: 0,
+    marginRight: 8,
+    textTransform: 'none',
+    letterSpacing: 0,
+    fontSize: 13,
   },
   neverPlayedCountText: {
     fontSize: 13,
@@ -10313,9 +10447,9 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#f8fafc',
+    backgroundColor: '#fff',
     borderWidth: 1,
-    borderColor: '#e8ecf1',
+    borderColor: '#ececec',
   },
   neverPlayedEmpty: {
     alignItems: 'center',
@@ -10326,7 +10460,7 @@ const styles = StyleSheet.create({
   neverPlayedEmptyTitle: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#334155',
+    color: '#0f172a',
     marginTop: 4,
   },
   neverPlayedEmptySub: {
@@ -10342,29 +10476,27 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    paddingHorizontal: 16,
     marginBottom: 8,
     marginTop: 4,
   },
   neverPlayedLeagueTitle: {
     flex: 1,
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '800',
-    color: '#1e293b',
-    letterSpacing: 0.2,
+    color: '#94a3b8',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
   },
   neverPlayedYearChip: {
     paddingHorizontal: 8,
     paddingVertical: 2,
-    borderRadius: 999,
+    borderRadius: 8,
     backgroundColor: '#eef2ff',
-    borderWidth: 1,
-    borderColor: '#c7d2fe',
   },
   neverPlayedYearChipText: {
     fontSize: 11,
     fontWeight: '700',
-    color: '#4f46e5',
+    color: '#667eea',
   },
   neverPlayedLeagueCount: {
     fontSize: 12,
@@ -10377,14 +10509,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    marginHorizontal: 16,
     marginBottom: 8,
-    paddingVertical: 11,
+    paddingVertical: 12,
     paddingHorizontal: 12,
     backgroundColor: '#fff',
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#e8ecf1',
+    borderColor: '#ececec',
   },
   neverPlayedRowLocked: {
     backgroundColor: '#f8fafc',
@@ -10972,12 +11103,32 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   // Cluster styles
+  clusterModalTabs: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 4,
+  },
+  clusterCreateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#ececec',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    marginTop: 8,
+    gap: 10,
+  },
   clusterFilters: {
     flexDirection: 'row',
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
+    borderBottomColor: '#ececec',
     gap: 8,
   },
   clusterModalSearchContainer: {
@@ -10987,49 +11138,50 @@ const styles = StyleSheet.create({
     marginTop: 10,
     marginBottom: 4,
     paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
+    paddingVertical: 10,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#e0e0e0',
-    backgroundColor: '#fff',
+    borderColor: '#dbe3ef',
+    backgroundColor: '#f8fafc',
   },
   clusterFilterButton: {
     paddingHorizontal: 16,
     paddingVertical: 8,
-    borderRadius: 6,
-    backgroundColor: '#f5f5f5',
+    borderRadius: 999,
+    backgroundColor: '#fff',
     borderWidth: 1,
-    borderColor: '#e0e0e0',
+    borderColor: '#ececec',
   },
   clusterFilterButtonActive: {
-    backgroundColor: '#667eea',
-    borderColor: '#667eea',
+    backgroundColor: '#eef2ff',
+    borderColor: '#c7d2fe',
   },
   clusterFilterText: {
     fontSize: 14,
-    color: '#666',
-    fontWeight: '500',
+    color: '#64748b',
+    fontWeight: '600',
   },
   clusterFilterTextActive: {
-    color: '#fff',
+    color: '#667eea',
   },
   clusterSectionTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#94a3b8',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
     paddingHorizontal: 16,
     marginTop: 16,
     marginBottom: 12,
   },
   suggestionRow: {
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
     paddingVertical: 12,
     backgroundColor: '#fff',
-    marginHorizontal: 16,
     marginBottom: 8,
-    borderRadius: 10,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#e8ecf1',
+    borderColor: '#ececec',
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 10,
@@ -11039,32 +11191,33 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   suggestionPlayerName: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '700',
-    color: '#222',
+    color: '#0f172a',
   },
   suggestionLeagueLabel: {
     fontSize: 12,
-    color: '#666',
-    marginTop: 2,
+    color: '#64748b',
+    marginTop: 3,
+    lineHeight: 16,
   },
   suggestionRoleWarning: {
     fontSize: 11,
-    color: '#e6a800',
+    color: '#b45309',
     fontWeight: '600',
-    marginTop: 2,
+    marginTop: 4,
   },
   suggestionBirthYearRef: {
     fontSize: 11,
     color: '#667eea',
     fontWeight: '600',
-    marginTop: 2,
+    marginTop: 3,
   },
   suggestionBirthYearWarning: {
     fontSize: 11,
     color: '#b45309',
     fontWeight: '600',
-    marginTop: 2,
+    marginTop: 3,
   },
   suggestionActionsCol: {
     flexShrink: 0,
@@ -11081,7 +11234,7 @@ const styles = StyleSheet.create({
   suggestionNew: {
     width: 36,
     height: 32,
-    borderRadius: 16,
+    borderRadius: 10,
     backgroundColor: '#ecfdf5',
     justifyContent: 'center',
     alignItems: 'center',
@@ -11097,7 +11250,7 @@ const styles = StyleSheet.create({
   suggestionEdit: {
     width: 36,
     height: 32,
-    borderRadius: 16,
+    borderRadius: 10,
     backgroundColor: '#eef2ff',
     justifyContent: 'center',
     alignItems: 'center',
@@ -11107,18 +11260,22 @@ const styles = StyleSheet.create({
   suggestionApprove: {
     width: 36,
     height: 32,
-    borderRadius: 16,
-    backgroundColor: '#e8f5e9',
+    borderRadius: 10,
+    backgroundColor: '#f0fdf4',
     justifyContent: 'center',
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#bbf7d0',
   },
   suggestionDismiss: {
     width: 36,
     height: 32,
-    borderRadius: 16,
-    backgroundColor: '#fce4ec',
+    borderRadius: 10,
+    backgroundColor: '#fef2f2',
     justifyContent: 'center',
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#fecaca',
   },
   suggestionEditModalContent: {
     backgroundColor: '#fff',
@@ -11241,17 +11398,20 @@ const styles = StyleSheet.create({
     color: '#fff',
   },
   clusterItem: {
-    padding: 16,
-    backgroundColor: '#f9f9f9',
-    marginHorizontal: 16,
-    marginBottom: 8,
-    borderRadius: 8,
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#ececec',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    marginBottom: 8,
+    gap: 10,
   },
   clusterInfo: {
     flex: 1,
+    minWidth: 0,
   },
   clusterHeader: {
     flexDirection: 'row',
@@ -11272,13 +11432,14 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   clusterPlayerName: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#333',
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#0f172a',
   },
   clusterPlayerLeague: {
+    marginTop: 2,
     fontSize: 12,
-    color: '#666',
+    color: '#64748b',
   },
   clusterActions: {
     flexDirection: 'row',
@@ -11290,9 +11451,8 @@ const styles = StyleSheet.create({
   },
   clusterEmptyText: {
     fontSize: 14,
-    color: '#999',
-    paddingHorizontal: 16,
-    paddingVertical: 20,
+    color: '#94a3b8',
+    paddingVertical: 24,
     textAlign: 'center',
   },
   searchPlayerItem: {
