@@ -37,10 +37,22 @@ function formatStatAvg(n) {
   return v.toFixed(2).replace('.', ',');
 }
 
-function formatHighlightDate(value) {
+const MONTH_SHORT_IT = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic'];
+
+function parseHighlightDate(value) {
   const d = parseAppDate(value);
+  if (d) return d;
+  const m = String(value || '').trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (!m) return null;
+  const parsed = new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function formatHighlightDate(value) {
+  const d = parseHighlightDate(value);
   if (!d) return '';
-  return d.toLocaleDateString('it-IT', { day: '2-digit', month: 'short', year: 'numeric' });
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${day} ${MONTH_SHORT_IT[d.getMonth()]} ${d.getFullYear()}`;
 }
 
 function formatStreakRange(startedAt, endedAt) {
@@ -846,7 +858,7 @@ function MatchRecordCell({ icon, pack, color, bonusType, record, onPress, label,
   const hasScore = record && Number.isFinite(Number(record.home_score)) && Number.isFinite(Number(record.away_score));
   const homeName = String(record?.home_team || record?.home_team_name || '').trim();
   const awayName = String(record?.away_team || record?.away_team_name || '').trim();
-  const date = String(record?.date || '').trim() || formatHighlightDate(record?.kickoff_at);
+  const date = formatHighlightDate(record?.kickoff_at) || formatHighlightDate(record?.date);
   const inner = (
     <View style={[styles.goalsKpiCell, showDivider && styles.goalsKpiCellDivider]}>
       <View style={styles.recordHead}>
@@ -1650,8 +1662,16 @@ const styles = StyleSheet.create({
   miniStat: { flex: 1, alignItems: 'center', gap: 4, minWidth: 0 },
   miniStatValue: { fontSize: 14, fontWeight: '800', color: '#0f172a' },
   miniStatLabel: { fontSize: 9, fontWeight: '800', color: '#94a3b8', textTransform: 'uppercase', textAlign: 'center', lineHeight: 12 },
-  miniStatTeam: { flexDirection: 'row', alignItems: 'center', gap: 3, maxWidth: '100%', paddingHorizontal: 2 },
-  miniStatLogo: { width: 14, height: 14 },
+  miniStatTeam: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'stretch',
+    gap: 3,
+    maxWidth: '100%',
+    paddingHorizontal: 2,
+  },
+  miniStatLogo: { width: 14, height: 14, flexShrink: 0 },
   miniStatLogoFallback: {
     width: 14,
     height: 14,
@@ -1659,8 +1679,18 @@ const styles = StyleSheet.create({
     backgroundColor: '#eef2ff',
     alignItems: 'center',
     justifyContent: 'center',
+    flexShrink: 0,
   },
-  miniStatTeamName: { flex: 1, minWidth: 0, fontSize: 9, fontWeight: '700', color: '#475569' },
+  miniStatTeamName: {
+    flexShrink: 1,
+    flexGrow: 0,
+    minWidth: 0,
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#475569',
+    lineHeight: 12,
+    includeFontPadding: false,
+  },
   wdlCard: {
     marginTop: 8,
     backgroundColor: '#fff',

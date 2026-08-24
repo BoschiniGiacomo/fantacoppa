@@ -46,6 +46,8 @@ const MATCHES_LIST_SHARED_CACHE = createShortTtlCache({ ttlMs: 6000, maxEntries:
 const LIVE_DELTA_TABLES_CACHE = createShortTtlCache({ ttlMs: 6000, maxEntries: 60 });
 /** Cache ultimi risultati + H2H per dettaglio partita — dato relativamente stabile. */
 const RECENT_FORM_CACHE = createShortTtlCache({ ttlMs: 60_000, maxEntries: 120 });
+/** Età media / partite medie rosa (Panoramica) — stesso TTL della form. */
+const SQUAD_SNAPSHOT_CACHE = createShortTtlCache({ ttlMs: 60_000, maxEntries: 80 });
 const RECENT_FORM_LIMIT = 3;
 const PREVIOUS_MEETINGS_LIMIT = 3;
 
@@ -545,6 +547,7 @@ function buildOfficialTeamMatchRecord({
     home_score: Number.isFinite(hs) ? hs : 0,
     away_score: Number.isFinite(as) ? as : 0,
     date: formatItalyKickoffDateDdMmYyyy(kickoffAt),
+    kickoff_at: kickoffAt || null,
     home_team_logo_path: homeLp,
     home_team_logo_url: logoUrlForPath(homeLp),
     away_team_logo_path: awayLp,
@@ -2578,6 +2581,163 @@ function coerceTimestampForSql(value) {
   return null;
 }
 
+function emptySquadSnapshotSide() {
+  return { avg_age: null, avg_matches: null, players: 0, players_with_age: 0 };
+}
+
+function emptySquadSnapshot() {
+  return { home: emptySquadSnapshotSide(), away: emptySquadSnapshotSide() };
+}
+
+function roundSquadSnapshotAvg(n) {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return null;
+  return Math.round(v * 10) / 10;
+}
+
+function mapSquadSnapshotRows(rows) {
+  const out = emptySquadSnapshot();
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const side = String(row?.side || '').trim() === 'away' ? 'away' : 'home';
+    const players = Number(row?.players || 0) || 0;
+    const withAge = Number(row?.players_with_age || 0) || 0;
+    out[side] = {
+      avg_age: withAge > 0 ? roundSquadSnapshotAvg(row?.avg_age) : null,
+      avg_matches: players > 0 ? roundSquadSnapshotAvg(row?.avg_matches) : null,
+      players,
+      players_with_age: withAge,
+    };
+  }
+  return out;
+}
+
+/**
+ * Rosa disponibile (non indisponibili) a quella partita:
+ * - età media nell'anno di gara; senza anno di nascita il giocatore è escluso dalla media età
+ * - partite medie nel gruppo ufficiale chiuse prima del kickoff (cluster = stessa persona);
+ *   chi ha 0 partite precedenti resta nel calcolo
+ */
+async function loadMatchSquadSnapshot({
+  competitionId,
+  matchId,
+  homeTeamId,
+  awayTeamId,
+  beforeKickoffAt = null,
+} = {}) {
+  const compId = Number(competitionId) || 0;
+  const mid = Number(matchId) || 0;
+  const homeId = Number(homeTeamId) || 0;
+  const awayId = Number(awayTeamId) || 0;
+  const empty = emptySquadSnapshot();
+  if (!(compId > 0) || !(mid > 0) || !(homeId > 0) || !(awayId > 0)) return empty;
+
+  const beforeKickoff = coerceTimestampForSql(beforeKickoffAt);
+  const ymd = calendarYmdItaly(beforeKickoffAt || beforeKickoff);
+  const matchYear = ymd ? Number(String(ymd).slice(0, 4)) : NaN;
+  if (!beforeKickoff || !Number.isFinite(matchYear) || matchYear < 1990) return empty;
+
+  const cacheKey = `squadsnap:${compId}:${mid}:${homeId}:${awayId}:${beforeKickoff}:${matchYear}`;
+  return SQUAD_SNAPSHOT_CACHE.getOrSet(cacheKey, async () => {
+    try {
+      const rows = await query(
+      `
+      WITH squad AS (
+        SELECT
+          p.id,
+          p.team_id,
+          CASE WHEN p.team_id = ? THEN 'home' ELSE 'away' END AS side,
+          CASE
+            WHEN p.birth_year IS NULL THEN NULL
+            WHEN p.birth_year::int BETWEEN 1920 AND (? - 10) THEN p.birth_year::int
+            ELSE NULL
+          END AS birth_year
+        FROM players p
+        WHERE p.team_id IN (?, ?)
+          AND TRIM(CONCAT(COALESCE(p.first_name, ''), ' ', COALESCE(p.last_name, ''))) <> ''
+          AND NOT EXISTS (
+            SELECT 1
+            FROM official_match_unavailable_players u
+            WHERE u.match_id = ? AND u.player_id = p.id
+          )
+      ),
+      identity AS (
+        SELECT
+          s.id AS current_player_id,
+          COALESCE(m2.player_id, s.id) AS member_id
+        FROM squad s
+        LEFT JOIN player_cluster_members m1 ON m1.player_id = s.id
+        LEFT JOIN player_clusters pc
+          ON pc.id = m1.cluster_id AND pc.status = 'approved'
+        LEFT JOIN player_cluster_members m2 ON m2.cluster_id = pc.id
+      ),
+      prior_matches AS (
+        SELECT m.id, m.home_team_id, m.away_team_id
+        FROM official_matches m
+        WHERE m.competition_id = ?
+          AND m.id <> ?
+          AND COALESCE(m.is_admin_only, 0) = 0
+          AND m.kickoff_at IS NOT NULL
+          AND (
+            m.kickoff_at < ?
+            OR (m.kickoff_at = ? AND m.id < ?)
+          )
+          AND EXISTS (
+            SELECT 1
+            FROM official_match_events e
+            WHERE e.match_id = m.id AND e.event_type = 'match_end'
+          )
+      ),
+      prior_match_teams AS (
+        SELECT id AS match_id, home_team_id AS team_id FROM prior_matches
+        UNION ALL
+        SELECT id, away_team_id FROM prior_matches
+      ),
+      played AS (
+        SELECT
+          i.current_player_id,
+          COUNT(DISTINCT pmt.match_id)::int AS matches_played
+        FROM identity i
+        INNER JOIN players mp ON mp.id = i.member_id
+        INNER JOIN prior_match_teams pmt ON pmt.team_id = mp.team_id
+        WHERE NOT EXISTS (
+          SELECT 1
+          FROM official_match_unavailable_players u
+          WHERE u.match_id = pmt.match_id AND u.player_id = mp.id
+        )
+        GROUP BY i.current_player_id
+      )
+      SELECT
+        s.side,
+        COUNT(*)::int AS players,
+        COUNT(s.birth_year)::int AS players_with_age,
+        AVG((?::int) - s.birth_year) FILTER (WHERE s.birth_year IS NOT NULL) AS avg_age,
+        AVG(COALESCE(pl.matches_played, 0)::numeric) AS avg_matches
+      FROM squad s
+      LEFT JOIN played pl ON pl.current_player_id = s.id
+      GROUP BY s.side
+      `,
+      [
+        homeId,
+        matchYear,
+        homeId,
+        awayId,
+        mid,
+        compId,
+        mid,
+        beforeKickoff,
+        beforeKickoff,
+        mid,
+        matchYear,
+      ]
+    );
+      return mapSquadSnapshotRows(rows);
+    } catch (err) {
+      if (isMissingDbObjectError(err)) return empty;
+      throw err;
+    }
+  });
+}
+
 /**
  * Ultimi risultati casa/ospite + ultimi incontri diretti (stesso gruppo ufficiale).
  * Solo match chiusi (match_end) **precedenti** alla partita corrente (per kickoff),
@@ -2875,7 +3035,7 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
     await ensureUnavailablePlayersTable();
     const emptyKnockout = { quarterfinals: [], semifinals: [], final: null };
     const emptyOverviewExtras = { recent_form: { home: [], away: [] }, previous_meetings: [] };
-    const [homeTeam, awayTeam, rawEvents, homeLineup, awayLineup, unavailableRows, standingsBundle, knockout, overviewExtras, prediction] = await Promise.all([
+    const [homeTeam, awayTeam, rawEvents, homeLineup, awayLineup, unavailableRows, standingsBundle, knockout, overviewExtras, prediction, squadSnapshot] = await Promise.all([
       getTeamMeta(homeTeamId),
       getTeamMeta(awayTeamId),
       query(
@@ -2911,6 +3071,16 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
         return emptyOverviewExtras;
       }),
       loadOfficialMatchPrediction(matchId, userId).catch(() => emptyPrediction(null)),
+      loadMatchSquadSnapshot({
+        competitionId: Number(matchRow.competition_id),
+        matchId,
+        homeTeamId,
+        awayTeamId,
+        beforeKickoffAt: matchRow.kickoff_at || null,
+      }).catch((err) => {
+        console.error('[matches] squad snapshot failed:', err?.message || err);
+        return emptySquadSnapshot();
+      }),
     ]);
 
     const recentForm = overviewExtras?.recent_form;
@@ -2980,6 +3150,9 @@ router.get('/matches/:matchId/detail', authenticateToken, async (req, res) => {
           }
         : { home: [], away: [] },
       previous_meetings: previousMeetings,
+      squad_snapshot: squadSnapshot && typeof squadSnapshot === 'object'
+        ? squadSnapshot
+        : emptySquadSnapshot(),
       prediction: prediction && typeof prediction === 'object' ? prediction : emptyPrediction(null),
       favorites: {
         match: Number(match.is_favorite_match) ? 1 : 0,

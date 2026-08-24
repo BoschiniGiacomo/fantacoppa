@@ -399,6 +399,88 @@ function PreviousMeetingsCard({ meetings, onPressMatch }) {
   );
 }
 
+function formatSquadAvg(n) {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return '–';
+  return v.toFixed(1).replace('.', ',');
+}
+
+function SquadSnapshotCard({
+  snapshot,
+  homeLogoUrl,
+  homeLogoPath,
+  awayLogoUrl,
+  awayLogoPath,
+}) {
+  const home = snapshot?.home || null;
+  const away = snapshot?.away || null;
+  const homePlayers = Number(home?.players || 0);
+  const awayPlayers = Number(away?.players || 0);
+  if (homePlayers <= 0 && awayPlayers <= 0) return null;
+
+  const rows = [
+    {
+      key: 'age',
+      pack: 'ion',
+      icon: 'people-outline',
+      label: 'Età media',
+      home: formatSquadAvg(home?.avg_age),
+      away: formatSquadAvg(away?.avg_age),
+    },
+    {
+      key: 'matches',
+      pack: 'mci',
+      icon: 'soccer',
+      label: 'Partite medie',
+      home: formatSquadAvg(home?.avg_matches),
+      away: formatSquadAvg(away?.avg_matches),
+    },
+  ];
+
+  return (
+    <View style={styles.card}>
+      <View style={styles.squadSnapHead}>
+        <View style={styles.squadSnapLabelCol} />
+        <View style={styles.squadSnapValCol}>
+          <TeamLogoImage
+            logoUrl={homeLogoUrl}
+            logoPath={homeLogoPath}
+            style={styles.squadSnapLogo}
+            fallbackStyle={styles.squadSnapLogoFallback}
+            fallbackIconSize={11}
+          />
+        </View>
+        <View style={styles.squadSnapValCol}>
+          <TeamLogoImage
+            logoUrl={awayLogoUrl}
+            logoPath={awayLogoPath}
+            style={styles.squadSnapLogo}
+            fallbackStyle={styles.squadSnapLogoFallback}
+            fallbackIconSize={11}
+          />
+        </View>
+      </View>
+      {rows.map((row, idx) => (
+        <View
+          key={row.key}
+          style={[styles.squadSnapRow, idx === rows.length - 1 && styles.squadSnapRowLast]}
+        >
+          <View style={styles.squadSnapLabelCol}>
+            {row.pack === 'mci' ? (
+              <MaterialCommunityIcons name={row.icon} size={14} color="#666" />
+            ) : (
+              <Ionicons name={row.icon} size={14} color="#666" />
+            )}
+            <Text style={styles.squadSnapLabel}>{row.label}</Text>
+          </View>
+          <Text style={styles.squadSnapValue}>{row.home}</Text>
+          <Text style={styles.squadSnapValue}>{row.away}</Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
 function startOfLocalDay(d) {
   const x = new Date(d);
   x.setHours(0, 0, 0, 0);
@@ -1884,6 +1966,7 @@ export default function MatchDetailScreen({ navigation, route }) {
   const showRecentForm = recentFormHome.length > 0 || recentFormAway.length > 0;
   const previousMeetings = Array.isArray(data?.previous_meetings) ? data.previous_meetings : [];
   const showPreviousMeetings = previousMeetings.length > 0;
+  const squadSnapshot = data?.squad_snapshot || null;
   const prediction = data?.prediction || { my_choice: null, total: 0, counts: { home: 0, draw: 0, away: 0 }, percents: { home: 0, draw: 0, away: 0 } };
   const matchStageId = match?.match_stage_id != null ? Number(match.match_stage_id) : NaN;
   const standingsIsKnockoutMatch = matchStageId === 2 || matchStageId === 3 || matchStageId === 4;
@@ -3548,6 +3631,15 @@ export default function MatchDetailScreen({ navigation, route }) {
         ) : null}
         {activeTab === 'overview' && showPreviousMeetings ? (
           <PreviousMeetingsCard meetings={previousMeetings} onPressMatch={openKnockoutMatchDetail} />
+        ) : null}
+        {activeTab === 'overview' ? (
+          <SquadSnapshotCard
+            snapshot={squadSnapshot}
+            homeLogoUrl={match.home_team_logo_url}
+            homeLogoPath={match.home_team_logo_path}
+            awayLogoUrl={match.away_team_logo_url}
+            awayLogoPath={match.away_team_logo_path}
+          />
         ) : null}
         {activeTab === 'lineup' && (
           <View style={[styles.card, styles.cardLineup, lineupEditMode && styles.cardLineupCompact]}>
@@ -5620,6 +5712,46 @@ const styles = StyleSheet.create({
   },
   content: { flex: 1, paddingHorizontal: 12, paddingTop: 12 },
   card: { backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#ececec', padding: 12, marginBottom: 12 },
+  squadSnapHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  squadSnapRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  squadSnapRowLast: { marginBottom: 0 },
+  squadSnapLabelCol: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  squadSnapLabel: { flex: 1, minWidth: 0, color: '#333', fontSize: 14 },
+  squadSnapValCol: {
+    width: 52,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  squadSnapValue: {
+    width: 52,
+    textAlign: 'center',
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  squadSnapLogo: { width: 22, height: 22 },
+  squadSnapLogoFallback: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: '#eef2ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   recentFormSection: { marginBottom: 12 },
   recentFormTitle: { fontSize: 16, fontWeight: '800', color: '#222', marginBottom: 10 },
   recentFormRow: { flexDirection: 'row', alignItems: 'stretch', gap: 10 },
