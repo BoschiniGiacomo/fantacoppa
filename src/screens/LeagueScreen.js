@@ -472,6 +472,7 @@ export default function LeagueScreen({ route, navigation }) {
       <TeamInfoModal
         visible={showTeamInfoModal}
         leagueId={leagueId}
+        leagueName={displayName}
         defaultTeamName={defaultTeamName}
         defaultCoachName={defaultCoachName}
         defaultTeamLogo={userTeamInfo?.team_logo || 'default_1'}

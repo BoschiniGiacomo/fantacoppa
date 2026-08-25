@@ -15,7 +15,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { leagueService } from '../services/api';
-import { defaultLogos, defaultLogosMap } from '../constants/defaultLogos';
+import { defaultLogos } from '../constants/defaultLogos';
 
 const DEFAULT_TEAM_RE = /^Squadra\s*\d+$/i;
 const DEFAULT_COACH_RE = /^Allenatore\s*\d+$/i;
@@ -31,6 +31,7 @@ function isDefaultCoachName(name) {
 export default function TeamInfoModal({
   visible,
   leagueId,
+  leagueName,
   defaultTeamName,
   defaultCoachName,
   defaultTeamLogo,
@@ -69,10 +70,6 @@ export default function TeamInfoModal({
 
   const resolvedPreview = customPreviewUri
     || (selectedLogo && !String(selectedLogo).startsWith('default_') ? selectedLogo : null);
-  const previewDefaultId = customPreviewUri
-    ? null
-    : (String(selectedLogo || '').startsWith('default_') ? selectedLogo : 'default_1');
-  const previewMeta = previewDefaultId ? (defaultLogosMap[previewDefaultId] || defaultLogosMap.default_1) : null;
 
   const pickCustomLogo = async () => {
     try {
@@ -178,22 +175,12 @@ export default function TeamInfoModal({
             contentContainerStyle={styles.scrollContent}
           >
             <View style={styles.hero}>
-              <View style={styles.heroIconWrap}>
-                {resolvedPreview ? (
-                  <Image source={{ uri: resolvedPreview }} style={styles.heroLogoImage} />
-                ) : (
-                  <View style={[styles.heroLogoDefault, { backgroundColor: `${previewMeta?.color || '#667eea'}22` }]}>
-                    <Text style={styles.heroLogoEmoji}>{previewMeta?.emoji || '⚽'}</Text>
-                  </View>
-                )}
-              </View>
-              <Text style={styles.title}>Benvenuto in lega</Text>
-              <Text style={styles.subtitle}>
-                Scegli stemma, nome squadra e allenatore. Poi puoi sempre modificarli dalle Impostazioni.
+              <Text style={styles.title}>
+                Benvenuto in {String(leagueName || '').trim() || 'lega'}
               </Text>
             </View>
 
-            <Text style={styles.sectionLabel}>Stemma</Text>
+            <Text style={styles.sectionLabel}>Scegli Stemma</Text>
             <View style={styles.logosGrid}>
               {defaultLogos.map((logo) => {
                 const isSelected = !customPreviewUri && selectedLogo === logo.id;
@@ -221,25 +208,29 @@ export default function TeamInfoModal({
                   </TouchableOpacity>
                 );
               })}
-            </View>
 
-            <TouchableOpacity
-              style={styles.uploadRow}
-              onPress={pickCustomLogo}
-              disabled={saving}
-              activeOpacity={0.85}
-            >
-              <View style={styles.uploadIconWrap}>
-                <Ionicons name="image-outline" size={18} color="#667eea" />
-              </View>
-              <View style={styles.uploadTextWrap}>
-                <Text style={styles.uploadTitle}>
-                  {customPreviewUri ? 'Cambia immagine personalizzata' : 'Carica immagine personalizzata'}
-                </Text>
-                <Text style={styles.uploadHint}>JPG/PNG · max 2MB</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color="#bbb" />
-            </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.logoItem,
+                  styles.logoItemCustom,
+                  customPreviewUri ? [styles.logoItemSelected, styles.logoItemCustomSelected] : null,
+                ]}
+                onPress={pickCustomLogo}
+                disabled={saving}
+                activeOpacity={0.85}
+              >
+                {resolvedPreview ? (
+                  <Image source={{ uri: resolvedPreview }} style={styles.logoCustomImage} />
+                ) : (
+                  <Ionicons name="image-outline" size={22} color="#667eea" />
+                )}
+                {customPreviewUri ? (
+                  <View style={styles.logoCheck}>
+                    <Ionicons name="checkmark-circle" size={16} color="#2e7d32" />
+                  </View>
+                ) : null}
+              </TouchableOpacity>
+            </View>
 
             <View style={styles.formGroup}>
               <Text style={styles.label}>Nome squadra</Text>
@@ -333,42 +324,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 18,
   },
-  heroIconWrap: {
-    marginBottom: 12,
-  },
-  heroLogoDefault: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1.5,
-    borderColor: '#ececf3',
-  },
-  heroLogoImage: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    borderWidth: 1.5,
-    borderColor: '#ececf3',
-    backgroundColor: '#fff',
-  },
-  heroLogoEmoji: {
-    fontSize: 34,
-  },
   title: {
     fontSize: 20,
     fontWeight: '800',
     color: '#222',
     textAlign: 'center',
-    marginBottom: 6,
-  },
-  subtitle: {
-    fontSize: 13,
-    lineHeight: 18,
-    color: '#777',
-    textAlign: 'center',
-    paddingHorizontal: 6,
   },
   sectionLabel: {
     fontSize: 12,
@@ -381,13 +341,15 @@ const styles = StyleSheet.create({
   logosGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 12,
+    justifyContent: 'center',
+    columnGap: 10,
+    rowGap: 10,
+    marginBottom: 18,
   },
   logoItem: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+    width: 54,
+    height: 54,
+    borderRadius: 27,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
@@ -397,8 +359,22 @@ const styles = StyleSheet.create({
   logoItemSelected: {
     borderColor: '#667eea',
   },
+  logoItemCustom: {
+    backgroundColor: '#f5f7ff',
+    borderStyle: 'dashed',
+    borderColor: '#c5cbe8',
+  },
+  logoItemCustomSelected: {
+    borderStyle: 'solid',
+    backgroundColor: '#eef1ff',
+  },
   logoEmoji: {
     fontSize: 24,
+  },
+  logoCustomImage: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
   },
   logoCheck: {
     position: 'absolute',
@@ -406,39 +382,6 @@ const styles = StyleSheet.create({
     bottom: -2,
     backgroundColor: '#fff',
     borderRadius: 10,
-  },
-  uploadRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    backgroundColor: '#f5f7ff',
-    borderWidth: 1,
-    borderColor: '#e0e5ff',
-    borderRadius: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    marginBottom: 18,
-  },
-  uploadIconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  uploadTextWrap: {
-    flex: 1,
-  },
-  uploadTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#333',
-  },
-  uploadHint: {
-    fontSize: 11,
-    color: '#888',
-    marginTop: 2,
   },
   formGroup: {
     marginBottom: 14,
