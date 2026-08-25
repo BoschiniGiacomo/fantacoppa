@@ -91,15 +91,22 @@ function findPgDump() {
   }
 
   if (process.platform === 'win32') {
-    const candidates = [
-      'C:\\Program Files\\PostgreSQL\\17\\bin\\pg_dump.exe',
-      'C:\\Program Files\\PostgreSQL\\16\\bin\\pg_dump.exe',
-      'C:\\Program Files\\PostgreSQL\\15\\bin\\pg_dump.exe',
-      'C:\\Program Files\\PostgreSQL\\14\\bin\\pg_dump.exe',
+    const roots = [
+      'C:\\Program Files\\PostgreSQL',
+      'C:\\Program Files (x86)\\PostgreSQL',
     ];
-    for (const c of candidates) {
-      if (fs.existsSync(c)) return c;
+    const found = [];
+    for (const root of roots) {
+      if (!fs.existsSync(root)) continue;
+      for (const ent of fs.readdirSync(root, { withFileTypes: true })) {
+        if (!ent.isDirectory()) continue;
+        const candidate = path.join(root, ent.name, 'bin', 'pg_dump.exe');
+        if (fs.existsSync(candidate)) found.push(candidate);
+      }
     }
+    // Preferisci la versione più recente (18 > 17 > …)
+    found.sort((a, b) => String(b).localeCompare(String(a), undefined, { numeric: true }));
+    if (found[0]) return found[0];
   }
 
   return null;
