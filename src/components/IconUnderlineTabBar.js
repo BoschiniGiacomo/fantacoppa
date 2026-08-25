@@ -12,10 +12,10 @@ const FANTA_TAB_ICON = require('../../assets/fantacoppa-tab-icon.png');
  * Tab bar solo icone con underline full-width sul selezionato.
  * tabs: [{ key, label, pack?, icon?, iconActive?, renderIcon?(active, color) }]
  */
-export default function IconUnderlineTabBar({ tabs, activeKey, onSelect, style, transparent = false }) {
+export default function IconUnderlineTabBar({ tabs, activeKey, onSelect, style }) {
   const list = Array.isArray(tabs) ? tabs : [];
   return (
-    <View style={[styles.bar, transparent && styles.barTransparent, style]}>
+    <View style={[styles.bar, style]}>
       {list.map((tab) => {
         const active = activeKey === tab.key;
         const color = active ? ICON_TAB_ACTIVE : ICON_TAB_IDLE;
@@ -69,9 +69,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'stretch',
     backgroundColor: '#fff',
-  },
-  barTransparent: {
-    backgroundColor: 'transparent',
   },
   btn: {
     flex: 1,

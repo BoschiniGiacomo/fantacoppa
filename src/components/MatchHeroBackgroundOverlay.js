@@ -33,18 +33,17 @@ export default function MatchHeroBackgroundOverlay() {
             </LinearGradient>
             <LinearGradient id={fadeId} x1="0" y1="0" x2="0" y2="1">
               <Stop offset="0" stopColor="#ffffff" stopOpacity="0" />
-              <Stop offset="0.22" stopColor="#ffffff" stopOpacity="0.12" />
-              <Stop offset="0.55" stopColor="#ffffff" stopOpacity="0.55" />
-              <Stop offset="0.82" stopColor="#ffffff" stopOpacity="0.92" />
+              <Stop offset="0.42" stopColor="#ffffff" stopOpacity="0.16" />
+              <Stop offset="0.78" stopColor="#ffffff" stopOpacity="0.78" />
               <Stop offset="1" stopColor="#ffffff" stopOpacity="1" />
             </LinearGradient>
           </Defs>
           <Rect x={0} y={0} width={size.w} height={size.h} fill={`url(#${dimId})`} />
           <Rect
             x={0}
-            y={size.h * 0.68}
+            y={size.h * 0.72}
             width={size.w}
-            height={size.h * 0.32}
+            height={size.h * 0.28}
             fill={`url(#${fadeId})`}
           />
         </Svg>

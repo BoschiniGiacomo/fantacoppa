@@ -3520,17 +3520,6 @@ export default function MatchDetailScreen({ navigation, route }) {
           </>
         );
 
-        const tabBar = (
-          <View style={[styles.iconTabBar, hasHeroBg && styles.iconTabBarOnBg]}>
-            <IconUnderlineTabBar
-              tabs={MATCH_DETAIL_TABS.filter((t) => !t.requiresVotes || showVotesTab)}
-              activeKey={activeTab}
-              onSelect={setActiveTab}
-              transparent={hasHeroBg}
-            />
-          </View>
-        );
-
         if (hasHeroBg) {
           return (
             <TopShell
@@ -3545,7 +3534,6 @@ export default function MatchDetailScreen({ navigation, route }) {
               <View style={styles.heroBgForeground}>
                 {headerRow}
                 {heroBody}
-                {tabBar}
               </View>
             </TopShell>
           );
@@ -3562,10 +3550,17 @@ export default function MatchDetailScreen({ navigation, route }) {
             >
               {heroBody}
             </View>
-            {tabBar}
           </>
         );
       })()}
+
+      <View style={[styles.iconTabBar, matchHeroBgUri ? styles.iconTabBarOnBg : null]}>
+        <IconUnderlineTabBar
+          tabs={MATCH_DETAIL_TABS.filter((t) => !t.requiresVotes || showVotesTab)}
+          activeKey={activeTab}
+          onSelect={setActiveTab}
+        />
+      </View>
 
       <ScrollView
         ref={matchDetailScrollRef}
@@ -5727,8 +5722,6 @@ const styles = StyleSheet.create({
   },
   iconTabBarOnBg: {
     borderTopWidth: 0,
-    borderTopColor: 'transparent',
-    backgroundColor: 'transparent',
   },
   content: { flex: 1, paddingHorizontal: 12, paddingTop: 12 },
   card: { backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#ececec', padding: 12, marginBottom: 12 },

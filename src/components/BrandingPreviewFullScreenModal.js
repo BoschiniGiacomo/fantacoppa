@@ -173,37 +173,21 @@ function MatchPreview({ backgroundUri, insets, hasBg }) {
             </View>
           </View>
         </View>
-        {hasBg ? (
-          <View style={styles.matchTabRowOnBg}>
-            {['Formazioni', 'Statistiche', 'Eventi'].map((label, idx) => (
-              <View
-                key={label}
-                style={[styles.matchTab, idx === 0 && styles.matchTabActive]}
-              >
-                <Text style={[styles.matchTabText, idx === 0 && styles.matchTabTextActive]}>
-                  {label}
-                </Text>
-              </View>
-            ))}
-          </View>
-        ) : null}
       </TopShell>
 
       <View style={styles.matchBody}>
-        {hasBg ? null : (
-          <View style={styles.matchTabRow}>
-            {['Formazioni', 'Statistiche', 'Eventi'].map((label, idx) => (
-              <View
-                key={label}
-                style={[styles.matchTab, idx === 0 && styles.matchTabActive]}
-              >
-                <Text style={[styles.matchTabText, idx === 0 && styles.matchTabTextActive]}>
-                  {label}
-                </Text>
-              </View>
-            ))}
-          </View>
-        )}
+        <View style={styles.matchTabRow}>
+          {['Formazioni', 'Statistiche', 'Eventi'].map((label, idx) => (
+            <View
+              key={label}
+              style={[styles.matchTab, idx === 0 && styles.matchTabActive]}
+            >
+              <Text style={[styles.matchTabText, idx === 0 && styles.matchTabTextActive]}>
+                {label}
+              </Text>
+            </View>
+          ))}
+        </View>
         <View style={styles.matchSkeletonCard} />
         <View style={[styles.matchSkeletonCard, { height: 88 }]} />
         <View style={[styles.matchSkeletonCard, { height: 120 }]} />
@@ -433,13 +417,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
     marginBottom: 14,
-  },
-  matchTabRowOnBg: {
-    flexDirection: 'row',
-    gap: 8,
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 12,
   },
   matchTab: {
     paddingHorizontal: 12,
