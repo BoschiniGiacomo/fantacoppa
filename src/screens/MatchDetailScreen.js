@@ -525,7 +525,7 @@ function formatOverviewKickoffLine(dateStr) {
 
   const hm = formatHHmm(dateStr);
   const showTime = hm !== '--:--' && (d.getHours() !== 0 || d.getMinutes() !== 0);
-  return showTime ? `${dateLabel} ${hm}` : dateLabel;
+  return showTime ? `${dateLabel} · ${hm}` : dateLabel;
 }
 
 function parseSqlDateTime(value) {
