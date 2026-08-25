@@ -986,7 +986,10 @@ export default function MatchesScreen() {
                   nestedScrollEnabled
                   showsVerticalScrollIndicator={false}
                 >
-                  <Text style={styles.searchSectionLabel}>Più cercati</Text>
+                  <View style={styles.searchSectionHeader}>
+                    <Text style={styles.searchSectionLabel}>I più cercati</Text>
+                    <Ionicons name="chevron-forward" size={16} color="#cbd5e1" />
+                  </View>
                   {trendingPlayers.map((player) => (
                     <TouchableOpacity
                       key={`trend-${player.player_id}-${player.league_id}`}
@@ -1006,7 +1009,7 @@ export default function MatchesScreen() {
                           {[player.team_name, player.competition_name].filter(Boolean).join(' · ') || 'Giocatore ufficiale'}
                         </Text>
                       </View>
-                      <Ionicons name="trending-up" size={16} color="#cbd5e1" />
+                      <SearchPlayerCareerLogos teams={player.career_teams} />
                     </TouchableOpacity>
                   ))}
                 </ScrollView>
@@ -1165,14 +1168,21 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   searchSectionLabel: {
+    flex: 1,
     paddingHorizontal: 6,
-    paddingTop: 8,
-    paddingBottom: 2,
     fontSize: 11,
     fontWeight: '800',
     color: '#94a3b8',
     textTransform: 'uppercase',
     letterSpacing: 0.4,
+  },
+  searchSectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingRight: 6,
+    paddingTop: 8,
+    paddingBottom: 2,
   },
   searchResultRow: {
     flexDirection: 'row',

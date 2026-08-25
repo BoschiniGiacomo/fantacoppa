@@ -27,7 +27,8 @@
     "update:preview": "eas update --channel preview --message",
     "update:production": "eas update --channel production --message",
     "icons:android-adaptive": "node scripts/build-android-adaptive-icon.js",
-    "refresh:official-absolute-stats": "node scripts/refreshOfficialGroupAbsoluteStats.js"
+    "refresh:official-absolute-stats": "node scripts/refreshOfficialGroupAbsoluteStats.js",
+    "backup:db": "node scripts/backupDatabase.js"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",

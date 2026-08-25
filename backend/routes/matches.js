@@ -2560,11 +2560,97 @@ router.get('/matches/players/trending', authenticateToken, async (req, res) => {
       rawComp == null || String(rawComp).trim() === ''
         ? null
         : Number(rawComp);
-    const players = await getTrendingPlayers({
+    const playersRaw = await getTrendingPlayers({
       competitionId:
         Number.isFinite(competitionId) && competitionId > 0 ? competitionId : null,
     });
-    return res.json({ players: Array.isArray(players) ? players : [] });
+    const basePlayers = Array.isArray(playersRaw) ? playersRaw : [];
+    if (!basePlayers.length) {
+      return res.json({ players: [] });
+    }
+
+    // Stesso pipeline della search: cluster approvato per gruppo + career team logos.
+    const withClusters = [];
+    const byGroup = new Map();
+    for (const p of basePlayers) {
+      const gid = Number(p.competition_id);
+      const pid = Number(p.player_id);
+      if (gid > 0 && pid > 0) {
+        if (!byGroup.has(gid)) byGroup.set(gid, []);
+        byGroup.get(gid).push(pid);
+      }
+    }
+    const playerToCluster = new Map();
+    for (const [gid, pids] of byGroup) {
+      const groupMap = await mapPlayerIdsToApprovedClusters(gid, [...new Set(pids)]);
+      for (const [pid, cid] of groupMap) {
+        playerToCluster.set(`${gid}:${pid}`, cid);
+      }
+    }
+    for (const p of basePlayers) {
+      const gid = Number(p.competition_id);
+      const pid = Number(p.player_id);
+      const mapped = playerToCluster.get(`${gid}:${pid}`);
+      const fallbackCid = Number(p.cluster_id);
+      withClusters.push({
+        ...p,
+        cluster_id: (mapped > 0 ? mapped : null) || (fallbackCid > 0 ? fallbackCid : null),
+      });
+    }
+
+    let players = withClusters;
+    try {
+      const competitions = await listCompetitionsOnlyEnabled();
+      const compIds = [
+        ...new Set([
+          ...competitions.map((c) => Number(c.id)).filter((x) => x > 0),
+          ...withClusters.map((p) => Number(p.competition_id)).filter((x) => x > 0),
+        ]),
+      ];
+      const logoMap = await buildBestOfficialTeamLogoMap(compIds, true);
+      players = await attachSearchPlayerCareerTeams(withClusters, logoMap);
+      players = players.map((p, idx) => {
+        const career = Array.isArray(p?.career_teams) ? p.career_teams : [];
+        if (career.length > 0) return p;
+        const src = withClusters[idx] || {};
+        const fallbackPath = String(src.team_logo_path || '').trim();
+        const teamName = String(p?.team_name || src.team_name || '').trim();
+        if (!teamName && !fallbackPath) return { ...p, career_teams: [] };
+        const logoPath = pickBestOfficialTeamLogo(
+          logoMap,
+          Number(p?.competition_id) || Number(src.competition_id) || 0,
+          teamName,
+          fallbackPath,
+        );
+        return {
+          ...p,
+          career_teams: [{
+            name: teamName || 'Squadra',
+            logo_path: logoPath,
+            logo_url: logoUrlForPath(logoPath),
+          }],
+        };
+      });
+      players = annotateDuplicateSearchPlayerNames(players);
+    } catch (err) {
+      console.warn('[trending] career logos:', err?.message || err);
+      players = withClusters.map((p) => {
+        const fallbackPath = String(p?.team_logo_path || '').trim() || null;
+        const teamName = String(p?.team_name || '').trim();
+        return {
+          ...p,
+          career_teams: teamName || fallbackPath
+            ? [{
+              name: teamName || 'Squadra',
+              logo_path: fallbackPath,
+              logo_url: logoUrlForPath(fallbackPath),
+            }]
+            : [],
+        };
+      });
+    }
+
+    return res.json({ players });
   } catch (err) {
     if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
     return res.status(500).json({ message: 'Errore caricamento giocatori più cercati', error: err.message });

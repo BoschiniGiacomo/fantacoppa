@@ -219,6 +219,7 @@ async function fetchTrendingPlayerRows(competitionIdFilter) {
        NULLIF(BTRIM(COALESCE(p.photo_path, '')), '') AS photo_path,
        p.team_id,
        t.name AS team_name,
+       COALESCE(NULLIF(to_jsonb(t)->>'logo_path',''), NULLIF(t.logo_path,''), '') AS team_logo_path,
        t.league_id,
        l.official_group_id AS competition_id,
        og.name AS competition_name,
@@ -245,12 +246,14 @@ async function fetchTrendingPlayerRows(competitionIdFilter) {
       const leagueId = Number(detail.league_id);
       if (!name || !Number.isFinite(leagueId) || leagueId <= 0) return null;
       const birthYear = Number(detail.birth_year);
+      const teamLogoPath = String(detail.team_logo_path || '').trim() || null;
       return {
         player_id: pid,
         name,
         role: String(detail.role || '').trim().toUpperCase() || null,
         photo_path: String(detail.photo_path || '').trim() || null,
         team_name: String(detail.team_name || '').trim() || null,
+        team_logo_path: teamLogoPath,
         league_id: leagueId,
         competition_id: Number(detail.competition_id) > 0 ? Number(detail.competition_id) : null,
         competition_name: String(detail.competition_name || '').trim() || null,

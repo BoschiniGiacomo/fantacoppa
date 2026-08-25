@@ -384,7 +384,10 @@ function TrendingPlayersStrip({ competitionId, visible, onPressPlayer, showTeamN
   if (loading) {
     return (
       <View style={styles.trendingWrap}>
-        <Text style={styles.trendingLabel}>Più cercati</Text>
+        <View style={styles.trendingHeader}>
+          <Text style={styles.trendingLabel}>I più cercati</Text>
+          <Ionicons name="chevron-forward" size={16} color="#cbd5e1" />
+        </View>
         <ActivityIndicator size="small" color="#667eea" style={styles.trendingSpinner} />
       </View>
     );
@@ -393,38 +396,66 @@ function TrendingPlayersStrip({ competitionId, visible, onPressPlayer, showTeamN
 
   return (
     <View style={styles.trendingWrap}>
-      <Text style={styles.trendingLabel}>Più cercati</Text>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.trendingRow}
-        keyboardShouldPersistTaps="handled"
-      >
-        {players.map((player) => {
-          const pid = Number(player?.player_id);
-          return (
-            <TouchableOpacity
-              key={`trend-${pid}-${player?.league_id}`}
-              style={styles.trendingChip}
-              activeOpacity={0.78}
-              onPress={() => onPressPlayer?.(player)}
-            >
-              <PlayerPhotoImage
-                photoPath={player?.photo_path || undefined}
-                style={styles.trendingPhoto}
-                fallbackStyle={styles.trendingPhotoFallback}
-                fallbackIconSize={12}
-              />
-              <View style={styles.trendingMeta}>
-                <Text style={styles.trendingName} numberOfLines={1}>{String(player?.name || '').trim()}</Text>
-                {showTeamName && player?.team_name ? (
-                  <Text style={styles.trendingTeam} numberOfLines={1}>{player.team_name}</Text>
-                ) : null}
-              </View>
-            </TouchableOpacity>
-          );
-        })}
-      </ScrollView>
+      <View style={styles.trendingHeader}>
+        <Text style={styles.trendingLabel}>I più cercati</Text>
+        <Ionicons name="chevron-forward" size={16} color="#cbd5e1" />
+      </View>
+      {players.map((player) => {
+        const pid = Number(player?.player_id);
+        return (
+          <TouchableOpacity
+            key={`trend-${pid}-${player?.league_id}`}
+            style={styles.trendingRow}
+            activeOpacity={0.75}
+            onPress={() => onPressPlayer?.(player)}
+          >
+            <PlayerPhotoImage
+              photoPath={player?.photo_path || undefined}
+              style={styles.trendingPhoto}
+              fallbackStyle={styles.trendingPhotoFallback}
+              fallbackIconSize={16}
+            />
+            <View style={styles.trendingMeta}>
+              <Text style={styles.trendingName} numberOfLines={1}>{String(player?.name || '').trim()}</Text>
+              <Text style={styles.trendingTeam} numberOfLines={1}>
+                {showTeamName
+                  ? ([player?.team_name, player?.competition_name].filter(Boolean).join(' · ') || 'Giocatore ufficiale')
+                  : (String(player?.role || '').trim().toUpperCase() || 'Giocatore')}
+              </Text>
+            </View>
+            <TrendingCareerLogos teams={player?.career_teams} />
+          </TouchableOpacity>
+        );
+      })}
+    </View>
+  );
+}
+
+function TrendingCareerLogos({ teams }) {
+  const list = Array.isArray(teams) ? teams.filter((t) => String(t?.name || '').trim()) : [];
+  if (!list.length) {
+    return <Ionicons name="person-outline" size={16} color="#cbd5e1" />;
+  }
+  return (
+    <View style={styles.trendingCareerLogos}>
+      {list.map((team, index) => (
+        <View
+          key={`${team.name || 't'}-${index}`}
+          style={[
+            styles.trendingCareerLogoWrap,
+            index > 0 ? styles.trendingCareerLogoOverlap : null,
+            { zIndex: list.length - index },
+          ]}
+        >
+          <TeamLogoImage
+            logoUrl={team.logo_url}
+            logoPath={team.logo_path}
+            style={styles.trendingCareerLogo}
+            fallbackStyle={styles.trendingCareerLogoFallback}
+            fallbackIconSize={10}
+          />
+        </View>
+      ))}
     </View>
   );
 }
@@ -1655,62 +1686,91 @@ const styles = StyleSheet.create({
   trendingWrap: {
     marginBottom: 10,
   },
+  trendingHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 2,
+    paddingHorizontal: 2,
+    paddingVertical: 4,
+  },
   trendingLabel: {
+    flex: 1,
     fontSize: 11,
     fontWeight: '800',
     color: '#94a3b8',
     textTransform: 'uppercase',
     letterSpacing: 0.4,
-    marginBottom: 6,
-    paddingHorizontal: 2,
   },
   trendingSpinner: {
     alignSelf: 'flex-start',
     marginLeft: 4,
+    marginTop: 6,
   },
   trendingRow: {
-    gap: 8,
-    paddingRight: 4,
-  },
-  trendingChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    maxWidth: 180,
-    paddingVertical: 6,
-    paddingHorizontal: 8,
-    borderRadius: 12,
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#e8edf3',
+    gap: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 2,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
   },
   trendingPhoto: {
-    width: 28,
-    height: 28,
-    borderRadius: 8,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
   },
   trendingPhotoFallback: {
-    width: 28,
-    height: 28,
-    borderRadius: 8,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     backgroundColor: '#eef2ff',
     alignItems: 'center',
     justifyContent: 'center',
   },
   trendingMeta: {
-    flexShrink: 1,
+    flex: 1,
     minWidth: 0,
+    gap: 2,
   },
   trendingName: {
-    fontSize: 12,
+    fontSize: 15,
     fontWeight: '700',
-    color: '#0f172a',
+    color: '#1e293b',
   },
   trendingTeam: {
-    fontSize: 10,
-    fontWeight: '600',
+    fontSize: 12,
+    fontWeight: '400',
     color: '#94a3b8',
-    marginTop: 1,
+  },
+  trendingCareerLogos: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    minWidth: 28,
+    maxWidth: 96,
+  },
+  trendingCareerLogoWrap: {
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  trendingCareerLogoOverlap: {
+    marginLeft: -10,
+  },
+  trendingCareerLogo: {
+    width: 22,
+    height: 22,
+  },
+  trendingCareerLogoFallback: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: '#eef2ff',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   catChip: {
     flexDirection: 'row',

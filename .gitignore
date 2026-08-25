@@ -29,6 +29,12 @@ android/app/build/
 .env.*
 !.env.example
 
+# database backups (local only)
+backups/
+*.sql.dump
+fantacoppa-*.sql
+fantacoppa-*.dump
+
 # Android / iOS
 *.jks
 *.p8
