@@ -168,6 +168,7 @@ export default function LeagueScreen({ route, navigation }) {
           && String(safeLeague?.role || '') === 'admin'
             ? {
                 giornata: rtcGiornata,
+                reason: String(rtc.reason || '').trim() || 'votes_coverage',
                 teams_total: Number(rtc.teams_total || 0),
                 teams_with_votes: Number(rtc.teams_with_votes || 0),
               }
@@ -399,7 +400,9 @@ export default function LeagueScreen({ route, navigation }) {
                   Calcola {readyToCalculate.giornata}ª giornata
                 </Text>
                 <Text style={styles.actionDesc}>
-                  Voti su tutte le {readyToCalculate.teams_total} squadre
+                  {readyToCalculate.reason === 'linked_principal'
+                    ? 'La lega principale ha già calcolato'
+                    : `Voti su tutte le ${readyToCalculate.teams_total} squadre`}
                 </Text>
               </View>
               <View style={styles.actionCta}>

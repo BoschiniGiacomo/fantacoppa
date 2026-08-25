@@ -799,21 +799,16 @@ async function getLeagueByIdForUser(leagueId, userId) {
 }
 
 /**
- * Shortcut admin: prima giornata (ordine ASC) passata, non ghost, non calcolata,
- * in cui ogni squadra ufficiale della lega (con almeno 1 giocatore in anagrafica)
- * ha almeno 1 voto in player_ratings.
+ * Shortcut admin: prima giornata (ASC) passata, non ghost, non calcolata in questa lega.
+ * - Lega collegata a principale: pronta quando la principale ha già matchday_results per quella giornata.
+ * - Lega autonoma: pronta quando ogni squadra ufficiale (con giocatori) ha ≥1 voto.
  */
 async function findReadyToCalculateMatchday(leagueId, effectiveLeagueId) {
   try {
-    const teamCountRows = await query(
-      `SELECT COUNT(*)::int AS c
-       FROM teams t
-       WHERE t.league_id = ?
-         AND EXISTS (SELECT 1 FROM players p WHERE p.team_id = t.id)`,
-      [effectiveLeagueId]
-    );
-    const teamsTotal = Number(teamCountRows[0]?.c || 0);
-    if (teamsTotal <= 0) return null;
+    const linkedPrincipalId = Number(effectiveLeagueId) !== Number(leagueId)
+      ? Number(effectiveLeagueId)
+      : 0;
+    const isLinked = linkedPrincipalId > 0;
 
     const candidates = await query(
       `SELECT m.giornata
@@ -830,6 +825,40 @@ async function findReadyToCalculateMatchday(leagueId, effectiveLeagueId) {
       [effectiveLeagueId, leagueId]
     );
     if (!Array.isArray(candidates) || candidates.length === 0) return null;
+
+    if (isLinked) {
+      for (const row of candidates) {
+        const giornata = Number(row?.giornata || 0);
+        if (!Number.isFinite(giornata) || giornata <= 0) continue;
+
+        const principalDone = await query(
+          `SELECT 1
+           FROM matchday_results mr
+           WHERE mr.league_id = ? AND mr.giornata = ?
+           LIMIT 1`,
+          [linkedPrincipalId, giornata]
+        );
+        if (principalDone.length > 0) {
+          return {
+            giornata,
+            reason: 'linked_principal',
+            teams_total: 0,
+            teams_with_votes: 0,
+          };
+        }
+      }
+      return null;
+    }
+
+    const teamCountRows = await query(
+      `SELECT COUNT(*)::int AS c
+       FROM teams t
+       WHERE t.league_id = ?
+         AND EXISTS (SELECT 1 FROM players p WHERE p.team_id = t.id)`,
+      [effectiveLeagueId]
+    );
+    const teamsTotal = Number(teamCountRows[0]?.c || 0);
+    if (teamsTotal <= 0) return null;
 
     for (const row of candidates) {
       const giornata = Number(row?.giornata || 0);
@@ -853,6 +882,7 @@ async function findReadyToCalculateMatchday(leagueId, effectiveLeagueId) {
       if (teamsWithVotes >= teamsTotal) {
         return {
           giornata,
+          reason: 'votes_coverage',
           teams_total: teamsTotal,
           teams_with_votes: teamsWithVotes,
         };
