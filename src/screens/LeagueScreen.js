@@ -113,7 +113,7 @@ export default function LeagueScreen({ route, navigation }) {
   }, [hasDefaultNamesCheck, squadPlayersCount, marketPlayersCount]);
 
   const loadData = async () => {
-    const applyFromPayload = (payload) => {
+    const applyFromPayload = (payload, { syncTeamModal = true } = {}) => {
       const payloadObj = payload && typeof payload === 'object' ? payload : {};
       const leagueData = payloadObj?.league && typeof payloadObj.league === 'object'
         ? payloadObj.league
@@ -132,11 +132,15 @@ export default function LeagueScreen({ route, navigation }) {
       });
       updateAutoDetect({ autoLineupMode: !!safeLeague.auto_lineup_mode });
 
-      if (payloadObj.needs_info && !isSuperuserViewer) {
+      const needsInfo = !!(payloadObj.needs_info && !isSuperuserViewer);
+      if (needsInfo) {
         setDefaultTeamName(String(payloadObj.default_team_name || '').trim());
         setDefaultCoachName(String(payloadObj.default_coach_name || '').trim());
-        setShowTeamInfoModal(true);
-      } else {
+      }
+      if (syncTeamModal) {
+        setShowTeamInfoModal(needsInfo);
+      } else if (!needsInfo) {
+        // Warm aggiornata dopo salvataggio: chiudi anche se la rete arriverà dopo
         setShowTeamInfoModal(false);
       }
 
@@ -186,11 +190,13 @@ export default function LeagueScreen({ route, navigation }) {
     const warm = peekDashboard(leagueId);
     const warmUsable = warm != null && typeof warm === 'object' && Object.keys(warm).length > 0;
     if (warmUsable) {
-      applyFromPayload(warm);
-      if (
+      const skipNetwork = !!(
         getDashboardWarmMeta(leagueId)?.skipNetwork
         && (Array.isArray(warm.top_standings) ? warm.top_standings.length > 0 : true)
-      ) {
+      );
+      // Se poi arriva la rete, non aprire/chiudere il modal dalla warm (evita riaperture stale).
+      applyFromPayload(warm, { syncTeamModal: skipNetwork });
+      if (skipNetwork) {
         return;
       }
     } else {
@@ -468,16 +474,35 @@ export default function LeagueScreen({ route, navigation }) {
         leagueId={leagueId}
         defaultTeamName={defaultTeamName}
         defaultCoachName={defaultCoachName}
-        onSave={async (teamName, coachName) => {
+        defaultTeamLogo={userTeamInfo?.team_logo || 'default_1'}
+        onSave={async (teamName, coachName, teamLogo) => {
+          const safeLogo = String(teamLogo || userTeamInfo?.team_logo || 'default_1').trim() || 'default_1';
+          // Chiudi subito e aggiorna cache: altrimenti loadData riapplica warm con needs_info=true
+          // e il modal si riapre (anche se il salvataggio è andato a buon fine).
           setShowTeamInfoModal(false);
-          setUserTeamInfo((prev) => ({
+          setUserTeamInfo({
             team_name: teamName,
             coach_name: coachName,
-            team_logo: prev?.team_logo || 'default_1',
-          }));
+            team_logo: safeLogo,
+          });
+          updateAutoDetect({ hasDefaultNames: false });
+          const warm = peekDashboard(leagueId);
+          if (warm && typeof warm === 'object') {
+            setDashboard(leagueId, {
+              ...warm,
+              needs_info: false,
+              default_team_name: teamName,
+              default_coach_name: coachName,
+              user_team_info: {
+                ...(warm.user_team_info && typeof warm.user_team_info === 'object' ? warm.user_team_info : {}),
+                team_name: teamName,
+                coach_name: coachName,
+                team_logo: safeLogo,
+              },
+            });
+          }
           await loadData();
         }}
-        onClose={() => {}}
       />
 
       {toastMsg && (

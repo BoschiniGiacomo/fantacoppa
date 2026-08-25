@@ -1317,6 +1317,13 @@ router.put('/:id/team-info', authenticateToken, async (req, res) => {
     if (!teamName || !coachName) {
       return res.status(400).json({ message: 'Nome squadra e nome allenatore sono obbligatori' });
     }
+    // Allineato a needs_info: nomi "Squadra N" / "Allenatore N" non chiudono il setup
+    if (/^Squadra\s*\d+$/i.test(teamName)) {
+      return res.status(400).json({ message: 'Scegli un nome squadra diverso da "Squadra N"' });
+    }
+    if (/^Allenatore\s*\d+$/i.test(coachName)) {
+      return res.status(400).json({ message: 'Scegli un nome allenatore diverso da "Allenatore N"' });
+    }
     const leagueRows = await query(
       `SELECT COALESCE(initial_budget, 100) AS initial_budget FROM leagues WHERE id = ? LIMIT 1`,
       [leagueId]
