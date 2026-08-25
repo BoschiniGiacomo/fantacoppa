@@ -18,6 +18,7 @@ import {
   View,
 } from 'react-native';
 import MatchMinuteRing from '../components/MatchMinuteRing';
+import MatchHeroBackgroundOverlay from '../components/MatchHeroBackgroundOverlay';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -3519,6 +3520,17 @@ export default function MatchDetailScreen({ navigation, route }) {
           </>
         );
 
+        const tabBar = (
+          <View style={[styles.iconTabBar, hasHeroBg && styles.iconTabBarOnBg]}>
+            <IconUnderlineTabBar
+              tabs={MATCH_DETAIL_TABS.filter((t) => !t.requiresVotes || showVotesTab)}
+              activeKey={activeTab}
+              onSelect={setActiveTab}
+              transparent={hasHeroBg}
+            />
+          </View>
+        );
+
         if (hasHeroBg) {
           return (
             <TopShell
@@ -3529,10 +3541,11 @@ export default function MatchDetailScreen({ navigation, route }) {
                 showHeroScorerList && styles.heroColumnWithScorersBelow,
               ]}
             >
-              <View style={styles.heroBgScrim} pointerEvents="none" />
+              <MatchHeroBackgroundOverlay />
               <View style={styles.heroBgForeground}>
                 {headerRow}
                 {heroBody}
+                {tabBar}
               </View>
             </TopShell>
           );
@@ -3549,17 +3562,10 @@ export default function MatchDetailScreen({ navigation, route }) {
             >
               {heroBody}
             </View>
+            {tabBar}
           </>
         );
       })()}
-
-      <View style={styles.iconTabBar}>
-        <IconUnderlineTabBar
-          tabs={MATCH_DETAIL_TABS.filter((t) => !t.requiresVotes || showVotesTab)}
-          activeKey={activeTab}
-          onSelect={setActiveTab}
-        />
-      </View>
 
       <ScrollView
         ref={matchDetailScrollRef}
@@ -5552,10 +5558,6 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
-  heroBgScrim: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(8, 12, 22, 0.42)',
-  },
   heroBgForeground: {
     zIndex: 1,
   },
@@ -5722,6 +5724,11 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: '#d1d5db',
     backgroundColor: '#fff',
+  },
+  iconTabBarOnBg: {
+    borderTopWidth: 0,
+    borderTopColor: 'transparent',
+    backgroundColor: 'transparent',
   },
   content: { flex: 1, paddingHorizontal: 12, paddingTop: 12 },
   card: { backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#ececec', padding: 12, marginBottom: 12 },

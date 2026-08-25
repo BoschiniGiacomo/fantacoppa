@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import MatchHeroBackgroundOverlay from './MatchHeroBackgroundOverlay';
 
 /**
  * Anteprima a tutto schermo per branding Super User.
@@ -133,7 +134,7 @@ function MatchPreview({ backgroundUri, insets, hasBg }) {
         style={[styles.matchHeroColumn, hasBg ? styles.matchHeroColumnWithBg : null]}
         {...topShellProps}
       >
-        {hasBg ? <View style={styles.matchHeroScrim} pointerEvents="none" /> : null}
+        {hasBg ? <MatchHeroBackgroundOverlay /> : null}
         <View style={styles.matchHeroForeground}>
           <View style={[styles.matchHeader, { paddingTop: Math.max(insets.top + 6, 12) }]}>
             <View style={[styles.matchIconBtn, hasBg && styles.matchIconBtnOnBg]}>
@@ -172,21 +173,37 @@ function MatchPreview({ backgroundUri, insets, hasBg }) {
             </View>
           </View>
         </View>
+        {hasBg ? (
+          <View style={styles.matchTabRowOnBg}>
+            {['Formazioni', 'Statistiche', 'Eventi'].map((label, idx) => (
+              <View
+                key={label}
+                style={[styles.matchTab, idx === 0 && styles.matchTabActive]}
+              >
+                <Text style={[styles.matchTabText, idx === 0 && styles.matchTabTextActive]}>
+                  {label}
+                </Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
       </TopShell>
 
       <View style={styles.matchBody}>
-        <View style={styles.matchTabRow}>
-          {['Formazioni', 'Statistiche', 'Eventi'].map((label, idx) => (
-            <View
-              key={label}
-              style={[styles.matchTab, idx === 0 && styles.matchTabActive]}
-            >
-              <Text style={[styles.matchTabText, idx === 0 && styles.matchTabTextActive]}>
-                {label}
-              </Text>
-            </View>
-          ))}
-        </View>
+        {hasBg ? null : (
+          <View style={styles.matchTabRow}>
+            {['Formazioni', 'Statistiche', 'Eventi'].map((label, idx) => (
+              <View
+                key={label}
+                style={[styles.matchTab, idx === 0 && styles.matchTabActive]}
+              >
+                <Text style={[styles.matchTabText, idx === 0 && styles.matchTabTextActive]}>
+                  {label}
+                </Text>
+              </View>
+            ))}
+          </View>
+        )}
         <View style={styles.matchSkeletonCard} />
         <View style={[styles.matchSkeletonCard, { height: 88 }]} />
         <View style={[styles.matchSkeletonCard, { height: 120 }]} />
@@ -320,10 +337,6 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
-  matchHeroScrim: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(8, 12, 22, 0.42)',
-  },
   matchHeroForeground: {
     zIndex: 1,
   },
@@ -420,6 +433,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
     marginBottom: 14,
+  },
+  matchTabRowOnBg: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 12,
   },
   matchTab: {
     paddingHorizontal: 12,

@@ -22,6 +22,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import LoopingVideoView from '../components/LoopingVideoView';
 import AppLoadingFullScreenModal from '../components/AppLoadingFullScreenModal';
 import BrandingPreviewFullScreenModal from '../components/BrandingPreviewFullScreenModal';
+import MatchHeroBackgroundOverlay from '../components/MatchHeroBackgroundOverlay';
 import { useAuth } from '../context/AuthContext';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { superuserService, publicAssetUrl } from '../services/api';
@@ -5098,7 +5099,7 @@ export default function SuperUserScreen() {
                           style={StyleSheet.absoluteFillObject}
                           resizeMode="cover"
                         />
-                        <View style={styles.matchBackgroundPreviewScrim} />
+                        <MatchHeroBackgroundOverlay />
                         <View style={styles.matchBackgroundPreviewMock}>
                           <View style={styles.matchBackgroundPreviewTeam} />
                           <Text style={styles.matchBackgroundPreviewScore}>1 – 0</Text>
@@ -11799,10 +11800,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#e2e8f0',
     justifyContent: 'center',
-  },
-  matchBackgroundPreviewScrim: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(15, 23, 42, 0.28)',
   },
   matchBackgroundPreviewMock: {
     flexDirection: 'row',
