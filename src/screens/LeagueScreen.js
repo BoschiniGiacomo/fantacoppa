@@ -31,8 +31,6 @@ export default function LeagueScreen({ route, navigation }) {
   const [userTeamInfo, setUserTeamInfo] = useState(null); // team_name e coach_name
   const [loading, setLoading] = useState(true);
   const [showTeamInfoModal, setShowTeamInfoModal] = useState(false);
-  const [defaultTeamName, setDefaultTeamName] = useState('');
-  const [defaultCoachName, setDefaultCoachName] = useState('');
   const [squadPlayersCount, setSquadPlayersCount] = useState(0);
   const [marketPlayersCount, setMarketPlayersCount] = useState(0);
   const [liveMatchday, setLiveMatchday] = useState(null);
@@ -133,10 +131,6 @@ export default function LeagueScreen({ route, navigation }) {
       updateAutoDetect({ autoLineupMode: !!safeLeague.auto_lineup_mode });
 
       const needsInfo = !!(payloadObj.needs_info && !isSuperuserViewer);
-      if (needsInfo) {
-        setDefaultTeamName(String(payloadObj.default_team_name || '').trim());
-        setDefaultCoachName(String(payloadObj.default_coach_name || '').trim());
-      }
       if (syncTeamModal) {
         setShowTeamInfoModal(needsInfo);
       } else if (!needsInfo) {
@@ -473,8 +467,6 @@ export default function LeagueScreen({ route, navigation }) {
         visible={showTeamInfoModal}
         leagueId={leagueId}
         leagueName={displayName}
-        defaultTeamName={defaultTeamName}
-        defaultCoachName={defaultCoachName}
         defaultTeamLogo={userTeamInfo?.team_logo || 'default_1'}
         onSave={async (teamName, coachName, teamLogo) => {
           const safeLogo = String(teamLogo || userTeamInfo?.team_logo || 'default_1').trim() || 'default_1';
