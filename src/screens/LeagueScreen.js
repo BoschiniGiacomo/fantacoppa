@@ -36,6 +36,7 @@ export default function LeagueScreen({ route, navigation }) {
   const [liveMatchday, setLiveMatchday] = useState(null);
   const [nextDeadline, setNextDeadline] = useState(null);       // { deadline: string, giornata: number }
   const [deadlineCountdown, setDeadlineCountdown] = useState(null); // { days, hours, mins, secs }
+  const [readyToCalculate, setReadyToCalculate] = useState(null); // { giornata, teams_total, teams_with_votes }
   const [toastMsg, setToastMsg] = useState(null);
   const parseDeadlineDate = (value) => parseAppDate(value);
 
@@ -158,6 +159,20 @@ export default function LeagueScreen({ route, navigation }) {
         setSquadPlayersCount(Number(payloadObj.squad_players_count || 0));
         setMarketPlayersCount(Number(payloadObj.market_players_count || 0));
         setLiveMatchday(Number(payloadObj.live_matchday || 0) || null);
+
+        const rtc = payloadObj?.ready_to_calculate;
+        const rtcGiornata = Number(rtc?.giornata || 0);
+        setReadyToCalculate(
+          rtc
+          && rtcGiornata > 0
+          && String(safeLeague?.role || '') === 'admin'
+            ? {
+                giornata: rtcGiornata,
+                teams_total: Number(rtc.teams_total || 0),
+                teams_with_votes: Number(rtc.teams_with_votes || 0),
+              }
+            : null
+        );
 
         const isAutoLineupMode = Number(safeLeague?.auto_lineup_mode || 0) === 1;
         if (isAutoLineupMode) {
@@ -325,29 +340,74 @@ export default function LeagueScreen({ route, navigation }) {
         </View>
       )}
 
-      {/* ── Avvisi setup ── */}
-      {(hasDefaultNames || squadPlayersCount === 0) && (
+      {/* ── Shortcut setup ── */}
+      {(hasDefaultNames || squadPlayersCount === 0 || readyToCalculate) && (
         <View style={styles.tipsWrap}>
           {hasDefaultNames && (
-            <TouchableOpacity style={[styles.tipBanner, { backgroundColor: '#fff8e1' }]} activeOpacity={0.7} onPress={() => navigation.navigate('Settings', { leagueId, section: 'team' })}>
-              <Ionicons name="pencil-outline" size={16} color="#c8a000" />
-              <View style={styles.tipTextWrap}>
-                <Text style={[styles.tipTitle, { color: '#7a6100' }]}>Personalizza la tua squadra</Text>
-                <Text style={[styles.tipDesc, { color: '#9a8200' }]}>Dai un nome unico e scegli il tuo allenatore</Text>
+            <TouchableOpacity
+              style={styles.actionCard}
+              activeOpacity={0.75}
+              onPress={() => navigation.navigate('Settings', { leagueId, section: 'team' })}
+            >
+              <View style={[styles.actionIconWell, styles.actionIconWellIndigo]}>
+                <Ionicons name="shirt-outline" size={18} color="#667eea" />
               </View>
-              <Ionicons name="chevron-forward" size={16} color="#c8a000" />
+              <View style={styles.actionTextWrap}>
+                <Text style={styles.actionTitle}>Personalizza la tua squadra</Text>
+                <Text style={styles.actionDesc}>Nome, allenatore e stemma</Text>
+              </View>
+              <View style={styles.actionCta}>
+                <Text style={[styles.actionCtaText, styles.actionCtaTextIndigo]}>Modifica</Text>
+                <Ionicons name="chevron-forward" size={14} color="#667eea" />
+              </View>
             </TouchableOpacity>
           )}
           {squadPlayersCount === 0 && (
-            <TouchableOpacity style={[styles.tipBanner, { backgroundColor: '#fff3e0' }]} activeOpacity={0.7} onPress={() => navigation.navigate('Market', { leagueId })}>
-              <Ionicons name="cart-outline" size={16} color="#bf5500" />
-              <View style={styles.tipTextWrap}>
-                <Text style={[styles.tipTitle, { color: '#7a3d00' }]}>Costruisci la tua squadra</Text>
-                <Text style={[styles.tipDesc, { color: '#a35200' }]}>La rosa è vuota — vai al mercato!</Text>
+            <TouchableOpacity
+              style={styles.actionCard}
+              activeOpacity={0.75}
+              onPress={() => navigation.navigate('Market', { leagueId })}
+            >
+              <View style={[styles.actionIconWell, styles.actionIconWellAmber]}>
+                <Ionicons name="cart-outline" size={18} color="#c27803" />
               </View>
-              <Ionicons name="chevron-forward" size={16} color="#bf5500" />
+              <View style={styles.actionTextWrap}>
+                <Text style={styles.actionTitle}>Costruisci la tua squadra</Text>
+                <Text style={styles.actionDesc}>Rosa vuota · vai al mercato</Text>
+              </View>
+              <View style={styles.actionCta}>
+                <Text style={[styles.actionCtaText, styles.actionCtaTextAmber]}>Mercato</Text>
+                <Ionicons name="chevron-forward" size={14} color="#c27803" />
+              </View>
             </TouchableOpacity>
           )}
+          {readyToCalculate ? (
+            <TouchableOpacity
+              style={styles.actionCard}
+              activeOpacity={0.75}
+              onPress={() => navigation.navigate('Settings', {
+                leagueId,
+                section: 'calculate',
+                calcGiornata: readyToCalculate.giornata,
+              })}
+            >
+              <View style={[styles.actionIconWell, styles.actionIconWellGreen]}>
+                <Ionicons name="calculator-outline" size={18} color="#2e7d32" />
+              </View>
+              <View style={styles.actionTextWrap}>
+                <Text style={styles.actionTitle}>
+                  Calcola {readyToCalculate.giornata}ª giornata
+                </Text>
+                <Text style={styles.actionDesc}>
+                  Voti su tutte le {readyToCalculate.teams_total} squadre
+                </Text>
+              </View>
+              <View style={styles.actionCta}>
+                <Text style={[styles.actionCtaText, styles.actionCtaTextGreen]}>Calcola</Text>
+                <Ionicons name="chevron-forward" size={14} color="#2e7d32" />
+              </View>
+            </TouchableOpacity>
+          ) : null}
         </View>
       )}
 
@@ -361,45 +421,49 @@ export default function LeagueScreen({ route, navigation }) {
       )}
 
       {/* ── Banner scadenza formazione ── */}
-      {!isAutoLineupMode && nextDeadline && deadlineCountdown && (
-        <TouchableOpacity style={styles.fdBanner} activeOpacity={0.7} onPress={() => navigation.navigate('Formation', { leagueId })}>
-          <View style={styles.fdLeft}>
-            <Ionicons name="football-outline" size={20} color="#667eea" />
-            <View>
-              <Text style={styles.fdTitle}>Formazione {nextDeadline.giornata}ª G</Text>
-              <Text style={styles.fdDate}>
+      {!isAutoLineupMode && nextDeadline && deadlineCountdown && (() => {
+        const c = deadlineCountdown;
+        const totalMins = c.days * 1440 + c.hours * 60 + c.mins;
+        const showSecs = totalMins < 5;
+        const urgent = totalMins < 60;
+        const parts = [];
+        if (c.days > 0) parts.push({ val: c.days, u: 'g' });
+        if (c.hours > 0 || c.days > 0) parts.push({ val: c.hours, u: 'h' });
+        parts.push({ val: c.mins, u: 'm' });
+        if (showSecs) parts.push({ val: c.secs, u: 's' });
+        return (
+          <TouchableOpacity
+            style={[styles.actionCard, styles.fdCard, urgent && styles.fdCardUrgent]}
+            activeOpacity={0.75}
+            onPress={() => navigation.navigate('Formation', { leagueId })}
+          >
+            <View style={[styles.actionIconWell, urgent ? styles.actionIconWellUrgent : styles.actionIconWellIndigo]}>
+              <Ionicons name="football-outline" size={18} color={urgent ? '#e53935' : '#667eea'} />
+            </View>
+            <View style={styles.actionTextWrap}>
+              <Text style={styles.actionTitle}>Formazione {nextDeadline.giornata}ª G</Text>
+              <Text style={styles.actionDesc}>
                 {(() => {
                   const d = parseDeadlineDate(nextDeadline.deadline);
                   if (!d) return 'Data non disponibile';
-                  return `${d.toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric', month: 'short' })} alle ${d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}`;
+                  return `${d.toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric', month: 'short' })} · ${d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}`;
                 })()}
               </Text>
             </View>
-          </View>
-          <View style={styles.fdRight}>
-            <View style={styles.fdCountdown}>
-              {(() => {
-                const c = deadlineCountdown;
-                const totalMins = c.days * 1440 + c.hours * 60 + c.mins;
-                const showSecs = totalMins < 5;
-                const urgent = totalMins < 60;
-                const parts = [];
-                if (c.days > 0) parts.push({ val: c.days, u: 'g' });
-                if (c.hours > 0 || c.days > 0) parts.push({ val: c.hours, u: 'h' });
-                parts.push({ val: c.mins, u: 'm' });
-                if (showSecs) parts.push({ val: c.secs, u: 's' });
-                return parts.map(p => (
+            <View style={styles.fdRight}>
+              <View style={[styles.fdCountdownChip, urgent && styles.fdCountdownChipUrgent]}>
+                {parts.map((p) => (
                   <View key={p.u} style={styles.fdCell}>
                     <Text style={[styles.fdNum, urgent && styles.fdNumUrgent]}>{p.val}</Text>
                     <Text style={[styles.fdUnit, urgent && styles.fdUnitUrgent]}>{p.u}</Text>
                   </View>
-                ));
-              })()}
+                ))}
+              </View>
+              <Ionicons name="chevron-forward" size={14} color={urgent ? '#e53935' : '#99a0b5'} />
             </View>
-            <Ionicons name="chevron-forward" size={16} color="#999" />
-          </View>
-        </TouchableOpacity>
-      )}
+          </TouchableOpacity>
+        );
+      })()}
 
       {/* ── Classifica ── */}
       <View style={styles.card}>
@@ -548,12 +612,43 @@ const styles = StyleSheet.create({
   statLabel: { fontSize: 11, color: '#999', fontWeight: '600', marginTop: 3, textTransform: 'uppercase' },
   statDivider: { width: 1, backgroundColor: '#f0f0f0', marginVertical: 2 },
 
-  // ── Tips / avvisi ──
+  // ── Shortcut / action cards ──
   tipsWrap: { marginHorizontal: 14, marginTop: 10, gap: 8 },
-  tipBanner: { flexDirection: 'row', alignItems: 'center', borderRadius: 10, paddingVertical: 10, paddingHorizontal: 12, gap: 10 },
-  tipTextWrap: { flex: 1 },
-  tipTitle: { fontSize: 13, fontWeight: '600', marginBottom: 1 },
-  tipDesc: { fontSize: 12, lineHeight: 16 },
+  actionCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    gap: 11,
+    borderWidth: 1,
+    borderColor: '#e8eaf1',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  actionIconWell: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  actionIconWellIndigo: { backgroundColor: '#eef1ff' },
+  actionIconWellAmber: { backgroundColor: '#fff4e5' },
+  actionIconWellGreen: { backgroundColor: '#e8f5e9' },
+  actionIconWellUrgent: { backgroundColor: '#fdecea' },
+  actionTextWrap: { flex: 1, minWidth: 0 },
+  actionTitle: { fontSize: 14, fontWeight: '700', color: '#1c1f2a', marginBottom: 2 },
+  actionDesc: { fontSize: 12, color: '#8b90a0', lineHeight: 16 },
+  actionCta: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+  actionCtaText: { fontSize: 12, fontWeight: '700' },
+  actionCtaTextIndigo: { color: '#667eea' },
+  actionCtaTextAmber: { color: '#c27803' },
+  actionCtaTextGreen: { color: '#2e7d32' },
 
   // ── Live banner ──
   liveBanner: {
@@ -565,23 +660,25 @@ const styles = StyleSheet.create({
   liveDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: '#2e7d32' },
   liveBannerText: { fontSize: 14, fontWeight: '700', color: '#2e7d32', flex: 1 },
 
-  // ── Formation deadline banner ──
-  fdBanner: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    backgroundColor: '#f5f7ff', marginHorizontal: 14, marginTop: 10,
-    paddingVertical: 11, paddingHorizontal: 14, borderRadius: 12,
-    borderWidth: 1, borderColor: '#e0e5ff',
-  },
-  fdLeft: { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 },
-  fdTitle: { fontSize: 13, fontWeight: '700', color: '#333' },
-  fdDate: { fontSize: 11, color: '#888', marginTop: 1 },
+  // ── Formation deadline (usa actionCard) ──
+  fdCard: { marginHorizontal: 14, marginTop: 10 },
+  fdCardUrgent: { borderColor: '#f5c6c2', backgroundColor: '#fffafa' },
   fdRight: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  fdCountdown: { flexDirection: 'row', alignItems: 'baseline', gap: 1 },
+  fdCountdownChip: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    backgroundColor: '#f4f6fb',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    gap: 2,
+  },
+  fdCountdownChipUrgent: { backgroundColor: '#fdecea' },
   fdCell: { flexDirection: 'row', alignItems: 'baseline' },
-  fdNum: { fontSize: 17, fontWeight: '800', color: '#333', fontVariant: ['tabular-nums'] },
+  fdNum: { fontSize: 15, fontWeight: '800', color: '#1c1f2a', fontVariant: ['tabular-nums'] },
   fdNumUrgent: { color: '#e53935' },
-  fdUnit: { fontSize: 11, color: '#999', fontWeight: '700', marginRight: 3 },
-  fdUnitUrgent: { color: '#e57373' },
+  fdUnit: { fontSize: 10, color: '#99a0b5', fontWeight: '700', marginRight: 3 },
+  fdUnitUrgent: { color: '#ef9a9a' },
 
   // ── Card generico (classifica, giornate) ──
   card: {

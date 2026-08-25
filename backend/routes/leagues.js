@@ -798,6 +798,73 @@ async function getLeagueByIdForUser(leagueId, userId) {
   return rows[0] || null;
 }
 
+/**
+ * Shortcut admin: prima giornata (ordine ASC) passata, non ghost, non calcolata,
+ * in cui ogni squadra ufficiale della lega (con almeno 1 giocatore in anagrafica)
+ * ha almeno 1 voto in player_ratings.
+ */
+async function findReadyToCalculateMatchday(leagueId, effectiveLeagueId) {
+  try {
+    const teamCountRows = await query(
+      `SELECT COUNT(*)::int AS c
+       FROM teams t
+       WHERE t.league_id = ?
+         AND EXISTS (SELECT 1 FROM players p WHERE p.team_id = t.id)`,
+      [effectiveLeagueId]
+    );
+    const teamsTotal = Number(teamCountRows[0]?.c || 0);
+    if (teamsTotal <= 0) return null;
+
+    const candidates = await query(
+      `SELECT m.giornata
+       FROM matchdays m
+       WHERE m.league_id = ?
+         AND COALESCE(m.is_ghost, 0) = 0
+         AND (m.deadline IS NULL OR m.deadline <= NOW())
+         AND NOT EXISTS (
+           SELECT 1 FROM matchday_results mr
+           WHERE mr.league_id = ? AND mr.giornata = m.giornata
+         )
+       ORDER BY m.giornata ASC
+       LIMIT 25`,
+      [effectiveLeagueId, leagueId]
+    );
+    if (!Array.isArray(candidates) || candidates.length === 0) return null;
+
+    for (const row of candidates) {
+      const giornata = Number(row?.giornata || 0);
+      if (!Number.isFinite(giornata) || giornata <= 0) continue;
+
+      const votedRows = await query(
+        `SELECT COUNT(DISTINCT p.team_id)::int AS c
+         FROM player_ratings pr
+         JOIN players p ON p.id = pr.player_id
+         WHERE pr.league_id = ?
+           AND pr.giornata = ?
+           AND EXISTS (
+             SELECT 1 FROM teams t
+             WHERE t.id = p.team_id
+               AND t.league_id = ?
+               AND EXISTS (SELECT 1 FROM players p2 WHERE p2.team_id = t.id)
+           )`,
+        [effectiveLeagueId, giornata, effectiveLeagueId]
+      );
+      const teamsWithVotes = Number(votedRows[0]?.c || 0);
+      if (teamsWithVotes >= teamsTotal) {
+        return {
+          giornata,
+          teams_total: teamsTotal,
+          teams_with_votes: teamsWithVotes,
+        };
+      }
+    }
+    return null;
+  } catch (error) {
+    console.error('findReadyToCalculateMatchday error:', error);
+    return null;
+  }
+}
+
 async function getUserSuperuserLevel(userId) {
   try {
     const rows = await query(
@@ -1220,6 +1287,11 @@ router.get('/:id/dashboard-data', authenticateToken, async (req, res) => {
 
     const hasSubmittedFormation = Array.isArray(sfRows) && sfRows.length > 0;
 
+    let readyToCalculate = null;
+    if (String(league?.role || '') === 'admin') {
+      readyToCalculate = await findReadyToCalculateMatchday(leagueId, effectiveLeagueId);
+    }
+
     return res.json({
       league,
       needs_info: needsInfo,
@@ -1240,6 +1312,7 @@ router.get('/:id/dashboard-data', authenticateToken, async (req, res) => {
       live_matchday: liveMatchday,
       next_deadline: nextDeadline,
       has_submitted_formation: hasSubmittedFormation,
+      ready_to_calculate: readyToCalculate,
     });
   } catch (error) {
     console.error('Dashboard data error:', error);

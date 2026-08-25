@@ -30,7 +30,7 @@ import { emitMarketBlockChanged } from '../hooks/useMarketBlockPoll';
 import { patchHomeLeaguesMarketLocked, invalidateLeagueWarmCache } from '../services/leagueWarmCache';
 
 export default function SettingsScreen({ route, navigation }) {
-  const { leagueId, section } = route.params || {};
+  const { leagueId, section, calcGiornata } = route.params || {};
   const insets = useSafeAreaInsets();
   const { updateAutoDetect } = useOnboarding();
   const [league, setLeague] = useState(null);
@@ -239,7 +239,7 @@ export default function SettingsScreen({ route, navigation }) {
     if (activeSection === 'calculate' && canViewAdminSections) {
       loadMatchdayStatus();
     }
-  }, [activeSection, isAdmin, canViewAdminSections]);
+  }, [activeSection, isAdmin, canViewAdminSections, calcGiornata]);
 
   useEffect(() => {
     if (autoLineupMode && activeGeneralSubsection === 'formation') {
@@ -685,8 +685,16 @@ export default function SettingsScreen({ route, navigation }) {
       setLoadingCalc(true);
       const res = await leagueService.getMatchdayStatus(leagueId);
       setMatchdayStatuses(res.data || []);
-      // Auto-seleziona la prima giornata calcolabile (con voti, deadline passata, non calcolata)
       const now = new Date();
+      const preferredGiornata = Number(calcGiornata || 0);
+      const preferred = preferredGiornata > 0
+        ? (res.data || []).find((m) => Number(m.giornata) === preferredGiornata && Number(m.is_ghost) !== 1)
+        : null;
+      if (preferred) {
+        setSelectedCalcMatchday(preferred.giornata);
+        return;
+      }
+      // Auto-seleziona la prima giornata calcolabile (con voti, deadline passata, non calcolata)
       const calculable = (res.data || []).filter(m => {
         const d = parseDeadlineDate(m?.deadline);
         const deadlinePassed = !d || d < now;
