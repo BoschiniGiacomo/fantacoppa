@@ -572,9 +572,9 @@ export default function PlayerFormChart({
 
       <View style={styles.highlightRow}>
         <Text style={styles.highlightText}>
-          {isMarket ? 'Più alto' : 'Miglior'}:{' '}
+          {isMarket ? 'Più alto' : 'Migliore'}:{' '}
           <Text style={styles.highlightBest}>{formatRating(layout.best.rating)}</Text>
-          {' '}· {isMarket ? 'Più basso' : 'Peggior'}:{' '}
+          {' '}· {isMarket ? 'Più basso' : 'Peggiore'}:{' '}
           <Text style={styles.highlightWorst}>{formatRating(layout.worst.rating)}</Text>
         </Text>
       </View>

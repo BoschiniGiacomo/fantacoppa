@@ -24,6 +24,7 @@ import EfficiencyBars from '../components/EfficiencyBars';
 import PlayerSeasonTotals from '../components/PlayerSeasonTotals';
 import IconUnderlineTabBar, { FantaCoppaTabIcon } from '../components/IconUnderlineTabBar';
 import CompareVsIcon from '../components/CompareVsIcon';
+import { parseAppDate } from '../utils/dateTime';
 
 const ROLE_COLORS = {
   P: '#0d6efd',
@@ -38,6 +39,8 @@ const ROLE_NAMES = {
   C: 'Centrocampista',
   A: 'Attaccante',
 };
+
+const MONTH_SHORT_IT = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic'];
 
 const MAIN_TABS = [
   {
@@ -87,9 +90,14 @@ function formatRate(value) {
 
 function formatOpponentMatchDate(value) {
   if (!value) return '-';
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return '-';
-  return d.toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  let d = parseAppDate(value);
+  if (!d) {
+    const parsed = new Date(value);
+    d = Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+  if (!d) return '-';
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${day} ${MONTH_SHORT_IT[d.getMonth()]} ${d.getFullYear()}`;
 }
 
 function resolveInitialTabs(entrySource) {

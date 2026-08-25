@@ -584,7 +584,7 @@ function GroupHighlights({ highlights, onPressTeam, onPressMatch }) {
             valueColor={attack ? '#0f172a' : '#94a3b8'}
             label="Miglior attacco"
             detail={attack
-              ? `${Number(attack.goals || 0)} gol · ${Number(attack.played || 0)} p`
+              ? `${Number(attack.goals || 0)} gol · ${Number(attack.played || 0)} partite`
               : null}
             teamName={attack?.team_name}
             logoUrl={attack?.team_logo_url}
@@ -600,7 +600,7 @@ function GroupHighlights({ highlights, onPressTeam, onPressMatch }) {
             valueColor={defense ? '#0f172a' : '#94a3b8'}
             label="Miglior difesa"
             detail={defense
-              ? `${Number(defense.goals_conceded || 0)} subiti · ${Number(defense.played || 0)} p`
+              ? `${Number(defense.goals_conceded || 0)} subiti · ${Number(defense.played || 0)} partite`
               : null}
             teamName={defense?.team_name}
             logoUrl={defense?.team_logo_url}
@@ -1639,8 +1639,9 @@ const styles = StyleSheet.create({
   },
   streakDetailCompact: {
     fontSize: 9,
-    lineHeight: 11,
-    minHeight: 33,
+    lineHeight: 10,
+    minHeight: 30,
+    includeFontPadding: false,
   },
   goalsKpiHead: {
     flexDirection: 'row',
@@ -1793,21 +1794,21 @@ const styles = StyleSheet.create({
   streakValueBlock: {
     width: '100%',
     alignItems: 'center',
+    gap: 4,
   },
   streakDetail: {
-    marginTop: 2,
     fontSize: 10,
     fontWeight: '600',
     color: '#94a3b8',
     textAlign: 'center',
     minHeight: 13,
+    includeFontPadding: false,
   },
   streakTeam: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 4,
-    marginTop: 4,
     maxWidth: '100%',
     paddingHorizontal: 4,
   },
@@ -1816,6 +1817,8 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '700',
     color: '#475569',
+    lineHeight: 12,
+    includeFontPadding: false,
   },
   recordCellHit: { flex: 1, minWidth: 0 },
   recordHead: {

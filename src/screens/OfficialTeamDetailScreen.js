@@ -1655,7 +1655,7 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
                                   {Number(row?.losses || 0)}
                                 </Text>
                                 <Text style={[styles.statsTableCell, styles.outcomesOppPct]}>
-                                  {Number(row?.wins_pct || 0)}%
+                                  {Number(row?.wins_pct || 0).toFixed(1)}%
                                 </Text>
                               </TouchableOpacity>
                             );
