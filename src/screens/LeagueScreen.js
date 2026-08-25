@@ -401,7 +401,7 @@ export default function LeagueScreen({ route, navigation }) {
                 </Text>
                 <Text style={styles.actionDesc}>
                   {readyToCalculate.reason === 'linked_principal'
-                    ? 'La lega principale ha già calcolato'
+                    ? 'Già calcolata in principale'
                     : `Voti su tutte le ${readyToCalculate.teams_total} squadre`}
                 </Text>
               </View>
