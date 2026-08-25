@@ -988,7 +988,7 @@ export default function MatchesScreen() {
                 >
                   <View style={styles.searchSectionHeader}>
                     <Text style={styles.searchSectionLabel}>I più cercati</Text>
-                    <Ionicons name="chevron-forward" size={16} color="#cbd5e1" />
+                    <Ionicons name="trending-up" size={16} color="#cbd5e1" />
                   </View>
                   {trendingPlayers.map((player) => (
                     <TouchableOpacity

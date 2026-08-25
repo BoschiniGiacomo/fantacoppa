@@ -386,7 +386,7 @@ function TrendingPlayersStrip({ competitionId, visible, onPressPlayer, showTeamN
       <View style={styles.trendingWrap}>
         <View style={styles.trendingHeader}>
           <Text style={styles.trendingLabel}>I più cercati</Text>
-          <Ionicons name="chevron-forward" size={16} color="#cbd5e1" />
+          <Ionicons name="trending-up" size={16} color="#cbd5e1" />
         </View>
         <ActivityIndicator size="small" color="#667eea" style={styles.trendingSpinner} />
       </View>
@@ -398,7 +398,7 @@ function TrendingPlayersStrip({ competitionId, visible, onPressPlayer, showTeamN
     <View style={styles.trendingWrap}>
       <View style={styles.trendingHeader}>
         <Text style={styles.trendingLabel}>I più cercati</Text>
-        <Ionicons name="chevron-forward" size={16} color="#cbd5e1" />
+        <Ionicons name="trending-up" size={16} color="#cbd5e1" />
       </View>
       {players.map((player) => {
         const pid = Number(player?.player_id);
