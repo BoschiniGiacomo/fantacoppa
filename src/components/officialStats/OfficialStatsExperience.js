@@ -1114,6 +1114,7 @@ export const GROUP_STATS_BOARDS = [
   { key: 'red_cards', label: 'Cartellini rossi', shortLabel: 'Rossi', pack: 'ion', icon: 'square', accent: '#dc2626', bonusType: 'red_card', empty: 'Nessun cartellino rosso disponibile.' },
   { key: 'penalty_goals', label: 'Rigori segnati', shortLabel: 'Rigori segnati', pack: 'ion', icon: 'disc', accent: '#2563eb', bonusType: 'penalty_goal', keepIconOnWhite: true, empty: 'Nessun rigore segnato disponibile.' },
   { key: 'penalty_saved', label: 'Rigori parati', shortLabel: 'Rigori parati', pack: 'ion', icon: 'hand-left-outline', accent: '#0f766e', bonusType: 'penalty_saved', keepIconOnWhite: true, empty: 'Nessun rigore parato disponibile.' },
+  { key: 'clean_sheets', label: 'Clean sheet', shortLabel: 'Clean sheet', pack: 'mci', icon: 'hand-front-right', accent: '#16a34a', bonusType: 'clean_sheet', keepIconOnWhite: true, empty: 'Nessuna clean sheet disponibile.' },
   { key: 'match_wins', label: 'Partite vinte', shortLabel: 'Partite vinte', pack: 'ion', icon: 'checkmark-circle', accent: '#16a34a', empty: 'Nessuna partita vinta disponibile.' },
   { key: 'edition_wins', label: 'Edizioni vinte', shortLabel: 'Trofei', pack: 'ion', icon: 'trophy', accent: '#d97706', empty: 'Nessun trofeo vinto disponibile.' },
 ];
@@ -1427,8 +1428,7 @@ export default function OfficialStatsExperience({
 
                 <View style={styles.playersSection}>
                   <View style={styles.playersSectionHead}>
-                    <Text style={styles.playersSectionKicker}>Classifiche</Text>
-                    <Text style={styles.playersSectionTitle}>Giocatori</Text>
+                    <Text style={styles.playersSectionKicker}>Giocatori</Text>
                   </View>
                   <TeaserStrip
                     boards={displayBoards}

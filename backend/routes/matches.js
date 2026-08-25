@@ -594,6 +594,7 @@ const EMPTY_TEAM_SEASON_BOARDS = {
   presences: [],
   penalty_goals: [],
   penalty_saved: [],
+  clean_sheets: [],
   match_wins: [],
   edition_wins: [],
 };
@@ -2087,7 +2088,7 @@ function applySharedPhotosToStatsPack(pack) {
   if (!pack || typeof pack !== 'object') return pack;
   const keys = [
     'scorers', 'assistmen', 'presences', 'yellow_cards', 'red_cards',
-    'penalty_goals', 'penalty_saved', 'match_wins', 'edition_wins',
+    'penalty_goals', 'penalty_saved', 'clean_sheets', 'match_wins', 'edition_wins',
   ];
   const lists = keys.map((key) => (Array.isArray(pack[key]) ? pack[key] : []));
   const shared = sharePhotosAcrossLeaderboardLists(lists);
@@ -3889,6 +3890,7 @@ function emptyOfficialGroupSeasonStats() {
     red_cards: [],
     penalty_goals: [],
     penalty_saved: [],
+    clean_sheets: [],
     match_wins: [],
     edition_wins: [],
     team_highlights: emptyOfficialGroupTeamHighlights(),
@@ -4253,7 +4255,8 @@ async function fetchOfficialGroupVoteAggRows(seasonTeamRows) {
         pr.player_id,
         pr.giornata,
         fs.canon_league_id,
-        MAX(COALESCE(pr.penalty_saved, 0))::int AS penalty_saved
+        MAX(COALESCE(pr.penalty_saved, 0))::int AS penalty_saved,
+        MAX(COALESCE(pr.clean_sheet, 0))::int AS clean_sheets
       FROM player_ratings pr
       INNER JOIN franchise_scope fs ON pr.league_id = fs.rating_league_id
       INNER JOIN players p ON p.id = pr.player_id AND p.team_id = fs.team_table_id
@@ -4266,7 +4269,8 @@ async function fetchOfficialGroupVoteAggRows(seasonTeamRows) {
       t.name AS team_name,
       MAX(rated.canon_league_id)::int AS league_id,
       COUNT(DISTINCT (rated.canon_league_id, rated.giornata))::int AS presenze,
-      SUM(rated.penalty_saved)::int AS penalty_saved
+      SUM(rated.penalty_saved)::int AS penalty_saved,
+      SUM(rated.clean_sheets)::int AS clean_sheets
     FROM rated
     INNER JOIN players p ON p.id = rated.player_id
     INNER JOIN teams t ON t.id = p.team_id
@@ -4282,17 +4286,24 @@ async function fetchOfficialGroupVoteLeaderboards(seasonTeamRows) {
   return {
     presences: mapOfficialLeaderboardAggRows(rows, 'presenze'),
     penalty_saved: mapOfficialLeaderboardAggRows(rows, 'penalty_saved'),
+    clean_sheets: mapOfficialLeaderboardAggRows(rows, 'clean_sheets'),
   };
 }
 
 async function fetchOfficialGroupVoteLeaderboardsForLeague(leagueId) {
   const lid = Number(leagueId);
-  if (!Number.isFinite(lid) || lid <= 0) return { presences: [], penalty_saved: [] };
+  if (!Number.isFinite(lid) || lid <= 0) {
+    return { presences: [], penalty_saved: [], clean_sheets: [] };
+  }
   const seasonTeamRows = await query(
     `SELECT id, league_id, name FROM teams WHERE league_id = ? ORDER BY id ASC`,
     [lid]
   );
-  return fetchOfficialGroupVoteLeaderboards(seasonTeamRows).catch(() => ({ presences: [], penalty_saved: [] }));
+  return fetchOfficialGroupVoteLeaderboards(seasonTeamRows).catch(() => ({
+    presences: [],
+    penalty_saved: [],
+    clean_sheets: [],
+  }));
 }
 
 /**
@@ -4615,7 +4626,7 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
     }
 
     const voteBoardsPromise = fetchOfficialGroupVoteLeaderboards(seasonTeamRows)
-      .catch(() => ({ presences: [], penalty_saved: [] }));
+      .catch(() => ({ presences: [], penalty_saved: [], clean_sheets: [] }));
     const editionWinsPromise = fetchOfficialGroupEditionWinLeaderboard(competitionId, targetLeagueIds, {
       restrictTeamIds: seasonTeamIds,
       seasonTeamRows,
@@ -4867,13 +4878,14 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
     const selectedLeagueId =
       targetLeagueIds.length === 1 ? Number(targetLeagueIds[0]) : null;
 
-    const [scorersRaw, assistmenRaw, presencesRaw, penaltyGoalsRaw, penaltySavedRaw, matchWinsDone, editionWinsDone] =
+    const [scorersRaw, assistmenRaw, presencesRaw, penaltyGoalsRaw, penaltySavedRaw, cleanSheetsRaw, matchWinsDone, editionWinsDone] =
       await Promise.all([
         finalizeOfficialTeamLeaderboard(listFromMap(scorersMap), isAbsoluteMode, competitionId),
         finalizeOfficialTeamLeaderboard(listFromMap(assistsMap), isAbsoluteMode, competitionId),
         finalizeOfficialTeamLeaderboard(voteBoards?.presences, isAbsoluteMode, competitionId),
         finalizeOfficialTeamLeaderboard(listFromMap(penaltyGoalsMap), isAbsoluteMode, competitionId),
         finalizeOfficialTeamLeaderboard(voteBoards?.penalty_saved, isAbsoluteMode, competitionId),
+        finalizeOfficialTeamLeaderboard(voteBoards?.clean_sheets, isAbsoluteMode, competitionId),
         finalizeOfficialTeamLeaderboard(matchWinsRaw, isAbsoluteMode, competitionId),
         finalizeOfficialTeamLeaderboard(editionWinsRaw, isAbsoluteMode, competitionId),
       ]);
@@ -4883,6 +4895,7 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
       presences,
       penalty_goals,
       penalty_saved,
+      clean_sheets,
       match_wins,
       edition_wins,
     } = applySharedPhotosToStatsPack({
@@ -4891,6 +4904,7 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
       presences: presencesRaw,
       penalty_goals: penaltyGoalsRaw,
       penalty_saved: penaltySavedRaw,
+      clean_sheets: cleanSheetsRaw,
       match_wins: matchWinsDone,
       edition_wins: editionWinsDone,
     });
@@ -4936,6 +4950,7 @@ router.get('/matches/teams/:teamId/season-stats', authenticateToken, async (req,
       presences,
       penalty_goals,
       penalty_saved,
+      clean_sheets,
       match_wins,
       edition_wins,
     };
@@ -5686,6 +5701,7 @@ async function computeOfficialGroupSeasonStats(competitionId, targetLeagueIds, i
           team_highlights_raw: scorersOnly ? null : (goalsPart.team_highlights_raw || null),
           presences: votePart.presences,
           penalty_saved: scorersOnly ? [] : votePart.penalty_saved,
+          clean_sheets: scorersOnly ? [] : votePart.clean_sheets,
         };
       }),
       allTeamsPromise,
@@ -5708,6 +5724,7 @@ async function computeOfficialGroupSeasonStats(competitionId, targetLeagueIds, i
       const redRaw = parts.flatMap((p) => (Array.isArray(p.red_cards) ? p.red_cards : []));
       const penaltyGoalsRaw = parts.flatMap((p) => (Array.isArray(p.penalty_goals) ? p.penalty_goals : []));
       const penaltySavedRaw = parts.flatMap((p) => (Array.isArray(p.penalty_saved) ? p.penalty_saved : []));
+      const cleanSheetsRaw = parts.flatMap((p) => (Array.isArray(p.clean_sheets) ? p.clean_sheets : []));
       const winningPairs = parts.flatMap((p) => (Array.isArray(p.winning_pairs) ? p.winning_pairs : []));
       const matchWinsRawPromise = fetchOfficialGroupMatchWinLeaderboard(winningPairs, allSeasonTeams).catch(() => []);
       const [
@@ -5716,6 +5733,7 @@ async function computeOfficialGroupSeasonStats(competitionId, targetLeagueIds, i
         red_cards,
         penalty_goals,
         penalty_saved,
+        clean_sheets,
         match_wins,
         edition_wins,
       ] = await Promise.all([
@@ -5724,6 +5742,7 @@ async function computeOfficialGroupSeasonStats(competitionId, targetLeagueIds, i
         mergeAbsoluteStatsByCluster(redRaw, compId),
         mergeAbsoluteStatsByCluster(penaltyGoalsRaw, compId),
         mergeAbsoluteStatsByCluster(penaltySavedRaw, compId),
+        mergeAbsoluteStatsByCluster(cleanSheetsRaw, compId),
         matchWinsRawPromise.then((rows) => mergeAbsoluteStatsByCluster(rows, compId)),
         mergeAbsoluteStatsByCluster(await editionPromise, compId),
       ]);
@@ -5735,6 +5754,7 @@ async function computeOfficialGroupSeasonStats(competitionId, targetLeagueIds, i
         red_cards,
         penalty_goals,
         penalty_saved,
+        clean_sheets,
         match_wins,
         edition_wins,
         team_highlights: pickOfficialGroupTeamHighlightsFromRaw(
@@ -5808,19 +5828,20 @@ async function computeOfficialGroupSeasonStatsCore(
   }
 
   const voteAggPromise = skipPresences
-    ? Promise.resolve({ presences: [], penalty_saved: [] })
+    ? Promise.resolve({ presences: [], penalty_saved: [], clean_sheets: [] })
     : fetchOfficialGroupVoteLeaderboards(seasonTeamRows)
       .then(async (boards) => {
         if (isAbsoluteMode && !keepPlayerIds) {
-          const [presences, penalty_saved] = await Promise.all([
+          const [presences, penalty_saved, clean_sheets] = await Promise.all([
             mergeAbsolutePresencesByCluster(boards.presences, compId),
             mergeAbsoluteStatsByCluster(boards.penalty_saved, compId),
+            mergeAbsoluteStatsByCluster(boards.clean_sheets, compId),
           ]);
-          return { presences, penalty_saved };
+          return { presences, penalty_saved, clean_sheets };
         }
         return boards;
       })
-      .catch(() => ({ presences: [], penalty_saved: [] }));
+      .catch(() => ({ presences: [], penalty_saved: [], clean_sheets: [] }));
 
   const matchIds = (seasonMatches || []).map((m) => Number(m.id)).filter((n) => Number.isFinite(n) && n > 0);
   const seasonEndedMatchIds = await fetchMatchEndedIds(matchIds);
@@ -6147,7 +6168,7 @@ async function computeOfficialGroupSeasonStatsCore(
     ? Promise.resolve([])
     : fetchOfficialGroupMatchWinLeaderboard(winningPairs, seasonTeamRows).catch(() => []);
   const [voteAgg, matchWinsRaw] = await Promise.all([voteAggPromise, matchWinsPromise]);
-  const [scorers, assistmen, yellow_cards, red_cards, presenceRows, penalty_goals, penalty_saved, match_wins] =
+  const [scorers, assistmen, yellow_cards, red_cards, presenceRows, penalty_goals, penalty_saved, clean_sheets, match_wins] =
     await Promise.all([
       annotateDuplicateLeaderboardPlayerNames(listFromMap(scorersMap), compId),
       annotateDuplicateLeaderboardPlayerNames(listFromMap(assistsMap), compId),
@@ -6156,6 +6177,7 @@ async function computeOfficialGroupSeasonStatsCore(
       annotateDuplicateLeaderboardPlayerNames(Array.isArray(voteAgg?.presences) ? voteAgg.presences : [], compId),
       annotateDuplicateLeaderboardPlayerNames(listFromMap(penaltyGoalsMap), compId),
       annotateDuplicateLeaderboardPlayerNames(Array.isArray(voteAgg?.penalty_saved) ? voteAgg.penalty_saved : [], compId),
+      annotateDuplicateLeaderboardPlayerNames(Array.isArray(voteAgg?.clean_sheets) ? voteAgg.clean_sheets : [], compId),
       annotateDuplicateLeaderboardPlayerNames(Array.isArray(matchWinsRaw) ? matchWinsRaw : [], compId),
     ]);
   return applySharedPhotosToStatsPack({
@@ -6166,6 +6188,7 @@ async function computeOfficialGroupSeasonStatsCore(
     red_cards,
     penalty_goals,
     penalty_saved,
+    clean_sheets,
     match_wins,
     edition_wins: [],
     team_highlights: scorersOnly
@@ -6670,6 +6693,7 @@ router.get('/matches/groups/:groupId/season-stats', authenticateToken, async (re
       red_cards: stats.red_cards,
       penalty_goals: stats.penalty_goals,
       penalty_saved: stats.penalty_saved,
+      clean_sheets: stats.clean_sheets,
       match_wins: stats.match_wins,
       edition_wins: stats.edition_wins,
       team_highlights: stats.team_highlights || emptyOfficialGroupTeamHighlights(),

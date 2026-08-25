@@ -348,6 +348,7 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
   const [statsPresences, setStatsPresences] = useState([]);
   const [statsPenaltyGoals, setStatsPenaltyGoals] = useState([]);
   const [statsPenaltySaved, setStatsPenaltySaved] = useState([]);
+  const [statsCleanSheets, setStatsCleanSheets] = useState([]);
   const [statsMatchWins, setStatsMatchWins] = useState([]);
   const [statsEditionWins, setStatsEditionWins] = useState([]);
   const [outcomesOpponentsExpanded, setOutcomesOpponentsExpanded] = useState(false);
@@ -587,6 +588,7 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
         setStatsPresences(Array.isArray(payload?.presences) ? payload.presences : []);
         setStatsPenaltyGoals(Array.isArray(payload?.penalty_goals) ? payload.penalty_goals : []);
         setStatsPenaltySaved(Array.isArray(payload?.penalty_saved) ? payload.penalty_saved : []);
+        setStatsCleanSheets(Array.isArray(payload?.clean_sheets) ? payload.clean_sheets : []);
         setStatsMatchWins(Array.isArray(payload?.match_wins) ? payload.match_wins : []);
         setStatsEditionWins(Array.isArray(payload?.edition_wins) ? payload.edition_wins : []);
         setStatsSeasonLeagueId(payload?.selected_league_id != null ? Number(payload.selected_league_id) : null);
@@ -786,6 +788,7 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
       presences: statsPresences,
       penalty_goals: statsPenaltyGoals,
       penalty_saved: statsPenaltySaved,
+      clean_sheets: statsCleanSheets,
       match_wins: statsMatchWins,
       edition_wins: statsEditionWins,
     }),
@@ -795,6 +798,7 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
       statsPresences,
       statsPenaltyGoals,
       statsPenaltySaved,
+      statsCleanSheets,
       statsMatchWins,
       statsEditionWins,
     ]

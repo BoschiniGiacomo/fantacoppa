@@ -355,6 +355,7 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
   const [statsRedCards, setStatsRedCards] = useState([]);
   const [statsPenaltyGoals, setStatsPenaltyGoals] = useState([]);
   const [statsPenaltySaved, setStatsPenaltySaved] = useState([]);
+  const [statsCleanSheets, setStatsCleanSheets] = useState([]);
   const [statsMatchWins, setStatsMatchWins] = useState([]);
   const [statsEditionWins, setStatsEditionWins] = useState([]);
   const [statsTeamHighlights, setStatsTeamHighlights] = useState(EMPTY_TEAM_HIGHLIGHTS);
@@ -512,6 +513,7 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
         setStatsRedCards(Array.isArray(payload?.red_cards) ? payload.red_cards : []);
         setStatsPenaltyGoals(Array.isArray(payload?.penalty_goals) ? payload.penalty_goals : []);
         setStatsPenaltySaved(Array.isArray(payload?.penalty_saved) ? payload.penalty_saved : []);
+        setStatsCleanSheets(Array.isArray(payload?.clean_sheets) ? payload.clean_sheets : []);
         setStatsMatchWins(Array.isArray(payload?.match_wins) ? payload.match_wins : []);
         setStatsEditionWins(Array.isArray(payload?.edition_wins) ? payload.edition_wins : []);
         setStatsTeamHighlights(payload?.team_highlights && typeof payload.team_highlights === 'object'
@@ -702,6 +704,7 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
       red_cards: statsRedCards,
       penalty_goals: statsPenaltyGoals,
       penalty_saved: statsPenaltySaved,
+      clean_sheets: statsCleanSheets,
       match_wins: statsMatchWins,
       edition_wins: statsEditionWins,
     }),
@@ -713,6 +716,7 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
       statsRedCards,
       statsPenaltyGoals,
       statsPenaltySaved,
+      statsCleanSheets,
       statsMatchWins,
       statsEditionWins,
     ]
@@ -1324,7 +1328,7 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
                 {...tabScrollHeroProps}
               >
                 <HeroListSpacer height={overlayPad} />
-                <Text style={styles.hallSectionTitle}>Classifica titoli</Text>
+                <Text style={styles.hallSectionTitle}>Titoli</Text>
                 <View style={styles.hallTableWrap}>
                   <View style={[styles.seasonTableHeader, styles.hallTableHeader]}>
                     <Text style={[styles.seasonTh, styles.hallThPos, { textAlign: 'center' }]}>Pos.</Text>
@@ -1420,14 +1424,14 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
                 </View>
                 {renderHallWinnersChronology(
                   hallWinnersByYear,
-                  `Cronologia vincitori ${groupName}`,
+                  `${groupName}`,
                   hallWinnersExpanded,
                   () => setHallWinnersExpanded((prev) => !prev),
                   'hall-champ',
                 )}
                 {renderHallWinnersChronology(
                   hallWineWinnersByYear,
-                  'Cronologia vincitori Trofeo del Vino',
+                  'Trofeo del Vino',
                   hallWineWinnersExpanded,
                   () => setHallWineWinnersExpanded((prev) => !prev),
                   'hall-wine',

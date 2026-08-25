@@ -311,7 +311,7 @@ export default function DashboardScreen({ navigation, route }) {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>Le Mie Leghe</Text>
+        <Text style={styles.title}>Le mie leghe</Text>
         <View style={styles.searchContainer}>
           <Ionicons name="search" size={20} color="#666" style={styles.searchIcon} />
           <TextInput
