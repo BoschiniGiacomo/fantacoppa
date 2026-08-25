@@ -3520,22 +3520,35 @@ export default function MatchDetailScreen({ navigation, route }) {
           </>
         );
 
+        const tabBar = (
+          <View style={hasHeroBg ? styles.iconTabBarFlush : styles.iconTabBar}>
+            <IconUnderlineTabBar
+              tabs={MATCH_DETAIL_TABS.filter((t) => !t.requiresVotes || showVotesTab)}
+              activeKey={activeTab}
+              onSelect={setActiveTab}
+            />
+          </View>
+        );
+
         if (hasHeroBg) {
           return (
-            <TopShell
-              {...topShellProps}
-              style={[
-                styles.heroColumn,
-                styles.heroColumnWithBg,
-                showHeroScorerList && styles.heroColumnWithScorersBelow,
-              ]}
-            >
-              <MatchHeroBackgroundOverlay />
-              <View style={styles.heroBgForeground}>
-                {headerRow}
-                {heroBody}
-              </View>
-            </TopShell>
+            <View style={styles.heroWithTabsWrap}>
+              <TopShell
+                {...topShellProps}
+                style={[
+                  styles.heroColumn,
+                  styles.heroColumnWithBg,
+                  showHeroScorerList && styles.heroColumnWithScorersBelow,
+                ]}
+              >
+                <MatchHeroBackgroundOverlay />
+                <View style={styles.heroBgForeground}>
+                  {headerRow}
+                  {heroBody}
+                </View>
+              </TopShell>
+              {tabBar}
+            </View>
           );
         }
 
@@ -3550,17 +3563,10 @@ export default function MatchDetailScreen({ navigation, route }) {
             >
               {heroBody}
             </View>
+            {tabBar}
           </>
         );
       })()}
-
-      <View style={[styles.iconTabBar, matchHeroBgUri ? styles.iconTabBarOnBg : null]}>
-        <IconUnderlineTabBar
-          tabs={MATCH_DETAIL_TABS.filter((t) => !t.requiresVotes || showVotesTab)}
-          activeKey={activeTab}
-          onSelect={setActiveTab}
-        />
-      </View>
 
       <ScrollView
         ref={matchDetailScrollRef}
@@ -5534,12 +5540,22 @@ const styles = StyleSheet.create({
   headerOnBg: {
     backgroundColor: 'transparent',
     borderBottomWidth: 0,
+    borderBottomColor: 'transparent',
   },
   headerRight: { flexDirection: 'row', gap: 8 },
-  iconBtn: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#ddd', backgroundColor: '#fff' },
+  iconBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#ddd',
+    backgroundColor: '#fff',
+  },
   iconBtnOnBg: {
-    backgroundColor: 'rgba(255,255,255,0.16)',
-    borderColor: 'rgba(255,255,255,0.32)',
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    borderColor: 'rgba(255,255,255,0.26)',
   },
   heroColumn: {
     width: '100%',
@@ -5547,7 +5563,10 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   heroColumnWithBg: {
-    backgroundColor: '#0b1220',
+    backgroundColor: '#fff',
+  },
+  heroWithTabsWrap: {
+    backgroundColor: '#fff',
   },
   heroBgImage: {
     width: '100%',
@@ -5720,8 +5739,10 @@ const styles = StyleSheet.create({
     borderTopColor: '#d1d5db',
     backgroundColor: '#fff',
   },
-  iconTabBarOnBg: {
+  iconTabBarFlush: {
+    marginTop: 0,
     borderTopWidth: 0,
+    backgroundColor: '#fff',
   },
   content: { flex: 1, paddingHorizontal: 12, paddingTop: 12 },
   card: { backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#ececec', padding: 12, marginBottom: 12 },
