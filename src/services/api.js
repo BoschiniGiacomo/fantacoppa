@@ -664,6 +664,20 @@ export const matchesService = {
   getFollowSetup: () => api.get('matches/follow-setup'),
   searchOfficial: (queryText) =>
     api.get('matches/search', { params: { q: String(queryText || '').trim() } }),
+  /** Top giocatori più aperti (ultimi 30gg). competitionId opzionale = filtro gruppo. */
+  getTrendingPlayers: (competitionId) => {
+    const cid = Number(competitionId);
+    const params =
+      Number.isFinite(cid) && cid > 0 ? { competition_id: cid } : undefined;
+    return api.get('matches/players/trending', { params });
+  },
+  /** Fire-and-forget apertura scheda giocatore ufficiale. */
+  trackPlayerProfileOpen: (payload) =>
+    api.post('matches/players/profile-open', {
+      player_id: Number(payload?.player_id) || 0,
+      league_id: Number(payload?.league_id) || undefined,
+      competition_id: Number(payload?.competition_id) || undefined,
+    }),
   /** Body: { competitions: [{ official_group_id, heart_team_names[], notify_team_names[] }] } */
   saveFollowPreferences: (payload) => api.put('matches/follow-preferences', payload),
 };

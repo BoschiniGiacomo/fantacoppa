@@ -154,5 +154,12 @@ app.listen(PORT, () => {
   runEmailDiagnostics('server_startup').catch((err) => {
     console.error('[DEBUG_FORGOT_BREVO] diagnostica avvio fallita:', err?.message || err);
   });
+
+  try {
+    const { startPlayerProfileOpensCleanupJob } = require('./utils/playerProfileOpens');
+    startPlayerProfileOpensCleanupJob();
+  } catch (err) {
+    console.warn('[playerProfileOpens] job non avviato:', err?.message || err);
+  }
 });
 

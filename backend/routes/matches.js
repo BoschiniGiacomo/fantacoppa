@@ -33,6 +33,10 @@ const {
 const { createShortTtlCache } = require('../utils/shortTtlCache');
 const { SQL_WHERE_PRESENCE_VOTE } = require('../utils/voteRating');
 const {
+  trackPlayerProfileOpen,
+  getTrendingPlayers,
+} = require('../utils/playerProfileOpens');
+const {
   ensureOfficialMatchPredictionSchema,
   loadOfficialMatchPrediction,
   setOfficialMatchPrediction,
@@ -2519,6 +2523,51 @@ router.get('/matches/search', authenticateToken, async (req, res) => {
   } catch (err) {
     if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
     return res.status(500).json({ message: 'Errore ricerca ufficiale', error: err.message });
+  }
+});
+
+// POST /matches/players/profile-open — track apertura scheda (dedupe 1/user/player/giorno)
+router.post('/matches/players/profile-open', authenticateToken, async (req, res) => {
+  try {
+    const userId = Number(req.user?.userId);
+    const playerId = Number(req.body?.player_id);
+    const competitionId = Number(req.body?.competition_id);
+    if (!Number.isFinite(userId) || userId <= 0) {
+      return res.status(401).json({ message: 'Non autenticato' });
+    }
+    if (!Number.isFinite(playerId) || playerId <= 0) {
+      return res.status(400).json({ message: 'player_id non valido' });
+    }
+    const result = await trackPlayerProfileOpen({
+      userId,
+      playerId,
+      competitionId: Number.isFinite(competitionId) && competitionId > 0 ? competitionId : 0,
+    });
+    return res.json({ ok: true, counted: !!result?.counted });
+  } catch (err) {
+    if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
+    // Non bloccare l'UX se il track fallisce
+    console.warn('[profile-open]', err?.message || err);
+    return res.json({ ok: true, counted: false });
+  }
+});
+
+// GET /matches/players/trending?competition_id= — top 5 aperture ultimi 30gg
+router.get('/matches/players/trending', authenticateToken, async (req, res) => {
+  try {
+    const rawComp = req.query?.competition_id;
+    const competitionId =
+      rawComp == null || String(rawComp).trim() === ''
+        ? null
+        : Number(rawComp);
+    const players = await getTrendingPlayers({
+      competitionId:
+        Number.isFinite(competitionId) && competitionId > 0 ? competitionId : null,
+    });
+    return res.json({ players: Array.isArray(players) ? players : [] });
+  } catch (err) {
+    if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
+    return res.status(500).json({ message: 'Errore caricamento giocatori più cercati', error: err.message });
   }
 });
 

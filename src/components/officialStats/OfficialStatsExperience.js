@@ -21,6 +21,7 @@ import { PlayerPhotoImage, TeamLogoImage } from '../StableCachedImage';
 import BonusIcon from '../BonusIcon';
 import { parseAppDate } from '../../utils/dateTime';
 import { buildCompetitionRanks, formatCompetitionRank } from '../../utils/standingsRanking';
+import { matchesService } from '../../services/api';
 
 export const ABSOLUTE_STATS_KEY = 'absolute';
 export const STATS_LEADERBOARD_PREVIEW = 5;
@@ -338,6 +339,92 @@ function StatsSearchBar({ value, onChange, placeholder }) {
           <Ionicons name="close-circle" size={16} color="#94a3b8" />
         </TouchableOpacity>
       ) : null}
+    </View>
+  );
+}
+
+function TrendingPlayersStrip({ competitionId, visible, onPressPlayer, showTeamName = true }) {
+  const [players, setPlayers] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const seqRef = useRef(0);
+
+  useEffect(() => {
+    if (!visible) return undefined;
+    const cid = Number(competitionId);
+    if (!Number.isFinite(cid) || cid <= 0) {
+      setPlayers([]);
+      return undefined;
+    }
+
+    seqRef.current += 1;
+    const seq = seqRef.current;
+    let cancelled = false;
+
+    const run = async () => {
+      try {
+        setLoading(true);
+        const res = await matchesService.getTrendingPlayers(cid);
+        if (cancelled || seq !== seqRef.current) return;
+        setPlayers(Array.isArray(res?.data?.players) ? res.data.players : []);
+      } catch (_) {
+        if (cancelled || seq !== seqRef.current) return;
+        setPlayers([]);
+      } finally {
+        if (!cancelled && seq === seqRef.current) setLoading(false);
+      }
+    };
+
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [visible, competitionId]);
+
+  if (!visible) return null;
+  if (loading) {
+    return (
+      <View style={styles.trendingWrap}>
+        <Text style={styles.trendingLabel}>Più cercati</Text>
+        <ActivityIndicator size="small" color="#667eea" style={styles.trendingSpinner} />
+      </View>
+    );
+  }
+  if (!players.length) return null;
+
+  return (
+    <View style={styles.trendingWrap}>
+      <Text style={styles.trendingLabel}>Più cercati</Text>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.trendingRow}
+        keyboardShouldPersistTaps="handled"
+      >
+        {players.map((player) => {
+          const pid = Number(player?.player_id);
+          return (
+            <TouchableOpacity
+              key={`trend-${pid}-${player?.league_id}`}
+              style={styles.trendingChip}
+              activeOpacity={0.78}
+              onPress={() => onPressPlayer?.(player)}
+            >
+              <PlayerPhotoImage
+                photoPath={player?.photo_path || undefined}
+                style={styles.trendingPhoto}
+                fallbackStyle={styles.trendingPhotoFallback}
+                fallbackIconSize={12}
+              />
+              <View style={styles.trendingMeta}>
+                <Text style={styles.trendingName} numberOfLines={1}>{String(player?.name || '').trim()}</Text>
+                {showTeamName && player?.team_name ? (
+                  <Text style={styles.trendingTeam} numberOfLines={1}>{player.team_name}</Text>
+                ) : null}
+              </View>
+            </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
     </View>
   );
 }
@@ -1178,6 +1265,7 @@ export default function OfficialStatsExperience({
   onPressPlayer,
   onPressTeam,
   onPressMatch,
+  competitionId = null,
   searchPlaceholder = 'Cerca giocatore o squadra',
   searchIncludesTeam = true,
   onScroll,
@@ -1320,6 +1408,12 @@ export default function OfficialStatsExperience({
             }}
             placeholder={searchPlaceholder}
           />
+          <TrendingPlayersStrip
+            competitionId={competitionId}
+            visible={!searching}
+            onPressPlayer={onPressPlayer}
+            showTeamName={searchIncludesTeam}
+          />
           {!searching ? (
             <CategoryChips
               boards={displayBoards}
@@ -1365,6 +1459,12 @@ export default function OfficialStatsExperience({
                     setExpanded(false);
                   }}
                   placeholder={searchPlaceholder}
+                />
+                <TrendingPlayersStrip
+                  competitionId={competitionId}
+                  visible={!searching}
+                  onPressPlayer={onPressPlayer}
+                  showTeamName={searchIncludesTeam}
                 />
                 {!searching ? (
                   <CategoryChips
@@ -1552,6 +1652,66 @@ const styles = StyleSheet.create({
     borderColor: '#e2e8f0',
   },
   searchInput: { flex: 1, fontSize: 14, color: '#0f172a', paddingVertical: 0 },
+  trendingWrap: {
+    marginBottom: 10,
+  },
+  trendingLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#94a3b8',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+    marginBottom: 6,
+    paddingHorizontal: 2,
+  },
+  trendingSpinner: {
+    alignSelf: 'flex-start',
+    marginLeft: 4,
+  },
+  trendingRow: {
+    gap: 8,
+    paddingRight: 4,
+  },
+  trendingChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    maxWidth: 180,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    borderRadius: 12,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#e8edf3',
+  },
+  trendingPhoto: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+  },
+  trendingPhotoFallback: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    backgroundColor: '#eef2ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  trendingMeta: {
+    flexShrink: 1,
+    minWidth: 0,
+  },
+  trendingName: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  trendingTeam: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#94a3b8',
+    marginTop: 1,
+  },
   catChip: {
     flexDirection: 'row',
     alignItems: 'center',

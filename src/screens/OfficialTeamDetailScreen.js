@@ -30,6 +30,7 @@ import OfficialKnockoutBracket from '../components/OfficialKnockoutBracket';
 import OfficialTeamTrophyBoard from '../components/OfficialTeamTrophyBoard';
 import { parseAppDate } from '../utils/dateTime';
 import { matchDisplayScoreParts, matchOutcomeScoreParts } from '../utils/matchDisplayScore';
+import { trackOfficialPlayerProfileOpen } from '../utils/trackOfficialPlayerProfileOpen';
 import OfficialStatsExperience, {
   ABSOLUTE_STATS_KEY,
   TEAM_STATS_BOARDS,
@@ -740,6 +741,11 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
     const playerId = Number(row?.player_id);
     const leagueId = Number(row?.league_id) || Number(statsSeasonLeagueId) || Number(teamSeasonLeagueId);
     if (!playerId || !leagueId) return;
+    trackOfficialPlayerProfileOpen({
+      playerId,
+      leagueId,
+      competitionId,
+    });
     navigation.navigate('PlayerStats', {
       playerId,
       leagueId,
@@ -747,7 +753,7 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
       playerPhotoPath: row?.photo_path || undefined,
       entrySource: 'official',
     });
-  }, [navigation, statsSeasonLeagueId, teamSeasonLeagueId]);
+  }, [navigation, statsSeasonLeagueId, teamSeasonLeagueId, competitionId]);
 
   const team = data?.team || {};
   const favorites = data?.favorites || {};
@@ -1557,6 +1563,7 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
               boards={statsBoards}
               general={statsGeneral}
               outcomes={statsOutcomes}
+              competitionId={competitionId}
               searchPlaceholder="Cerca giocatore"
               searchIncludesTeam={false}
               extraAfterOverview={(

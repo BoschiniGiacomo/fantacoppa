@@ -37,6 +37,7 @@ import {
   matchListNeedsLiveTick,
 } from '../utils/officialMatchLiveClock';
 import { parseAppDate } from '../utils/dateTime';
+import { trackOfficialPlayerProfileOpen } from '../utils/trackOfficialPlayerProfileOpen';
 
 /** Elenco partite: poll veloce solo in finestra live / pre-kickoff. */
 const MATCHES_LIST_POLL_MS_LIVE = 4000;
@@ -329,9 +330,12 @@ export default function MatchesScreen() {
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchTeams, setSearchTeams] = useState([]);
   const [searchPlayers, setSearchPlayers] = useState([]);
+  const [trendingPlayers, setTrendingPlayers] = useState([]);
+  const [trendingLoading, setTrendingLoading] = useState(false);
   const [headerHeight, setHeaderHeight] = useState(0);
   const searchInputRef = useRef(null);
   const searchSeqRef = useRef(0);
+  const trendingSeqRef = useRef(0);
 
   const onHeaderLayout = useCallback((event) => {
     const nextHeight = Math.round(event.nativeEvent.layout.height);
@@ -522,7 +526,9 @@ export default function MatchesScreen() {
     setSearchQuery('');
     setSearchTeams([]);
     setSearchPlayers([]);
+    setTrendingPlayers([]);
     setSearchLoading(false);
+    setTrendingLoading(false);
   }, []);
 
   const toggleSearch = useCallback(() => {
@@ -581,10 +587,50 @@ export default function MatchesScreen() {
     };
   }, [searchOpen, searchQuery]);
 
+  useEffect(() => {
+    if (!searchOpen) return undefined;
+    const q = String(searchQuery || '').trim();
+    if (q.length > 0) {
+      setTrendingPlayers([]);
+      setTrendingLoading(false);
+      return undefined;
+    }
+
+    trendingSeqRef.current += 1;
+    const seq = trendingSeqRef.current;
+    let cancelled = false;
+
+    const run = async () => {
+      try {
+        setTrendingLoading(true);
+        const res = await matchesService.getTrendingPlayers();
+        if (cancelled || seq !== trendingSeqRef.current) return;
+        setTrendingPlayers(Array.isArray(res?.data?.players) ? res.data.players : []);
+      } catch (_) {
+        if (cancelled || seq !== trendingSeqRef.current) return;
+        setTrendingPlayers([]);
+      } finally {
+        if (!cancelled && seq === trendingSeqRef.current) {
+          setTrendingLoading(false);
+        }
+      }
+    };
+
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [searchOpen, searchQuery]);
+
   const goToOfficialPlayer = useCallback((player) => {
     const playerId = Number(player?.player_id);
     const leagueId = Number(player?.league_id);
     if (!playerId || !leagueId) return;
+    trackOfficialPlayerProfileOpen({
+      playerId,
+      leagueId,
+      competitionId: player?.competition_id,
+    });
     closeSearch();
     navigation.navigate('PlayerStats', {
       playerId,
@@ -609,7 +655,10 @@ export default function MatchesScreen() {
   }, [navigation, closeSearch]);
 
   const showSearchResults = searchOpen && (searchLoading || searchQuery.trim().length >= 2);
+  const showTrending = searchOpen && searchQuery.trim().length === 0;
+  const showSearchPanel = showSearchResults || showTrending;
   const hasSearchResults = searchTeams.length > 0 || searchPlayers.length > 0;
+  const hasTrending = trendingPlayers.length > 0;
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -920,10 +969,49 @@ export default function MatchesScreen() {
         </TouchableOpacity>
       ) : null}
 
-      {showSearchResults && headerHeight > 0 ? (
+      {showSearchPanel && headerHeight > 0 ? (
         <View style={[styles.searchResultsOverlay, { top: headerHeight }]} pointerEvents="box-none">
           <View style={styles.searchResultsPanel}>
-            {searchLoading ? (
+            {showTrending ? (
+              trendingLoading ? (
+                <View style={styles.searchResultsLoading}>
+                  <ActivityIndicator size="small" color="#667eea" />
+                </View>
+              ) : !hasTrending ? (
+                <Text style={styles.searchResultsEmpty}>Digita almeno 2 caratteri per cercare</Text>
+              ) : (
+                <ScrollView
+                  style={styles.searchResultsScroll}
+                  keyboardShouldPersistTaps="handled"
+                  nestedScrollEnabled
+                  showsVerticalScrollIndicator={false}
+                >
+                  <Text style={styles.searchSectionLabel}>Più cercati</Text>
+                  {trendingPlayers.map((player) => (
+                    <TouchableOpacity
+                      key={`trend-${player.player_id}-${player.league_id}`}
+                      style={styles.searchResultRow}
+                      activeOpacity={0.75}
+                      onPress={() => goToOfficialPlayer(player)}
+                    >
+                      <PlayerPhotoImage
+                        photoPath={player.photo_path || undefined}
+                        style={styles.searchPlayerPhoto}
+                        fallbackStyle={styles.searchPlayerPhotoFallback}
+                        fallbackIconSize={16}
+                      />
+                      <View style={styles.searchResultMeta}>
+                        <Text style={styles.searchResultTitle} numberOfLines={1}>{player.name}</Text>
+                        <Text style={styles.searchResultSubtitle} numberOfLines={1}>
+                          {[player.team_name, player.competition_name].filter(Boolean).join(' · ') || 'Giocatore ufficiale'}
+                        </Text>
+                      </View>
+                      <Ionicons name="trending-up" size={16} color="#cbd5e1" />
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              )
+            ) : searchLoading ? (
               <View style={styles.searchResultsLoading}>
                 <ActivityIndicator size="small" color="#667eea" />
               </View>
@@ -1075,6 +1163,16 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#94a3b8',
     textAlign: 'center',
+  },
+  searchSectionLabel: {
+    paddingHorizontal: 6,
+    paddingTop: 8,
+    paddingBottom: 2,
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#94a3b8',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
   },
   searchResultRow: {
     flexDirection: 'row',

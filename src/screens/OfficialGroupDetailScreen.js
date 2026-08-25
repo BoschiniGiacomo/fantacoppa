@@ -27,6 +27,7 @@ import { EMPTY_OFFICIAL_KNOCKOUT, hasOfficialKnockoutBracket } from '../utils/kn
 import OfficialKnockoutBracket from '../components/OfficialKnockoutBracket';
 import { parseAppDate } from '../utils/dateTime';
 import { matchDisplayScoreParts } from '../utils/matchDisplayScore';
+import { trackOfficialPlayerProfileOpen } from '../utils/trackOfficialPlayerProfileOpen';
 import OfficialStatsExperience, {
   ABSOLUTE_STATS_KEY,
   GROUP_STATS_BOARDS,
@@ -611,6 +612,11 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
     const playerId = Number(row?.player_id);
     const leagueId = Number(row?.league_id);
     if (!playerId || !leagueId) return;
+    trackOfficialPlayerProfileOpen({
+      playerId,
+      leagueId,
+      competitionId,
+    });
     navigation.navigate('PlayerStats', {
       playerId,
       leagueId,
@@ -618,7 +624,7 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
       playerPhotoPath: row?.photo_path || undefined,
       entrySource: 'official',
     });
-  }, [navigation]);
+  }, [navigation, competitionId]);
 
   useEffect(() => {
     if (activeTab !== 'hall') return;
@@ -1301,6 +1307,7 @@ export default function OfficialGroupDetailScreen({ navigation, route }) {
               }}
               boards={statsBoards}
               teamHighlights={statsTeamHighlights}
+              competitionId={competitionId}
               onPressPlayer={openPlayerFromStatsRow}
               onPressTeam={openOfficialTeamDetail}
               onPressMatch={(matchId) => navigation.navigate('MatchDetail', {
