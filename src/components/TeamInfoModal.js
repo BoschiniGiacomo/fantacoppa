@@ -100,6 +100,7 @@ export default function TeamInfoModal({ visible, leagueId, defaultTeamName, defa
                 if (teamError) setTeamError('');
               }}
               placeholder="Es. Squadra 3"
+              placeholderTextColor="#999"
               autoCapitalize="words"
             />
             {teamError ? <Text style={styles.fieldError}>{teamError}</Text> : null}
@@ -115,6 +116,7 @@ export default function TeamInfoModal({ visible, leagueId, defaultTeamName, defa
                 if (coachError) setCoachError('');
               }}
               placeholder="Es. Allenatore 3"
+              placeholderTextColor="#999"
               autoCapitalize="words"
             />
             {coachError ? <Text style={styles.fieldError}>{coachError}</Text> : null}

@@ -144,6 +144,7 @@ export default function SearchLeaguesScreen({ navigation }) {
         <TextInput
           style={styles.searchInput}
           placeholder="Cerca per nome lega..."
+          placeholderTextColor="#999"
           value={searchQuery}
           onChangeText={setSearchQuery}
           autoCapitalize="none"

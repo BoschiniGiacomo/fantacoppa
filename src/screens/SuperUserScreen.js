@@ -5238,6 +5238,7 @@ export default function SuperUserScreen() {
                 <TextInput
                   style={styles.modalInput}
                   placeholder="Es: Coppa dei cantoni"
+                  placeholderTextColor="#94a3b8"
                   value={newGroupName}
                   onChangeText={setNewGroupName}
                 />
@@ -5248,6 +5249,7 @@ export default function SuperUserScreen() {
                 <TextInput
                   style={[styles.modalInput, styles.modalTextArea]}
                   placeholder="Descrizione opzionale del gruppo"
+                  placeholderTextColor="#94a3b8"
                   value={newGroupDescription}
                   onChangeText={setNewGroupDescription}
                   multiline
@@ -7183,6 +7185,7 @@ export default function SuperUserScreen() {
                   <TextInput
                     style={styles.modalInput}
                     placeholder="Nome giocatore..."
+                    placeholderTextColor="#94a3b8"
                     value={searchPlayersQuery}
                     onChangeText={(text) => {
                       setSearchPlayersQuery(text);

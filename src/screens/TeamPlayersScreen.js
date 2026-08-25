@@ -314,6 +314,7 @@ export default function TeamPlayersScreen({ route, navigation }) {
                     value={firstName}
                     onChangeText={setFirstName}
                     placeholder="Nome"
+                    placeholderTextColor="#999"
                     onFocus={() => scrollToEditField('firstName')}
                   />
                 </View>
@@ -330,6 +331,7 @@ export default function TeamPlayersScreen({ route, navigation }) {
                     value={lastName}
                     onChangeText={setLastName}
                     placeholder="Cognome"
+                    placeholderTextColor="#999"
                     onFocus={() => scrollToEditField('lastName')}
                   />
                 </View>
@@ -363,6 +365,7 @@ export default function TeamPlayersScreen({ route, navigation }) {
                     value={rating}
                     onChangeText={setRating}
                     placeholder="0.0"
+                    placeholderTextColor="#999"
                     keyboardType="numeric"
                     onFocus={() => scrollToEditField('rating')}
                   />
@@ -380,6 +383,7 @@ export default function TeamPlayersScreen({ route, navigation }) {
                     value={shirtNumber}
                     onChangeText={setShirtNumber}
                     placeholder="es. 10"
+                    placeholderTextColor="#999"
                     keyboardType="number-pad"
                     onFocus={() => scrollToEditField('shirtNumber')}
                   />

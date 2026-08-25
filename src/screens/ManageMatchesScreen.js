@@ -71,6 +71,7 @@ function ShootoutConfigFields({ enabled, onEnabledChange, rounds, onRoundsChange
             onChangeText={onRoundsChange}
             keyboardType="number-pad"
             placeholder="1–10"
+            placeholderTextColor="#999"
           />
         </>
       ) : null}
@@ -715,6 +716,7 @@ export default function ManageMatchesScreen() {
         onChangeText={setRegulationHalfMinutes}
         keyboardType="number-pad"
         placeholder="15–60"
+        placeholderTextColor="#999"
       />
       <View style={styles.switchRow}>
         <Text style={styles.switchLabel}>Supplementari</Text>
@@ -731,7 +733,7 @@ export default function ManageMatchesScreen() {
       {extraTimeEnabled ? (
         <>
           <Text style={styles.label}>1° supplementare (min)</Text>
-          <TextInput style={styles.input} value={extraFirstMinutes} onChangeText={setExtraFirstMinutes} keyboardType="number-pad" placeholder="1–45" />
+          <TextInput style={styles.input} value={extraFirstMinutes} onChangeText={setExtraFirstMinutes} keyboardType="number-pad" placeholder="1–45" placeholderTextColor="#999" />
           <View style={styles.switchRow}>
             <Text style={styles.switchLabel}>2° tempo supplementare</Text>
             <Switch
@@ -744,7 +746,7 @@ export default function ManageMatchesScreen() {
           {extraSecondHalfEnabled ? (
             <>
           <Text style={styles.label}>2° supplementare (min)</Text>
-          <TextInput style={styles.input} value={extraSecondMinutes} onChangeText={setExtraSecondMinutes} keyboardType="number-pad" placeholder="1–45" />
+          <TextInput style={styles.input} value={extraSecondMinutes} onChangeText={setExtraSecondMinutes} keyboardType="number-pad" placeholder="1–45" placeholderTextColor="#999" />
             </>
           ) : null}
         </>
@@ -1636,7 +1638,7 @@ export default function ManageMatchesScreen() {
 
             <Text style={styles.label}>Nuovo luogo</Text>
             <View style={styles.actionsRow}>
-              <TextInput style={[styles.input, { flex: 1 }]} value={newVenueName} onChangeText={setNewVenueName} placeholder="Es. Stadio Olimpico" />
+              <TextInput style={[styles.input, { flex: 1 }]} value={newVenueName} onChangeText={setNewVenueName} placeholder="Es. Stadio Olimpico" placeholderTextColor="#999" />
               <TouchableOpacity style={[styles.primaryBtn, { marginTop: 0, paddingHorizontal: 12 }]} onPress={() => createMatchDetailOption('venues', newVenueName)}>
                 <Text style={styles.primaryBtnText}>Aggiungi</Text>
               </TouchableOpacity>
@@ -1666,7 +1668,7 @@ export default function ManageMatchesScreen() {
 
             <Text style={styles.label}>Nuovo arbitro</Text>
             <View style={styles.actionsRow}>
-              <TextInput style={[styles.input, { flex: 1 }]} value={newRefereeName} onChangeText={setNewRefereeName} placeholder="Es. Daniele Orsato" />
+              <TextInput style={[styles.input, { flex: 1 }]} value={newRefereeName} onChangeText={setNewRefereeName} placeholder="Es. Daniele Orsato" placeholderTextColor="#999" />
               <TouchableOpacity style={[styles.primaryBtn, { marginTop: 0, paddingHorizontal: 12 }]} onPress={() => createMatchDetailOption('referees', newRefereeName)}>
                 <Text style={styles.primaryBtnText}>Aggiungi</Text>
               </TouchableOpacity>
@@ -1710,6 +1712,7 @@ export default function ManageMatchesScreen() {
                             value={refereeEditDraft}
                             onChangeText={setRefereeEditDraft}
                             placeholder="Nome arbitro"
+                            placeholderTextColor="#999"
                             autoFocus
                             editable={!isSaving}
                             onFocus={() => scrollToRefereeEdit(rid)}
@@ -1770,7 +1773,7 @@ export default function ManageMatchesScreen() {
             <Text style={styles.label}>Nuova tipologia giornata</Text>
             <Text style={styles.muted}>Preset predefinito per le partite che useranno questa tipologia (modificabile sul singolo match).</Text>
             <View style={styles.actionsRow}>
-              <TextInput style={[styles.input, { flex: 1 }]} value={newStageName} onChangeText={setNewStageName} placeholder="Es. Gironi / Quarti / Finale" />
+              <TextInput style={[styles.input, { flex: 1 }]} value={newStageName} onChangeText={setNewStageName} placeholder="Es. Gironi / Quarti / Finale" placeholderTextColor="#999" />
               <TouchableOpacity style={[styles.primaryBtn, { marginTop: 0, paddingHorizontal: 12 }]} onPress={() => createMatchDetailOption('stages', newStageName)}>
                 <Text style={styles.primaryBtnText}>Aggiungi</Text>
               </TouchableOpacity>
@@ -1787,7 +1790,7 @@ export default function ManageMatchesScreen() {
                 </TouchableOpacity>
               ))}
             </View>
-            <TextInput style={styles.input} value={newStageHalfMin} onChangeText={setNewStageHalfMin} keyboardType="number-pad" placeholder="15–60" />
+            <TextInput style={styles.input} value={newStageHalfMin} onChangeText={setNewStageHalfMin} keyboardType="number-pad" placeholder="15–60" placeholderTextColor="#999" />
             <View style={styles.switchRow}>
               <Text style={styles.switchLabel}>Supplementari</Text>
               <Switch
@@ -2472,6 +2475,7 @@ export default function ManageMatchesScreen() {
               onChangeText={(t) => setStagePresetDraft((d) => (d ? { ...d, half: t } : d))}
               keyboardType="number-pad"
               placeholder="15–60"
+              placeholderTextColor="#999"
             />
             <View style={styles.switchRow}>
               <Text style={styles.switchLabel}>Supplementari</Text>

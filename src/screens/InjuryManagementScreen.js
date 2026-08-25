@@ -327,6 +327,7 @@ export default function InjuryManagementScreen({ route, navigation }) {
             <TextInput
               style={styles.searchInput}
               placeholder="Cerca giocatore..."
+              placeholderTextColor="#999"
               value={search}
               onChangeText={setSearch}
             />
@@ -366,18 +367,21 @@ export default function InjuryManagementScreen({ route, navigation }) {
             <TextInput
               style={styles.searchInput}
               placeholder="Nome"
+              placeholderTextColor="#999"
               value={newFirstName}
               onChangeText={setNewFirstName}
             />
             <TextInput
               style={[styles.searchInput, { marginTop: 0 }]}
               placeholder="Cognome"
+              placeholderTextColor="#999"
               value={newLastName}
               onChangeText={setNewLastName}
             />
             <TextInput
               style={[styles.searchInput, { marginTop: 0 }]}
               placeholder="Valore crediti (es. 7.5)"
+              placeholderTextColor="#999"
               value={newRating}
               onChangeText={setNewRating}
               keyboardType="decimal-pad"

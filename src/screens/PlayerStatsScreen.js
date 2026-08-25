@@ -1297,7 +1297,7 @@ export default function PlayerStatsScreen({ route, navigation }) {
       },
       {
         key: 'cards',
-        label: 'Cartellini / pres.',
+        label: 'Cartellini / presenza',
         value: e.cards_per_presence,
         displayValue: formatRate(e.cards_per_presence),
         max: 1,

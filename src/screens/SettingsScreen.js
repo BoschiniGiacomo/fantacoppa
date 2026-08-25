@@ -1190,6 +1190,7 @@ export default function SettingsScreen({ route, navigation }) {
                 value={settings.access_code}
                 onChangeText={(text) => setSettings({...settings, access_code: text})}
                 placeholder="Codice di accesso"
+                placeholderTextColor="#999"
                 autoCapitalize="none"
                 autoCorrect={false}
                 maxLength={20}

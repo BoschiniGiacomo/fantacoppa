@@ -1087,6 +1087,7 @@ export default function TeamManagementScreen({ route, navigation }) {
                   value={teamName}
                   onChangeText={setTeamName}
                   placeholder="Nome squadra"
+                  placeholderTextColor="#999"
                   onSubmitEditing={handleAddTeam}
                   editable={!isReadOnlyObserver}
                 />
@@ -1153,6 +1154,7 @@ export default function TeamManagementScreen({ route, navigation }) {
                     value={newPlayerFirstName}
                     onChangeText={setNewPlayerFirstName}
                     placeholder="Nome"
+                    placeholderTextColor="#999"
                     autoCapitalize="words"
                     editable={!isReadOnlyObserver}
                   />
@@ -1164,6 +1166,7 @@ export default function TeamManagementScreen({ route, navigation }) {
                     value={newPlayerLastName}
                     onChangeText={setNewPlayerLastName}
                     placeholder="Cognome"
+                    placeholderTextColor="#999"
                     autoCapitalize="words"
                     editable={!isReadOnlyObserver}
                   />
@@ -1196,6 +1199,7 @@ export default function TeamManagementScreen({ route, navigation }) {
                     value={newPlayerRating}
                     onChangeText={setNewPlayerRating}
                     placeholder="0.0"
+                    placeholderTextColor="#999"
                     keyboardType="numeric"
                     editable={!isReadOnlyObserver}
                   />
@@ -1526,6 +1530,7 @@ export default function TeamManagementScreen({ route, navigation }) {
                     value={firstName}
                     onChangeText={setFirstName}
                     placeholder="Nome"
+                    placeholderTextColor="#999"
                     autoCapitalize="words"
                     editable={!isReadOnlyObserver}
                     selectTextOnFocus
@@ -1549,6 +1554,7 @@ export default function TeamManagementScreen({ route, navigation }) {
                     value={lastName}
                     onChangeText={setLastName}
                     placeholder="Cognome"
+                    placeholderTextColor="#999"
                     autoCapitalize="words"
                     editable={!isReadOnlyObserver}
                     selectTextOnFocus
@@ -1620,6 +1626,7 @@ export default function TeamManagementScreen({ route, navigation }) {
                     value={rating}
                     onChangeText={setRating}
                     placeholder="0.0"
+                    placeholderTextColor="#999"
                     keyboardType="numeric"
                     editable={!isReadOnlyObserver}
                     selectTextOnFocus
@@ -1642,6 +1649,7 @@ export default function TeamManagementScreen({ route, navigation }) {
                     value={shirtNumber}
                     onChangeText={setShirtNumber}
                     placeholder="es. 10"
+                    placeholderTextColor="#999"
                     keyboardType="number-pad"
                     editable={!isReadOnlyObserver}
                     selectTextOnFocus
@@ -1664,6 +1672,7 @@ export default function TeamManagementScreen({ route, navigation }) {
                     value={birthYear}
                     onChangeText={setBirthYear}
                     placeholder="es. 1998"
+                    placeholderTextColor="#999"
                     keyboardType="number-pad"
                     maxLength={4}
                     editable={!isReadOnlyObserver}

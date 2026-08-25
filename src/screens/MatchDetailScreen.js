@@ -4583,6 +4583,7 @@ export default function MatchDetailScreen({ navigation, route }) {
                             value={shootoutPlayerSearch}
                             onChangeText={setShootoutPlayerSearch}
                             placeholder="Cerca nome, cognome o numero"
+                            placeholderTextColor="#999"
                             autoCapitalize="words"
                             autoCorrect={false}
                           />
@@ -5061,6 +5062,7 @@ export default function MatchDetailScreen({ navigation, route }) {
                             value={eventPlayerSearch}
                             onChangeText={setEventPlayerSearch}
                             placeholder="Cerca nome, cognome o numero"
+                            placeholderTextColor="#999"
                             autoCapitalize="words"
                             autoCorrect={false}
                           />
@@ -5131,6 +5133,7 @@ export default function MatchDetailScreen({ navigation, route }) {
                             value={eventAssistSearch}
                             onChangeText={setEventAssistSearch}
                             placeholder="Cerca nome, cognome o numero"
+                            placeholderTextColor="#999"
                             autoCapitalize="words"
                             autoCorrect={false}
                           />
@@ -5234,6 +5237,7 @@ export default function MatchDetailScreen({ navigation, route }) {
                                   }
                                 }}
                                 placeholder={suggestedTimelineMinuteStr}
+                                placeholderTextColor="#999"
                               />
                               {isStoppageEditableEventType(eventType) && eventStoppagePeriodEndValue != null ? (
                                 <TouchableOpacity
