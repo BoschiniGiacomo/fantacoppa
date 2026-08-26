@@ -1006,7 +1006,7 @@ export default function MatchesScreen() {
                       <View style={styles.searchResultMeta}>
                         <Text style={styles.searchResultTitle} numberOfLines={1}>{player.name}</Text>
                         <Text style={styles.searchResultSubtitle} numberOfLines={1}>
-                          {[player.team_name, player.competition_name].filter(Boolean).join(' · ') || 'Giocatore ufficiale'}
+                          {String(player.team_name || '').trim() || 'Giocatore ufficiale'}
                         </Text>
                       </View>
                       <SearchPlayerCareerLogos teams={player.career_teams} />
@@ -1060,7 +1060,7 @@ export default function MatchesScreen() {
                     <View style={styles.searchResultMeta}>
                       <Text style={styles.searchResultTitle} numberOfLines={1}>{player.name}</Text>
                       <Text style={styles.searchResultSubtitle} numberOfLines={1}>
-                        {[player.team_name, player.competition_name].filter(Boolean).join(' · ') || 'Giocatore ufficiale'}
+                        {String(player.team_name || '').trim() || 'Giocatore ufficiale'}
                       </Text>
                     </View>
                     <SearchPlayerCareerLogos teams={player.career_teams} />

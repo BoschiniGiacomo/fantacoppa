@@ -2552,7 +2552,7 @@ router.post('/matches/players/profile-open', authenticateToken, async (req, res)
   }
 });
 
-// GET /matches/players/trending?competition_id= — top 5 aperture ultimi 30gg
+// GET /matches/players/trending?competition_id= — top 3 aperture ultimi 30gg
 router.get('/matches/players/trending', authenticateToken, async (req, res) => {
   try {
     const rawComp = req.query?.competition_id;

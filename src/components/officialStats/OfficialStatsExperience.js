@@ -419,7 +419,7 @@ function TrendingPlayersStrip({ competitionId, visible, onPressPlayer, showTeamN
               <Text style={styles.trendingName} numberOfLines={1}>{String(player?.name || '').trim()}</Text>
               <Text style={styles.trendingTeam} numberOfLines={1}>
                 {showTeamName
-                  ? ([player?.team_name, player?.competition_name].filter(Boolean).join(' · ') || 'Giocatore ufficiale')
+                  ? (String(player?.team_name || '').trim() || 'Giocatore ufficiale')
                   : (String(player?.role || '').trim().toUpperCase() || 'Giocatore')}
               </Text>
             </View>

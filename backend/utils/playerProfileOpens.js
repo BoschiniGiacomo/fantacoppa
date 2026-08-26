@@ -7,7 +7,7 @@ const { query } = require('../config/database');
 const { createShortTtlCache } = require('./shortTtlCache');
 
 const RETENTION_DAYS = 30;
-const TRENDING_LIMIT = 5;
+const TRENDING_LIMIT = 3;
 const TRENDING_CACHE_TTL_MS = 90 * 1000;
 const CLEANUP_INTERVAL_MS = 12 * 60 * 60 * 1000;
 
