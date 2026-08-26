@@ -784,16 +784,37 @@ function SearchSlot({
   );
 }
 
+/** Stesso giocatore (id o cluster), non omonimi con stesso nome/anno. */
+function isSameComparePlayer(selection, candidate) {
+  if (!selection || !candidate) return false;
+
+  const selectedPid = Number(selection.player_id);
+  const candidatePid = Number(candidate.player_id);
+  if (selectedPid > 0 && candidatePid > 0 && selectedPid === candidatePid) return true;
+
+  const selectedCid = Number(
+    selection.cluster_id
+    || selection.profile?.player?.cluster_id
+    || 0,
+  );
+  const candidateCid = Number(candidate.cluster_id || 0);
+  if (selectedCid > 0 && candidateCid > 0 && selectedCid === candidateCid) return true;
+
+  const members = Array.isArray(candidate.cluster_member_ids)
+    ? candidate.cluster_member_ids
+    : null;
+  if (selectedPid > 0 && members?.some((id) => Number(id) === selectedPid)) return true;
+
+  return false;
+}
+
 function SearchResultsPanel({
   loading,
   players,
   onSelect,
-  excludeKey,
+  excludeSelection,
 }) {
-  const filtered = (players || []).filter((p) => {
-    const key = `${Number(p.player_id)}-${Number(p.league_id)}`;
-    return key !== excludeKey;
-  });
+  const filtered = (players || []).filter((p) => !isSameComparePlayer(excludeSelection, p));
 
   return (
     <View style={styles.searchResultsPanel}>
@@ -812,7 +833,7 @@ function SearchResultsPanel({
         >
           {filtered.map((player) => (
             <TouchableOpacity
-              key={`player-${player.player_id}-${player.league_id}`}
+              key={`player-${player.player_id}-${player.league_id}-${player.cluster_id || 0}`}
               style={styles.searchResultRow}
               activeOpacity={0.75}
               onPress={() => onSelect(player)}
@@ -1012,6 +1033,7 @@ export default function PlayerCompareScreen({ navigation, route }) {
         return {
           ...prev,
           profile,
+          cluster_id: Number(profile?.player?.cluster_id) || prev.cluster_id || null,
           name: profile?.player?.name || prev.name,
           photo_path: profile?.player?.photo_path || prev.photo_path,
           loading: false,
@@ -1119,9 +1141,13 @@ export default function PlayerCompareScreen({ navigation, route }) {
   }, [activeSlot, closeSearch]);
 
   const selectPlayer = useCallback((side, player) => {
+    const other = side === 'a' ? slotB : slotA;
+    if (isSameComparePlayer(other, player)) return;
+
     const selection = {
       player_id: Number(player.player_id),
       league_id: Number(player.league_id),
+      cluster_id: Number(player.cluster_id) > 0 ? Number(player.cluster_id) : null,
       name: String(player.name || '').trim(),
       photo_path: player.photo_path || null,
       role: player.role || null,
@@ -1131,16 +1157,16 @@ export default function PlayerCompareScreen({ navigation, route }) {
     };
     closeSearch();
     void hydrateSlot(side, selection);
-  }, [closeSearch, hydrateSlot]);
+  }, [closeSearch, hydrateSlot, slotA, slotB]);
 
   const resetAndSearch = useCallback((side) => {
     openSearch(side);
   }, [openSearch]);
 
-  const excludeKey = useMemo(() => {
+  const excludeSelection = useMemo(() => {
     const other = activeSlot === 'a' ? slotB : slotA;
-    if (!other?.player_id || !other?.league_id) return null;
-    return `${Number(other.player_id)}-${Number(other.league_id)}`;
+    if (!other?.player_id) return null;
+    return other;
   }, [activeSlot, slotA, slotB]);
 
   const bothReady = Boolean(slotA?.profile && slotB?.profile);
@@ -1387,7 +1413,7 @@ export default function PlayerCompareScreen({ navigation, route }) {
             <SearchResultsPanel
               loading={searchLoading}
               players={searchPlayers}
-              excludeKey={excludeKey}
+              excludeSelection={excludeSelection}
               onSelect={(player) => selectPlayer(activeSlot, player)}
             />
           </View>

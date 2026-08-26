@@ -2378,7 +2378,14 @@ async function attachSearchPlayerCareerTeams(players, logoMap) {
         };
       });
 
-    return { ...rest, career_teams: careerTeams };
+    // cluster_id + member ids: il client confronto esclude lo stesso giocatore
+    // anche se la search espone un rappresentante diverso del cluster.
+    return {
+      ...rest,
+      cluster_id: cid > 0 ? cid : null,
+      cluster_member_ids: memberIds,
+      career_teams: careerTeams,
+    };
   });
 }
 

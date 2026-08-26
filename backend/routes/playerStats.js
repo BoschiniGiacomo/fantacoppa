@@ -1355,6 +1355,7 @@ async function buildPlayerCompareProfile(playerId, leagueId) {
       player: {
         player_id: Number(basePlayer.id),
         league_id: Number(leagueId),
+        cluster_id: clusterContext.clusterId || null,
         first_name: String(basePlayer.first_name || '').trim(),
         last_name: String(basePlayer.last_name || '').trim(),
         name: `${String(basePlayer.first_name || '').trim()} ${String(basePlayer.last_name || '').trim()}`.trim(),

@@ -29,6 +29,13 @@ import { parseAppDate } from '../utils/dateTime';
 /** Deve coincidere con `official_match_stages.id` per la tipologia «Gironi» (di solito 1). */
 const OFFICIAL_MATCH_STAGE_GIRONI_ID = 1;
 
+const MATCH_WIZARD_STEPS = [
+  { id: 1, label: 'Quando' },
+  { id: 2, label: 'Squadre' },
+  { id: 3, label: 'Dettagli' },
+  { id: 4, label: 'Conferma' },
+];
+
 const TOAST_DURATION_MS = 2400;
 const CREATE_MATCH_MODAL_MAX_HEIGHT_RATIO = 0.98;
 const CREATE_MATCH_MODAL_SCROLL_MAX_HEIGHT = Math.round(Dimensions.get('window').height * CREATE_MATCH_MODAL_MAX_HEIGHT_RATIO) - 28;
@@ -37,6 +44,92 @@ function clampShootoutRoundsInput(raw) {
   const n = parseInt(String(raw), 10);
   if (!Number.isFinite(n)) return 5;
   return Math.min(10, Math.max(1, n));
+}
+
+function MatchWizardProgress({ step, styles: s }) {
+  return (
+    <View style={s.wizardProgress}>
+      {MATCH_WIZARD_STEPS.map((item) => {
+        const active = Number(step) === item.id;
+        const done = Number(step) > item.id;
+        return (
+          <View key={item.id} style={s.wizardProgressItem}>
+            <View
+              style={[
+                s.wizardProgressDot,
+                active ? s.wizardProgressDotActive : null,
+                done ? s.wizardProgressDotDone : null,
+              ]}
+            >
+              {done ? (
+                <Ionicons name="checkmark" size={12} color="#fff" />
+              ) : (
+                <Text style={[s.wizardProgressDotText, active ? s.wizardProgressDotTextActive : null]}>
+                  {item.id}
+                </Text>
+              )}
+            </View>
+            <Text
+              style={[s.wizardProgressLabel, active ? s.wizardProgressLabelActive : null]}
+              numberOfLines={1}
+            >
+              {item.label}
+            </Text>
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
+function MatchWizardHeader({ title, step, onClose, styles: s }) {
+  const stepMeta = MATCH_WIZARD_STEPS.find((x) => x.id === Number(step)) || MATCH_WIZARD_STEPS[0];
+  return (
+    <View style={s.wizardHeader}>
+      <View style={s.wizardHeaderText}>
+        <Text style={s.wizardTitle}>{title}</Text>
+        <Text style={s.wizardSubtitle}>
+          Passo {stepMeta.id} · {stepMeta.label}
+        </Text>
+      </View>
+      <TouchableOpacity style={s.wizardCloseBtn} onPress={onClose} accessibilityLabel="Chiudi">
+        <Ionicons name="close" size={20} color="#64748b" />
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+function MatchWizardFooter({
+  step,
+  canGoNext,
+  onBack,
+  onNext,
+  styles: s,
+}) {
+  const isLast = Number(step) >= 4;
+  return (
+    <View style={s.wizardFooter}>
+      <TouchableOpacity
+        style={[s.wizardBackBtn, Number(step) <= 1 && s.primaryBtnDisabled]}
+        disabled={Number(step) <= 1}
+        onPress={onBack}
+      >
+        <Text style={s.wizardBackBtnText}>Indietro</Text>
+      </TouchableOpacity>
+      {!isLast ? (
+        <TouchableOpacity
+          style={[s.wizardNextBtn, !canGoNext && s.primaryBtnDisabled]}
+          disabled={!canGoNext}
+          onPress={onNext}
+        >
+          <Text style={s.wizardNextBtnText}>Avanti</Text>
+          <Ionicons name="arrow-forward" size={16} color="#fff" />
+        </TouchableOpacity>
+      ) : (
+        <View style={s.wizardFooterSpacer} />
+      )}
+    </View>
+  );
 }
 
 function ShootoutConfigFields({ enabled, onEnabledChange, rounds, onRoundsChange, chipKeyPrefix, styles }) {
@@ -120,6 +213,76 @@ function formatDisplayDateTime(sqlDateTime) {
   return `${dd}/${mm}/${yyyy} ${hh}:${min}`;
 }
 
+function enrichMatchRow(m) {
+  const homeName = String(m.home_team_name || '').trim() || 'Da definire';
+  const awayName = String(m.away_team_name || '').trim() || 'Da definire';
+  const homeMissing = !(Number.isFinite(Number(m.home_team_id)) && Number(m.home_team_id) > 0);
+  const awayMissing = !(Number.isFinite(Number(m.away_team_id)) && Number(m.away_team_id) > 0);
+  const isHidden = Number(m?.is_admin_only || 0) === 1;
+  const stageName = String(m.match_stage || '').trim();
+  const metaParts = [
+    String(m.competition_name || '').trim(),
+    stageName,
+    formatDisplayDateTime(m.kickoff_at),
+  ].filter(Boolean);
+  return {
+    ...m,
+    _homeName: homeName,
+    _awayName: awayName,
+    _homeMissing: homeMissing,
+    _awayMissing: awayMissing,
+    _isHidden: isHidden,
+    _metaLine: metaParts.join(' · '),
+  };
+}
+
+const ManageMatchRow = React.memo(function ManageMatchRow({
+  match,
+  isFirst,
+  styles: s,
+  onEdit,
+  onDelete,
+}) {
+  return (
+    <View style={[s.matchCard, isFirst && s.matchCardFirst]}>
+      <View style={s.matchCardBody}>
+        <View style={s.matchCardTitleRow}>
+          <Text style={s.matchCardTitle} numberOfLines={2}>
+            <Text style={match._homeMissing ? s.matchTeamMissing : null}>{match._homeName}</Text>
+            <Text style={s.matchVs}> · </Text>
+            <Text style={match._awayMissing ? s.matchTeamMissing : null}>{match._awayName}</Text>
+          </Text>
+          {match._isHidden ? (
+            <View style={s.hiddenBadge}>
+              <Ionicons name="eye-off-outline" size={11} color="#7a6100" />
+              <Text style={s.hiddenBadgeText}>Nascosta</Text>
+            </View>
+          ) : null}
+        </View>
+        <Text style={s.matchCardMeta} numberOfLines={2}>
+          {match._metaLine}
+        </Text>
+      </View>
+      <View style={s.matchCardActions}>
+        <TouchableOpacity
+          style={s.matchIconBtn}
+          onPress={() => onEdit(match)}
+          accessibilityLabel="Modifica partita"
+        >
+          <Ionicons name="create-outline" size={18} color="#667eea" />
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[s.matchIconBtn, s.matchIconBtnDanger]}
+          onPress={() => onDelete(match.id)}
+          accessibilityLabel="Elimina partita"
+        >
+          <Ionicons name="trash-outline" size={17} color="#b42318" />
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+});
+
 /** Etichetta visiva lega/edizione: anno se reference_year valorizzato, altrimenti nome lega. */
 function leagueEditionDisplay(league) {
   if (!league) return '-';
@@ -154,8 +317,9 @@ export default function ManageMatchesScreen() {
   const [editMatchStep, setEditMatchStep] = useState(1);
   const [showEditTimingDetails, setShowEditTimingDetails] = useState(false);
   const [editOriginal, setEditOriginal] = useState(null);
+  const [editHydrating, setEditHydrating] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [date, setDate] = useState('');
+  const [date, setDate] = useState(() => todayYmd());
   const [competitions, setCompetitions] = useState([]); // gruppi ufficiali usati come competizioni
   const [officialGroups, setOfficialGroups] = useState([]);
   const [matches, setMatches] = useState([]);
@@ -223,8 +387,22 @@ export default function ManageMatchesScreen() {
   const refereeRowRefs = useRef({});
   const scrollYRef = useRef(0);
   const keyboardHeightRef = useRef(Platform.OS === 'ios' ? 320 : 280);
+  const leaguesByCompRef = useRef({});
+  const teamsByCompRef = useRef({});
+  const teamsLoadedForLeagueRef = useRef({});
+  const leaguesInflightRef = useRef({});
+  const teamsInflightRef = useRef({});
+  const editHydrateGenRef = useRef(0);
   const [standingsTies, setStandingsTies] = useState([]);
   const [tieOrders, setTieOrders] = useState({});
+
+  useEffect(() => {
+    leaguesByCompRef.current = leaguesByComp;
+  }, [leaguesByComp]);
+
+  useEffect(() => {
+    teamsByCompRef.current = teamsByComp;
+  }, [teamsByComp]);
 
   const toAdminOnlyFlag = (value) => {
     if (typeof value === 'boolean') return value;
@@ -241,8 +419,7 @@ export default function ManageMatchesScreen() {
 
   const selectedTeams = useMemo(() => {
     if (!competitionId) return [];
-    const rawTeams = teamsByComp[competitionId] || [];
-    return [...rawTeams].sort((a, b) => String(a.name).localeCompare(String(b.name), 'it'));
+    return teamsByComp[competitionId] || [];
   }, [teamsByComp, competitionId]);
 
   const gironiStageMatchBlocked = useMemo(() => {
@@ -340,6 +517,64 @@ export default function ManageMatchesScreen() {
       return !adminOnly;
     });
   }, [filteredMatches, filterVisibility]);
+
+  const matchesFilterSummary = useMemo(() => {
+    const chips = [];
+    if (String(date || '').trim()) chips.push({ key: 'date', label: String(date).trim(), clear: () => setDate('') });
+    if (filterCompetitionId) {
+      const name = competitions.find((c) => Number(c.id) === Number(filterCompetitionId))?.name || 'Competizione';
+      chips.push({
+        key: 'comp',
+        label: name,
+        clear: () => {
+          setFilterCompetitionId(null);
+          setFilterLeagueId(null);
+          setFilterTeamId(null);
+          setFilterTeams([]);
+          setFilterMissingTeamsOnly(false);
+        },
+      });
+    }
+    if (filterLeagueId) {
+      const league = (leaguesByComp[filterCompetitionId] || []).find((l) => Number(l.id) === Number(filterLeagueId));
+      chips.push({
+        key: 'league',
+        label: leagueEditionDisplay(league) || 'Edizione',
+        clear: () => {
+          setFilterLeagueId(null);
+          setFilterTeamId(null);
+          setFilterTeams([]);
+        },
+      });
+    }
+    if (filterTeamId) {
+      const team = filterTeams.find((t) => Number(t.id) === Number(filterTeamId));
+      chips.push({
+        key: 'team',
+        label: team?.name || 'Squadra',
+        clear: () => setFilterTeamId(null),
+      });
+    }
+    if (filterMissingTeamsOnly) {
+      chips.push({ key: 'missing', label: 'Squadre da definire', clear: () => setFilterMissingTeamsOnly(false) });
+    }
+    if (filterVisibility === 'hidden') {
+      chips.push({ key: 'vis', label: 'Solo nascoste', clear: () => setFilterVisibility('visible') });
+    } else if (filterVisibility === 'all') {
+      chips.push({ key: 'vis', label: 'Visibilità: tutte', clear: () => setFilterVisibility('visible') });
+    }
+    return chips;
+  }, [
+    date,
+    filterCompetitionId,
+    filterLeagueId,
+    filterTeamId,
+    filterMissingTeamsOnly,
+    filterVisibility,
+    competitions,
+    leaguesByComp,
+    filterTeams,
+  ]);
 
   const canSubmitMatch = Boolean(
     competitionId &&
@@ -444,11 +679,15 @@ export default function ManageMatchesScreen() {
     const list = Array.isArray(res?.data) ? res.data : [];
     const enabled = list.filter((g) => Number(g.is_match_competition_enabled) === 1);
     setCompetitions(enabled.map((g) => ({ id: Number(g.id), name: g.name })));
+    if (canManageCompetitions) {
+      setOfficialGroups(list);
+    }
     if (competitionId && !enabled.some((g) => Number(g.id) === competitionId)) {
       setCompetitionId(enabled.length > 0 ? Number(enabled[0].id) : null);
     } else if (!competitionId && enabled.length > 0) {
       setCompetitionId(Number(enabled[0].id));
     }
+    return list;
   };
 
   const loadOfficialGroups = async () => {
@@ -460,7 +699,8 @@ export default function ManageMatchesScreen() {
 
   const loadMatches = async () => {
     const res = await adminMatchesService.getByDate(date);
-    setMatches(Array.isArray(res?.data?.matches) ? res.data.matches : []);
+    const list = Array.isArray(res?.data?.matches) ? res.data.matches : [];
+    setMatches(list.map(enrichMatchRow));
   };
 
   const loadMatchDetailsOptions = async () => {
@@ -486,19 +726,35 @@ export default function ManageMatchesScreen() {
     setTieOrders(nextOrders);
   };
 
-  const loadLeaguesForCompetition = async (compId) => {
+  const loadLeaguesForCompetition = async (compId, { force = false } = {}) => {
     if (!compId) return [];
-    const res = await adminMatchesService.getCompetitionTeams(compId, [], true);
-    const leagues = Array.isArray(res?.data?.official_leagues) ? res.data.official_leagues : [];
-    setLeaguesByComp((prev) => ({ ...prev, [compId]: leagues }));
-    return leagues;
+    const cached = leaguesByCompRef.current[compId];
+    if (!force && Array.isArray(cached) && cached.length > 0) {
+      return cached;
+    }
+    if (!force && leaguesInflightRef.current[compId]) {
+      return leaguesInflightRef.current[compId];
+    }
+    const promise = (async () => {
+      try {
+        const res = await adminMatchesService.getCompetitionTeams(compId, [], true);
+        const leagues = Array.isArray(res?.data?.official_leagues) ? res.data.official_leagues : [];
+        leaguesByCompRef.current = { ...leaguesByCompRef.current, [compId]: leagues };
+        setLeaguesByComp((prev) => ({ ...prev, [compId]: leagues }));
+        return leagues;
+      } finally {
+        delete leaguesInflightRef.current[compId];
+      }
+    })();
+    leaguesInflightRef.current[compId] = promise;
+    return promise;
   };
 
   /**
    * Squadre della sola lega scelta. Passa overrideLeagueId subito dopo aver scelto la lega (setState è asincrono).
    * Senza lega valida: nessuna chiamata con tutte le leghe — lista vuota.
    */
-  const loadTeamsForCompetition = async (compId, overrideLeagueId = undefined) => {
+  const loadTeamsForCompetition = async (compId, overrideLeagueId = undefined, { force = false } = {}) => {
     if (!compId) return [];
     const fromState = Number(selectedLeagueIdByComp[compId] || 0);
     const selectedLeagueId =
@@ -507,18 +763,42 @@ export default function ManageMatchesScreen() {
         : fromState;
 
     if (selectedLeagueId <= 0) {
+      teamsLoadedForLeagueRef.current[compId] = 0;
       setTeamsByComp((prev) => ({ ...prev, [compId]: [] }));
       return [];
     }
 
-    const res = await adminMatchesService.getCompetitionTeams(compId, [selectedLeagueId]);
-    const teams = Array.isArray(res?.data?.teams) ? res.data.teams : [];
-    const leagues = Array.isArray(res?.data?.official_leagues) ? res.data.official_leagues : [];
-    if (leagues.length > 0) {
-      setLeaguesByComp((prev) => ({ ...prev, [compId]: leagues }));
+    if (
+      !force
+      && Number(teamsLoadedForLeagueRef.current[compId] || 0) === selectedLeagueId
+    ) {
+      return teamsByCompRef.current[compId] || [];
     }
-    setTeamsByComp((prev) => ({ ...prev, [compId]: teams }));
-    return teams;
+
+    const inflightKey = `${compId}:${selectedLeagueId}`;
+    if (!force && teamsInflightRef.current[inflightKey]) {
+      return teamsInflightRef.current[inflightKey];
+    }
+
+    const promise = (async () => {
+      try {
+        const res = await adminMatchesService.getCompetitionTeams(compId, [selectedLeagueId]);
+        const teamsRaw = Array.isArray(res?.data?.teams) ? res.data.teams : [];
+        const teams = [...teamsRaw].sort((a, b) => String(a.name).localeCompare(String(b.name), 'it'));
+        const leagues = Array.isArray(res?.data?.official_leagues) ? res.data.official_leagues : [];
+        if (leagues.length > 0 && !(leaguesByCompRef.current[compId]?.length > 0)) {
+          leaguesByCompRef.current = { ...leaguesByCompRef.current, [compId]: leagues };
+          setLeaguesByComp((prev) => ({ ...prev, [compId]: leagues }));
+        }
+        teamsLoadedForLeagueRef.current[compId] = selectedLeagueId;
+        setTeamsByComp((prev) => ({ ...prev, [compId]: teams }));
+        return teams;
+      } finally {
+        delete teamsInflightRef.current[inflightKey];
+      }
+    })();
+    teamsInflightRef.current[inflightKey] = promise;
+    return promise;
   };
 
   const loadFilterTeamsForLeague = async (compId, leagueId) => {
@@ -528,7 +808,8 @@ export default function ManageMatchesScreen() {
     }
     try {
       const res = await adminMatchesService.getCompetitionTeams(compId, [leagueId]);
-      const teams = Array.isArray(res?.data?.teams) ? res.data.teams : [];
+      const teamsRaw = Array.isArray(res?.data?.teams) ? res.data.teams : [];
+      const teams = [...teamsRaw].sort((a, b) => String(a.name).localeCompare(String(b.name), 'it'));
       setFilterTeams(teams);
     } catch (_) {
       setFilterTeams([]);
@@ -538,7 +819,11 @@ export default function ManageMatchesScreen() {
   const loadAll = async () => {
     try {
       setLoading(true);
-      await Promise.all([loadCompetitions(), loadMatches(), loadOfficialGroups(), loadMatchDetailsOptions()]);
+      await Promise.all([
+        loadCompetitions(),
+        loadMatches(),
+        loadMatchDetailsOptions(),
+      ]);
     } catch (e) {
       showToast(e?.response?.data?.message || e?.message || 'Errore caricamento');
     } finally {
@@ -550,10 +835,12 @@ export default function ManageMatchesScreen() {
     if (canManageMatches) loadAll();
   }, []);
 
+  const skipNextDateReloadRef = useRef(true);
   useEffect(() => {
-    if (competitionId) {
-      loadLeaguesForCompetition(competitionId).catch(() => {});
-    }
+    if (!competitionId) return;
+    const cached = leaguesByCompRef.current[competitionId];
+    if (Array.isArray(cached) && cached.length > 0) return;
+    loadLeaguesForCompetition(competitionId).catch(() => {});
   }, [competitionId]);
 
   useEffect(() => {
@@ -564,6 +851,10 @@ export default function ManageMatchesScreen() {
 
   useEffect(() => {
     if (!canManageMatches) return;
+    if (skipNextDateReloadRef.current) {
+      skipNextDateReloadRef.current = false;
+      return;
+    }
     loadMatches().catch(() => {});
   }, [date]);
 
@@ -696,7 +987,7 @@ export default function ManageMatchesScreen() {
     }
   };
 
-  const matchTimingEditor = (
+  const renderMatchTimingEditor = () => (
     <>
       <Text style={styles.label}>Durata tempi regolamentari (minuti per tempo)</Text>
       <View style={styles.rowWrap}>
@@ -802,114 +1093,142 @@ export default function ManageMatchesScreen() {
     }
   };
 
-  const startEditMatch = async (match) => {
-    try {
-      const compId = Number(match.competition_id);
-      const storedLeagueIdRaw = match?.league_id;
-      const storedLeagueId =
-        storedLeagueIdRaw == null || String(storedLeagueIdRaw).trim() === ''
-          ? 0
-          : Number(storedLeagueIdRaw);
-      const storedLeagueName = String(match?.league_name || '').trim();
-      const homeLeagueId = Number(match.home_league_id || 0);
-      const awayLeagueId = Number(match.away_league_id || 0);
-      let preselectedLeagueId = storedLeagueId > 0 ? storedLeagueId : (homeLeagueId > 0 ? homeLeagueId : (awayLeagueId > 0 ? awayLeagueId : 0));
-      setCompetitionId(compId);
-      const loadedLeagues = await loadLeaguesForCompetition(compId);
-      if ((!preselectedLeagueId || preselectedLeagueId <= 0) && storedLeagueName) {
-        const byName = (loadedLeagues || []).find(
-          (l) => String(l?.name || '').trim().toLowerCase() === storedLeagueName.toLowerCase()
-        );
-        if (byName?.id) preselectedLeagueId = Number(byName.id);
+  const startEditMatch = useCallback((match) => {
+    const compId = Number(match.competition_id);
+    const storedLeagueIdRaw = match?.league_id;
+    const storedLeagueId =
+      storedLeagueIdRaw == null || String(storedLeagueIdRaw).trim() === ''
+        ? 0
+        : Number(storedLeagueIdRaw);
+    const storedLeagueName = String(match?.league_name || '').trim();
+    const homeLeagueId = Number(match.home_league_id || 0);
+    const awayLeagueId = Number(match.away_league_id || 0);
+    let preselectedLeagueId =
+      storedLeagueId > 0 ? storedLeagueId : (homeLeagueId > 0 ? homeLeagueId : (awayLeagueId > 0 ? awayLeagueId : 0));
+
+    const matchAdminOnly =
+      toAdminOnlyFlag(match?.is_admin_only) ||
+      toAdminOnlyFlag(match?.isAdminOnly) ||
+      toAdminOnlyFlag(match?.admin_only);
+    const parsedKickoff = parseSqlDateTime(String(match.kickoff_at || ''));
+    const existingVenue = String(match?.venue || '').trim();
+    const leagueLabelFromMatch = (() => {
+      const refYear = match?.league_reference_year ?? match?.reference_year;
+      if (refYear != null && refYear !== '' && Number.isFinite(Number(refYear))) {
+        return String(Math.trunc(Number(refYear)));
       }
-      if (!preselectedLeagueId || preselectedLeagueId <= 0) {
-        const kickoffYear = parseSqlDateTime(String(match?.kickoff_at || '')).getFullYear();
-        const leaguesWithYear = (loadedLeagues || [])
-          .map((l) => ({
-            id: Number(l?.id || 0),
-            referenceYear: Number(l?.reference_year),
-          }))
-          .filter((x) => x.id > 0 && Number.isFinite(x.referenceYear));
-        if (leaguesWithYear.length > 0 && Number.isFinite(kickoffYear)) {
-          const notFuture = leaguesWithYear
-            .filter((x) => x.referenceYear <= kickoffYear)
-            .sort((a, b) => b.referenceYear - a.referenceYear);
-          const pick = (notFuture[0] || leaguesWithYear.sort((a, b) => b.referenceYear - a.referenceYear)[0] || null);
-          if (pick?.id) preselectedLeagueId = Number(pick.id);
+      return storedLeagueName || '-';
+    })();
+
+    setShowCreateMatchForm(false);
+    setCompetitionId(compId);
+    setSelectedLeagueIdByComp((prev) => ({
+      ...prev,
+      [compId]: preselectedLeagueId > 0 ? preselectedLeagueId : 0,
+    }));
+    setHomeTeamId(
+      match?.home_team_id == null || String(match.home_team_id).trim() === ''
+        ? null
+        : Number(match.home_team_id)
+    );
+    setAwayTeamId(
+      match?.away_team_id == null || String(match.away_team_id).trim() === ''
+        ? null
+        : Number(match.away_team_id)
+    );
+    setIsAdminOnly(matchAdminOnly);
+    setKickoffDateObj(parsedKickoff);
+    setKickoffAt(formatSqlDateTime(parsedKickoff));
+    setEditingMatchId(Number(match.id));
+    setVenue(existingVenue || defaultVenueName);
+    setReferee(match?.referee || '');
+    setMatchStageId(match?.match_stage_id != null ? Number(match.match_stage_id) : null);
+    setRegulationHalfMinutes(String(match?.regulation_half_minutes ?? 30));
+    setExtraTimeEnabled(!!Number(match?.extra_time_enabled));
+    setExtraFirstMinutes(String(match?.extra_first_half_minutes ?? 15));
+    setExtraSecondMinutes(String(match?.extra_second_half_minutes ?? 15));
+    setExtraSecondHalfEnabled(Number(match?.extra_second_half_minutes ?? 0) > 0);
+    setPenaltiesEnabled(!!Number(match?.penalties_enabled));
+    setShootoutEnabled(!!Number(match?.shootout_enabled));
+    setShootoutRoundsPerTeam(String(match?.shootout_rounds_per_team ?? 5));
+    setHomeScore(match?.home_score === null || typeof match?.home_score === 'undefined' ? '' : String(match.home_score));
+    setAwayScore(match?.away_score === null || typeof match?.away_score === 'undefined' ? '' : String(match.away_score));
+    setEditOriginal({
+      kickoffLabel: formatDisplayDateTime(String(match.kickoff_at || '')),
+      competitionName: String(match?.competition_name || '-'),
+      leagueName: leagueLabelFromMatch,
+      homeTeamName: String(match?.home_team_name || '-'),
+      awayTeamName: String(match?.away_team_name || '-'),
+      venue: String(match?.venue || ''),
+      referee: String(match?.referee || ''),
+      stageName: String(match?.match_stage || '-'),
+      isAdminOnly: matchAdminOnly,
+      regulationHalfMinutes: Number(match?.regulation_half_minutes || 30),
+      extraTimeEnabled: !!Number(match?.extra_time_enabled),
+      extraFirstMinutes: Number(match?.extra_first_half_minutes || 0),
+      extraSecondMinutes: Number(match?.extra_second_half_minutes || 0),
+      penaltiesEnabled: !!Number(match?.penalties_enabled),
+      shootoutEnabled: !!Number(match?.shootout_enabled),
+      shootoutRoundsPerTeam: Number(match?.shootout_rounds_per_team || 5),
+    });
+    setEditMatchStep(1);
+    setShowEditTimingDetails(false);
+    setEditHydrating(true);
+    setShowEditMatchForm(true);
+
+    const hydrateGen = ++editHydrateGenRef.current;
+    void (async () => {
+      try {
+        let loadedLeagues = await loadLeaguesForCompetition(compId);
+        if ((!preselectedLeagueId || preselectedLeagueId <= 0) && storedLeagueName) {
+          const byName = (loadedLeagues || []).find(
+            (l) => String(l?.name || '').trim().toLowerCase() === storedLeagueName.toLowerCase()
+          );
+          if (byName?.id) preselectedLeagueId = Number(byName.id);
+        }
+        if (!preselectedLeagueId || preselectedLeagueId <= 0) {
+          const kickoffYear = parsedKickoff.getFullYear();
+          const leaguesWithYear = (loadedLeagues || [])
+            .map((l) => ({
+              id: Number(l?.id || 0),
+              referenceYear: Number(l?.reference_year),
+            }))
+            .filter((x) => x.id > 0 && Number.isFinite(x.referenceYear));
+          if (leaguesWithYear.length > 0 && Number.isFinite(kickoffYear)) {
+            const notFuture = leaguesWithYear
+              .filter((x) => x.referenceYear <= kickoffYear)
+              .sort((a, b) => b.referenceYear - a.referenceYear);
+            const pick = (notFuture[0] || leaguesWithYear.sort((a, b) => b.referenceYear - a.referenceYear)[0] || null);
+            if (pick?.id) preselectedLeagueId = Number(pick.id);
+          }
+        }
+
+        setSelectedLeagueIdByComp((prev) => ({
+          ...prev,
+          [compId]: preselectedLeagueId > 0 ? preselectedLeagueId : 0,
+        }));
+
+        if (preselectedLeagueId > 0) {
+          await loadTeamsForCompetition(compId, preselectedLeagueId);
+          const league = (loadedLeagues || []).find((l) => Number(l.id) === Number(preselectedLeagueId));
+          if (league) {
+            setEditOriginal((prev) => (prev ? { ...prev, leagueName: leagueEditionDisplay(league) } : prev));
+          }
+        } else {
+          teamsLoadedForLeagueRef.current[compId] = 0;
+          setTeamsByComp((prev) => ({ ...prev, [compId]: [] }));
+        }
+      } catch (e) {
+        if (editHydrateGenRef.current === hydrateGen) {
+          showToast(e?.response?.data?.message || e?.message || 'Impossibile preparare modifica');
+        }
+      } finally {
+        if (editHydrateGenRef.current === hydrateGen) {
+          setEditHydrating(false);
         }
       }
-      setSelectedLeagueIdByComp((prev) => ({ ...prev, [compId]: preselectedLeagueId > 0 ? preselectedLeagueId : 0 }));
-      if (preselectedLeagueId > 0) {
-        await loadTeamsForCompetition(compId, preselectedLeagueId);
-      } else {
-        setTeamsByComp((prev) => ({ ...prev, [compId]: [] }));
-      }
-      setHomeTeamId(
-        match?.home_team_id == null || String(match.home_team_id).trim() === ''
-          ? null
-          : Number(match.home_team_id)
-      );
-      setAwayTeamId(
-        match?.away_team_id == null || String(match.away_team_id).trim() === ''
-          ? null
-          : Number(match.away_team_id)
-      );
-      const matchAdminOnly =
-        toAdminOnlyFlag(match?.is_admin_only) ||
-        toAdminOnlyFlag(match?.isAdminOnly) ||
-        toAdminOnlyFlag(match?.admin_only);
-      setIsAdminOnly(matchAdminOnly);
-      const parsedKickoff = parseSqlDateTime(String(match.kickoff_at || ''));
-      setKickoffDateObj(parsedKickoff);
-      setKickoffAt(formatSqlDateTime(parsedKickoff));
-      setEditingMatchId(Number(match.id));
-      const existingVenue = String(match?.venue || '').trim();
-      setVenue(existingVenue || defaultVenueName);
-      setReferee(match?.referee || '');
-      setMatchStageId(match?.match_stage_id != null ? Number(match.match_stage_id) : null);
-      setRegulationHalfMinutes(String(match?.regulation_half_minutes ?? 30));
-      setExtraTimeEnabled(!!Number(match?.extra_time_enabled));
-      setExtraFirstMinutes(String(match?.extra_first_half_minutes ?? 15));
-      setExtraSecondMinutes(String(match?.extra_second_half_minutes ?? 15));
-      setExtraSecondHalfEnabled(Number(match?.extra_second_half_minutes ?? 0) > 0);
-      setPenaltiesEnabled(!!Number(match?.penalties_enabled));
-      setShootoutEnabled(!!Number(match?.shootout_enabled));
-      setShootoutRoundsPerTeam(String(match?.shootout_rounds_per_team ?? 5));
-      setHomeScore(match?.home_score === null || typeof match?.home_score === 'undefined' ? '' : String(match.home_score));
-      setAwayScore(match?.away_score === null || typeof match?.away_score === 'undefined' ? '' : String(match.away_score));
-      setEditOriginal({
-        kickoffLabel: formatDisplayDateTime(String(match.kickoff_at || '')),
-        competitionName: String(match?.competition_name || '-'),
-        leagueName: (() => {
-          const league = (loadedLeagues || []).find((l) => Number(l.id) === Number(preselectedLeagueId));
-          if (league) return leagueEditionDisplay(league);
-          const refYear = match?.league_reference_year ?? match?.reference_year;
-          if (refYear != null && refYear !== '' && Number.isFinite(Number(refYear))) {
-            return String(Math.trunc(Number(refYear)));
-          }
-          return String(match?.league_name || '-').trim() || '-';
-        })(),
-        homeTeamName: String(match?.home_team_name || '-'),
-        awayTeamName: String(match?.away_team_name || '-'),
-        venue: String(match?.venue || ''),
-        referee: String(match?.referee || ''),
-        stageName: String(match?.match_stage || '-'),
-        isAdminOnly: matchAdminOnly,
-        regulationHalfMinutes: Number(match?.regulation_half_minutes || 30),
-        extraTimeEnabled: !!Number(match?.extra_time_enabled),
-        extraFirstMinutes: Number(match?.extra_first_half_minutes || 0),
-        extraSecondMinutes: Number(match?.extra_second_half_minutes || 0),
-        penaltiesEnabled: !!Number(match?.penalties_enabled),
-        shootoutEnabled: !!Number(match?.shootout_enabled),
-        shootoutRoundsPerTeam: Number(match?.shootout_rounds_per_team || 5),
-      });
-      setEditMatchStep(1);
-      setShowEditTimingDetails(false);
-      setShowEditMatchForm(true);
-    } catch (e) {
-      showToast(e?.response?.data?.message || e?.message || 'Impossibile preparare modifica');
-    }
-  };
+    })();
+  }, [defaultVenueName]);
 
   const saveEditedMatch = async () => {
     if (!editingMatchId) return;
@@ -947,6 +1266,7 @@ export default function ManageMatchesScreen() {
     setShowEditMatchForm(false);
     setEditMatchStep(1);
     setShowEditTimingDetails(false);
+    setEditHydrating(false);
     setEditOriginal(null);
     setHomeTeamId(null);
     setAwayTeamId(null);
@@ -1016,7 +1336,7 @@ export default function ManageMatchesScreen() {
     setDate(toYmd(selectedDate));
   };
 
-  const deleteMatch = async (id) => {
+  const deleteMatch = useCallback((id) => {
     setConfirmModal({
       title: 'Elimina partita',
       message: 'Vuoi eliminare questa partita?',
@@ -1033,7 +1353,7 @@ export default function ManageMatchesScreen() {
         }
       },
     });
-  };
+  }, []);
 
   const publishAllHiddenMatches = async () => {
     setConfirmModal({
@@ -1367,238 +1687,384 @@ export default function ManageMatchesScreen() {
         {activeTab === 'matches' && (
           <>
             <View style={styles.matchesTopBar}>
-              <Text style={styles.matchesTopBarTitle}>Partite esistenti</Text>
+              <View style={styles.matchesTopBarLeft}>
+                <Text style={styles.matchesTopBarTitle}>Partite</Text>
+                <View style={styles.matchesCountPill}>
+                  <Text style={styles.matchesCountPillText}>{filteredMatchesWithVisibility.length}</Text>
+                </View>
+              </View>
               <TouchableOpacity
-                style={styles.matchesPlusBtn}
+                style={[styles.matchesPlusBtn, showCreateMatchForm && styles.matchesPlusBtnOpen]}
                 onPress={() => {
-                  const nextVisible = !showCreateMatchForm;
-                  setShowCreateMatchForm(nextVisible);
-                  if (nextVisible) {
-                    setCreateMatchStep(1);
-                    setShowCreateTimingDetails(false);
-                    setIsAdminOnly(false);
-                    setVenue(defaultVenueName);
+                  if (showCreateMatchForm) {
+                    setShowCreateMatchForm(false);
+                    return;
                   }
+                  setShowEditMatchForm(false);
+                  setCreateMatchStep(1);
+                  setShowCreateTimingDetails(false);
+                  setIsAdminOnly(false);
+                  setVenue(defaultVenueName);
+                  setShowCreateMatchForm(true);
                 }}
+                accessibilityLabel={showCreateMatchForm ? 'Chiudi creazione partita' : 'Nuova partita'}
               >
                 <Ionicons name={showCreateMatchForm ? 'close' : 'add'} size={20} color="#667eea" />
               </TouchableOpacity>
             </View>
 
-            {showCreateMatchForm ? null : null}
+            <View style={styles.matchesToolbarShell}>
+              <View
+                style={[
+                  styles.toolbarSeg,
+                  styles.toolbarSegDate,
+                  String(date || '').trim() && styles.toolbarSegActive,
+                ]}
+              >
+                <TouchableOpacity
+                  style={styles.toolbarSegMain}
+                  onPress={() => setShowFilterDatePicker(true)}
+                  accessibilityLabel="Filtra per data"
+                >
+                  <Ionicons
+                    name="calendar-outline"
+                    size={16}
+                    color={String(date || '').trim() ? '#4f46e5' : '#64748b'}
+                  />
+                  <Text
+                    style={[
+                      styles.toolbarSegTitle,
+                      String(date || '').trim() && styles.toolbarSegTitleActive,
+                    ]}
+                  >
+                    Data
+                  </Text>
+                </TouchableOpacity>
+                {String(date || '').trim() ? (
+                  <TouchableOpacity
+                    style={styles.toolbarSegClear}
+                    onPress={() => setDate('')}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    accessibilityLabel="Rimuovi filtro data"
+                  >
+                    <Ionicons name="close" size={12} color="#4f46e5" />
+                  </TouchableOpacity>
+                ) : null}
+              </View>
 
-            <>
-                <View style={styles.card}>
-                  <Text style={styles.label}>Filtri</Text>
-                  <View style={styles.filtersIconRow}>
-                    <TouchableOpacity
-                      style={[styles.iconFilterBtn, String(date || '').trim() && styles.iconFilterBtnActive]}
-                      onPress={() => {
-                        if (String(date || '').trim()) {
-                          setDate('');
-                          return;
-                        }
-                        setShowFilterDatePicker(true);
-                      }}
-                    >
-                      <Ionicons name="calendar-outline" size={18} color={String(date || '').trim() ? '#4f46e5' : '#475569'} />
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.iconFilterBtn, showAdvancedFilters && styles.iconFilterBtnActive]}
-                      onPress={() => setShowAdvancedFilters((v) => !v)}
-                    >
-                      <Ionicons name="filter-outline" size={18} color={showAdvancedFilters ? '#4f46e5' : '#475569'} />
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.iconFilterBtn, showVisibilityFilters && styles.iconFilterBtnActive]}
-                      onPress={() => setShowVisibilityFilters((v) => !v)}
-                    >
-                      <Ionicons name="eye-outline" size={18} color={showVisibilityFilters ? '#4f46e5' : '#475569'} />
+              <TouchableOpacity
+                style={[
+                  styles.toolbarSeg,
+                  styles.toolbarSegAmbito,
+                  (showAdvancedFilters || filterCompetitionId || filterLeagueId || filterTeamId) && styles.toolbarSegActive,
+                ]}
+                onPress={() => {
+                  setShowAdvancedFilters((v) => !v);
+                  if (!showAdvancedFilters) setShowVisibilityFilters(false);
+                }}
+                accessibilityLabel="Filtri competizione edizione squadra"
+              >
+                <Ionicons
+                  name="layers-outline"
+                  size={16}
+                  color={(showAdvancedFilters || filterCompetitionId) ? '#4f46e5' : '#64748b'}
+                />
+                <Text
+                  style={[
+                    styles.toolbarSegTitle,
+                    (showAdvancedFilters || filterCompetitionId) && styles.toolbarSegTitleActive,
+                  ]}
+                  numberOfLines={1}
+                >
+                  Ambito
+                </Text>
+                {(filterCompetitionId || filterLeagueId || filterTeamId) ? (
+                  <View style={styles.toolbarSegDot} />
+                ) : (
+                  <Ionicons
+                    name={showAdvancedFilters ? 'chevron-up' : 'chevron-down'}
+                    size={14}
+                    color={showAdvancedFilters ? '#4f46e5' : '#94a3b8'}
+                  />
+                )}
               </TouchableOpacity>
-                  </View>
+
+              <TouchableOpacity
+                style={[
+                  styles.toolbarSeg,
+                  styles.toolbarSegStato,
+                  (showVisibilityFilters || filterMissingTeamsOnly || filterVisibility !== 'visible') && styles.toolbarSegActive,
+                ]}
+                onPress={() => {
+                  setShowVisibilityFilters((v) => !v);
+                  if (!showVisibilityFilters) setShowAdvancedFilters(false);
+                }}
+                accessibilityLabel="Filtri visibilità e stato squadre"
+              >
+                <Ionicons
+                  name="eye-outline"
+                  size={16}
+                  color={(showVisibilityFilters || filterMissingTeamsOnly || filterVisibility !== 'visible') ? '#4f46e5' : '#64748b'}
+                />
+                <Text
+                  style={[
+                    styles.toolbarSegTitle,
+                    (showVisibilityFilters || filterMissingTeamsOnly || filterVisibility !== 'visible') && styles.toolbarSegTitleActive,
+                  ]}
+                  numberOfLines={1}
+                >
+                  Stato
+                </Text>
+                {(filterMissingTeamsOnly || filterVisibility !== 'visible') ? (
+                  <View style={styles.toolbarSegDot} />
+                ) : (
+                  <Ionicons
+                    name={showVisibilityFilters ? 'chevron-up' : 'chevron-down'}
+                    size={14}
+                    color={showVisibilityFilters ? '#4f46e5' : '#94a3b8'}
+                  />
+                )}
+              </TouchableOpacity>
             </View>
 
-                {showAdvancedFilters ? (
-              <View style={styles.card}>
-                    <Text style={styles.label}>Filtro competizione</Text>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                      <View style={styles.rowWrap}>
+            {matchesFilterSummary.length > 0 ? (
+              <View style={styles.activeFiltersRow}>
+                {matchesFilterSummary.map((chip) => (
+                  <TouchableOpacity
+                    key={chip.key}
+                    style={styles.activeFilterChip}
+                    onPress={chip.clear}
+                    accessibilityLabel={`Rimuovi filtro ${chip.label}`}
+                  >
+                    <Text style={styles.activeFilterChipText} numberOfLines={1}>{chip.label}</Text>
+                    <View style={styles.activeFilterChipX}>
+                      <Ionicons name="close" size={11} color="#4f46e5" />
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            ) : null}
+
+            {showAdvancedFilters ? (
+              <View style={styles.filterPanel}>
+                <View style={styles.filterPanelHeader}>
+                  <View style={styles.filterPanelIconWrap}>
+                    <Ionicons name="layers-outline" size={16} color="#4f46e5" />
+                  </View>
+                  <View style={styles.filterPanelHeaderText}>
+                    <Text style={styles.filterPanelTitle}>Ambito</Text>
+                    <Text style={styles.filterPanelHint}>Competizione → edizione → squadra</Text>
+                  </View>
+                </View>
+
+                <View style={styles.filterStepBlock}>
+                  <View style={styles.filterStepLabelRow}>
+                    <View style={styles.filterStepBadge}><Text style={styles.filterStepBadgeText}>1</Text></View>
+                    <Text style={styles.filterStepLabel}>Competizione</Text>
+                  </View>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    <View style={styles.filterOptionsRow}>
+                      <TouchableOpacity
+                        style={[styles.filterOption, !filterCompetitionId && styles.filterOptionActive]}
+                        onPress={() => {
+                          setFilterCompetitionId(null);
+                          setFilterLeagueId(null);
+                          setFilterTeamId(null);
+                          setFilterTeams([]);
+                          setFilterMissingTeamsOnly(false);
+                        }}
+                      >
+                        <Text style={[styles.filterOptionText, !filterCompetitionId && styles.filterOptionTextActive]}>Tutte</Text>
+                      </TouchableOpacity>
+                      {competitions.map((c) => (
                         <TouchableOpacity
-                          style={[styles.chip, !filterCompetitionId && styles.chipActive]}
+                          key={`filter-comp-existing-${c.id}`}
+                          style={[styles.filterOption, Number(filterCompetitionId) === Number(c.id) && styles.filterOptionActive]}
                           onPress={() => {
-                            setFilterCompetitionId(null);
+                            setFilterCompetitionId(Number(c.id));
                             setFilterLeagueId(null);
                             setFilterTeamId(null);
                             setFilterTeams([]);
-                            setFilterMissingTeamsOnly(false);
+                            loadLeaguesForCompetition(Number(c.id)).catch(() => {});
                           }}
                         >
-                          <Text style={[styles.chipText, !filterCompetitionId && styles.chipTextActive]}>Tutte</Text>
+                          <Text style={[styles.filterOptionText, Number(filterCompetitionId) === Number(c.id) && styles.filterOptionTextActive]}>
+                            {c.name}
+                          </Text>
                         </TouchableOpacity>
-                        {competitions.map((c) => (
+                      ))}
+                    </View>
+                  </ScrollView>
+                </View>
+
+                <View style={[styles.filterStepBlock, !filterCompetitionId && styles.filterStepBlockMuted]}>
+                  <View style={styles.filterStepLabelRow}>
+                    <View style={[styles.filterStepBadge, !filterCompetitionId && styles.filterStepBadgeMuted]}>
+                      <Text style={[styles.filterStepBadgeText, !filterCompetitionId && styles.filterStepBadgeTextMuted]}>2</Text>
+                    </View>
+                    <Text style={styles.filterStepLabel}>Edizione</Text>
+                  </View>
+                  {!filterCompetitionId ? (
+                    <Text style={styles.filterStepEmpty}>Seleziona prima una competizione</Text>
+                  ) : (
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                      <View style={styles.filterOptionsRow}>
+                        <TouchableOpacity
+                          style={[styles.filterOption, !filterLeagueId && styles.filterOptionActive]}
+                          onPress={() => {
+                            setFilterLeagueId(null);
+                            setFilterTeamId(null);
+                            setFilterTeams([]);
+                          }}
+                        >
+                          <Text style={[styles.filterOptionText, !filterLeagueId && styles.filterOptionTextActive]}>Tutte</Text>
+                        </TouchableOpacity>
+                        {(leaguesByComp[filterCompetitionId] || []).map((l) => (
                           <TouchableOpacity
-                            key={`filter-comp-existing-${c.id}`}
-                            style={[styles.chip, Number(filterCompetitionId) === Number(c.id) && styles.chipActive]}
+                            key={`filter-league-existing-${l.id}`}
+                            style={[styles.filterOption, Number(filterLeagueId) === Number(l.id) && styles.filterOptionActive]}
                             onPress={() => {
-                              setFilterCompetitionId(Number(c.id));
-                              setFilterLeagueId(null);
+                              setFilterLeagueId(Number(l.id));
                               setFilterTeamId(null);
-                              setFilterTeams([]);
-                              loadLeaguesForCompetition(Number(c.id)).catch(() => {});
+                              loadFilterTeamsForLeague(Number(filterCompetitionId), Number(l.id));
                             }}
                           >
-                            <Text style={[styles.chipText, Number(filterCompetitionId) === Number(c.id) && styles.chipTextActive]}>
-                              {c.name}
+                            <Text style={[styles.filterOptionText, Number(filterLeagueId) === Number(l.id) && styles.filterOptionTextActive]}>
+                              {leagueEditionDisplay(l)}
                             </Text>
                           </TouchableOpacity>
                         ))}
                       </View>
                     </ScrollView>
+                  )}
+                </View>
 
-                    <Text style={styles.label}>Filtro edizione</Text>
-                    {!filterCompetitionId ? <Text style={styles.muted}>Seleziona prima una competizione</Text> : null}
+                <View style={[styles.filterStepBlock, styles.filterStepBlockLast, (!filterCompetitionId || !filterLeagueId) && styles.filterStepBlockMuted]}>
+                  <View style={styles.filterStepLabelRow}>
+                    <View style={[styles.filterStepBadge, (!filterCompetitionId || !filterLeagueId) && styles.filterStepBadgeMuted]}>
+                      <Text style={[styles.filterStepBadgeText, (!filterCompetitionId || !filterLeagueId) && styles.filterStepBadgeTextMuted]}>3</Text>
+                    </View>
+                    <Text style={styles.filterStepLabel}>Squadra</Text>
+                  </View>
+                  {!filterCompetitionId || !filterLeagueId ? (
+                    <Text style={styles.filterStepEmpty}>Seleziona prima competizione ed edizione</Text>
+                  ) : (
                     <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                      <View style={styles.rowWrap}>
+                      <View style={styles.filterOptionsRow}>
                         <TouchableOpacity
-                          style={[styles.chip, !filterLeagueId && styles.chipActive, !filterCompetitionId && styles.chipDisabled]}
-                          disabled={!filterCompetitionId}
-                          onPress={() => {
-                            setFilterLeagueId(null);
-                            setFilterTeamId(null);
-                            setFilterTeams([]);
-                          }}
-                        >
-                          <Text style={[styles.chipText, !filterLeagueId && styles.chipTextActive]}>Tutte</Text>
-                        </TouchableOpacity>
-                        {filterCompetitionId
-                          ? ((leaguesByComp[filterCompetitionId] || []).map((l) => (
-                              <TouchableOpacity
-                                key={`filter-league-existing-${l.id}`}
-                                style={[styles.chip, Number(filterLeagueId) === Number(l.id) && styles.chipActive]}
-                                onPress={() => {
-                                  setFilterLeagueId(Number(l.id));
-                                  setFilterTeamId(null);
-                                  loadFilterTeamsForLeague(Number(filterCompetitionId), Number(l.id));
-                                }}
-                              >
-                                <Text style={[styles.chipText, Number(filterLeagueId) === Number(l.id) && styles.chipTextActive]}>
-                                  {leagueEditionDisplay(l)}
-                                </Text>
-                              </TouchableOpacity>
-                            )))
-                          : null}
-                      </View>
-                    </ScrollView>
-
-                    <Text style={styles.label}>Filtro squadra</Text>
-                    {!filterCompetitionId || !filterLeagueId ? <Text style={styles.muted}>Seleziona prima competizione ed edizione</Text> : null}
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                      <View style={styles.rowWrap}>
-                        <TouchableOpacity
-                          style={[
-                            styles.chip,
-                            !filterTeamId && styles.chipActive,
-                            (!filterCompetitionId || !filterLeagueId) && styles.chipDisabled,
-                          ]}
-                          disabled={!filterCompetitionId || !filterLeagueId}
+                          style={[styles.filterOption, !filterTeamId && styles.filterOptionActive]}
                           onPress={() => setFilterTeamId(null)}
                         >
-                          <Text style={[styles.chipText, !filterTeamId && styles.chipTextActive]}>Tutte</Text>
+                          <Text style={[styles.filterOptionText, !filterTeamId && styles.filterOptionTextActive]}>Tutte</Text>
                         </TouchableOpacity>
-                        {filterCompetitionId && filterLeagueId
-                          ? (filterTeams.map((t) => (
-                              <TouchableOpacity
-                                key={`filter-team-existing-${t.id}`}
-                                style={[styles.chip, Number(filterTeamId) === Number(t.id) && styles.chipActive]}
-                                onPress={() => setFilterTeamId(Number(t.id))}
-                              >
-                                <Text style={[styles.chipText, Number(filterTeamId) === Number(t.id) && styles.chipTextActive]}>
-                                  {t.name}
-                                </Text>
-                              </TouchableOpacity>
-                            )))
-                          : null}
+                        {filterTeams.map((t) => (
+                          <TouchableOpacity
+                            key={`filter-team-existing-${t.id}`}
+                            style={[styles.filterOption, Number(filterTeamId) === Number(t.id) && styles.filterOptionActive]}
+                            onPress={() => setFilterTeamId(Number(t.id))}
+                          >
+                            <Text style={[styles.filterOptionText, Number(filterTeamId) === Number(t.id) && styles.filterOptionTextActive]}>
+                              {t.name}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
                       </View>
                     </ScrollView>
+                  )}
+                </View>
+              </View>
+            ) : null}
 
+            {showVisibilityFilters ? (
+              <View style={styles.filterPanel}>
+                <View style={styles.filterPanelHeader}>
+                  <View style={styles.filterPanelIconWrap}>
+                    <Ionicons name="eye-outline" size={16} color="#4f46e5" />
                   </View>
-                ) : null}
+                  <View style={styles.filterPanelHeaderText}>
+                    <Text style={styles.filterPanelTitle}>Stato</Text>
+                    <Text style={styles.filterPanelHint}>Visibilità e completezza squadre</Text>
+                  </View>
+                </View>
 
-                {showVisibilityFilters ? (
-                  <View style={styles.card}>
-                    <Text style={styles.label}>Filtro stato squadre</Text>
-                    <View style={styles.rowWrap}>
-                      <TouchableOpacity
-                        style={[styles.chip, !filterMissingTeamsOnly && styles.chipActive]}
-                        onPress={() => setFilterMissingTeamsOnly(false)}
-                      >
-                        <Text style={[styles.chipText, !filterMissingTeamsOnly && styles.chipTextActive]}>Tutte</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={[styles.chip, filterMissingTeamsOnly && styles.chipActive]}
-                        onPress={() => setFilterMissingTeamsOnly(true)}
-                      >
-                        <Text style={[styles.chipText, filterMissingTeamsOnly && styles.chipTextActive]}>
-                          Almeno una squadra da definire
-                        </Text>
-                      </TouchableOpacity>
-                    </View>
-                    <Text style={styles.label}>Filtro visibilita</Text>
-                    <View style={styles.rowWrap}>
-                      <TouchableOpacity
-                        style={[styles.chip, filterVisibility === 'visible' && styles.chipActive]}
-                        onPress={() => setFilterVisibility('visible')}
-                      >
-                        <Text style={[styles.chipText, filterVisibility === 'visible' && styles.chipTextActive]}>
-                          Visibili a tutti
-                        </Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={[styles.chip, filterVisibility === 'hidden' && styles.chipActive]}
-                        onPress={() => setFilterVisibility('hidden')}
-                      >
-                        <Text style={[styles.chipText, filterVisibility === 'hidden' && styles.chipTextActive]}>
-                          Nascoste
-                        </Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={[styles.chip, filterVisibility === 'all' && styles.chipActive]}
-                        onPress={() => setFilterVisibility('all')}
-                      >
-                        <Text style={[styles.chipText, filterVisibility === 'all' && styles.chipTextActive]}>
-                          Tutte
-                        </Text>
-                      </TouchableOpacity>
-                    </View>
-                    <TouchableOpacity style={[styles.primaryBtn, { marginTop: 10 }]} onPress={publishAllHiddenMatches}>
-                      <Text style={styles.primaryBtnText}>Pubblica tutte</Text>
+                <View style={styles.filterStepBlock}>
+                  <Text style={styles.filterFieldLabel}>Squadre</Text>
+                  <View style={styles.filterSegment}>
+                    <TouchableOpacity
+                      style={[styles.filterSegmentItem, !filterMissingTeamsOnly && styles.filterSegmentItemActive]}
+                      onPress={() => setFilterMissingTeamsOnly(false)}
+                    >
+                      <Text style={[styles.filterSegmentText, !filterMissingTeamsOnly && styles.filterSegmentTextActive]}>
+                        Tutte
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.filterSegmentItem, filterMissingTeamsOnly && styles.filterSegmentItemActive]}
+                      onPress={() => setFilterMissingTeamsOnly(true)}
+                    >
+                      <Text style={[styles.filterSegmentText, filterMissingTeamsOnly && styles.filterSegmentTextActive]}>
+                        Da definire
+                      </Text>
                     </TouchableOpacity>
                   </View>
-                ) : null}
-
-                <View style={styles.card}>
-                  <Text style={styles.sectionTitle}>{String(date || '').trim() ? 'Partite del giorno' : 'Tutte le partite'}</Text>
-                  {filteredMatchesWithVisibility.length === 0 ? <Text style={styles.muted}>Nessuna partita</Text> : null}
-                  {filteredMatchesWithVisibility.map((m) => (
-                    <View key={m.id} style={styles.matchRow}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.compText}>{m.competition_name}</Text>
-                        <Text style={styles.matchText}>{m.home_team_name} vs {m.away_team_name}</Text>
-                        <Text style={styles.muted}>{formatDisplayDateTime(m.kickoff_at)}</Text>
-                      </View>
-                      <View style={styles.matchActionsCol}>
-                        <TouchableOpacity style={styles.editBtn} onPress={() => startEditMatch(m)}>
-                          <Text style={styles.editBtnText}>Modifica</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity style={styles.deleteBtn} onPress={() => deleteMatch(m.id)}>
-                          <Text style={styles.deleteBtnText}>Elimina</Text>
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-                  ))}
                 </View>
-                {editingMatchId ? null : null}
-            </>
+
+                <View style={[styles.filterStepBlock, styles.filterStepBlockLast]}>
+                  <Text style={styles.filterFieldLabel}>Visibilità</Text>
+                  <View style={styles.filterSegment}>
+                    <TouchableOpacity
+                      style={[styles.filterSegmentItem, filterVisibility === 'visible' && styles.filterSegmentItemActive]}
+                      onPress={() => setFilterVisibility('visible')}
+                    >
+                      <Text style={[styles.filterSegmentText, filterVisibility === 'visible' && styles.filterSegmentTextActive]}>
+                        Visibili
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.filterSegmentItem, filterVisibility === 'hidden' && styles.filterSegmentItemActive]}
+                      onPress={() => setFilterVisibility('hidden')}
+                    >
+                      <Text style={[styles.filterSegmentText, filterVisibility === 'hidden' && styles.filterSegmentTextActive]}>
+                        Nascoste
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.filterSegmentItem, filterVisibility === 'all' && styles.filterSegmentItemActive]}
+                      onPress={() => setFilterVisibility('all')}
+                    >
+                      <Text style={[styles.filterSegmentText, filterVisibility === 'all' && styles.filterSegmentTextActive]}>
+                        Tutte
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
+                <TouchableOpacity style={styles.publishAllBtn} onPress={publishAllHiddenMatches}>
+                  <Ionicons name="eye-outline" size={16} color="#fff" />
+                  <Text style={styles.publishAllBtnText}>Pubblica tutte le nascoste</Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
+
+            <View style={styles.matchesListCard}>
+              <Text style={styles.matchesListHeading}>
+                {String(date || '').trim() ? `Giorno ${String(date).trim()}` : 'Elenco'}
+              </Text>
+              {filteredMatchesWithVisibility.length === 0 ? (
+                <Text style={styles.matchesEmpty}>Nessuna partita con questi filtri</Text>
+              ) : (
+                filteredMatchesWithVisibility.map((m, index) => (
+                  <ManageMatchRow
+                    key={m.id}
+                    match={m}
+                    isFirst={index === 0}
+                    styles={styles}
+                    onEdit={startEditMatch}
+                    onDelete={deleteMatch}
+                  />
+                ))
+              )}
+            </View>
           </>
         )}
 
@@ -1923,10 +2389,11 @@ export default function ManageMatchesScreen() {
         </View>
       </ScrollView>
       </KeyboardAvoidingView>
+      {showCreateMatchForm ? (
       <Modal
-        visible={showCreateMatchForm}
+        visible
         transparent
-        animationType="fade"
+        animationType="none"
         onRequestClose={() => setShowCreateMatchForm(false)}
       >
         <TouchableOpacity
@@ -1935,6 +2402,13 @@ export default function ManageMatchesScreen() {
           onPress={() => setShowCreateMatchForm(false)}
         >
           <View style={styles.createMatchModalBox} onStartShouldSetResponder={() => true}>
+            <MatchWizardHeader
+              title="Nuova partita"
+              step={createMatchStep}
+              onClose={() => setShowCreateMatchForm(false)}
+              styles={styles}
+            />
+            <MatchWizardProgress step={createMatchStep} styles={styles} />
             <ScrollView
               ref={createMatchScrollRef}
               style={styles.createMatchModalScroll}
@@ -1943,13 +2417,13 @@ export default function ManageMatchesScreen() {
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator
             >
-              <Text style={styles.sectionTitle}>Nuova partita</Text>
-              <Text style={styles.muted}>Step {createMatchStep} di 4</Text>
-
               {createMatchStep === 1 ? (
-                <>
-                  <View style={styles.switchRow}>
-                    <Text style={styles.switchLabel}>Nascondi partita</Text>
+                <View style={styles.wizardSection}>
+                  <View style={styles.wizardToggleCard}>
+                    <View style={styles.wizardToggleText}>
+                      <Text style={styles.wizardToggleTitle}>Nascondi partita</Text>
+                      <Text style={styles.wizardToggleHint}>Visibile solo agli admin</Text>
+                    </View>
                     <Switch
                       value={isAdminOnly}
                       onValueChange={setIsAdminOnly}
@@ -1957,39 +2431,42 @@ export default function ManageMatchesScreen() {
                       thumbColor={isAdminOnly ? '#667eea' : '#f4f3f4'}
                     />
                   </View>
-                  <Text style={styles.label}>Data e ora inizio</Text>
+                  <Text style={styles.label}>Data e ora</Text>
                   <View style={styles.datetimeRow}>
                     <TouchableOpacity style={styles.datetimeBtn} onPress={() => openKickoffPicker('date')}>
-                      <Text style={styles.datetimeBtnText}>Data: {kickoffAt.slice(0, 10)}</Text>
+                      <Ionicons name="calendar-outline" size={16} color="#667eea" />
+                      <Text style={styles.datetimeBtnText}>{kickoffAt.slice(0, 10)}</Text>
                     </TouchableOpacity>
                     <TouchableOpacity style={styles.datetimeBtn} onPress={() => openKickoffPicker('time')}>
-                      <Text style={styles.datetimeBtnText}>Ora: {kickoffAt.slice(11, 16)}</Text>
+                      <Ionicons name="time-outline" size={16} color="#667eea" />
+                      <Text style={styles.datetimeBtnText}>{kickoffAt.slice(11, 16)}</Text>
                     </TouchableOpacity>
                   </View>
                   <Text style={styles.label}>Competizione</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                  <View style={styles.rowWrap}>
-                    {competitions.length === 0 ? <Text style={styles.muted}>Nessuna competizione visibile</Text> : null}
-                    {competitions.map((c) => (
-                      <TouchableOpacity
-                        key={c.id}
-                        style={[styles.chip, competitionId === c.id && styles.chipActive]}
-                        onPress={() => {
-                          setCompetitionId(c.id);
-                          setHomeTeamId(null);
-                          setAwayTeamId(null);
-                          setSelectedLeagueIdByComp((prev) => ({ ...prev, [c.id]: 0 }));
-                          setTeamsByComp((prev) => ({ ...prev, [c.id]: [] }));
-                          loadLeaguesForCompetition(c.id).catch(() => {});
-                        }}
-                      >
-                        <Text style={[styles.chipText, competitionId === c.id && styles.chipTextActive]}>{c.name}</Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                </ScrollView>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    <View style={styles.rowWrap}>
+                      {competitions.length === 0 ? <Text style={styles.muted}>Nessuna competizione visibile</Text> : null}
+                      {competitions.map((c) => (
+                        <TouchableOpacity
+                          key={c.id}
+                          style={[styles.chip, competitionId === c.id && styles.chipActive]}
+                          onPress={() => {
+                            setCompetitionId(c.id);
+                            setHomeTeamId(null);
+                            setAwayTeamId(null);
+                            setSelectedLeagueIdByComp((prev) => ({ ...prev, [c.id]: 0 }));
+                            teamsLoadedForLeagueRef.current[c.id] = 0;
+                            setTeamsByComp((prev) => ({ ...prev, [c.id]: [] }));
+                            loadLeaguesForCompetition(c.id).catch(() => {});
+                          }}
+                        >
+                          <Text style={[styles.chipText, competitionId === c.id && styles.chipTextActive]}>{c.name}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </ScrollView>
                   <Text style={styles.label}>Edizione</Text>
-                {!!competitionId && (leaguesByComp[competitionId] || []).length > 0 ? (
+                  {!!competitionId && (leaguesByComp[competitionId] || []).length > 0 ? (
                     <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                       <View style={styles.rowWrap}>
                         {(leaguesByComp[competitionId] || []).map((l) => {
@@ -2009,171 +2486,175 @@ export default function ManageMatchesScreen() {
                   ) : (
                     <Text style={styles.muted}>Seleziona prima una competizione</Text>
                   )}
-                  </>
-                ) : null}
-
-              {createMatchStep === 2 ? (
-                <>
-                  <Text style={styles.muted}>Se vuoi, puoi lasciare una o entrambe le squadre non definite.</Text>
-                <Text style={styles.label}>Squadra casa</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                  <View style={styles.rowWrap}>
-                    {selectedTeams.length === 0 ? <Text style={styles.muted}>Seleziona prima una lega ufficiale</Text> : null}
-                    {selectedTeams.map((t) => (
-                      <TouchableOpacity
-                        key={`h-${t.id}`}
-                        style={[styles.chip, homeTeamId === t.id && styles.chipActive, awayTeamId === t.id && styles.chipDisabled]}
-                        disabled={awayTeamId === t.id}
-                        onPress={() => setHomeTeamId(t.id)}
-                      >
-                        <Text style={[styles.chipText, homeTeamId === t.id && styles.chipTextActive]}>{t.name}</Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                </ScrollView>
-                  <Text style={styles.label}>Squadra ospite</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                  <View style={styles.rowWrap}>
-                    {selectedTeams.length === 0 ? <Text style={styles.muted}>Seleziona prima una lega ufficiale</Text> : null}
-                    {selectedTeams.map((t) => (
-                      <TouchableOpacity
-                        key={`a-${t.id}`}
-                        style={[styles.chip, awayTeamId === t.id && styles.chipActive, homeTeamId === t.id && styles.chipDisabled]}
-                        disabled={homeTeamId === t.id}
-                        onPress={() => setAwayTeamId(t.id)}
-                      >
-                        <Text style={[styles.chipText, awayTeamId === t.id && styles.chipTextActive]}>{t.name}</Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                </ScrollView>
-                </>
-              ) : null}
-
-              {createMatchStep === 3 ? (
-                <>
-                <Text style={styles.label}>Luogo</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                  <View style={styles.rowWrap}>
-                    {(matchDetailsOptions.venues || []).map((v) => (
-                      <TouchableOpacity
-                        key={`venue-create-${v.id}`}
-                        style={[styles.chip, venue === v.name && styles.chipActive]}
-                        onPress={() => setVenue(v.name)}
-                      >
-                        <Text style={[styles.chipText, venue === v.name && styles.chipTextActive]}>{v.name}</Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                </ScrollView>
-                <Text style={styles.label}>Arbitro</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                  <View style={styles.rowWrap}>
-                    <TouchableOpacity style={[styles.chip, !referee && styles.chipActive]} onPress={() => setReferee('')}>
-                      <Text style={[styles.chipText, !referee && styles.chipTextActive]}>-</Text>
-                    </TouchableOpacity>
-                    {(matchDetailsOptions.referees || []).map((r) => (
-                      <TouchableOpacity
-                        key={`ref-create-${r.id}`}
-                        style={[styles.chip, referee === r.name && styles.chipActive]}
-                        onPress={() => setReferee(r.name)}
-                      >
-                        <Text style={[styles.chipText, referee === r.name && styles.chipTextActive]}>{r.name}</Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                </ScrollView>
-                <Text style={styles.label}>Tipologia giornata</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                  <View style={styles.rowWrap}>
-                    <TouchableOpacity style={[styles.chip, !matchStageId && styles.chipActive]} onPress={() => selectMatchStageId(null)}>
-                      <Text style={[styles.chipText, !matchStageId && styles.chipTextActive]}>-</Text>
-                    </TouchableOpacity>
-                    {(matchDetailsOptions.stages || []).map((s) => (
-                      <TouchableOpacity
-                        key={`stage-create-${s.id}`}
-                        style={[styles.chip, Number(matchStageId) === Number(s.id) && styles.chipActive]}
-                        onPress={() => selectMatchStageId(s.id)}
-                      >
-                        <Text style={[styles.chipText, Number(matchStageId) === Number(s.id) && styles.chipTextActive]}>{s.name}</Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                </ScrollView>
-                {gironiStageMatchBlocked ? (
-                  <Text style={{ color: '#b91c1c', fontSize: 13, marginTop: 10, fontWeight: '600' }}>
-                    {gironiStageMatchBlocked}
-                  </Text>
-                ) : null}
-                  <TouchableOpacity style={styles.inlineLinkBtn} onPress={() => setShowCreateTimingDetails((v) => !v)}>
-                    <Text style={styles.inlineLinkBtnText}>
-                      {showCreateTimingDetails ? 'Nascondi dettagli durata' : 'Modifica durata / supplementari / rigori / shootout'}
-                    </Text>
-                  </TouchableOpacity>
-                  {showCreateTimingDetails ? matchTimingEditor : null}
-                </>
-              ) : null}
-
-              {createMatchStep === 4 ? (
-                <View style={styles.summaryBox}>
-                  <Text style={styles.label}>Data e ora</Text>
-                  <Text style={styles.summaryValue}>{formatDisplayDateTime(kickoffAt)}</Text>
-                  <Text style={styles.label}>Competizione / Edizione</Text>
-                  <Text style={styles.summaryValue}>{selectedCompetitionName} - {selectedLeagueName}</Text>
-                  <Text style={styles.label}>Partita</Text>
-                  <Text style={styles.summaryValue}>{selectedHomeTeamName} vs {selectedAwayTeamName}</Text>
-                  <Text style={styles.label}>Luogo / Arbitro</Text>
-                  <Text style={styles.summaryValue}>{venue || '-'} / {referee || '-'}</Text>
-                  <Text style={styles.label}>Tipologia giornata</Text>
-                  <Text style={styles.summaryValue}>{selectedStageName}</Text>
-                  <TouchableOpacity
-                    style={[styles.primaryBtn, !canSubmitMatch && styles.primaryBtnDisabled]}
-                    disabled={!canSubmitMatch}
-                    onPress={createMatch}
-                  >
-                    <Text style={styles.primaryBtnText}>Crea partita</Text>
-                  </TouchableOpacity>
                 </View>
               ) : null}
 
-                  <View style={styles.actionsRow}>
-                <TouchableOpacity
-                  style={[styles.secondaryBtn, createMatchStep <= 1 && styles.primaryBtnDisabled]}
-                  disabled={createMatchStep <= 1}
-                  onPress={() => setCreateMatchStep((s) => Math.max(1, s - 1))}
-                >
-                  <Text style={styles.secondaryBtnText}>Indietro</Text>
-                    </TouchableOpacity>
-                {createMatchStep < 4 ? (
-                  <TouchableOpacity
-                    style={[
-                      styles.primaryBtn,
-                      {
-                        flex: 1,
-                        marginTop: 0,
-                      },
-                      ((createMatchStep === 1 && !canCreateStep1) || (createMatchStep === 2 && !canCreateStep2) || (createMatchStep === 3 && !canCreateStep3))
-                        && styles.primaryBtnDisabled,
-                    ]}
-                    disabled={(createMatchStep === 1 && !canCreateStep1) || (createMatchStep === 2 && !canCreateStep2) || (createMatchStep === 3 && !canCreateStep3)}
-                    onPress={() => setCreateMatchStep((s) => Math.min(4, s + 1))}
-                  >
-                    <Text style={styles.primaryBtnText}>Avanti</Text>
-                    </TouchableOpacity>
-                ) : null}
+              {createMatchStep === 2 ? (
+                <View style={styles.wizardSection}>
+                  <Text style={styles.wizardSectionHint}>Puoi lasciare una o entrambe le squadre non definite.</Text>
+                  <Text style={styles.label}>Casa</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    <View style={styles.rowWrap}>
+                      {selectedTeams.length === 0 ? <Text style={styles.muted}>Seleziona prima un’edizione</Text> : null}
+                      {selectedTeams.map((t) => (
+                        <TouchableOpacity
+                          key={`h-${t.id}`}
+                          style={[styles.chip, homeTeamId === t.id && styles.chipActive, awayTeamId === t.id && styles.chipDisabled]}
+                          disabled={awayTeamId === t.id}
+                          onPress={() => setHomeTeamId(t.id)}
+                        >
+                          <Text style={[styles.chipText, homeTeamId === t.id && styles.chipTextActive]}>{t.name}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </ScrollView>
+                  <Text style={styles.label}>Ospite</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    <View style={styles.rowWrap}>
+                      {selectedTeams.length === 0 ? <Text style={styles.muted}>Seleziona prima un’edizione</Text> : null}
+                      {selectedTeams.map((t) => (
+                        <TouchableOpacity
+                          key={`a-${t.id}`}
+                          style={[styles.chip, awayTeamId === t.id && styles.chipActive, homeTeamId === t.id && styles.chipDisabled]}
+                          disabled={homeTeamId === t.id}
+                          onPress={() => setAwayTeamId(t.id)}
+                        >
+                          <Text style={[styles.chipText, awayTeamId === t.id && styles.chipTextActive]}>{t.name}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </ScrollView>
+                </View>
+              ) : null}
+
+              {createMatchStep === 3 ? (
+                <View style={styles.wizardSection}>
+                  <Text style={styles.label}>Luogo</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    <View style={styles.rowWrap}>
+                      {(matchDetailsOptions.venues || []).map((v) => (
+                        <TouchableOpacity
+                          key={`venue-create-${v.id}`}
+                          style={[styles.chip, venue === v.name && styles.chipActive]}
+                          onPress={() => setVenue(v.name)}
+                        >
+                          <Text style={[styles.chipText, venue === v.name && styles.chipTextActive]}>{v.name}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </ScrollView>
+                  <Text style={styles.label}>Arbitro</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    <View style={styles.rowWrap}>
+                      <TouchableOpacity style={[styles.chip, !referee && styles.chipActive]} onPress={() => setReferee('')}>
+                        <Text style={[styles.chipText, !referee && styles.chipTextActive]}>-</Text>
+                      </TouchableOpacity>
+                      {(matchDetailsOptions.referees || []).map((r) => (
+                        <TouchableOpacity
+                          key={`ref-create-${r.id}`}
+                          style={[styles.chip, referee === r.name && styles.chipActive]}
+                          onPress={() => setReferee(r.name)}
+                        >
+                          <Text style={[styles.chipText, referee === r.name && styles.chipTextActive]}>{r.name}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </ScrollView>
+                  <Text style={styles.label}>Tipologia giornata</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    <View style={styles.rowWrap}>
+                      <TouchableOpacity style={[styles.chip, !matchStageId && styles.chipActive]} onPress={() => selectMatchStageId(null)}>
+                        <Text style={[styles.chipText, !matchStageId && styles.chipTextActive]}>-</Text>
+                      </TouchableOpacity>
+                      {(matchDetailsOptions.stages || []).map((s) => (
+                        <TouchableOpacity
+                          key={`stage-create-${s.id}`}
+                          style={[styles.chip, Number(matchStageId) === Number(s.id) && styles.chipActive]}
+                          onPress={() => selectMatchStageId(s.id)}
+                        >
+                          <Text style={[styles.chipText, Number(matchStageId) === Number(s.id) && styles.chipTextActive]}>{s.name}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </ScrollView>
+                  {gironiStageMatchBlocked ? (
+                    <Text style={styles.wizardError}>{gironiStageMatchBlocked}</Text>
+                  ) : null}
+                  <TouchableOpacity style={styles.inlineLinkBtn} onPress={() => setShowCreateTimingDetails((v) => !v)}>
+                    <Text style={styles.inlineLinkBtnText}>
+                      {showCreateTimingDetails ? 'Nascondi durata / rigori' : 'Durata, supplementari, rigori, shootout'}
+                    </Text>
+                  </TouchableOpacity>
+                  {showCreateTimingDetails ? renderMatchTimingEditor() : null}
+                </View>
+              ) : null}
+
+              {createMatchStep === 4 ? (
+                <View style={styles.wizardSection}>
+                  <View style={styles.summaryBox}>
+                    <View style={styles.summaryRow}>
+                      <Text style={styles.summaryLabel}>Data e ora</Text>
+                      <Text style={styles.summaryValue}>{formatDisplayDateTime(kickoffAt)}</Text>
+                    </View>
+                    <View style={styles.summaryRow}>
+                      <Text style={styles.summaryLabel}>Competizione</Text>
+                      <Text style={styles.summaryValue}>{selectedCompetitionName} · {selectedLeagueName}</Text>
+                    </View>
+                    <View style={styles.summaryRow}>
+                      <Text style={styles.summaryLabel}>Partita</Text>
+                      <Text style={styles.summaryValue}>{selectedHomeTeamName} · {selectedAwayTeamName}</Text>
+                    </View>
+                    <View style={styles.summaryRow}>
+                      <Text style={styles.summaryLabel}>Luogo / Arbitro</Text>
+                      <Text style={styles.summaryValue}>{venue || '-'} · {referee || '-'}</Text>
+                    </View>
+                    <View style={[styles.summaryRow, styles.summaryRowLast]}>
+                      <Text style={styles.summaryLabel}>Tipologia</Text>
+                      <Text style={styles.summaryValue}>{selectedStageName}</Text>
+                    </View>
                   </View>
+                  <TouchableOpacity
+                    style={[styles.wizardConfirmBtn, !canSubmitMatch && styles.primaryBtnDisabled]}
+                    disabled={!canSubmitMatch}
+                    onPress={createMatch}
+                  >
+                    <Ionicons name="checkmark-circle" size={18} color="#fff" />
+                    <Text style={styles.wizardConfirmBtnText}>Crea partita</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : null}
             </ScrollView>
+            <MatchWizardFooter
+              step={createMatchStep}
+              canGoNext={
+                !((createMatchStep === 1 && !canCreateStep1)
+                  || (createMatchStep === 2 && !canCreateStep2)
+                  || (createMatchStep === 3 && !canCreateStep3))
+              }
+              onBack={() => setCreateMatchStep((s) => Math.max(1, s - 1))}
+              onNext={() => setCreateMatchStep((s) => Math.min(4, s + 1))}
+              styles={styles}
+            />
           </View>
         </TouchableOpacity>
       </Modal>
+      ) : null}
+      {showEditMatchForm ? (
       <Modal
-        visible={showEditMatchForm}
+        visible
         transparent
-        animationType="fade"
+        animationType="none"
         onRequestClose={cancelEdit}
       >
         <TouchableOpacity style={styles.confirmOverlay} activeOpacity={1} onPress={cancelEdit}>
           <View style={styles.createMatchModalBox} onStartShouldSetResponder={() => true}>
+            <MatchWizardHeader
+              title="Modifica partita"
+              step={editMatchStep}
+              onClose={cancelEdit}
+              styles={styles}
+            />
+            <MatchWizardProgress step={editMatchStep} styles={styles} />
             <ScrollView
               ref={editMatchScrollRef}
               style={styles.createMatchModalScroll}
@@ -2182,231 +2663,240 @@ export default function ManageMatchesScreen() {
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator
             >
-              <Text style={styles.sectionTitle}>Modifica partita</Text>
-              <Text style={styles.muted}>Step {editMatchStep} di 4</Text>
-
               {editMatchStep === 1 ? (
-                <>
-                  <View style={styles.switchRow}>
-                    <Text style={styles.switchLabel}>Nascondi partita</Text>
+                <View style={styles.wizardSection}>
+                  <View style={styles.wizardToggleCard}>
+                    <View style={styles.wizardToggleText}>
+                      <Text style={styles.wizardToggleTitle}>Nascondi partita</Text>
+                      <Text style={styles.wizardToggleHint}>Visibile solo agli admin</Text>
+                    </View>
                     <Switch
                       value={isAdminOnly}
                       onValueChange={setIsAdminOnly}
                       trackColor={{ false: '#ccc', true: '#a5b4fc' }}
                       thumbColor={isAdminOnly ? '#667eea' : '#f4f3f4'}
                     />
-                </View>
-                  <Text style={styles.label}>Kickoff</Text>
+                  </View>
+                  <Text style={styles.label}>Data e ora</Text>
                   <View style={styles.datetimeRow}>
                     <TouchableOpacity style={styles.datetimeBtn} onPress={() => openKickoffPicker('date')}>
-                      <Text style={styles.datetimeBtnText}>Data: {kickoffAt.slice(0, 10)}</Text>
-                        </TouchableOpacity>
+                      <Ionicons name="calendar-outline" size={16} color="#667eea" />
+                      <Text style={styles.datetimeBtnText}>{kickoffAt.slice(0, 10)}</Text>
+                    </TouchableOpacity>
                     <TouchableOpacity style={styles.datetimeBtn} onPress={() => openKickoffPicker('time')}>
-                      <Text style={styles.datetimeBtnText}>Ora: {kickoffAt.slice(11, 16)}</Text>
+                      <Ionicons name="time-outline" size={16} color="#667eea" />
+                      <Text style={styles.datetimeBtnText}>{kickoffAt.slice(11, 16)}</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <Text style={styles.label}>Competizione</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    <View style={styles.rowWrap}>
+                      {competitions.map((c) => (
+                        <TouchableOpacity
+                          key={`edit-comp-${c.id}`}
+                          style={[styles.chip, competitionId === c.id && styles.chipActive]}
+                          onPress={() => {
+                            setCompetitionId(c.id);
+                            setHomeTeamId(null);
+                            setAwayTeamId(null);
+                            setSelectedLeagueIdByComp((prev) => ({ ...prev, [c.id]: 0 }));
+                            teamsLoadedForLeagueRef.current[c.id] = 0;
+                            setTeamsByComp((prev) => ({ ...prev, [c.id]: [] }));
+                            loadLeaguesForCompetition(c.id).catch(() => {});
+                          }}
+                        >
+                          <Text style={[styles.chipText, competitionId === c.id && styles.chipTextActive]}>{c.name}</Text>
                         </TouchableOpacity>
-                      </View>
-                    <Text style={styles.label}>Competizione</Text>
+                      ))}
+                    </View>
+                  </ScrollView>
+                  <Text style={styles.label}>Edizione</Text>
+                  {editHydrating && !(leaguesByComp[competitionId] || []).length ? (
+                    <View style={styles.filterHydratingRow}>
+                      <ActivityIndicator size="small" color="#667eea" />
+                      <Text style={styles.muted}>Caricamento edizioni…</Text>
+                    </View>
+                  ) : !!competitionId && (leaguesByComp[competitionId] || []).length > 0 ? (
                     <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                       <View style={styles.rowWrap}>
-                        {competitions.map((c) => (
-                          <TouchableOpacity
-                            key={`edit-comp-${c.id}`}
-                            style={[styles.chip, competitionId === c.id && styles.chipActive]}
-                            onPress={() => {
-                              setCompetitionId(c.id);
-                              setHomeTeamId(null);
-                              setAwayTeamId(null);
-                              setSelectedLeagueIdByComp((prev) => ({ ...prev, [c.id]: 0 }));
-                              setTeamsByComp((prev) => ({ ...prev, [c.id]: [] }));
-                              loadLeaguesForCompetition(c.id).catch(() => {});
-                            }}
-                          >
-                            <Text style={[styles.chipText, competitionId === c.id && styles.chipTextActive]}>{c.name}</Text>
-                          </TouchableOpacity>
-                        ))}
+                        {(leaguesByComp[competitionId] || []).map((l) => {
+                          const enabled = Number(selectedLeagueIdByComp[competitionId] || 0) === Number(l.id);
+                          return (
+                            <TouchableOpacity
+                              key={`edit-filter-league-${l.id}`}
+                              style={[styles.chip, enabled && styles.chipActive]}
+                              onPress={() => selectLeagueForTeams(competitionId, Number(l.id))}
+                            >
+                              <Text style={[styles.chipText, enabled && styles.chipTextActive]}>{leagueEditionDisplay(l)}</Text>
+                            </TouchableOpacity>
+                          );
+                        })}
                       </View>
                     </ScrollView>
-                    {!!competitionId && (leaguesByComp[competitionId] || []).length > 0 ? (
-                      <>
-                      <Text style={styles.label}>Edizione</Text>
-                        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                          <View style={styles.rowWrap}>
-                            {(leaguesByComp[competitionId] || []).map((l) => {
-                              const enabled = Number(selectedLeagueIdByComp[competitionId] || 0) === Number(l.id);
-                              return (
-                                <TouchableOpacity
-                                  key={`edit-filter-league-${l.id}`}
-                                  style={[styles.chip, enabled && styles.chipActive]}
-                                  onPress={() => selectLeagueForTeams(competitionId, Number(l.id))}
-                                >
-                                  <Text style={[styles.chipText, enabled && styles.chipTextActive]}>{leagueEditionDisplay(l)}</Text>
-                                </TouchableOpacity>
-                              );
-                            })}
-                          </View>
-                        </ScrollView>
-                      </>
-                    ) : null}
-                </>
+                  ) : (
+                    <Text style={styles.muted}>Seleziona prima una competizione</Text>
+                  )}
+                </View>
               ) : null}
 
               {editMatchStep === 2 ? (
-                <>
-                    <Text style={styles.label}>Squadra casa</Text>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                      <View style={styles.rowWrap}>
-                        {selectedTeams.map((t) => (
-                          <TouchableOpacity
-                            key={`edit-h-${t.id}`}
-                            style={[styles.chip, homeTeamId === t.id && styles.chipActive, awayTeamId === t.id && styles.chipDisabled]}
-                            disabled={awayTeamId === t.id}
-                            onPress={() => setHomeTeamId(t.id)}
-                          >
-                            <Text style={[styles.chipText, homeTeamId === t.id && styles.chipTextActive]}>{t.name}</Text>
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    </ScrollView>
-                    <Text style={styles.label}>Squadra trasferta</Text>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                      <View style={styles.rowWrap}>
-                        {selectedTeams.map((t) => (
-                          <TouchableOpacity
-                            key={`edit-a-${t.id}`}
-                            style={[styles.chip, awayTeamId === t.id && styles.chipActive, homeTeamId === t.id && styles.chipDisabled]}
-                            disabled={homeTeamId === t.id}
-                            onPress={() => setAwayTeamId(t.id)}
-                          >
-                            <Text style={[styles.chipText, awayTeamId === t.id && styles.chipTextActive]}>{t.name}</Text>
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    </ScrollView>
-                </>
+                <View style={styles.wizardSection}>
+                  <Text style={styles.wizardSectionHint}>Puoi lasciare una o entrambe le squadre non definite.</Text>
+                  {editHydrating ? (
+                    <View style={styles.filterHydratingRow}>
+                      <ActivityIndicator size="small" color="#667eea" />
+                      <Text style={styles.muted}>Caricamento squadre…</Text>
+                    </View>
+                  ) : null}
+                  <Text style={styles.label}>Casa</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    <View style={styles.rowWrap}>
+                      {selectedTeams.length === 0 ? <Text style={styles.muted}>Seleziona prima un’edizione</Text> : null}
+                      {selectedTeams.map((t) => (
+                        <TouchableOpacity
+                          key={`edit-h-${t.id}`}
+                          style={[styles.chip, homeTeamId === t.id && styles.chipActive, awayTeamId === t.id && styles.chipDisabled]}
+                          disabled={awayTeamId === t.id}
+                          onPress={() => setHomeTeamId(t.id)}
+                        >
+                          <Text style={[styles.chipText, homeTeamId === t.id && styles.chipTextActive]}>{t.name}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </ScrollView>
+                  <Text style={styles.label}>Ospite</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    <View style={styles.rowWrap}>
+                      {selectedTeams.length === 0 ? <Text style={styles.muted}>Seleziona prima un’edizione</Text> : null}
+                      {selectedTeams.map((t) => (
+                        <TouchableOpacity
+                          key={`edit-a-${t.id}`}
+                          style={[styles.chip, awayTeamId === t.id && styles.chipActive, homeTeamId === t.id && styles.chipDisabled]}
+                          disabled={homeTeamId === t.id}
+                          onPress={() => setAwayTeamId(t.id)}
+                        >
+                          <Text style={[styles.chipText, awayTeamId === t.id && styles.chipTextActive]}>{t.name}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </ScrollView>
+                </View>
               ) : null}
 
               {editMatchStep === 3 ? (
-                <>
-                    <Text style={styles.label}>Luogo</Text>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                      <View style={styles.rowWrap}>
-                        {(matchDetailsOptions.venues || []).map((v) => (
-                          <TouchableOpacity
-                            key={`venue-edit-${v.id}`}
-                            style={[styles.chip, venue === v.name && styles.chipActive]}
-                            onPress={() => setVenue(v.name)}
-                          >
-                            <Text style={[styles.chipText, venue === v.name && styles.chipTextActive]}>{v.name}</Text>
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    </ScrollView>
-                    <Text style={styles.label}>Arbitro</Text>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                      <View style={styles.rowWrap}>
-                        <TouchableOpacity style={[styles.chip, !referee && styles.chipActive]} onPress={() => setReferee('')}>
-                          <Text style={[styles.chipText, !referee && styles.chipTextActive]}>-</Text>
+                <View style={styles.wizardSection}>
+                  <Text style={styles.label}>Luogo</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    <View style={styles.rowWrap}>
+                      {(matchDetailsOptions.venues || []).map((v) => (
+                        <TouchableOpacity
+                          key={`venue-edit-${v.id}`}
+                          style={[styles.chip, venue === v.name && styles.chipActive]}
+                          onPress={() => setVenue(v.name)}
+                        >
+                          <Text style={[styles.chipText, venue === v.name && styles.chipTextActive]}>{v.name}</Text>
                         </TouchableOpacity>
-                        {(matchDetailsOptions.referees || []).map((r) => (
-                          <TouchableOpacity
-                            key={`ref-edit-${r.id}`}
-                            style={[styles.chip, referee === r.name && styles.chipActive]}
-                            onPress={() => setReferee(r.name)}
-                          >
-                            <Text style={[styles.chipText, referee === r.name && styles.chipTextActive]}>{r.name}</Text>
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    </ScrollView>
-                    <Text style={styles.label}>Tipologia giornata</Text>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                      <View style={styles.rowWrap}>
-                        <TouchableOpacity style={[styles.chip, !matchStageId && styles.chipActive]} onPress={() => selectMatchStageId(null)}>
-                          <Text style={[styles.chipText, !matchStageId && styles.chipTextActive]}>-</Text>
+                      ))}
+                    </View>
+                  </ScrollView>
+                  <Text style={styles.label}>Arbitro</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    <View style={styles.rowWrap}>
+                      <TouchableOpacity style={[styles.chip, !referee && styles.chipActive]} onPress={() => setReferee('')}>
+                        <Text style={[styles.chipText, !referee && styles.chipTextActive]}>-</Text>
+                      </TouchableOpacity>
+                      {(matchDetailsOptions.referees || []).map((r) => (
+                        <TouchableOpacity
+                          key={`ref-edit-${r.id}`}
+                          style={[styles.chip, referee === r.name && styles.chipActive]}
+                          onPress={() => setReferee(r.name)}
+                        >
+                          <Text style={[styles.chipText, referee === r.name && styles.chipTextActive]}>{r.name}</Text>
                         </TouchableOpacity>
-                        {(matchDetailsOptions.stages || []).map((s) => (
-                          <TouchableOpacity
-                            key={`stage-edit-${s.id}`}
-                            style={[styles.chip, Number(matchStageId) === Number(s.id) && styles.chipActive]}
-                            onPress={() => selectMatchStageId(s.id)}
-                          >
-                            <Text style={[styles.chipText, Number(matchStageId) === Number(s.id) && styles.chipTextActive]}>{s.name}</Text>
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    </ScrollView>
-                    {gironiStageMatchBlocked ? (
-                      <Text style={{ color: '#b91c1c', fontSize: 13, marginTop: 10, fontWeight: '600' }}>
-                        {gironiStageMatchBlocked}
-                      </Text>
-                    ) : null}
+                      ))}
+                    </View>
+                  </ScrollView>
+                  <Text style={styles.label}>Tipologia giornata</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    <View style={styles.rowWrap}>
+                      <TouchableOpacity style={[styles.chip, !matchStageId && styles.chipActive]} onPress={() => selectMatchStageId(null)}>
+                        <Text style={[styles.chipText, !matchStageId && styles.chipTextActive]}>-</Text>
+                      </TouchableOpacity>
+                      {(matchDetailsOptions.stages || []).map((s) => (
+                        <TouchableOpacity
+                          key={`stage-edit-${s.id}`}
+                          style={[styles.chip, Number(matchStageId) === Number(s.id) && styles.chipActive]}
+                          onPress={() => selectMatchStageId(s.id)}
+                        >
+                          <Text style={[styles.chipText, Number(matchStageId) === Number(s.id) && styles.chipTextActive]}>{s.name}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </ScrollView>
+                  {gironiStageMatchBlocked ? (
+                    <Text style={styles.wizardError}>{gironiStageMatchBlocked}</Text>
+                  ) : null}
                   <TouchableOpacity style={styles.inlineLinkBtn} onPress={() => setShowEditTimingDetails((v) => !v)}>
                     <Text style={styles.inlineLinkBtnText}>
-                      {showEditTimingDetails ? 'Nascondi dettagli durata' : 'Modifica durata / supplementari / rigori / shootout'}
+                      {showEditTimingDetails ? 'Nascondi durata / rigori' : 'Durata, supplementari, rigori, shootout'}
                     </Text>
-                    </TouchableOpacity>
-                  {showEditTimingDetails ? matchTimingEditor : null}
-                </>
+                  </TouchableOpacity>
+                  {showEditTimingDetails ? renderMatchTimingEditor() : null}
+                </View>
               ) : null}
 
               {editMatchStep === 4 ? (
-                <>
-                  <Text style={styles.label}>Riepilogo modifiche</Text>
+                <View style={styles.wizardSection}>
+                  <Text style={styles.wizardSectionHint}>Riepilogo delle modifiche rispetto all’originale.</Text>
                   {editChangeRows.length === 0 ? (
-                    <Text style={styles.muted}>Nessuna modifica rispetto ai valori originali.</Text>
+                    <View style={styles.summaryEmptyBox}>
+                      <Ionicons name="checkmark-circle-outline" size={22} color="#64748b" />
+                      <Text style={styles.summaryEmptyText}>Nessuna modifica rispetto ai valori originali.</Text>
+                    </View>
                   ) : (
                     <View style={styles.summaryBox}>
                       {editChangeRows.map((r, idx) => (
-                        <View key={`edit-diff-${idx}`} style={styles.editDiffRow}>
+                        <View
+                          key={`edit-diff-${idx}`}
+                          style={[styles.editDiffRow, idx === editChangeRows.length - 1 && styles.editDiffRowLast]}
+                        >
                           <Text style={styles.editDiffLabel}>{r.label}</Text>
                           <View style={styles.editDiffValuesRow}>
                             <Text style={styles.editDiffBefore}>{r.before}</Text>
                             <Ionicons name="arrow-forward" size={14} color="#64748b" />
                             <Text style={styles.editDiffAfter}>{r.after}</Text>
+                          </View>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+                  <TouchableOpacity
+                    style={[styles.wizardConfirmBtn, !canSubmitMatch && styles.primaryBtnDisabled]}
+                    disabled={!canSubmitMatch}
+                    onPress={saveEditedMatch}
+                  >
+                    <Ionicons name="save-outline" size={18} color="#fff" />
+                    <Text style={styles.wizardConfirmBtnText}>Salva modifiche</Text>
+                  </TouchableOpacity>
                 </View>
-              </View>
-            ))}
-          </View>
-        )}
-                  <TouchableOpacity style={[styles.primaryBtn, { marginTop: 10 }]} onPress={saveEditedMatch}>
-                    <Text style={styles.primaryBtnText}>Salva modifica partita</Text>
-              </TouchableOpacity>
-                </>
               ) : null}
-
-            <View style={styles.actionsRow}>
-                <TouchableOpacity
-                  style={[styles.secondaryBtn, editMatchStep <= 1 && styles.primaryBtnDisabled]}
-                  disabled={editMatchStep <= 1}
-                  onPress={() => setEditMatchStep((s) => Math.max(1, s - 1))}
-                >
-                  <Text style={styles.secondaryBtnText}>Indietro</Text>
-                </TouchableOpacity>
-                {editMatchStep < 4 ? (
-                <TouchableOpacity
-                    style={[
-                      styles.primaryBtn,
-                      { flex: 1, marginTop: 0 },
-                      ((editMatchStep === 1 && !canCreateStep1) ||
-                        (editMatchStep === 2 && !canCreateStep2) ||
-                        (editMatchStep === 3 && !canCreateStep3)) &&
-                        styles.primaryBtnDisabled,
-                    ]}
-                    disabled={
-                      (editMatchStep === 1 && !canCreateStep1) ||
-                      (editMatchStep === 2 && !canCreateStep2) ||
-                      (editMatchStep === 3 && !canCreateStep3)
-                    }
-                    onPress={() => setEditMatchStep((s) => Math.min(4, s + 1))}
-                >
-                    <Text style={styles.primaryBtnText}>Avanti</Text>
-                </TouchableOpacity>
-            ) : null}
-              </View>
             </ScrollView>
+            <MatchWizardFooter
+              step={editMatchStep}
+              canGoNext={
+                !editHydrating
+                && !((editMatchStep === 1 && !canCreateStep1)
+                  || (editMatchStep === 2 && !canCreateStep2)
+                  || (editMatchStep === 3 && !canCreateStep3))
+              }
+              onBack={() => setEditMatchStep((s) => Math.max(1, s - 1))}
+              onNext={() => setEditMatchStep((s) => Math.min(4, s + 1))}
+              styles={styles}
+            />
           </View>
         </TouchableOpacity>
       </Modal>
+      ) : null}
       {showKickoffPicker ? (
         <DateTimePicker
           value={kickoffDateObj}
@@ -2626,16 +3116,327 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  matchesTopBarTitle: { fontSize: 14, fontWeight: '800', color: '#334155' },
+  matchesTopBarLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  matchesTopBarTitle: { fontSize: 16, fontWeight: '800', color: '#1c1f2a' },
+  matchesCountPill: {
+    minWidth: 26,
+    height: 22,
+    paddingHorizontal: 7,
+    borderRadius: 11,
+    backgroundColor: '#eef1ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  matchesCountPillText: { fontSize: 12, fontWeight: '800', color: '#667eea' },
   matchesPlusBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     borderWidth: 1,
     borderColor: '#c7d2fe',
     backgroundColor: '#eef2ff',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  matchesPlusBtnOpen: {
+    backgroundColor: '#fff',
+    borderColor: '#e2e8f0',
+  },
+  matchesToolbarShell: {
+    marginTop: 10,
+    flexDirection: 'row',
+    gap: 6,
+    padding: 5,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#e8eaf1',
+    backgroundColor: '#f4f6fb',
+  },
+  toolbarSeg: {
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'transparent',
+    backgroundColor: 'transparent',
+  },
+  toolbarSegDate: {
+    flexGrow: 0,
+    flexShrink: 0,
+    flexBasis: 'auto',
+  },
+  toolbarSegAmbito: {
+    flex: 1.35,
+  },
+  toolbarSegStato: {
+    flex: 1,
+  },
+  toolbarSegActive: {
+    backgroundColor: '#fff',
+    borderColor: '#c7d2fe',
+  },
+  toolbarSegMain: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  toolbarSegTitle: { fontSize: 12, fontWeight: '800', color: '#64748b' },
+  toolbarSegTitleActive: { color: '#4338ca' },
+  toolbarSegClear: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: '#eef2ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  toolbarSegDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: '#667eea',
+  },
+  activeFiltersRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 10,
+  },
+  activeFilterChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    maxWidth: '100%',
+    paddingVertical: 6,
+    paddingLeft: 10,
+    paddingRight: 6,
+    borderRadius: 999,
+    backgroundColor: '#eef2ff',
+    borderWidth: 1,
+    borderColor: '#c7d2fe',
+  },
+  activeFilterChipText: { fontSize: 11, fontWeight: '700', color: '#4f46e5', maxWidth: 150 },
+  activeFilterChipX: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  filterPanel: {
+    marginTop: 10,
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#e8eaf1',
+  },
+  filterPanelHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 12,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eef2f7',
+  },
+  filterPanelIconWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    backgroundColor: '#eef2ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  filterPanelHeaderText: { flex: 1, minWidth: 0 },
+  filterPanelTitle: { fontSize: 14, fontWeight: '800', color: '#0f172a' },
+  filterPanelHint: { fontSize: 12, color: '#8b90a0', marginTop: 1, fontWeight: '600' },
+  filterStepBlock: {
+    marginBottom: 12,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+  },
+  filterStepBlockLast: {
+    marginBottom: 0,
+    paddingBottom: 0,
+    borderBottomWidth: 0,
+  },
+  filterStepBlockMuted: { opacity: 0.72 },
+  filterStepLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+  },
+  filterStepBadge: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#667eea',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  filterStepBadgeMuted: { backgroundColor: '#e2e8f0' },
+  filterStepBadgeText: { color: '#fff', fontSize: 11, fontWeight: '800' },
+  filterStepBadgeTextMuted: { color: '#64748b' },
+  filterStepLabel: { fontSize: 12, fontWeight: '800', color: '#334155' },
+  filterStepEmpty: { fontSize: 12, color: '#94a3b8', fontWeight: '600', paddingVertical: 2 },
+  filterFieldLabel: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#334155',
+    marginBottom: 8,
+  },
+  filterOptionsRow: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingVertical: 2,
+  },
+  filterOption: {
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    backgroundColor: '#f8fafc',
+  },
+  filterOptionActive: {
+    backgroundColor: '#667eea',
+    borderColor: '#667eea',
+  },
+  filterOptionText: { color: '#475569', fontSize: 12, fontWeight: '700' },
+  filterOptionTextActive: { color: '#fff' },
+  filterSegment: {
+    flexDirection: 'row',
+    gap: 4,
+    padding: 4,
+    borderRadius: 12,
+    backgroundColor: '#f1f5f9',
+  },
+  filterSegmentItem: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 9,
+    paddingHorizontal: 6,
+    borderRadius: 9,
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  filterSegmentItemActive: {
+    backgroundColor: '#fff',
+    borderColor: '#c7d2fe',
+  },
+  filterSegmentText: { fontSize: 12, fontWeight: '700', color: '#64748b' },
+  filterSegmentTextActive: { color: '#4338ca' },
+  filterHydratingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 6,
+  },
+  publishAllBtn: {
+    marginTop: 14,
+    backgroundColor: '#667eea',
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  publishAllBtnText: { color: '#fff', fontWeight: '700', fontSize: 13 },
+  matchesListCard: {
+    marginTop: 10,
+    marginBottom: 4,
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#e8eaf1',
+    overflow: 'hidden',
+  },
+  matchesListHeading: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#8b90a0',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    paddingBottom: 6,
+  },
+  matchesEmpty: {
+    color: '#94a3b8',
+    fontSize: 13,
+    paddingHorizontal: 14,
+    paddingBottom: 16,
+    paddingTop: 4,
+  },
+  matchCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#eef0f5',
+  },
+  matchCardFirst: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  matchCardBody: { flex: 1, minWidth: 0 },
+  matchCardTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+  },
+  matchCardTitle: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#1c1f2a',
+    lineHeight: 19,
+  },
+  matchVs: { color: '#94a3b8', fontWeight: '600' },
+  matchTeamMissing: { color: '#c27803', fontStyle: 'italic', fontWeight: '600' },
+  matchCardMeta: {
+    marginTop: 3,
+    fontSize: 12,
+    color: '#8b90a0',
+    lineHeight: 16,
+  },
+  hiddenBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: '#fff8e1',
+    borderRadius: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+  },
+  hiddenBadgeText: { fontSize: 10, fontWeight: '700', color: '#7a6100' },
+  matchCardActions: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  matchIconBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#e0e5ff',
+    backgroundColor: '#f5f7ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  matchIconBtnDanger: {
+    borderColor: '#f0b7bb',
+    backgroundColor: '#fff5f6',
   },
   filtersIconRow: {
     flexDirection: 'row',
@@ -2672,24 +3473,169 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     fontSize: 12,
   },
+  wizardHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 10,
+    paddingBottom: 10,
+  },
+  wizardHeaderText: { flex: 1, minWidth: 0 },
+  wizardTitle: { fontSize: 18, fontWeight: '800', color: '#0f172a' },
+  wizardSubtitle: { marginTop: 2, fontSize: 12, fontWeight: '600', color: '#64748b' },
+  wizardCloseBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    backgroundColor: '#f8fafc',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  wizardProgress: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 4,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eef2f7',
+    marginBottom: 4,
+  },
+  wizardProgressItem: { flex: 1, alignItems: 'center', gap: 4 },
+  wizardProgressDot: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: '#cbd5e1',
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  wizardProgressDotActive: {
+    borderColor: '#667eea',
+    backgroundColor: '#667eea',
+  },
+  wizardProgressDotDone: {
+    borderColor: '#4f46e5',
+    backgroundColor: '#4f46e5',
+  },
+  wizardProgressDotText: { fontSize: 11, fontWeight: '800', color: '#64748b' },
+  wizardProgressDotTextActive: { color: '#fff' },
+  wizardProgressLabel: { fontSize: 10, fontWeight: '600', color: '#94a3b8', textAlign: 'center' },
+  wizardProgressLabelActive: { color: '#4338ca' },
+  wizardFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#eef2f7',
+  },
+  wizardBackBtn: {
+    minWidth: 96,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    borderWidth: 1,
+    borderColor: '#dbe3ef',
+    backgroundColor: '#fff',
+  },
+  wizardBackBtnText: { color: '#334155', fontWeight: '700', fontSize: 13 },
+  wizardNextBtn: {
+    flex: 1,
+    borderRadius: 10,
+    backgroundColor: '#667eea',
+    paddingVertical: 11,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  wizardNextBtnText: { color: '#fff', fontWeight: '800', fontSize: 13 },
+  wizardFooterSpacer: { flex: 1 },
+  wizardSection: { paddingTop: 6 },
+  wizardSectionHint: { color: '#64748b', fontSize: 12, fontWeight: '600', marginBottom: 4 },
+  wizardToggleCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 12,
+    backgroundColor: '#f8fafc',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 4,
+  },
+  wizardToggleText: { flex: 1, minWidth: 0 },
+  wizardToggleTitle: { color: '#0f172a', fontSize: 13, fontWeight: '800' },
+  wizardToggleHint: { marginTop: 2, color: '#64748b', fontSize: 11, fontWeight: '600' },
+  wizardError: { color: '#b91c1c', fontSize: 13, marginTop: 10, fontWeight: '600' },
+  wizardConfirmBtn: {
+    marginTop: 14,
+    borderRadius: 12,
+    backgroundColor: '#667eea',
+    paddingVertical: 13,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  wizardConfirmBtnText: { color: '#fff', fontWeight: '800', fontSize: 14 },
   summaryBox: {
     marginTop: 4,
     borderWidth: 1,
     borderColor: '#e5e7eb',
-    borderRadius: 10,
-    padding: 10,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
     backgroundColor: '#f8fafc',
   },
-  summaryValue: {
-    color: '#0f172a',
-    fontSize: 14,
-    fontWeight: '700',
+  summaryRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eef2f7',
   },
+  summaryRowLast: { borderBottomWidth: 0 },
+  summaryLabel: { width: 108, color: '#64748b', fontSize: 12, fontWeight: '700' },
+  summaryValue: {
+    flex: 1,
+    minWidth: 0,
+    color: '#0f172a',
+    fontSize: 13,
+    fontWeight: '700',
+    textAlign: 'right',
+  },
+  summaryEmptyBox: {
+    marginTop: 4,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 12,
+    backgroundColor: '#f8fafc',
+    paddingVertical: 18,
+    paddingHorizontal: 14,
+    alignItems: 'center',
+    gap: 8,
+  },
+  summaryEmptyText: { color: '#64748b', fontSize: 13, fontWeight: '600', textAlign: 'center' },
   editDiffRow: {
-    paddingVertical: 8,
+    paddingVertical: 10,
     borderBottomWidth: 1,
     borderBottomColor: '#e5e7eb',
   },
+  editDiffRowLast: { borderBottomWidth: 0 },
   editDiffLabel: {
     color: '#334155',
     fontSize: 12,
@@ -2723,8 +3669,20 @@ const styles = StyleSheet.create({
   label: { fontSize: 12, color: '#666', marginTop: 8, marginBottom: 4 },
   input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, backgroundColor: '#fafafa' },
   datetimeRow: { flexDirection: 'row', gap: 8, marginTop: 4 },
-  datetimeBtn: { flex: 1, borderWidth: 1, borderColor: '#ddd', borderRadius: 8, paddingVertical: 10, paddingHorizontal: 10, backgroundColor: '#fafafa' },
-  datetimeBtnText: { color: '#222', fontWeight: '600', textAlign: 'center' },
+  datetimeBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    borderWidth: 1,
+    borderColor: '#dbe3ef',
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    backgroundColor: '#fff',
+  },
+  datetimeBtnText: { color: '#0f172a', fontWeight: '700', fontSize: 13 },
   rowWrap: { flexDirection: 'row', gap: 8, paddingVertical: 4 },
   chip: { borderWidth: 1, borderColor: '#ddd', borderRadius: 16, paddingHorizontal: 10, paddingVertical: 6, backgroundColor: '#fff' },
   chipActive: { backgroundColor: '#667eea', borderColor: '#667eea' },
@@ -2879,17 +3837,19 @@ const styles = StyleSheet.create({
     width: '100%',
     maxHeight: '98%',
     backgroundColor: '#fff',
-    borderRadius: 14,
-    padding: 14,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingTop: 14,
+    paddingBottom: 10,
     borderWidth: 1,
     borderColor: '#e5e7eb',
     overflow: 'hidden',
   },
   createMatchModalScroll: {
-    maxHeight: CREATE_MATCH_MODAL_SCROLL_MAX_HEIGHT,
+    maxHeight: Math.max(220, CREATE_MATCH_MODAL_SCROLL_MAX_HEIGHT - 140),
   },
   createMatchModalScrollContent: {
-    paddingBottom: 12,
+    paddingBottom: 8,
   },
   confirmTitle: { fontSize: 18, fontWeight: '700', color: '#222', marginBottom: 8 },
   confirmMessage: { fontSize: 14, color: '#555' },

@@ -1337,8 +1337,8 @@ export default function PlayerStatsScreen({ route, navigation }) {
       let emptyText = 'Dati disponibili solo con partite ufficiali collegate.';
       if (reason === 'no_events') {
         emptyText = isGoalkeeper
-          ? 'Nessuna clean sheet contro avversari con partite ufficiali collegate.'
-          : 'Nessun gol contro avversari con partite ufficiali collegate.';
+          ? 'Nessuna clean sheet realizzata.'
+          : 'Nessun gol realizzato.';
       } else if (reason === 'no_data') {
         emptyText = isGoalkeeper
           ? 'Nessun dato disponibile sulle clean sheet per avversario.'
