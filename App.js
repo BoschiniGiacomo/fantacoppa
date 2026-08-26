@@ -299,12 +299,7 @@ function AppNavigator() {
   }
 
   const linking = {
-    prefixes: [
-      Linking.createURL('/'),
-      'fantacoppa://',
-      'https://fantacoppa-backend.onrender.com',
-      'http://fantacoppa-backend.onrender.com',
-    ],
+    prefixes: [Linking.createURL('/'), 'fantacoppa://'],
     config: {
       screens: {
         InviteJoin: 'invite/:token',

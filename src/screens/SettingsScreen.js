@@ -14,13 +14,11 @@ import {
   Modal,
   Keyboard,
   Dimensions,
-  Share,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { Ionicons } from '@expo/vector-icons';
-import * as Clipboard from 'expo-clipboard';
 import { FantasyTeamLogoImage } from '../components/StableCachedImage';
 import BonusIcon from '../components/BonusIcon';
 import * as ImagePicker from 'expo-image-picker';
@@ -146,11 +144,6 @@ export default function SettingsScreen({ route, navigation }) {
   // Impostazioni generali
   const [autoLineupMode, setAutoLineupMode] = useState(false);
   const [requireJoinApproval, setRequireJoinApproval] = useState(false);
-  const [inviteActive, setInviteActive] = useState(false);
-  const [inviteCreatedAt, setInviteCreatedAt] = useState(null);
-  const [inviteUrl, setInviteUrl] = useState(null);
-  const [inviteShareText, setInviteShareText] = useState(null);
-  const [inviteBusy, setInviteBusy] = useState(false);
   const [settings, setSettings] = useState({
     default_deadline_time: '20:00',
     access_code: '',
@@ -240,16 +233,13 @@ export default function SettingsScreen({ route, navigation }) {
     if (activeSection === 'general' && canViewAdminSections) {
       loadSettings();
     }
-    if (activeSection === 'general' && isAdmin && !isReadOnlyObserver) {
-      loadInviteStatus();
-    }
     if (activeSection === 'market' && canViewAdminSections) {
       loadMarketSettings();
     }
     if (activeSection === 'calculate' && canViewAdminSections) {
       loadMatchdayStatus();
     }
-  }, [activeSection, isAdmin, canViewAdminSections, calcGiornata, isReadOnlyObserver]);
+  }, [activeSection, isAdmin, canViewAdminSections, calcGiornata]);
 
   useEffect(() => {
     if (autoLineupMode && activeGeneralSubsection === 'formation') {
@@ -933,81 +923,6 @@ export default function SettingsScreen({ route, navigation }) {
     }
   };
 
-  const loadInviteStatus = async () => {
-    if (!leagueId || !isAdmin || isReadOnlyObserver) return;
-    try {
-      const res = await leagueService.getInviteActive(leagueId);
-      setInviteActive(!!res?.data?.active);
-      setInviteCreatedAt(res?.data?.created_at || null);
-      if (!res?.data?.active) {
-        setInviteUrl(null);
-        setInviteShareText(null);
-      }
-    } catch (e) {
-      console.error('Error loading invite status:', e);
-    }
-  };
-
-  const createOrRegenerateInvite = async () => {
-    if (inviteBusy || isReadOnlyObserver) return;
-    setInviteBusy(true);
-    try {
-      const res = await leagueService.createInvite(leagueId);
-      const url = res?.data?.url || null;
-      const shareText = res?.data?.share_text || (url ? `Unisciti su FantaCoppa:\n${url}` : null);
-      setInviteActive(true);
-      setInviteCreatedAt(res?.data?.created_at || new Date().toISOString());
-      setInviteUrl(url);
-      setInviteShareText(shareText);
-      showToast('Link di invito pronto', 'success');
-    } catch (e) {
-      showToast(e?.response?.data?.message || e?.message || 'Creazione invito non riuscita');
-    } finally {
-      setInviteBusy(false);
-    }
-  };
-
-  const copyInviteLink = async () => {
-    if (!inviteUrl) {
-      showToast('Rigenera il link per poterlo copiare');
-      return;
-    }
-    try {
-      await Clipboard.setStringAsync(inviteUrl);
-      showToast('Link copiato', 'success');
-    } catch (_) {
-      showToast('Copia non riuscita');
-    }
-  };
-
-  const shareInviteLink = async () => {
-    const text = inviteShareText || inviteUrl;
-    if (!text) {
-      showToast('Rigenera il link per poterlo condividere');
-      return;
-    }
-    try {
-      await Share.share({ message: text });
-    } catch (_) {}
-  };
-
-  const revokeInviteLink = async () => {
-    if (inviteBusy || isReadOnlyObserver) return;
-    setInviteBusy(true);
-    try {
-      await leagueService.revokeInvite(leagueId);
-      setInviteActive(false);
-      setInviteCreatedAt(null);
-      setInviteUrl(null);
-      setInviteShareText(null);
-      showToast('Invito disattivato', 'success');
-    } catch (e) {
-      showToast(e?.response?.data?.message || e?.message || 'Revoca non riuscita');
-    } finally {
-      setInviteBusy(false);
-    }
-  };
-
   // Calcola lo stato effettivo del mercato per un utente
   // blocked nel DB = 1 significa "eccezione" alla regola globale
   const isEffectivelyBlocked = (member) => {
@@ -1290,91 +1205,6 @@ export default function SettingsScreen({ route, navigation }) {
                 editable={!isReadOnlyObserver}
               />
             </View>
-
-            {isAdmin && !isReadOnlyObserver ? (
-              <View style={styles.inviteCard}>
-                <View style={styles.inviteHeader}>
-                  <View style={styles.inviteIconWrap}>
-                    <Ionicons name="link-outline" size={18} color="#4f46e5" />
-                  </View>
-                  <View style={styles.inviteHeaderText}>
-                    <Text style={styles.inviteTitle}>Link di invito</Text>
-                    <Text style={styles.inviteHint}>
-                      Chi ha il link entra subito, senza codice né approvazione.
-                    </Text>
-                  </View>
-                </View>
-
-                {inviteBusy ? (
-                  <View style={styles.inviteBusyRow}>
-                    <ActivityIndicator size="small" color="#667eea" />
-                  </View>
-                ) : null}
-
-                {!inviteActive ? (
-                  <TouchableOpacity
-                    style={styles.invitePrimaryBtn}
-                    onPress={createOrRegenerateInvite}
-                    disabled={inviteBusy}
-                  >
-                    <Ionicons name="add" size={18} color="#fff" />
-                    <Text style={styles.invitePrimaryBtnText}>Crea link</Text>
-                  </TouchableOpacity>
-                ) : (
-                  <View style={styles.inviteActiveBlock}>
-                    <View style={styles.inviteStatusRow}>
-                      <View style={styles.inviteStatusDot} />
-                      <Text style={styles.inviteStatusText}>
-                        Attivo{inviteCreatedAt ? ` · ${new Date(inviteCreatedAt).toLocaleDateString('it-IT')}` : ''}
-                      </Text>
-                    </View>
-                    {inviteUrl ? (
-                      <Text style={styles.inviteUrlPreview} numberOfLines={2} selectable>
-                        {inviteUrl}
-                      </Text>
-                    ) : (
-                      <Text style={styles.inviteHint}>
-                        Rigenera per ottenere di nuovo il link da condividere.
-                      </Text>
-                    )}
-                    <View style={styles.inviteActionsRow}>
-                      <TouchableOpacity
-                        style={[styles.inviteActionBtn, !inviteUrl && styles.inviteActionBtnDisabled]}
-                        onPress={copyInviteLink}
-                        disabled={!inviteUrl || inviteBusy}
-                      >
-                        <Ionicons name="copy-outline" size={16} color={inviteUrl ? '#4338ca' : '#94a3b8'} />
-                        <Text style={[styles.inviteActionText, !inviteUrl && styles.inviteActionTextDisabled]}>Copia</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={[styles.inviteActionBtn, !inviteUrl && styles.inviteActionBtnDisabled]}
-                        onPress={shareInviteLink}
-                        disabled={!inviteUrl || inviteBusy}
-                      >
-                        <Ionicons name="share-outline" size={16} color={inviteUrl ? '#4338ca' : '#94a3b8'} />
-                        <Text style={[styles.inviteActionText, !inviteUrl && styles.inviteActionTextDisabled]}>Condividi</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={styles.inviteActionBtn}
-                        onPress={createOrRegenerateInvite}
-                        disabled={inviteBusy}
-                      >
-                        <Ionicons name="refresh" size={16} color="#4338ca" />
-                        <Text style={styles.inviteActionText}>Rigenera</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={styles.inviteActionBtnDanger}
-                        onPress={revokeInviteLink}
-                        disabled={inviteBusy}
-                      >
-                        <Ionicons name="close-circle-outline" size={16} color="#b42318" />
-                        <Text style={styles.inviteActionTextDanger}>Disattiva</Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                )}
-              </View>
-            ) : null}
 
             <View style={styles.hideFormationsRow}>
               <View style={styles.hideFormationsIconWrap}>
@@ -3516,128 +3346,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     flex: 1,
-  },
-  inviteCard: {
-    backgroundColor: '#fff',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#e8eaf1',
-    padding: 14,
-    marginBottom: 14,
-    gap: 12,
-  },
-  inviteHeader: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 10,
-  },
-  inviteIconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: '#eef2ff',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  inviteHeaderText: {
-    flex: 1,
-    gap: 2,
-  },
-  inviteTitle: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: '#0f172a',
-  },
-  inviteHint: {
-    fontSize: 12,
-    color: '#64748b',
-    lineHeight: 17,
-  },
-  inviteBusyRow: {
-    alignItems: 'center',
-    paddingVertical: 4,
-  },
-  invitePrimaryBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    backgroundColor: '#667eea',
-    borderRadius: 10,
-    paddingVertical: 12,
-  },
-  invitePrimaryBtnText: {
-    color: '#fff',
-    fontWeight: '800',
-    fontSize: 14,
-  },
-  inviteActiveBlock: {
-    gap: 10,
-  },
-  inviteStatusRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  inviteStatusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#16a34a',
-  },
-  inviteStatusText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#15803d',
-  },
-  inviteUrlPreview: {
-    fontSize: 12,
-    color: '#334155',
-    backgroundColor: '#f8fafc',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-  },
-  inviteActionsRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  inviteActionBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRadius: 999,
-    backgroundColor: '#eef2ff',
-  },
-  inviteActionBtnDisabled: {
-    backgroundColor: '#f1f5f9',
-  },
-  inviteActionBtnDanger: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRadius: 999,
-    backgroundColor: '#fef2f2',
-  },
-  inviteActionText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#4338ca',
-  },
-  inviteActionTextDisabled: {
-    color: '#94a3b8',
-  },
-  inviteActionTextDanger: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#b42318',
   },
 });
 

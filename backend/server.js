@@ -124,66 +124,6 @@ app.get('/api/test-db', async (req, res) => {
   }
 });
 
-// Landing invito lega (https cliccabile su WhatsApp) → apre app via scheme
-app.get('/invite/:token', (req, res) => {
-  const token = String(req.params.token || '').trim();
-  if (!token || token.length < 20 || token.length > 200) {
-    return res.status(400).type('html').send(`<!DOCTYPE html>
-<html lang="it"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Invito non valido</title></head>
-<body style="font-family:system-ui,sans-serif;padding:24px;background:#f4f6fb;color:#0f172a">
-  <h1 style="font-size:20px">Invito non valido</h1>
-  <p style="color:#64748b">Il link non è corretto. Chiedi all'admin un nuovo invito.</p>
-</body></html>`);
-  }
-
-  const safeToken = encodeURIComponent(token);
-  const deepLink = `fantacoppa://invite/${safeToken}`;
-  const intentLink = `intent://invite/${safeToken}#Intent;scheme=fantacoppa;package=com.fantacoppa.app;end`;
-
-  res
-    .status(200)
-    .type('html')
-    .set('Cache-Control', 'no-store')
-    .send(`<!DOCTYPE html>
-<html lang="it">
-<head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <meta name="robots" content="noindex"/>
-  <title>Apri FantaCoppa</title>
-  <meta http-equiv="refresh" content="0;url=${deepLink}"/>
-  <style>
-    body{margin:0;font-family:system-ui,-apple-system,sans-serif;background:#f4f6fb;color:#0f172a;
-      display:flex;min-height:100vh;align-items:center;justify-content:center;padding:24px}
-    .card{background:#fff;border:1px solid #e8eaf1;border-radius:16px;padding:28px 22px;max-width:380px;width:100%;text-align:center}
-    h1{font-size:20px;margin:0 0 8px}
-    p{margin:0 0 18px;color:#64748b;font-size:14px;line-height:1.45}
-    a.btn{display:inline-block;background:#667eea;color:#fff;text-decoration:none;font-weight:700;
-      padding:12px 18px;border-radius:12px;font-size:15px}
-    a.alt{display:block;margin-top:14px;color:#4338ca;font-size:13px;font-weight:600}
-  </style>
-</head>
-<body>
-  <div class="card">
-    <h1>Invito lega</h1>
-    <p>Sto aprendo FantaCoppa… Se non succede nulla, usa il pulsante qui sotto.</p>
-    <a class="btn" href="${deepLink}">Apri in FantaCoppa</a>
-    <a class="alt" href="${intentLink}">Apri su Android</a>
-  </div>
-  <script>
-    (function () {
-      var deep = ${JSON.stringify(deepLink)};
-      try { window.location.replace(deep); } catch (e) {}
-      setTimeout(function () {
-        try { window.location.href = deep; } catch (e2) {}
-      }, 400);
-    })();
-  </script>
-</body>
-</html>`);
-});
-
 // 404 handler
 app.use((req, res) => {
   res.status(404).json({ message: 'Endpoint non trovato' });

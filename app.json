@@ -36,30 +36,7 @@
       "adaptiveIcon": {
         "foregroundImage": "./assets/app-icon-android-adaptive.png",
         "backgroundColor": "#ffffff"
-      },
-      "intentFilters": [
-        {
-          "action": "VIEW",
-          "category": ["BROWSABLE", "DEFAULT"],
-          "data": [
-            {
-              "scheme": "https",
-              "host": "fantacoppa-backend.onrender.com",
-              "pathPrefix": "/invite"
-            }
-          ]
-        },
-        {
-          "action": "VIEW",
-          "category": ["BROWSABLE", "DEFAULT"],
-          "data": [
-            {
-              "scheme": "fantacoppa",
-              "host": "invite"
-            }
-          ]
-        }
-      ]
+      }
     },
     "extra": {
       "appVersionCode": 16,
