@@ -1669,35 +1669,78 @@ export default function ManageMatchesScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={[styles.header, { paddingTop: Math.max(insets.top + 6, 12) }]}>
-        <Text style={styles.headerTitle}>Gestione Partite</Text>
-      </View>
+      <View style={[styles.headerShell, { paddingTop: Math.max(insets.top + 4, 10) }]}>
+        <Text style={styles.headerEyebrow}>Admin</Text>
+        <Text style={styles.headerTitle}>Gestione partite</Text>
 
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.subtabsScroll}
-        contentContainerStyle={styles.subtabsRow}
-      >
-        <TouchableOpacity style={[styles.subtabBtn, activeTab === 'matches' && styles.subtabBtnActive]} onPress={() => setActiveTab('matches')}>
-          <Text style={[styles.subtabText, activeTab === 'matches' && styles.subtabTextActive]}>Partite</Text>
-        </TouchableOpacity>
-        {canManageCompetitions && (
-          <TouchableOpacity style={[styles.subtabBtn, activeTab === 'competitions' && styles.subtabBtnActive]} onPress={() => setActiveTab('competitions')}>
-            <Text style={[styles.subtabText, activeTab === 'competitions' && styles.subtabTextActive]}>Competizioni</Text>
-          </TouchableOpacity>
-        )}
-        {canManageMatchDetails && (
-          <TouchableOpacity style={[styles.subtabBtn, activeTab === 'details' && styles.subtabBtnActive]} onPress={() => setActiveTab('details')}>
-            <Text style={[styles.subtabText, activeTab === 'details' && styles.subtabTextActive]}>Dettagli partite</Text>
-          </TouchableOpacity>
-        )}
-        {canManageCompetitions && (
-          <TouchableOpacity style={[styles.subtabBtn, activeTab === 'standings' && styles.subtabBtnActive]} onPress={() => setActiveTab('standings')}>
-            <Text style={[styles.subtabText, activeTab === 'standings' && styles.subtabTextActive]}>Classifiche</Text>
-          </TouchableOpacity>
-        )}
-      </ScrollView>
+        <View style={styles.subtabsTrack}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.subtabsScroll}
+            contentContainerStyle={styles.subtabsTrackInner}
+          >
+            <TouchableOpacity
+              style={[styles.subtabBtn, activeTab === 'matches' && styles.subtabBtnActive]}
+              onPress={() => setActiveTab('matches')}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: activeTab === 'matches' }}
+            >
+              <Ionicons
+                name="football-outline"
+                size={15}
+                color={activeTab === 'matches' ? '#4338ca' : '#64748b'}
+              />
+              <Text style={[styles.subtabText, activeTab === 'matches' && styles.subtabTextActive]}>Partite</Text>
+            </TouchableOpacity>
+            {canManageCompetitions ? (
+              <TouchableOpacity
+                style={[styles.subtabBtn, activeTab === 'competitions' && styles.subtabBtnActive]}
+                onPress={() => setActiveTab('competitions')}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: activeTab === 'competitions' }}
+              >
+                <Ionicons
+                  name="trophy-outline"
+                  size={15}
+                  color={activeTab === 'competitions' ? '#4338ca' : '#64748b'}
+                />
+                <Text style={[styles.subtabText, activeTab === 'competitions' && styles.subtabTextActive]}>Competizioni</Text>
+              </TouchableOpacity>
+            ) : null}
+            {canManageMatchDetails ? (
+              <TouchableOpacity
+                style={[styles.subtabBtn, activeTab === 'details' && styles.subtabBtnActive]}
+                onPress={() => setActiveTab('details')}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: activeTab === 'details' }}
+              >
+                <Ionicons
+                  name="options-outline"
+                  size={15}
+                  color={activeTab === 'details' ? '#4338ca' : '#64748b'}
+                />
+                <Text style={[styles.subtabText, activeTab === 'details' && styles.subtabTextActive]}>Dettagli</Text>
+              </TouchableOpacity>
+            ) : null}
+            {canManageCompetitions ? (
+              <TouchableOpacity
+                style={[styles.subtabBtn, activeTab === 'standings' && styles.subtabBtnActive]}
+                onPress={() => setActiveTab('standings')}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: activeTab === 'standings' }}
+              >
+                <Ionicons
+                  name="podium-outline"
+                  size={15}
+                  color={activeTab === 'standings' ? '#4338ca' : '#64748b'}
+                />
+                <Text style={[styles.subtabText, activeTab === 'standings' && styles.subtabTextActive]}>Classifiche</Text>
+              </TouchableOpacity>
+            ) : null}
+          </ScrollView>
+        </View>
+      </View>
 
       <KeyboardAvoidingView
         style={styles.contentAvoid}
@@ -1719,33 +1762,6 @@ export default function ManageMatchesScreen() {
         <View ref={scrollContentRef} collapsable={false}>
         {activeTab === 'matches' && (
           <>
-            <View style={styles.matchesTopBar}>
-              <View style={styles.matchesTopBarLeft}>
-                <Text style={styles.matchesTopBarTitle}>Partite</Text>
-                <View style={styles.matchesCountPill}>
-                  <Text style={styles.matchesCountPillText}>{filteredMatchesWithVisibility.length}</Text>
-                </View>
-              </View>
-              <TouchableOpacity
-                style={[styles.matchesPlusBtn, showCreateMatchForm && styles.matchesPlusBtnOpen]}
-                onPress={() => {
-                  if (showCreateMatchForm) {
-                    setShowCreateMatchForm(false);
-                    return;
-                  }
-                  setShowEditMatchForm(false);
-                  setCreateMatchStep(1);
-                  setShowCreateTimingDetails(false);
-                  setIsAdminOnly(false);
-                  setVenue(defaultVenueName);
-                  setShowCreateMatchForm(true);
-                }}
-                accessibilityLabel={showCreateMatchForm ? 'Chiudi creazione partita' : 'Nuova partita'}
-              >
-                <Ionicons name={showCreateMatchForm ? 'close' : 'add'} size={20} color="#667eea" />
-              </TouchableOpacity>
-            </View>
-
             <View style={styles.matchesToolbarShell}>
               <TouchableOpacity
                 style={[
@@ -1862,6 +1878,25 @@ export default function ManageMatchesScreen() {
                   />
                 )}
               </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.matchesPlusBtn, showCreateMatchForm && styles.matchesPlusBtnOpen]}
+                onPress={() => {
+                  if (showCreateMatchForm) {
+                    setShowCreateMatchForm(false);
+                    return;
+                  }
+                  setShowEditMatchForm(false);
+                  setCreateMatchStep(1);
+                  setShowCreateTimingDetails(false);
+                  setIsAdminOnly(false);
+                  setVenue(defaultVenueName);
+                  setShowCreateMatchForm(true);
+                }}
+                accessibilityLabel={showCreateMatchForm ? 'Chiudi creazione partita' : 'Nuova partita'}
+              >
+                <Ionicons name={showCreateMatchForm ? 'close' : 'add'} size={20} color="#667eea" />
+              </TouchableOpacity>
             </View>
 
             {showPeriodFilters ? (
@@ -1937,8 +1972,8 @@ export default function ManageMatchesScreen() {
                 </View>
               </View>
             ) : null}
-            {matchesFilterSummary.length > 0 ? (
-              <View style={styles.activeFiltersRow}>
+            <View style={styles.activeFiltersRow}>
+              <View style={styles.activeFiltersChips}>
                 {matchesFilterSummary.map((chip) => (
                   <TouchableOpacity
                     key={chip.key}
@@ -1953,7 +1988,13 @@ export default function ManageMatchesScreen() {
                   </TouchableOpacity>
                 ))}
               </View>
-            ) : null}
+              <View style={styles.matchesCountPill}>
+                <Text style={styles.matchesCountPillText}>
+                  {filteredMatchesWithVisibility.length}
+                  {filteredMatchesWithVisibility.length === 1 ? ' partita' : ' partite'}
+                </Text>
+              </View>
+            </View>
 
             {showAdvancedFilters ? (
               <View style={styles.filterPanel}>
@@ -2223,8 +2264,8 @@ export default function ManageMatchesScreen() {
 
         {activeTab === 'competitions' && canManageCompetitions && (
           <View style={styles.card}>
-            <Text style={styles.sectionTitle}>Competizioni (gruppi ufficiali)</Text>
-            <Text style={styles.muted}>Scegli quali gruppi mostrare nel form "Nuova partita".</Text>
+            <Text style={styles.tabIntroTitle}>Visibilità gruppi</Text>
+            <Text style={styles.muted}>Scegli quali gruppi mostrare nel form “Nuova partita” e nella strip Partite.</Text>
             {officialGroups.map((g) => (
               <View key={g.id} style={styles.groupRow}>
                 <Text style={styles.groupName}>{g.name}</Text>
@@ -2252,8 +2293,8 @@ export default function ManageMatchesScreen() {
         )}
         {activeTab === 'details' && canManageMatchDetails && (
           <View style={styles.card}>
-            <Text style={styles.sectionTitle}>Dettagli partite</Text>
-            <Text style={styles.muted}>Gestisci i valori selezionabili per luogo, arbitro e tipologia giornata.</Text>
+            <Text style={styles.tabIntroTitle}>Valori selezionabili</Text>
+            <Text style={styles.muted}>Luogo, arbitro e tipologia giornata usati in creazione e modifica.</Text>
 
             <Text style={styles.label}>Nuovo luogo</Text>
             <View style={styles.actionsRow}>
@@ -2486,8 +2527,9 @@ export default function ManageMatchesScreen() {
         )}
         {activeTab === 'standings' && canManageCompetitions && (
           <View style={styles.card}>
-            <Text style={styles.sectionTitle}>Classifiche - Parimerito</Text>
-                <Text style={styles.label}>Competizione (gruppo leghe ufficiali)</Text>
+            <Text style={styles.tabIntroTitle}>Parimerito</Text>
+            <Text style={styles.muted}>Ordina le squadre a pari punti nella classifica ufficiale.</Text>
+                <Text style={styles.label}>Competizione</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
               <View style={styles.rowWrap}>
                 {competitions.map((c) => (
@@ -3227,77 +3269,97 @@ export default function ManageMatchesScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f5f5f5' },
+  container: { flex: 1, backgroundColor: '#f4f6fb' },
   contentAvoid: { flex: 1 },
-  header: {
+  headerShell: {
     backgroundColor: '#fff',
     borderBottomWidth: 1,
-    borderBottomColor: '#ececec',
+    borderBottomColor: '#e8eaf1',
     paddingHorizontal: 14,
     paddingBottom: 12,
   },
-  headerTitle: { fontSize: 24, fontWeight: '800', color: '#222' },
+  headerEyebrow: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#94a3b8',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    marginBottom: 2,
+  },
+  headerTitle: { fontSize: 22, fontWeight: '800', color: '#0f172a', marginBottom: 12 },
   subtabsScroll: {
     flexGrow: 0,
   },
-  subtabsRow: {
+  subtabsTrack: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#e8eaf1',
+    backgroundColor: '#f4f6fb',
+    padding: 4,
+  },
+  subtabsTrackInner: {
     flexDirection: 'row',
-    gap: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    paddingRight: 22,
+    alignItems: 'center',
+    gap: 4,
+    paddingRight: 2,
   },
   subtabBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
     paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 16,
+    paddingVertical: 9,
+    borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#ddd',
-    backgroundColor: '#fff',
+    borderColor: 'transparent',
+    backgroundColor: 'transparent',
   },
-  subtabBtnActive: { backgroundColor: '#667eea', borderColor: '#667eea' },
-  subtabText: { color: '#333', fontWeight: '700' },
-  subtabTextActive: { color: '#fff' },
+  subtabBtnActive: {
+    backgroundColor: '#fff',
+    borderColor: '#c7d2fe',
+  },
+  subtabText: { color: '#64748b', fontWeight: '700', fontSize: 13 },
+  subtabTextActive: { color: '#4338ca' },
   subtabsRowInner: {
     flexDirection: 'row',
     gap: 8,
     marginTop: 8,
   },
-  matchesTopBar: {
-    marginTop: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+  tabIntroTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#0f172a',
+    marginBottom: 4,
   },
-  matchesTopBarLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  matchesTopBarTitle: { fontSize: 16, fontWeight: '800', color: '#1c1f2a' },
   matchesCountPill: {
-    minWidth: 26,
-    height: 22,
-    paddingHorizontal: 7,
-    borderRadius: 11,
-    backgroundColor: '#eef1ff',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  matchesCountPillText: { fontSize: 12, fontWeight: '800', color: '#667eea' },
-  matchesPlusBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    flexShrink: 0,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: '#eef2ff',
     borderWidth: 1,
     borderColor: '#c7d2fe',
-    backgroundColor: '#eef2ff',
+  },
+  matchesCountPillText: { fontSize: 12, fontWeight: '800', color: '#4338ca' },
+  matchesPlusBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#c7d2fe',
+    backgroundColor: '#fff',
     alignItems: 'center',
     justifyContent: 'center',
+    flexShrink: 0,
   },
   matchesPlusBtnOpen: {
-    backgroundColor: '#fff',
-    borderColor: '#e2e8f0',
+    backgroundColor: '#eef2ff',
+    borderColor: '#a5b4fc',
   },
   matchesToolbarShell: {
-    marginTop: 10,
+    marginTop: 4,
     flexDirection: 'row',
+    alignItems: 'center',
     gap: 6,
     padding: 5,
     borderRadius: 14,
@@ -3319,16 +3381,17 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
   },
   toolbarSegDate: {
-    flexGrow: 0.9,
+    flexGrow: 0,
     flexShrink: 0,
     flexBasis: 'auto',
-    minWidth: 88,
+    minWidth: 0,
+    paddingHorizontal: 6,
   },
   toolbarSegAmbito: {
-    flex: 1.25,
+    flex: 1.1,
   },
   toolbarSegStato: {
-    flex: 1,
+    flex: 1.35,
   },
   toolbarSegActive: {
     backgroundColor: '#fff',
@@ -3357,9 +3420,16 @@ const styles = StyleSheet.create({
   },
   activeFiltersRow: {
     flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 10,
+  },
+  activeFiltersChips: {
+    flex: 1,
+    flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 6,
-    marginTop: 10,
+    minWidth: 0,
   },
   activeFilterChip: {
     flexDirection: 'row',
