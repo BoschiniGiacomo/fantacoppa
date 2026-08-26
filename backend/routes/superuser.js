@@ -106,6 +106,12 @@ async function ensureOfficialGroupMenuSchema() {
   await query(
     `ALTER TABLE official_league_groups ADD COLUMN IF NOT EXISTS show_in_main_menu SMALLINT NOT NULL DEFAULT 0`
   );
+  await query(
+    `ALTER TABLE official_league_groups ADD COLUMN IF NOT EXISTS is_match_competition_enabled SMALLINT NOT NULL DEFAULT 1`
+  );
+  await query(
+    `ALTER TABLE official_league_groups ADD COLUMN IF NOT EXISTS show_teams_in_matches_strip SMALLINT NOT NULL DEFAULT 0`
+  );
   officialGroupMenuSchemaReady = true;
 }
 
@@ -1126,6 +1132,8 @@ router.get('/official-groups', authenticateToken, requireSuperuser, async (_req,
       `SELECT og.id, og.name, og.description, og.created_by, og.created_at,
               NULLIF(og.logo_path, '') AS logo_path,
               COALESCE(og.show_in_main_menu, 0)::int AS show_in_main_menu,
+              COALESCE(og.is_match_competition_enabled, 1)::int AS is_match_competition_enabled,
+              COALESCE(og.show_teams_in_matches_strip, 0)::int AS show_teams_in_matches_strip,
               COALESCE(u.username, '') AS created_by_username,
               COALESCE(lc.league_count, 0)::int AS league_count
        FROM official_league_groups og
@@ -1222,6 +1230,46 @@ router.put('/official-groups/:id/main-menu', authenticateToken, requireSuperuser
     return res.json({ success: true, show_in_main_menu: enabled ? 1 : 0 });
   } catch (error) {
     return res.status(500).json({ message: 'Errore aggiornamento menu principale', error: error.message });
+  }
+});
+
+// PUT /official-groups/:id/match-settings — visibilità in Gestione partite / strip
+router.put('/official-groups/:id/match-settings', authenticateToken, requireSuperuser, async (req, res) => {
+  try {
+    const groupId = Number(req.params.id);
+    if (!groupId || groupId <= 0) return res.status(400).json({ message: 'ID gruppo non valido' });
+
+    await ensureOfficialGroupMenuSchema();
+
+    const exists = await query(`SELECT id FROM official_league_groups WHERE id = ? LIMIT 1`, [groupId]);
+    if (!exists.length) return res.status(404).json({ message: 'Gruppo non trovato' });
+
+    const sets = [];
+    const params = [];
+    if (req.body?.is_match_competition_enabled != null) {
+      sets.push('is_match_competition_enabled = ?');
+      params.push(Number(req.body.is_match_competition_enabled) ? 1 : 0);
+    }
+    if (req.body?.show_teams_in_matches_strip != null) {
+      sets.push('show_teams_in_matches_strip = ?');
+      params.push(Number(req.body.show_teams_in_matches_strip) ? 1 : 0);
+    }
+    if (sets.length === 0) {
+      return res.status(400).json({ message: 'Nessun campo match-settings da aggiornare' });
+    }
+
+    params.push(groupId);
+    await query(`UPDATE official_league_groups SET ${sets.join(', ')} WHERE id = ?`, params);
+
+    const rows = await query(
+      `SELECT COALESCE(is_match_competition_enabled, 1)::int AS is_match_competition_enabled,
+              COALESCE(show_teams_in_matches_strip, 0)::int AS show_teams_in_matches_strip
+       FROM official_league_groups WHERE id = ? LIMIT 1`,
+      [groupId]
+    );
+    return res.json({ success: true, ...(rows[0] || {}) });
+  } catch (error) {
+    return res.status(500).json({ message: 'Errore aggiornamento impostazioni partite', error: error.message });
   }
 });
 

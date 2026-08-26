@@ -325,7 +325,6 @@ export default function ManageMatchesScreen() {
   const [date, setDate] = useState('');
   const [showPeriodFilters, setShowPeriodFilters] = useState(false);
   const [competitions, setCompetitions] = useState([]); // gruppi ufficiali usati come competizioni
-  const [officialGroups, setOfficialGroups] = useState([]);
   const [matches, setMatches] = useState([]);
   const [filterCompetitionId, setFilterCompetitionId] = useState(null);
   const [filterLeagueId, setFilterLeagueId] = useState(null);
@@ -693,22 +692,12 @@ export default function ManageMatchesScreen() {
     const list = Array.isArray(res?.data) ? res.data : [];
     const enabled = list.filter((g) => Number(g.is_match_competition_enabled) === 1);
     setCompetitions(enabled.map((g) => ({ id: Number(g.id), name: g.name })));
-    if (canManageCompetitions) {
-      setOfficialGroups(list);
-    }
     if (competitionId && !enabled.some((g) => Number(g.id) === competitionId)) {
       setCompetitionId(enabled.length > 0 ? Number(enabled[0].id) : null);
     } else if (!competitionId && enabled.length > 0) {
       setCompetitionId(Number(enabled[0].id));
     }
     return list;
-  };
-
-  const loadOfficialGroups = async () => {
-    if (!canManageCompetitions) return;
-    const res = await adminCompetitionsService.getAll();
-    const list = Array.isArray(res?.data) ? res.data : [];
-    setOfficialGroups(list);
   };
 
   const loadMatches = async () => {
@@ -1411,22 +1400,7 @@ export default function ManageMatchesScreen() {
     });
   };
 
-  const updateCompetitionField = async (groupId, field, newValue) => {
-    const numVal = newValue ? 1 : 0;
-    setOfficialGroups((prev) =>
-      prev.map((g) => (g.id === groupId ? { ...g, [field]: numVal } : g))
-    );
-    try {
-      await adminCompetitionsService.update(groupId, { [field]: numVal });
-      await loadCompetitions();
-    } catch (e) {
-      showToast(e?.response?.data?.message || e?.message || 'Salvataggio non riuscito');
-      await loadOfficialGroups();
-    }
-  };
-
-  const createMatchDetailOption = async (type, name) => {
-    const clean = String(name || '').trim();
+  const createMatchDetailOption = async (type, name) => {    const clean = String(name || '').trim();
     if (!clean) {
       showToast('Inserisci un valore valido');
       return;
@@ -1693,51 +1667,36 @@ export default function ManageMatchesScreen() {
               />
               <Text style={[styles.subtabText, activeTab === 'matches' && styles.subtabTextActive]}>Partite</Text>
             </TouchableOpacity>
-            {canManageCompetitions ? (
-              <TouchableOpacity
-                style={[styles.subtabBtn, activeTab === 'competitions' && styles.subtabBtnActive]}
-                onPress={() => setActiveTab('competitions')}
-                accessibilityRole="tab"
-                accessibilityState={{ selected: activeTab === 'competitions' }}
-              >
-                <Ionicons
-                  name="trophy-outline"
-                  size={15}
-                  color={activeTab === 'competitions' ? '#4338ca' : '#64748b'}
-                />
-                <Text style={[styles.subtabText, activeTab === 'competitions' && styles.subtabTextActive]}>Competizioni</Text>
-              </TouchableOpacity>
-            ) : null}
-            {canManageMatchDetails ? (
-              <TouchableOpacity
-                style={[styles.subtabBtn, activeTab === 'details' && styles.subtabBtnActive]}
-                onPress={() => setActiveTab('details')}
-                accessibilityRole="tab"
-                accessibilityState={{ selected: activeTab === 'details' }}
-              >
-                <Ionicons
-                  name="options-outline"
-                  size={15}
-                  color={activeTab === 'details' ? '#4338ca' : '#64748b'}
-                />
-                <Text style={[styles.subtabText, activeTab === 'details' && styles.subtabTextActive]}>Dettagli</Text>
-              </TouchableOpacity>
-            ) : null}
-            {canManageCompetitions ? (
-              <TouchableOpacity
-                style={[styles.subtabBtn, activeTab === 'standings' && styles.subtabBtnActive]}
-                onPress={() => setActiveTab('standings')}
-                accessibilityRole="tab"
-                accessibilityState={{ selected: activeTab === 'standings' }}
-              >
-                <Ionicons
-                  name="podium-outline"
-                  size={15}
-                  color={activeTab === 'standings' ? '#4338ca' : '#64748b'}
-                />
-                <Text style={[styles.subtabText, activeTab === 'standings' && styles.subtabTextActive]}>Classifiche</Text>
-              </TouchableOpacity>
-            ) : null}
+          {canManageMatchDetails ? (
+            <TouchableOpacity
+              style={[styles.subtabBtn, activeTab === 'details' && styles.subtabBtnActive]}
+              onPress={() => setActiveTab('details')}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: activeTab === 'details' }}
+            >
+              <Ionicons
+                name="options-outline"
+                size={15}
+                color={activeTab === 'details' ? '#4338ca' : '#64748b'}
+              />
+              <Text style={[styles.subtabText, activeTab === 'details' && styles.subtabTextActive]}>Dettagli</Text>
+            </TouchableOpacity>
+          ) : null}
+          {canManageCompetitions ? (
+            <TouchableOpacity
+              style={[styles.subtabBtn, activeTab === 'standings' && styles.subtabBtnActive]}
+              onPress={() => setActiveTab('standings')}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: activeTab === 'standings' }}
+            >
+              <Ionicons
+                name="podium-outline"
+                size={15}
+                color={activeTab === 'standings' ? '#4338ca' : '#64748b'}
+              />
+              <Text style={[styles.subtabText, activeTab === 'standings' && styles.subtabTextActive]}>Classifiche</Text>
+            </TouchableOpacity>
+          ) : null}
           </ScrollView>
         </View>
       </View>
@@ -2262,35 +2221,6 @@ export default function ManageMatchesScreen() {
           </>
         )}
 
-        {activeTab === 'competitions' && canManageCompetitions && (
-          <View style={styles.card}>
-            <Text style={styles.tabIntroTitle}>Visibilità gruppi</Text>
-            <Text style={styles.muted}>Scegli quali gruppi mostrare nel form “Nuova partita” e nella strip Partite.</Text>
-            {officialGroups.map((g) => (
-              <View key={g.id} style={styles.groupRow}>
-                <Text style={styles.groupName}>{g.name}</Text>
-                <View style={styles.switchRow}>
-                  <Text style={styles.switchLabel}>Visibile in nuova partita</Text>
-                  <Switch
-                    value={Number(g.is_match_competition_enabled) === 1}
-                    onValueChange={(val) => updateCompetitionField(g.id, 'is_match_competition_enabled', val)}
-                    trackColor={{ false: '#ccc', true: '#a5b4fc' }}
-                    thumbColor={Number(g.is_match_competition_enabled) === 1 ? '#667eea' : '#f4f3f4'}
-                  />
-                </View>
-                <View style={styles.switchRow}>
-                  <Text style={styles.switchLabel}>Squadre in Partite</Text>
-                  <Switch
-                    value={Number(g.show_teams_in_matches_strip) === 1}
-                    onValueChange={(val) => updateCompetitionField(g.id, 'show_teams_in_matches_strip', val)}
-                    trackColor={{ false: '#ccc', true: '#a5b4fc' }}
-                    thumbColor={Number(g.show_teams_in_matches_strip) === 1 ? '#667eea' : '#f4f3f4'}
-                  />
-                </View>
-              </View>
-            ))}
-          </View>
-        )}
         {activeTab === 'details' && canManageMatchDetails && (
           <View style={styles.card}>
             <Text style={styles.tabIntroTitle}>Valori selezionabili</Text>

@@ -633,6 +633,34 @@ export default function SuperUserScreen() {
       setTogglingMenuGroupId(null);
     }
   };
+
+  const handleToggleOfficialGroupMatchSetting = async (item, field, nextValue) => {
+    if (!item?.id) return;
+    const numVal = nextValue ? 1 : 0;
+    const prevVal = Number(item?.[field] || 0) ? 1 : 0;
+    if (prevVal === numVal) return;
+
+    setOfficialGroups((prev) =>
+      prev.map((group) => (group.id === item.id ? { ...group, [field]: numVal } : group))
+    );
+    setSelectedGroupForEdit((prev) =>
+      prev && prev.id === item.id ? { ...prev, [field]: numVal } : prev
+    );
+
+    try {
+      await superuserService.setOfficialGroupMatchSettings(item.id, { [field]: numVal });
+      showToast('Impostazione partite aggiornata', 'success');
+    } catch (error) {
+      console.error('Error toggling official group match setting:', error);
+      setOfficialGroups((prev) =>
+        prev.map((group) => (group.id === item.id ? { ...group, [field]: prevVal } : group))
+      );
+      setSelectedGroupForEdit((prev) =>
+        prev && prev.id === item.id ? { ...prev, [field]: prevVal } : prev
+      );
+      showToast('Impossibile aggiornare le impostazioni partite');
+    }
+  };
   
   // Carica suggerimenti cluster per un gruppo
   const loadClusterSuggestions = async (groupId) => {
@@ -5408,6 +5436,58 @@ export default function SuperUserScreen() {
                       <Text style={styles.officialGroupMenuBadgeText}>Nel menu</Text>
                     </View>
                   ) : null}
+                </View>
+
+                <Text style={styles.clusterDetailSectionTitle}>Partite ufficiali</Text>
+                <View style={styles.groupMatchSettingsCard}>
+                  <View style={styles.groupLeagueSettingRow}>
+                    <View style={styles.groupLeagueSettingCopy}>
+                      <Text style={styles.groupLeagueSettingTitle}>Visibile in nuova partita</Text>
+                      <Text style={styles.groupLeagueSettingSub}>
+                        Compare come competizione in Gestione partite
+                      </Text>
+                    </View>
+                    <Switch
+                      value={Number(selectedGroupForEdit.is_match_competition_enabled ?? 1) === 1}
+                      onValueChange={(val) =>
+                        handleToggleOfficialGroupMatchSetting(
+                          selectedGroupForEdit,
+                          'is_match_competition_enabled',
+                          val
+                        )
+                      }
+                      trackColor={{ false: '#e2e8f0', true: '#a5b4fc' }}
+                      thumbColor={
+                        Number(selectedGroupForEdit.is_match_competition_enabled ?? 1) === 1
+                          ? '#667eea'
+                          : '#f4f3f4'
+                      }
+                    />
+                  </View>
+                  <View style={[styles.groupLeagueSettingRow, styles.groupMatchSettingRowLast]}>
+                    <View style={styles.groupLeagueSettingCopy}>
+                      <Text style={styles.groupLeagueSettingTitle}>Squadre in Partite</Text>
+                      <Text style={styles.groupLeagueSettingSub}>
+                        Mostra le squadre nella strip della schermata Partite
+                      </Text>
+                    </View>
+                    <Switch
+                      value={Number(selectedGroupForEdit.show_teams_in_matches_strip || 0) === 1}
+                      onValueChange={(val) =>
+                        handleToggleOfficialGroupMatchSetting(
+                          selectedGroupForEdit,
+                          'show_teams_in_matches_strip',
+                          val
+                        )
+                      }
+                      trackColor={{ false: '#e2e8f0', true: '#a5b4fc' }}
+                      thumbColor={
+                        Number(selectedGroupForEdit.show_teams_in_matches_strip || 0) === 1
+                          ? '#667eea'
+                          : '#f4f3f4'
+                      }
+                    />
+                  </View>
                 </View>
 
                 <Text style={styles.clusterDetailSectionTitle}>
@@ -11013,6 +11093,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 10,
     gap: 10,
+  },
+  groupMatchSettingsCard: {
+    marginTop: 4,
+    marginBottom: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e8eaf1',
+    backgroundColor: '#f8fafc',
+  },
+  groupMatchSettingRowLast: {
+    marginBottom: 6,
+    paddingBottom: 4,
   },
   groupLeagueSettingCopy: {
     flex: 1,
