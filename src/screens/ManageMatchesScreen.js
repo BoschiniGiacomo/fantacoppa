@@ -319,7 +319,11 @@ export default function ManageMatchesScreen() {
   const [editOriginal, setEditOriginal] = useState(null);
   const [editHydrating, setEditHydrating] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [date, setDate] = useState(() => todayYmd());
+  const [matchesLoading, setMatchesLoading] = useState(false);
+  const [filterBusy, setFilterBusy] = useState(false);
+  const [filterYear, setFilterYear] = useState(() => new Date().getFullYear());
+  const [date, setDate] = useState('');
+  const [showPeriodFilters, setShowPeriodFilters] = useState(false);
   const [competitions, setCompetitions] = useState([]); // gruppi ufficiali usati come competizioni
   const [officialGroups, setOfficialGroups] = useState([]);
   const [matches, setMatches] = useState([]);
@@ -520,7 +524,16 @@ export default function ManageMatchesScreen() {
 
   const matchesFilterSummary = useMemo(() => {
     const chips = [];
-    if (String(date || '').trim()) chips.push({ key: 'date', label: String(date).trim(), clear: () => setDate('') });
+    const currentYear = new Date().getFullYear();
+    if (String(date || '').trim()) {
+      chips.push({ key: 'date', label: String(date).trim(), clear: () => setDate('') });
+    } else if (Number(filterYear) !== currentYear) {
+      chips.push({
+        key: 'year',
+        label: `Anno ${filterYear}`,
+        clear: () => setFilterYear(currentYear),
+      });
+    }
     if (filterCompetitionId) {
       const name = competitions.find((c) => Number(c.id) === Number(filterCompetitionId))?.name || 'Competizione';
       chips.push({
@@ -566,6 +579,7 @@ export default function ManageMatchesScreen() {
     return chips;
   }, [
     date,
+    filterYear,
     filterCompetitionId,
     filterLeagueId,
     filterTeamId,
@@ -698,9 +712,18 @@ export default function ManageMatchesScreen() {
   };
 
   const loadMatches = async () => {
-    const res = await adminMatchesService.getByDate(date);
-    const list = Array.isArray(res?.data?.matches) ? res.data.matches : [];
-    setMatches(list.map(enrichMatchRow));
+    setMatchesLoading(true);
+    try {
+      const cleanDate = String(date || '').trim();
+      const res = await adminMatchesService.getList({
+        date: cleanDate || undefined,
+        year: cleanDate ? undefined : filterYear,
+      });
+      const list = Array.isArray(res?.data?.matches) ? res.data.matches : [];
+      setMatches(list.map(enrichMatchRow));
+    } finally {
+      setMatchesLoading(false);
+    }
   };
 
   const loadMatchDetailsOptions = async () => {
@@ -806,6 +829,7 @@ export default function ManageMatchesScreen() {
       setFilterTeams([]);
       return;
     }
+    setFilterBusy(true);
     try {
       const res = await adminMatchesService.getCompetitionTeams(compId, [leagueId]);
       const teamsRaw = Array.isArray(res?.data?.teams) ? res.data.teams : [];
@@ -813,6 +837,8 @@ export default function ManageMatchesScreen() {
       setFilterTeams(teams);
     } catch (_) {
       setFilterTeams([]);
+    } finally {
+      setFilterBusy(false);
     }
   };
 
@@ -835,7 +861,7 @@ export default function ManageMatchesScreen() {
     if (canManageMatches) loadAll();
   }, []);
 
-  const skipNextDateReloadRef = useRef(true);
+  const skipNextPeriodReloadRef = useRef(true);
   useEffect(() => {
     if (!competitionId) return;
     const cached = leaguesByCompRef.current[competitionId];
@@ -851,12 +877,17 @@ export default function ManageMatchesScreen() {
 
   useEffect(() => {
     if (!canManageMatches) return;
-    if (skipNextDateReloadRef.current) {
-      skipNextDateReloadRef.current = false;
+    if (skipNextPeriodReloadRef.current) {
+      skipNextPeriodReloadRef.current = false;
       return;
     }
     loadMatches().catch(() => {});
-  }, [date]);
+  }, [date, filterYear]);
+
+  const pulseFilterBusy = useCallback(() => {
+    setFilterBusy(true);
+    setTimeout(() => setFilterBusy(false), 280);
+  }, []);
 
   const resetMatchTimingFields = () => {
     setRegulationHalfMinutes('30');
@@ -1333,7 +1364,9 @@ export default function ManageMatchesScreen() {
       if (event?.type === 'dismissed') return;
     }
     if (!selectedDate) return;
-    setDate(toYmd(selectedDate));
+    const ymd = toYmd(selectedDate);
+    setFilterYear(selectedDate.getFullYear());
+    setDate(ymd);
   };
 
   const deleteMatch = useCallback((id) => {
@@ -1714,43 +1747,41 @@ export default function ManageMatchesScreen() {
             </View>
 
             <View style={styles.matchesToolbarShell}>
-              <View
+              <TouchableOpacity
                 style={[
                   styles.toolbarSeg,
                   styles.toolbarSegDate,
-                  String(date || '').trim() && styles.toolbarSegActive,
+                  (showPeriodFilters || String(date || '').trim() || Number(filterYear) !== new Date().getFullYear()) && styles.toolbarSegActive,
                 ]}
+                onPress={() => {
+                  setShowPeriodFilters((v) => !v);
+                  if (!showPeriodFilters) {
+                    setShowAdvancedFilters(false);
+                    setShowVisibilityFilters(false);
+                  }
+                }}
+                accessibilityLabel="Filtra per anno o data"
               >
-                <TouchableOpacity
-                  style={styles.toolbarSegMain}
-                  onPress={() => setShowFilterDatePicker(true)}
-                  accessibilityLabel="Filtra per data"
+                <Ionicons
+                  name="calendar-outline"
+                  size={16}
+                  color={showPeriodFilters || String(date || '').trim() ? '#4f46e5' : '#64748b'}
+                />
+                <Text
+                  style={[
+                    styles.toolbarSegTitle,
+                    (showPeriodFilters || String(date || '').trim()) && styles.toolbarSegTitleActive,
+                  ]}
+                  numberOfLines={1}
                 >
-                  <Ionicons
-                    name="calendar-outline"
-                    size={16}
-                    color={String(date || '').trim() ? '#4f46e5' : '#64748b'}
-                  />
-                  <Text
-                    style={[
-                      styles.toolbarSegTitle,
-                      String(date || '').trim() && styles.toolbarSegTitleActive,
-                    ]}
-                  >
-                    Data
-                  </Text>
-                </TouchableOpacity>
-                {String(date || '').trim() ? (
-                  <TouchableOpacity
-                    style={styles.toolbarSegClear}
-                    onPress={() => setDate('')}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                    accessibilityLabel="Rimuovi filtro data"
-                  >
-                    <Ionicons name="close" size={12} color="#4f46e5" />
-                  </TouchableOpacity>
-                ) : null}
-              </View>
+                  {String(date || '').trim() || String(filterYear)}
+                </Text>
+                <Ionicons
+                  name={showPeriodFilters ? 'chevron-up' : 'chevron-down'}
+                  size={14}
+                  color={showPeriodFilters ? '#4f46e5' : '#94a3b8'}
+                />
+              </TouchableOpacity>
 
               <TouchableOpacity
                 style={[
@@ -1760,7 +1791,10 @@ export default function ManageMatchesScreen() {
                 ]}
                 onPress={() => {
                   setShowAdvancedFilters((v) => !v);
-                  if (!showAdvancedFilters) setShowVisibilityFilters(false);
+                  if (!showAdvancedFilters) {
+                    setShowVisibilityFilters(false);
+                    setShowPeriodFilters(false);
+                  }
                 }}
                 accessibilityLabel="Filtri competizione edizione squadra"
               >
@@ -1797,7 +1831,10 @@ export default function ManageMatchesScreen() {
                 ]}
                 onPress={() => {
                   setShowVisibilityFilters((v) => !v);
-                  if (!showVisibilityFilters) setShowAdvancedFilters(false);
+                  if (!showVisibilityFilters) {
+                    setShowAdvancedFilters(false);
+                    setShowPeriodFilters(false);
+                  }
                 }}
                 accessibilityLabel="Filtri visibilità e stato squadre"
               >
@@ -1827,6 +1864,79 @@ export default function ManageMatchesScreen() {
               </TouchableOpacity>
             </View>
 
+            {showPeriodFilters ? (
+              <View style={styles.filterPanel}>
+                <View style={styles.filterPanelHeader}>
+                  <View style={styles.filterPanelIconWrap}>
+                    <Ionicons name="calendar-outline" size={16} color="#4f46e5" />
+                  </View>
+                  <View style={styles.filterPanelHeaderText}>
+                    <Text style={styles.filterPanelTitle}>Periodo</Text>
+                    <Text style={styles.filterPanelHint}>Di default: anno corrente · opzionale giorno specifico</Text>
+                  </View>
+                </View>
+
+                <View style={styles.filterStepBlock}>
+                  <Text style={styles.filterFieldLabel}>Anno</Text>
+                  <View style={styles.yearStepperRow}>
+                    <TouchableOpacity
+                      style={styles.yearStepBtn}
+                      onPress={() => {
+                        setDate('');
+                        setFilterYear((y) => Math.max(2000, Number(y) - 1));
+                      }}
+                      accessibilityLabel="Anno precedente"
+                    >
+                      <Ionicons name="remove" size={18} color="#4338ca" />
+                    </TouchableOpacity>
+                    <Text style={styles.yearStepValue}>{filterYear}</Text>
+                    <TouchableOpacity
+                      style={styles.yearStepBtn}
+                      onPress={() => {
+                        setDate('');
+                        setFilterYear((y) => Math.min(2100, Number(y) + 1));
+                      }}
+                      accessibilityLabel="Anno successivo"
+                    >
+                      <Ionicons name="add" size={18} color="#4338ca" />
+                    </TouchableOpacity>
+                    {Number(filterYear) !== new Date().getFullYear() ? (
+                      <TouchableOpacity
+                        style={styles.yearResetBtn}
+                        onPress={() => {
+                          setDate('');
+                          setFilterYear(new Date().getFullYear());
+                        }}
+                      >
+                        <Text style={styles.yearResetBtnText}>Corrente</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
+                </View>
+
+                <View style={[styles.filterStepBlock, styles.filterStepBlockLast]}>
+                  <Text style={styles.filterFieldLabel}>Giorno (opzionale)</Text>
+                  <View style={styles.periodDayRow}>
+                    <TouchableOpacity
+                      style={[styles.filterOption, String(date || '').trim() && styles.filterOptionActive]}
+                      onPress={() => setShowFilterDatePicker(true)}
+                    >
+                      <Text style={[styles.filterOptionText, String(date || '').trim() && styles.filterOptionTextActive]}>
+                        {String(date || '').trim() || 'Scegli data'}
+                      </Text>
+                    </TouchableOpacity>
+                    {String(date || '').trim() ? (
+                      <TouchableOpacity
+                        style={styles.yearResetBtn}
+                        onPress={() => setDate('')}
+                      >
+                        <Text style={styles.yearResetBtnText}>Solo anno</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
+                </View>
+              </View>
+            ) : null}
             {matchesFilterSummary.length > 0 ? (
               <View style={styles.activeFiltersRow}>
                 {matchesFilterSummary.map((chip) => (
@@ -1867,6 +1977,7 @@ export default function ManageMatchesScreen() {
                       <TouchableOpacity
                         style={[styles.filterOption, !filterCompetitionId && styles.filterOptionActive]}
                         onPress={() => {
+                          pulseFilterBusy();
                           setFilterCompetitionId(null);
                           setFilterLeagueId(null);
                           setFilterTeamId(null);
@@ -1881,6 +1992,7 @@ export default function ManageMatchesScreen() {
                           key={`filter-comp-existing-${c.id}`}
                           style={[styles.filterOption, Number(filterCompetitionId) === Number(c.id) && styles.filterOptionActive]}
                           onPress={() => {
+                            pulseFilterBusy();
                             setFilterCompetitionId(Number(c.id));
                             setFilterLeagueId(null);
                             setFilterTeamId(null);
@@ -1912,6 +2024,7 @@ export default function ManageMatchesScreen() {
                         <TouchableOpacity
                           style={[styles.filterOption, !filterLeagueId && styles.filterOptionActive]}
                           onPress={() => {
+                            pulseFilterBusy();
                             setFilterLeagueId(null);
                             setFilterTeamId(null);
                             setFilterTeams([]);
@@ -1953,7 +2066,10 @@ export default function ManageMatchesScreen() {
                       <View style={styles.filterOptionsRow}>
                         <TouchableOpacity
                           style={[styles.filterOption, !filterTeamId && styles.filterOptionActive]}
-                          onPress={() => setFilterTeamId(null)}
+                          onPress={() => {
+                            pulseFilterBusy();
+                            setFilterTeamId(null);
+                          }}
                         >
                           <Text style={[styles.filterOptionText, !filterTeamId && styles.filterOptionTextActive]}>Tutte</Text>
                         </TouchableOpacity>
@@ -1961,7 +2077,10 @@ export default function ManageMatchesScreen() {
                           <TouchableOpacity
                             key={`filter-team-existing-${t.id}`}
                             style={[styles.filterOption, Number(filterTeamId) === Number(t.id) && styles.filterOptionActive]}
-                            onPress={() => setFilterTeamId(Number(t.id))}
+                            onPress={() => {
+                              pulseFilterBusy();
+                              setFilterTeamId(Number(t.id));
+                            }}
                           >
                             <Text style={[styles.filterOptionText, Number(filterTeamId) === Number(t.id) && styles.filterOptionTextActive]}>
                               {t.name}
@@ -1992,7 +2111,10 @@ export default function ManageMatchesScreen() {
                   <View style={styles.filterSegment}>
                     <TouchableOpacity
                       style={[styles.filterSegmentItem, !filterMissingTeamsOnly && styles.filterSegmentItemActive]}
-                      onPress={() => setFilterMissingTeamsOnly(false)}
+                      onPress={() => {
+                        pulseFilterBusy();
+                        setFilterMissingTeamsOnly(false);
+                      }}
                     >
                       <Text style={[styles.filterSegmentText, !filterMissingTeamsOnly && styles.filterSegmentTextActive]}>
                         Tutte
@@ -2000,7 +2122,10 @@ export default function ManageMatchesScreen() {
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={[styles.filterSegmentItem, filterMissingTeamsOnly && styles.filterSegmentItemActive]}
-                      onPress={() => setFilterMissingTeamsOnly(true)}
+                      onPress={() => {
+                        pulseFilterBusy();
+                        setFilterMissingTeamsOnly(true);
+                      }}
                     >
                       <Text style={[styles.filterSegmentText, filterMissingTeamsOnly && styles.filterSegmentTextActive]}>
                         Da definire
@@ -2014,7 +2139,10 @@ export default function ManageMatchesScreen() {
                   <View style={styles.filterSegment}>
                     <TouchableOpacity
                       style={[styles.filterSegmentItem, filterVisibility === 'visible' && styles.filterSegmentItemActive]}
-                      onPress={() => setFilterVisibility('visible')}
+                      onPress={() => {
+                        pulseFilterBusy();
+                        setFilterVisibility('visible');
+                      }}
                     >
                       <Text style={[styles.filterSegmentText, filterVisibility === 'visible' && styles.filterSegmentTextActive]}>
                         Visibili
@@ -2022,7 +2150,10 @@ export default function ManageMatchesScreen() {
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={[styles.filterSegmentItem, filterVisibility === 'hidden' && styles.filterSegmentItemActive]}
-                      onPress={() => setFilterVisibility('hidden')}
+                      onPress={() => {
+                        pulseFilterBusy();
+                        setFilterVisibility('hidden');
+                      }}
                     >
                       <Text style={[styles.filterSegmentText, filterVisibility === 'hidden' && styles.filterSegmentTextActive]}>
                         Nascoste
@@ -2030,7 +2161,10 @@ export default function ManageMatchesScreen() {
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={[styles.filterSegmentItem, filterVisibility === 'all' && styles.filterSegmentItemActive]}
-                      onPress={() => setFilterVisibility('all')}
+                      onPress={() => {
+                        pulseFilterBusy();
+                        setFilterVisibility('all');
+                      }}
                     >
                       <Text style={[styles.filterSegmentText, filterVisibility === 'all' && styles.filterSegmentTextActive]}>
                         Tutte
@@ -2047,22 +2181,41 @@ export default function ManageMatchesScreen() {
             ) : null}
 
             <View style={styles.matchesListCard}>
-              <Text style={styles.matchesListHeading}>
-                {String(date || '').trim() ? `Giorno ${String(date).trim()}` : 'Elenco'}
-              </Text>
-              {filteredMatchesWithVisibility.length === 0 ? (
+              <View style={styles.matchesListHeadingRow}>
+                <Text style={styles.matchesListHeading}>
+                  {String(date || '').trim()
+                    ? `Giorno ${String(date).trim()}`
+                    : `Anno ${filterYear}`}
+                </Text>
+                {(matchesLoading || filterBusy) ? (
+                  <View style={styles.matchesListLoadingInline}>
+                    <ActivityIndicator size="small" color="#667eea" />
+                    <Text style={styles.matchesListLoadingText}>
+                      {matchesLoading ? 'Caricamento…' : 'Aggiornamento…'}
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+              {matchesLoading && filteredMatchesWithVisibility.length === 0 ? (
+                <View style={styles.matchesListLoadingBlock}>
+                  <ActivityIndicator size="large" color="#667eea" />
+                  <Text style={styles.matchesEmpty}>Caricamento partite…</Text>
+                </View>
+              ) : filteredMatchesWithVisibility.length === 0 ? (
                 <Text style={styles.matchesEmpty}>Nessuna partita con questi filtri</Text>
               ) : (
-                filteredMatchesWithVisibility.map((m, index) => (
-                  <ManageMatchRow
-                    key={m.id}
-                    match={m}
-                    isFirst={index === 0}
-                    styles={styles}
-                    onEdit={startEditMatch}
-                    onDelete={deleteMatch}
-                  />
-                ))
+                <View style={matchesLoading || filterBusy ? styles.matchesListDimmed : null}>
+                  {filteredMatchesWithVisibility.map((m, index) => (
+                    <ManageMatchRow
+                      key={m.id}
+                      match={m}
+                      isFirst={index === 0}
+                      styles={styles}
+                      onEdit={startEditMatch}
+                      onDelete={deleteMatch}
+                    />
+                  ))}
+                </View>
               )}
             </View>
           </>
@@ -3166,12 +3319,13 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
   },
   toolbarSegDate: {
-    flexGrow: 0,
+    flexGrow: 0.9,
     flexShrink: 0,
     flexBasis: 'auto',
+    minWidth: 88,
   },
   toolbarSegAmbito: {
-    flex: 1.35,
+    flex: 1.25,
   },
   toolbarSegStato: {
     flex: 1,
@@ -3369,9 +3523,77 @@ const styles = StyleSheet.create({
     color: '#8b90a0',
     textTransform: 'uppercase',
     letterSpacing: 0.4,
+  },
+  matchesListHeadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
     paddingHorizontal: 14,
     paddingTop: 12,
     paddingBottom: 6,
+  },
+  matchesListLoadingInline: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  matchesListLoadingText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#667eea',
+  },
+  matchesListLoadingBlock: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    paddingVertical: 28,
+    paddingHorizontal: 14,
+  },
+  matchesListDimmed: {
+    opacity: 0.55,
+  },
+  yearStepperRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  yearStepBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#c7d2fe',
+    backgroundColor: '#eef2ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  yearStepValue: {
+    minWidth: 56,
+    textAlign: 'center',
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#0f172a',
+  },
+  yearResetBtn: {
+    marginLeft: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: '#f1f5f9',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  yearResetBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#475569',
+  },
+  periodDayRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexWrap: 'wrap',
   },
   matchesEmpty: {
     color: '#94a3b8',

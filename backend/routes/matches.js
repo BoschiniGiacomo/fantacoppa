@@ -7614,11 +7614,13 @@ router.put(
   }
 );
 
-// GET /admin/matches?date=YYYY-MM-DD
+// GET /admin/matches?date=YYYY-MM-DD | ?year=YYYY
 router.get('/admin/matches', authenticateToken, requireSuperuserLevels([1, 2]), async (req, res) => {
   try {
     await ensureOfficialMatchShootoutSchema();
     const date = String(req.query?.date || '').trim();
+    const yearNum = Number(String(req.query?.year || '').trim());
+    const hasYear = !date && Number.isFinite(yearNum) && yearNum >= 2000 && yearNum <= 2100;
 
     const rows = await query(
       `
@@ -7654,12 +7656,22 @@ router.get('/admin/matches', authenticateToken, requireSuperuserLevels([1, 2]), 
       LEFT JOIN teams ht ON ht.id = m.home_team_id
       LEFT JOIN teams at ON at.id = m.away_team_id
       LEFT JOIN official_match_stages ms ON ms.id = NULLIF(to_jsonb(m)->>'match_stage_id','')::int
-      WHERE (NULLIF(?, '') IS NULL OR (m.kickoff_at AT TIME ZONE 'Europe/Rome')::date = NULLIF(?, '')::date)
+      WHERE (
+        CASE
+          WHEN NULLIF(?, '') IS NOT NULL THEN (m.kickoff_at AT TIME ZONE 'Europe/Rome')::date = NULLIF(?, '')::date
+          WHEN ?::int IS NOT NULL THEN EXTRACT(YEAR FROM (m.kickoff_at AT TIME ZONE 'Europe/Rome'))::int = ?::int
+          ELSE TRUE
+        END
+      )
       ORDER BY m.kickoff_at ASC, m.id ASC
       `,
-      [date, date]
+      [date, date, hasYear ? yearNum : null, hasYear ? yearNum : null]
     );
-    return res.json({ date, matches: rows });
+    return res.json({
+      date: date || null,
+      year: hasYear ? yearNum : null,
+      matches: rows,
+    });
   } catch (err) {
     if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
     return res.status(500).json({ message: 'Errore caricamento partite admin', error: err.message });

@@ -687,6 +687,19 @@ export const adminMatchesService = {
     const cleanDate = String(dateYmd || '').trim();
     return api.get(cleanDate ? `admin/matches?date=${encodeURIComponent(cleanDate)}` : 'admin/matches');
   },
+  /** Lista admin: `date` (giorno) ha priorità su `year`. Senza entrambi = tutte. */
+  getList: ({ date, year } = {}) => {
+    const params = new URLSearchParams();
+    const cleanDate = String(date || '').trim();
+    const yearNum = Number(year);
+    if (cleanDate) {
+      params.set('date', cleanDate);
+    } else if (Number.isFinite(yearNum) && yearNum >= 2000 && yearNum <= 2100) {
+      params.set('year', String(Math.trunc(yearNum)));
+    }
+    const q = params.toString();
+    return api.get(q ? `admin/matches?${q}` : 'admin/matches');
+  },
   /** Solo elenco leghe: onlyLeagues=true. Squadre: passa leagueIds con almeno un id (stessa lega = nomi univoci, niente dedup lato client). */
   getCompetitionTeams: (competitionId, leagueIds = [], onlyLeagues = false) => {
     const params = new URLSearchParams();
