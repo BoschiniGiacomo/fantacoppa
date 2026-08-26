@@ -213,6 +213,21 @@ function formatDisplayDateTime(sqlDateTime) {
   return `${dd}/${mm}/${yyyy} ${hh}:${min}`;
 }
 
+function stagePresetSummary(s) {
+  if (!s) return '';
+  const parts = [`${Number(s.default_regulation_half_minutes ?? 30) || 30}′`];
+  if (Number(s.default_extra_time_enabled)) parts.push('suppl.');
+  if (Number(s.default_penalties_enabled)) parts.push('rigori');
+  if (Number(s.default_shootout_enabled)) {
+    parts.push(`SO ${Number(s.default_shootout_rounds_per_team ?? 5) || 5}`);
+  }
+  return parts.join(' · ');
+}
+
+function sortByNameIt(list) {
+  return [...(list || [])].sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || ''), 'it'));
+}
+
 function enrichMatchRow(m) {
   const homeName = String(m.home_team_name || '').trim() || 'Da definire';
   const awayName = String(m.away_team_name || '').trim() || 'Da definire';
@@ -379,6 +394,8 @@ export default function ManageMatchesScreen() {
   const [newRefereeName, setNewRefereeName] = useState('');
   const [newStageName, setNewStageName] = useState('');
   const [refereeListOpen, setRefereeListOpen] = useState(false);
+  const [detailsSectionOpen, setDetailsSectionOpen] = useState(null); // venues | referees | stages
+  const [newStageFormOpen, setNewStageFormOpen] = useState(false);
   const [editingRefereeId, setEditingRefereeId] = useState(null);
   const [refereeEditDraft, setRefereeEditDraft] = useState('');
   const [refereeEditOriginal, setRefereeEditOriginal] = useState('');
@@ -920,6 +937,13 @@ export default function ManageMatchesScreen() {
     applyStageDefaultsToMatchForm(st || null);
   };
 
+  const patchMatchDetailsList = useCallback((key, updater) => {
+    setMatchDetailsOptions((prev) => ({
+      ...prev,
+      [key]: updater(Array.isArray(prev?.[key]) ? prev[key] : []),
+    }));
+  }, []);
+
   const buildMatchTimingPayload = () => {
     let half = parseInt(regulationHalfMinutes, 10);
     if (!Number.isFinite(half) || half < 15 || half > 60) half = 30;
@@ -993,9 +1017,12 @@ export default function ManageMatchesScreen() {
       );
       const res = await adminMatchDetailsService.updateStageTimingDefaults(stagePresetModal.id, defs);
       const n = res?.data?.matches_with_stage;
+      const stageId = Number(stagePresetModal.id);
+      patchMatchDetailsList('stages', (list) =>
+        list.map((s) => (Number(s.id) === stageId ? { ...s, ...defs } : s))
+      );
       setStagePresetModal(null);
       setStagePresetDraft(null);
-      await loadMatchDetailsOptions();
       loadMatches().catch(() => {});
       if (typeof n === 'number' && n > 0) {
         showToast(`Preset salvato: aggiornate ${n} partit${n === 1 ? 'a' : 'e'} con questa tipologia`, 'success');
@@ -1400,15 +1427,32 @@ export default function ManageMatchesScreen() {
     });
   };
 
-  const createMatchDetailOption = async (type, name) => {    const clean = String(name || '').trim();
+  const createMatchDetailOption = async (type, name) => {
+    const clean = String(name || '').trim();
     if (!clean) {
       showToast('Inserisci un valore valido');
       return;
     }
     try {
-      if (type === 'venues') await adminMatchDetailsService.createVenue(clean);
-      if (type === 'referees') await adminMatchDetailsService.createReferee(clean);
-      if (type === 'stages') {
+      if (type === 'venues') {
+        const res = await adminMatchDetailsService.createVenue(clean);
+        const id = Number(res?.data?.id);
+        if (Number.isFinite(id) && id > 0) {
+          patchMatchDetailsList('venues', (list) => sortByNameIt([...list, { id, name: clean }]));
+        } else {
+          await loadMatchDetailsOptions();
+        }
+        setNewVenueName('');
+      } else if (type === 'referees') {
+        const res = await adminMatchDetailsService.createReferee(clean);
+        const id = Number(res?.data?.id);
+        if (Number.isFinite(id) && id > 0) {
+          patchMatchDetailsList('referees', (list) => sortByNameIt([...list, { id, name: clean }]));
+        } else {
+          await loadMatchDetailsOptions();
+        }
+        setNewRefereeName('');
+      } else if (type === 'stages') {
         const defs = buildStageDefaultsPayload(
           newStageHalfMin,
           newStageExtraTime,
@@ -1419,12 +1463,22 @@ export default function ManageMatchesScreen() {
           newStageShootout,
           newStageShootoutRounds
         );
-        await adminMatchDetailsService.createStage(clean, defs);
-      }
-      await loadMatchDetailsOptions();
-      if (type === 'venues') setNewVenueName('');
-      if (type === 'referees') setNewRefereeName('');
-      if (type === 'stages') {
+        const res = await adminMatchDetailsService.createStage(clean, defs);
+        const id = Number(res?.data?.id);
+        if (Number.isFinite(id) && id > 0) {
+          patchMatchDetailsList('stages', (list) =>
+            sortByNameIt([
+              ...list,
+              {
+                id,
+                name: clean,
+                ...defs,
+              },
+            ])
+          );
+        } else {
+          await loadMatchDetailsOptions();
+        }
         setNewStageName('');
         setNewStageHalfMin('30');
         setNewStageExtraTime(false);
@@ -1434,6 +1488,7 @@ export default function ManageMatchesScreen() {
         setNewStagePenalties(false);
         setNewStageShootout(false);
         setNewStageShootoutRounds('5');
+        setNewStageFormOpen(false);
       }
       showToast('Valore aggiunto', 'success');
     } catch (e) {
@@ -1451,7 +1506,8 @@ export default function ManageMatchesScreen() {
         setRefereeEditDraft('');
         setRefereeEditOriginal('');
       }
-      await loadMatchDetailsOptions();
+      const key = type === 'venues' ? 'venues' : type === 'referees' ? 'referees' : 'stages';
+      patchMatchDetailsList(key, (list) => list.filter((x) => Number(x.id) !== Number(id)));
       showToast('Valore eliminato', 'success');
     } catch (e) {
       showToast(e?.response?.data?.message || e?.message || 'Eliminazione non riuscita');
@@ -1520,6 +1576,7 @@ export default function ManageMatchesScreen() {
       showToast('Salva o annulla la modifica in corso');
       return;
     }
+    if (detailsSectionOpen !== 'referees') setDetailsSectionOpen('referees');
     if (!refereeListOpen) setRefereeListOpen(true);
     setEditingRefereeId(id);
     setRefereeEditDraft(String(ref?.name || ''));
@@ -1550,7 +1607,9 @@ export default function ManageMatchesScreen() {
       if (String(referee || '').trim() === String(refereeEditOriginal || '').trim()) {
         setReferee(clean);
       }
-      await loadMatchDetailsOptions();
+      patchMatchDetailsList('referees', (list) =>
+        sortByNameIt(list.map((r) => (Number(r.id) === rid ? { ...r, name: clean } : r)))
+      );
       cancelEditReferee();
       showToast('Arbitro aggiornato', 'success');
     } catch (e) {
@@ -2222,237 +2281,356 @@ export default function ManageMatchesScreen() {
         )}
 
         {activeTab === 'details' && canManageMatchDetails && (
-          <View style={styles.card}>
-            <Text style={styles.tabIntroTitle}>Valori selezionabili</Text>
-            <Text style={styles.muted}>Luogo, arbitro e tipologia giornata usati in creazione e modifica.</Text>
-
-            <Text style={styles.label}>Nuovo luogo</Text>
-            <View style={styles.actionsRow}>
-              <TextInput style={[styles.input, { flex: 1 }]} value={newVenueName} onChangeText={setNewVenueName} placeholder="Es. Stadio Olimpico" placeholderTextColor="#999" />
-              <TouchableOpacity style={[styles.primaryBtn, { marginTop: 0, paddingHorizontal: 12 }]} onPress={() => createMatchDetailOption('venues', newVenueName)}>
-                <Text style={styles.primaryBtnText}>Aggiungi</Text>
-              </TouchableOpacity>
-            </View>
-            <View style={styles.rowWrap}>
-              {(matchDetailsOptions.venues || []).map((v) => (
-                <TouchableOpacity
-                  key={`manage-venue-${v.id}`}
-                  style={styles.deleteChip}
-                  onPress={() =>
-                    setConfirmModal({
-                      title: 'Elimina luogo',
-                      message: `Eliminare "${v.name}"?`,
-                      confirmText: 'Elimina',
-                      destructive: true,
-                      onConfirm: async () => {
-                        setConfirmModal(null);
-                        await removeMatchDetailOption('venues', Number(v.id));
-                      },
-                    })
-                  }
-                >
-                  <Text style={styles.deleteChipText}>✕ {v.name}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            <Text style={styles.label}>Nuovo arbitro</Text>
-            <View style={styles.actionsRow}>
-              <TextInput style={[styles.input, { flex: 1 }]} value={newRefereeName} onChangeText={setNewRefereeName} placeholder="Es. Daniele Orsato" placeholderTextColor="#999" />
-              <TouchableOpacity style={[styles.primaryBtn, { marginTop: 0, paddingHorizontal: 12 }]} onPress={() => createMatchDetailOption('referees', newRefereeName)}>
-                <Text style={styles.primaryBtnText}>Aggiungi</Text>
-              </TouchableOpacity>
-            </View>
-            <TouchableOpacity
-              style={styles.detailDropdownHeader}
-              activeOpacity={0.75}
-              onPress={() => setRefereeListOpen((v) => !v)}
-            >
-              <View style={styles.detailDropdownHeaderLeft}>
-                <Ionicons name="people-outline" size={17} color="#667eea" />
-                <Text style={styles.detailDropdownHeaderText}>
-                  Elenco arbitri ({(matchDetailsOptions.referees || []).length})
-                </Text>
-              </View>
-              <Ionicons name={refereeListOpen ? 'chevron-up' : 'chevron-down'} size={18} color="#64748b" />
-            </TouchableOpacity>
-            {refereeListOpen ? (
-              <View style={styles.refereeList}>
-                {(matchDetailsOptions.referees || []).length === 0 ? (
-                  <Text style={styles.muted}>Nessun arbitro inserito.</Text>
-                ) : (
-                  (matchDetailsOptions.referees || []).map((r) => {
-                    const rid = Number(r.id);
-                    const isEditing = editingRefereeId === rid;
-                    const isDirty = isEditing && String(refereeEditDraft || '').trim() !== String(refereeEditOriginal || '').trim();
-                    const isSaving = savingRefereeId === rid;
-                    return (
-                      <View
-                        key={`manage-ref-${r.id}`}
-                        ref={(node) => {
-                          if (node) refereeRowRefs.current[String(rid)] = node;
-                          else delete refereeRowRefs.current[String(rid)];
-                        }}
-                        style={styles.refereeDeleteRow}
-                        collapsable={false}
-                      >
-                        {isEditing ? (
-                          <TextInput
-                            style={[styles.refereeDeleteName, styles.refereeEditInput]}
-                            value={refereeEditDraft}
-                            onChangeText={setRefereeEditDraft}
-                            placeholder="Nome arbitro"
-                            placeholderTextColor="#999"
-                            autoFocus
-                            editable={!isSaving}
-                            onFocus={() => scrollToRefereeEdit(rid)}
-                          />
-                        ) : (
-                          <Text style={styles.refereeDeleteName} numberOfLines={2}>{r.name}</Text>
-                        )}
-                        <View style={styles.refereeRowActions}>
-                          <TouchableOpacity
-                            style={[styles.refereeIconBtn, isDirty && styles.refereeIconBtnSave]}
-                            disabled={isSaving}
-                            onPress={() => {
-                              if (isEditing && isDirty) {
-                                saveRefereeEdit(rid);
-                              } else if (isEditing) {
-                                cancelEditReferee();
-                              } else {
-                                startEditReferee(r);
-                              }
-                            }}
-                          >
-                            {isSaving ? (
-                              <ActivityIndicator size="small" color={isDirty ? '#fff' : '#667eea'} />
-                            ) : (
-                              <Ionicons
-                                name={isDirty ? 'checkmark' : 'pencil'}
-                                size={18}
-                                color={isDirty ? '#fff' : '#667eea'}
-                              />
-                            )}
-                          </TouchableOpacity>
-                          <TouchableOpacity
-                            style={styles.refereeIconBtnDanger}
-                            disabled={isSaving}
-                            onPress={() =>
-                              setConfirmModal({
-                                title: 'Elimina arbitro',
-                                message: `Eliminare "${r.name}"?`,
-                                confirmText: 'Elimina',
-                                destructive: true,
-                                onConfirm: async () => {
-                                  setConfirmModal(null);
-                                  await removeMatchDetailOption('referees', rid);
-                                },
-                              })
-                            }
-                          >
-                            <Text style={styles.refereeDeleteIcon}>✕</Text>
-                          </TouchableOpacity>
-                        </View>
-                      </View>
-                    );
-                  })
-                )}
-              </View>
-            ) : null}
-
-            <Text style={styles.label}>Nuova tipologia giornata</Text>
-            <Text style={styles.muted}>Preset predefinito per le partite che useranno questa tipologia (modificabile sul singolo match).</Text>
-            <View style={styles.actionsRow}>
-              <TextInput style={[styles.input, { flex: 1 }]} value={newStageName} onChangeText={setNewStageName} placeholder="Es. Gironi / Quarti / Finale" placeholderTextColor="#999" />
-              <TouchableOpacity style={[styles.primaryBtn, { marginTop: 0, paddingHorizontal: 12 }]} onPress={() => createMatchDetailOption('stages', newStageName)}>
-                <Text style={styles.primaryBtnText}>Aggiungi</Text>
-              </TouchableOpacity>
-            </View>
-            <Text style={styles.label}>Preset per la nuova tipologia</Text>
-            <View style={styles.rowWrap}>
-              {[30, 45].map((m) => (
-                <TouchableOpacity
-                  key={`newst-half-${m}`}
-                  style={[styles.chip, newStageHalfMin === String(m) && styles.chipActive]}
-                  onPress={() => setNewStageHalfMin(String(m))}
-                >
-                  <Text style={[styles.chipText, newStageHalfMin === String(m) && styles.chipTextActive]}>{m}′</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-            <TextInput style={styles.input} value={newStageHalfMin} onChangeText={setNewStageHalfMin} keyboardType="number-pad" placeholder="15–60" placeholderTextColor="#999" />
-            <View style={styles.switchRow}>
-              <Text style={styles.switchLabel}>Supplementari</Text>
-              <Switch
-                value={newStageExtraTime}
-                onValueChange={(v) => {
-                  setNewStageExtraTime(v);
-                  if (v) setNewStageExtraSecondEnabled(true);
-                }}
-                trackColor={{ false: '#ccc', true: '#a5b4fc' }}
-                thumbColor={newStageExtraTime ? '#667eea' : '#f4f3f4'}
-              />
-            </View>
-            {newStageExtraTime ? (
-              <>
-                <Text style={styles.label}>1° supplementare (min)</Text>
-                <TextInput style={styles.input} value={newStageExtra1} onChangeText={setNewStageExtra1} keyboardType="number-pad" />
-                <View style={styles.switchRow}>
-                  <Text style={styles.switchLabel}>2° tempo supplementare</Text>
-                  <Switch
-                    value={newStageExtraSecondEnabled}
-                    onValueChange={setNewStageExtraSecondEnabled}
-                    trackColor={{ false: '#ccc', true: '#a5b4fc' }}
-                    thumbColor={newStageExtraSecondEnabled ? '#667eea' : '#f4f3f4'}
-                  />
-                </View>
-                {newStageExtraSecondEnabled ? (
-                  <>
-                    <Text style={styles.label}>2° supplementare (min)</Text>
-                    <TextInput style={styles.input} value={newStageExtra2} onChangeText={setNewStageExtra2} keyboardType="number-pad" />
-                  </>
-                ) : null}
-              </>
-            ) : null}
-            <View style={styles.switchRow}>
-              <Text style={styles.switchLabel}>Rigori</Text>
-              <Switch value={newStagePenalties} onValueChange={setNewStagePenalties} trackColor={{ false: '#ccc', true: '#a5b4fc' }} thumbColor={newStagePenalties ? '#667eea' : '#f4f3f4'} />
-            </View>
-            <ShootoutConfigFields
-              enabled={newStageShootout}
-              onEnabledChange={setNewStageShootout}
-              rounds={newStageShootoutRounds}
-              onRoundsChange={setNewStageShootoutRounds}
-              chipKeyPrefix="newst"
-              styles={styles}
-            />
-            {(matchDetailsOptions.stages || []).map((s) => (
-              <View key={`manage-stage-${s.id}`} style={styles.stageManageRow}>
-                <Text style={styles.stageManageName}>{s.name}</Text>
-                <View style={styles.stageManageActions}>
-                  <TouchableOpacity style={styles.presetBtn} onPress={() => openStagePresetEditor(s)}>
-                    <Text style={styles.presetBtnText}>Preset</Text>
-                  </TouchableOpacity>
+          <View style={styles.detailsTabWrap}>
+            {[
+              {
+                key: 'venues',
+                title: 'Luoghi',
+                icon: 'location-outline',
+                count: (matchDetailsOptions.venues || []).length,
+              },
+              {
+                key: 'referees',
+                title: 'Arbitri',
+                icon: 'people-outline',
+                count: (matchDetailsOptions.referees || []).length,
+              },
+              {
+                key: 'stages',
+                title: 'Tipologie',
+                icon: 'flag-outline',
+                count: (matchDetailsOptions.stages || []).length,
+              },
+            ].map((section) => {
+              const open = detailsSectionOpen === section.key;
+              return (
+                <View key={section.key} style={styles.detailsSectionCard}>
                   <TouchableOpacity
-                    style={styles.deleteChip}
-                    onPress={() =>
-                      setConfirmModal({
-                        title: 'Elimina tipologia',
-                        message: `Eliminare "${s.name}"?`,
-                        confirmText: 'Elimina',
-                        destructive: true,
-                        onConfirm: async () => {
-                          setConfirmModal(null);
-                          await removeMatchDetailOption('stages', Number(s.id));
-                        },
-                      })
-                    }
+                    style={styles.detailsSectionHeader}
+                    onPress={() => setDetailsSectionOpen((cur) => (cur === section.key ? null : section.key))}
+                    activeOpacity={0.75}
                   >
-                    <Text style={styles.deleteChipText}>✕</Text>
+                    <View style={styles.detailsSectionIconWrap}>
+                      <Ionicons name={section.icon} size={16} color="#4f46e5" />
+                    </View>
+                    <Text style={styles.detailsSectionTitle}>{section.title}</Text>
+                    <View style={styles.detailsSectionCount}>
+                      <Text style={styles.detailsSectionCountText}>{section.count}</Text>
+                    </View>
+                    <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={16} color="#94a3b8" />
                   </TouchableOpacity>
+
+                  {open && section.key === 'venues' ? (
+                    <View style={styles.detailsSectionBody}>
+                      <View style={styles.detailsAddRow}>
+                        <TextInput
+                          style={[styles.input, styles.detailsAddInput]}
+                          value={newVenueName}
+                          onChangeText={setNewVenueName}
+                          placeholder="Nuovo luogo"
+                          placeholderTextColor="#999"
+                        />
+                        <TouchableOpacity
+                          style={styles.detailsAddBtn}
+                          onPress={() => createMatchDetailOption('venues', newVenueName)}
+                          accessibilityLabel="Aggiungi luogo"
+                        >
+                          <Ionicons name="add" size={20} color="#fff" />
+                        </TouchableOpacity>
+                      </View>
+                      {(matchDetailsOptions.venues || []).length === 0 ? (
+                        <Text style={styles.detailsEmpty}>Nessun luogo</Text>
+                      ) : (
+                        <View style={styles.detailsChipWrap}>
+                          {(matchDetailsOptions.venues || []).map((v) => (
+                            <TouchableOpacity
+                              key={`manage-venue-${v.id}`}
+                              style={styles.detailsChip}
+                              onPress={() =>
+                                setConfirmModal({
+                                  title: 'Elimina luogo',
+                                  message: `Eliminare "${v.name}"?`,
+                                  confirmText: 'Elimina',
+                                  destructive: true,
+                                  onConfirm: async () => {
+                                    setConfirmModal(null);
+                                    await removeMatchDetailOption('venues', Number(v.id));
+                                  },
+                                })
+                              }
+                            >
+                              <Text style={styles.detailsChipText} numberOfLines={1}>{v.name}</Text>
+                              <Ionicons name="close" size={12} color="#b42318" />
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      )}
+                    </View>
+                  ) : null}
+
+                  {open && section.key === 'referees' ? (
+                    <View style={styles.detailsSectionBody}>
+                      <View style={styles.detailsAddRow}>
+                        <TextInput
+                          style={[styles.input, styles.detailsAddInput]}
+                          value={newRefereeName}
+                          onChangeText={setNewRefereeName}
+                          placeholder="Nuovo arbitro"
+                          placeholderTextColor="#999"
+                        />
+                        <TouchableOpacity
+                          style={styles.detailsAddBtn}
+                          onPress={() => createMatchDetailOption('referees', newRefereeName)}
+                          accessibilityLabel="Aggiungi arbitro"
+                        >
+                          <Ionicons name="add" size={20} color="#fff" />
+                        </TouchableOpacity>
+                      </View>
+                      {(matchDetailsOptions.referees || []).length === 0 ? (
+                        <Text style={styles.detailsEmpty}>Nessun arbitro</Text>
+                      ) : (
+                        <View style={styles.detailsEntityList}>
+                          {(matchDetailsOptions.referees || []).map((r) => {
+                            const rid = Number(r.id);
+                            const isEditing = editingRefereeId === rid;
+                            const isDirty =
+                              isEditing &&
+                              String(refereeEditDraft || '').trim() !== String(refereeEditOriginal || '').trim();
+                            const isSaving = savingRefereeId === rid;
+                            return (
+                              <View
+                                key={`manage-ref-${r.id}`}
+                                ref={(node) => {
+                                  if (node) refereeRowRefs.current[String(rid)] = node;
+                                  else delete refereeRowRefs.current[String(rid)];
+                                }}
+                                style={styles.detailsEntityRow}
+                                collapsable={false}
+                              >
+                                {isEditing ? (
+                                  <TextInput
+                                    style={[styles.detailsEntityName, styles.refereeEditInput]}
+                                    value={refereeEditDraft}
+                                    onChangeText={setRefereeEditDraft}
+                                    placeholder="Nome arbitro"
+                                    placeholderTextColor="#999"
+                                    autoFocus
+                                    editable={!isSaving}
+                                    onFocus={() => scrollToRefereeEdit(rid)}
+                                  />
+                                ) : (
+                                  <Text style={styles.detailsEntityName} numberOfLines={2}>{r.name}</Text>
+                                )}
+                                <View style={styles.refereeRowActions}>
+                                  <TouchableOpacity
+                                    style={[styles.refereeIconBtn, isDirty && styles.refereeIconBtnSave]}
+                                    disabled={isSaving}
+                                    onPress={() => {
+                                      if (isEditing && isDirty) {
+                                        saveRefereeEdit(rid);
+                                      } else if (isEditing) {
+                                        cancelEditReferee();
+                                      } else {
+                                        startEditReferee(r);
+                                      }
+                                    }}
+                                  >
+                                    {isSaving ? (
+                                      <ActivityIndicator size="small" color={isDirty ? '#fff' : '#667eea'} />
+                                    ) : (
+                                      <Ionicons
+                                        name={isDirty ? 'checkmark' : 'pencil'}
+                                        size={18}
+                                        color={isDirty ? '#fff' : '#667eea'}
+                                      />
+                                    )}
+                                  </TouchableOpacity>
+                                  <TouchableOpacity
+                                    style={styles.refereeIconBtnDanger}
+                                    disabled={isSaving}
+                                    onPress={() =>
+                                      setConfirmModal({
+                                        title: 'Elimina arbitro',
+                                        message: `Eliminare "${r.name}"?`,
+                                        confirmText: 'Elimina',
+                                        destructive: true,
+                                        onConfirm: async () => {
+                                          setConfirmModal(null);
+                                          await removeMatchDetailOption('referees', rid);
+                                        },
+                                      })
+                                    }
+                                  >
+                                    <Ionicons name="trash-outline" size={16} color="#b42318" />
+                                  </TouchableOpacity>
+                                </View>
+                              </View>
+                            );
+                          })}
+                        </View>
+                      )}
+                    </View>
+                  ) : null}
+
+                  {open && section.key === 'stages' ? (
+                    <View style={styles.detailsSectionBody}>
+                      <TouchableOpacity
+                        style={styles.detailsNewStageToggle}
+                        onPress={() => setNewStageFormOpen((v) => !v)}
+                      >
+                        <Ionicons name={newStageFormOpen ? 'remove' : 'add'} size={16} color="#4338ca" />
+                        <Text style={styles.detailsNewStageToggleText}>
+                          {newStageFormOpen ? 'Chiudi form' : 'Nuova tipologia'}
+                        </Text>
+                      </TouchableOpacity>
+
+                      {newStageFormOpen ? (
+                        <View style={styles.detailsNewStageForm}>
+                          <View style={styles.detailsAddRow}>
+                            <TextInput
+                              style={[styles.input, styles.detailsAddInput]}
+                              value={newStageName}
+                              onChangeText={setNewStageName}
+                              placeholder="Nome (es. Finale)"
+                              placeholderTextColor="#999"
+                            />
+                            <TouchableOpacity
+                              style={styles.detailsAddBtn}
+                              onPress={() => createMatchDetailOption('stages', newStageName)}
+                              accessibilityLabel="Aggiungi tipologia"
+                            >
+                              <Ionicons name="checkmark" size={20} color="#fff" />
+                            </TouchableOpacity>
+                          </View>
+                          <Text style={styles.detailsFieldLabel}>Tempi</Text>
+                          <View style={styles.rowWrap}>
+                            {[30, 45].map((m) => (
+                              <TouchableOpacity
+                                key={`newst-half-${m}`}
+                                style={[styles.chip, newStageHalfMin === String(m) && styles.chipActive]}
+                                onPress={() => setNewStageHalfMin(String(m))}
+                              >
+                                <Text style={[styles.chipText, newStageHalfMin === String(m) && styles.chipTextActive]}>
+                                  {m}′
+                                </Text>
+                              </TouchableOpacity>
+                            ))}
+                          </View>
+                          <TextInput
+                            style={styles.input}
+                            value={newStageHalfMin}
+                            onChangeText={setNewStageHalfMin}
+                            keyboardType="number-pad"
+                            placeholder="15–60"
+                            placeholderTextColor="#999"
+                          />
+                          <View style={styles.switchRow}>
+                            <Text style={styles.switchLabel}>Supplementari</Text>
+                            <Switch
+                              value={newStageExtraTime}
+                              onValueChange={(v) => {
+                                setNewStageExtraTime(v);
+                                if (v) setNewStageExtraSecondEnabled(true);
+                              }}
+                              trackColor={{ false: '#ccc', true: '#a5b4fc' }}
+                              thumbColor={newStageExtraTime ? '#667eea' : '#f4f3f4'}
+                            />
+                          </View>
+                          {newStageExtraTime ? (
+                            <>
+                              <Text style={styles.detailsFieldLabel}>1° suppl.</Text>
+                              <TextInput
+                                style={styles.input}
+                                value={newStageExtra1}
+                                onChangeText={setNewStageExtra1}
+                                keyboardType="number-pad"
+                              />
+                              <View style={styles.switchRow}>
+                                <Text style={styles.switchLabel}>2° suppl.</Text>
+                                <Switch
+                                  value={newStageExtraSecondEnabled}
+                                  onValueChange={setNewStageExtraSecondEnabled}
+                                  trackColor={{ false: '#ccc', true: '#a5b4fc' }}
+                                  thumbColor={newStageExtraSecondEnabled ? '#667eea' : '#f4f3f4'}
+                                />
+                              </View>
+                              {newStageExtraSecondEnabled ? (
+                                <TextInput
+                                  style={styles.input}
+                                  value={newStageExtra2}
+                                  onChangeText={setNewStageExtra2}
+                                  keyboardType="number-pad"
+                                />
+                              ) : null}
+                            </>
+                          ) : null}
+                          <View style={styles.switchRow}>
+                            <Text style={styles.switchLabel}>Rigori</Text>
+                            <Switch
+                              value={newStagePenalties}
+                              onValueChange={setNewStagePenalties}
+                              trackColor={{ false: '#ccc', true: '#a5b4fc' }}
+                              thumbColor={newStagePenalties ? '#667eea' : '#f4f3f4'}
+                            />
+                          </View>
+                          <ShootoutConfigFields
+                            enabled={newStageShootout}
+                            onEnabledChange={setNewStageShootout}
+                            rounds={newStageShootoutRounds}
+                            onRoundsChange={setNewStageShootoutRounds}
+                            chipKeyPrefix="newst"
+                            styles={styles}
+                          />
+                        </View>
+                      ) : null}
+
+                      {(matchDetailsOptions.stages || []).length === 0 ? (
+                        <Text style={styles.detailsEmpty}>Nessuna tipologia</Text>
+                      ) : (
+                        <View style={styles.detailsEntityList}>
+                          {(matchDetailsOptions.stages || []).map((s) => (
+                            <View key={`manage-stage-${s.id}`} style={styles.detailsEntityRow}>
+                              <View style={styles.detailsEntityCopy}>
+                                <Text style={styles.detailsEntityName} numberOfLines={1}>{s.name}</Text>
+                                <Text style={styles.detailsEntityMeta} numberOfLines={1}>
+                                  {stagePresetSummary(s)}
+                                </Text>
+                              </View>
+                              <View style={styles.refereeRowActions}>
+                                <TouchableOpacity
+                                  style={styles.refereeIconBtn}
+                                  onPress={() => openStagePresetEditor(s)}
+                                  accessibilityLabel={`Preset ${s.name}`}
+                                >
+                                  <Ionicons name="timer-outline" size={18} color="#667eea" />
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                  style={styles.refereeIconBtnDanger}
+                                  onPress={() =>
+                                    setConfirmModal({
+                                      title: 'Elimina tipologia',
+                                      message: `Eliminare "${s.name}"?`,
+                                      confirmText: 'Elimina',
+                                      destructive: true,
+                                      onConfirm: async () => {
+                                        setConfirmModal(null);
+                                        await removeMatchDetailOption('stages', Number(s.id));
+                                      },
+                                    })
+                                  }
+                                >
+                                  <Ionicons name="trash-outline" size={16} color="#b42318" />
+                                </TouchableOpacity>
+                              </View>
+                            </View>
+                          ))}
+                        </View>
+                      )}
+                    </View>
+                  ) : null}
                 </View>
-              </View>
-            ))}
+              );
+            })}
           </View>
         )}
         {activeTab === 'standings' && canManageCompetitions && (
@@ -3260,6 +3438,168 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#0f172a',
     marginBottom: 4,
+  },
+  detailsTabWrap: {
+    marginTop: 4,
+    gap: 10,
+  },
+  detailsSectionCard: {
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#e8eaf1',
+    overflow: 'hidden',
+  },
+  detailsSectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+  },
+  detailsSectionIconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: '#eef2ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  detailsSectionTitle: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#0f172a',
+  },
+  detailsSectionCount: {
+    minWidth: 26,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+    backgroundColor: '#f1f5f9',
+    alignItems: 'center',
+  },
+  detailsSectionCountText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#64748b',
+  },
+  detailsSectionBody: {
+    paddingHorizontal: 12,
+    paddingBottom: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#eef2f7',
+    paddingTop: 10,
+    gap: 10,
+  },
+  detailsAddRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  detailsAddInput: {
+    flex: 1,
+    marginTop: 0,
+  },
+  detailsAddBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    backgroundColor: '#667eea',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  detailsEmpty: {
+    color: '#94a3b8',
+    fontSize: 12,
+    fontWeight: '600',
+    paddingVertical: 4,
+  },
+  detailsChipWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  detailsChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    maxWidth: '100%',
+    paddingVertical: 7,
+    paddingLeft: 10,
+    paddingRight: 8,
+    borderRadius: 999,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  detailsChipText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#334155',
+    maxWidth: 180,
+  },
+  detailsEntityList: {
+    gap: 8,
+  },
+  detailsEntityRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    borderRadius: 12,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#eef2f7',
+  },
+  detailsEntityCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  detailsEntityName: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  detailsEntityMeta: {
+    marginTop: 2,
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#64748b',
+  },
+  detailsNewStageToggle: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 999,
+    backgroundColor: '#eef2ff',
+    borderWidth: 1,
+    borderColor: '#c7d2fe',
+  },
+  detailsNewStageToggleText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#4338ca',
+  },
+  detailsNewStageForm: {
+    gap: 8,
+    padding: 10,
+    borderRadius: 12,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e8eaf1',
+  },
+  detailsFieldLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#64748b',
+    marginTop: 2,
   },
   matchesCountPill: {
     flexShrink: 0,

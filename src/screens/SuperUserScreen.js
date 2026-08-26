@@ -398,6 +398,7 @@ export default function SuperUserScreen() {
   const [togglingMenuGroupId, setTogglingMenuGroupId] = useState(null);
   const [referenceYearDrafts, setReferenceYearDrafts] = useState({});
   const [expandedGroupLeagueIds, setExpandedGroupLeagueIds] = useState({});
+  const [matchSettingsExpanded, setMatchSettingsExpanded] = useState(false);
   /** @type {Record<string, Array<{id:number,name:string,girone_index?:number|null}>>} */
   const [gironiTeamsByLeague, setGironiTeamsByLeague] = useState({});
   const [savingReferenceYearByLeague, setSavingReferenceYearByLeague] = useState({});
@@ -2305,6 +2306,7 @@ export default function SuperUserScreen() {
     setReferenceYearDrafts({});
     setGironiTeamsByLeague({});
     setExpandedGroupLeagueIds({});
+    setMatchSettingsExpanded(false);
   };
 
   const handleOpenGroupClusters = async () => {
@@ -3256,6 +3258,7 @@ export default function SuperUserScreen() {
   const openOfficialGroup = async (item) => {
     if (!item?.id || openingOfficialGroupId) return;
     setOpeningOfficialGroupId(item.id);
+    setMatchSettingsExpanded(false);
     try {
       const response = await superuserService.getOfficialGroupLeagues(item.id);
       const leaguesInGroup = response.data.leagues || [];
@@ -5438,57 +5441,86 @@ export default function SuperUserScreen() {
                   ) : null}
                 </View>
 
-                <Text style={styles.clusterDetailSectionTitle}>Partite ufficiali</Text>
-                <View style={styles.groupMatchSettingsCard}>
-                  <View style={styles.groupLeagueSettingRow}>
-                    <View style={styles.groupLeagueSettingCopy}>
-                      <Text style={styles.groupLeagueSettingTitle}>Visibile in nuova partita</Text>
-                      <Text style={styles.groupLeagueSettingSub}>
-                        Compare come competizione in Gestione partite
+                <TouchableOpacity
+                  style={styles.groupMatchSettingsHeader}
+                  onPress={() => setMatchSettingsExpanded((v) => !v)}
+                  activeOpacity={0.75}
+                  accessibilityRole="button"
+                  accessibilityState={{ expanded: matchSettingsExpanded }}
+                >
+                  <View style={styles.groupMatchSettingsHeaderText}>
+                    <Text style={styles.groupMatchSettingsHeaderTitle}>Partite ufficiali</Text>
+                    {!matchSettingsExpanded ? (
+                      <Text style={styles.groupMatchSettingsHeaderHint} numberOfLines={1}>
+                        {[
+                          Number(selectedGroupForEdit.is_match_competition_enabled ?? 1) === 1
+                            ? 'In nuova partita'
+                            : 'Nascosto in nuova partita',
+                          Number(selectedGroupForEdit.show_teams_in_matches_strip || 0) === 1
+                            ? 'Strip on'
+                            : 'Strip off',
+                        ].join(' · ')}
                       </Text>
-                    </View>
-                    <Switch
-                      value={Number(selectedGroupForEdit.is_match_competition_enabled ?? 1) === 1}
-                      onValueChange={(val) =>
-                        handleToggleOfficialGroupMatchSetting(
-                          selectedGroupForEdit,
-                          'is_match_competition_enabled',
-                          val
-                        )
-                      }
-                      trackColor={{ false: '#e2e8f0', true: '#a5b4fc' }}
-                      thumbColor={
-                        Number(selectedGroupForEdit.is_match_competition_enabled ?? 1) === 1
-                          ? '#667eea'
-                          : '#f4f3f4'
-                      }
-                    />
+                    ) : null}
                   </View>
-                  <View style={[styles.groupLeagueSettingRow, styles.groupMatchSettingRowLast]}>
-                    <View style={styles.groupLeagueSettingCopy}>
-                      <Text style={styles.groupLeagueSettingTitle}>Squadre in Partite</Text>
-                      <Text style={styles.groupLeagueSettingSub}>
-                        Mostra le squadre nella strip della schermata Partite
-                      </Text>
+                  <Ionicons
+                    name={matchSettingsExpanded ? 'chevron-up' : 'chevron-down'}
+                    size={18}
+                    color="#64748b"
+                  />
+                </TouchableOpacity>
+                {matchSettingsExpanded ? (
+                  <View style={styles.groupMatchSettingsCard}>
+                    <View style={styles.groupLeagueSettingRow}>
+                      <View style={styles.groupLeagueSettingCopy}>
+                        <Text style={styles.groupLeagueSettingTitle}>Visibile in nuova partita</Text>
+                        <Text style={styles.groupLeagueSettingSub}>
+                          Compare come competizione in Gestione partite
+                        </Text>
+                      </View>
+                      <Switch
+                        value={Number(selectedGroupForEdit.is_match_competition_enabled ?? 1) === 1}
+                        onValueChange={(val) =>
+                          handleToggleOfficialGroupMatchSetting(
+                            selectedGroupForEdit,
+                            'is_match_competition_enabled',
+                            val
+                          )
+                        }
+                        trackColor={{ false: '#e2e8f0', true: '#a5b4fc' }}
+                        thumbColor={
+                          Number(selectedGroupForEdit.is_match_competition_enabled ?? 1) === 1
+                            ? '#667eea'
+                            : '#f4f3f4'
+                        }
+                      />
                     </View>
-                    <Switch
-                      value={Number(selectedGroupForEdit.show_teams_in_matches_strip || 0) === 1}
-                      onValueChange={(val) =>
-                        handleToggleOfficialGroupMatchSetting(
-                          selectedGroupForEdit,
-                          'show_teams_in_matches_strip',
-                          val
-                        )
-                      }
-                      trackColor={{ false: '#e2e8f0', true: '#a5b4fc' }}
-                      thumbColor={
-                        Number(selectedGroupForEdit.show_teams_in_matches_strip || 0) === 1
-                          ? '#667eea'
-                          : '#f4f3f4'
-                      }
-                    />
+                    <View style={[styles.groupLeagueSettingRow, styles.groupMatchSettingRowLast]}>
+                      <View style={styles.groupLeagueSettingCopy}>
+                        <Text style={styles.groupLeagueSettingTitle}>Squadre in Partite</Text>
+                        <Text style={styles.groupLeagueSettingSub}>
+                          Mostra le squadre nella strip della schermata Partite
+                        </Text>
+                      </View>
+                      <Switch
+                        value={Number(selectedGroupForEdit.show_teams_in_matches_strip || 0) === 1}
+                        onValueChange={(val) =>
+                          handleToggleOfficialGroupMatchSetting(
+                            selectedGroupForEdit,
+                            'show_teams_in_matches_strip',
+                            val
+                          )
+                        }
+                        trackColor={{ false: '#e2e8f0', true: '#a5b4fc' }}
+                        thumbColor={
+                          Number(selectedGroupForEdit.show_teams_in_matches_strip || 0) === 1
+                            ? '#667eea'
+                            : '#f4f3f4'
+                        }
+                      />
+                    </View>
                   </View>
-                </View>
+                ) : null}
 
                 <Text style={styles.clusterDetailSectionTitle}>
                   Leghe ({selectedGroupForEdit.leagues?.length || 0})
@@ -11094,8 +11126,36 @@ const styles = StyleSheet.create({
     marginTop: 10,
     gap: 10,
   },
-  groupMatchSettingsCard: {
+  groupMatchSettingsHeader: {
     marginTop: 4,
+    marginBottom: 4,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e8eaf1',
+    backgroundColor: '#f8fafc',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  groupMatchSettingsHeaderText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  groupMatchSettingsHeaderTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#0f172a',
+  },
+  groupMatchSettingsHeaderHint: {
+    marginTop: 2,
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#64748b',
+  },
+  groupMatchSettingsCard: {
+    marginTop: 0,
     marginBottom: 8,
     paddingHorizontal: 12,
     paddingVertical: 6,

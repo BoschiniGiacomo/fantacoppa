@@ -8391,22 +8391,24 @@ router.post('/admin/matches/standings/ties/resolve', authenticateToken, requireS
 router.get('/admin/match-details', authenticateToken, requireSuperuserLevels([1, 2]), async (_req, res) => {
   try {
     await ensureOfficialMatchShootoutSchema();
-    const venues = await query(`SELECT id, name FROM official_match_venues ORDER BY name ASC`);
-    const referees = await query(`SELECT id, name FROM official_match_referees ORDER BY name ASC`);
-    const stages = await query(
-      `SELECT
-         id,
-         name,
-         COALESCE(NULLIF(to_jsonb(s)->>'default_regulation_half_minutes','')::int, 30) AS default_regulation_half_minutes,
-         COALESCE(NULLIF(to_jsonb(s)->>'default_extra_time_enabled','')::int, 0) AS default_extra_time_enabled,
-         COALESCE(NULLIF(to_jsonb(s)->>'default_extra_first_half_minutes','')::int, 15) AS default_extra_first_half_minutes,
-         COALESCE(NULLIF(to_jsonb(s)->>'default_extra_second_half_minutes','')::int, 15) AS default_extra_second_half_minutes,
-         COALESCE(NULLIF(to_jsonb(s)->>'default_penalties_enabled','')::int, 0) AS default_penalties_enabled,
-         COALESCE(NULLIF(to_jsonb(s)->>'default_shootout_enabled','')::int, COALESCE(s.default_shootout_enabled, 0), 0) AS default_shootout_enabled,
-         COALESCE(NULLIF(to_jsonb(s)->>'default_shootout_rounds_per_team','')::int, COALESCE(s.default_shootout_rounds_per_team, 5), 5) AS default_shootout_rounds_per_team
-       FROM official_match_stages s
-       ORDER BY name ASC`
-    );
+    const [venues, referees, stages] = await Promise.all([
+      query(`SELECT id, name FROM official_match_venues ORDER BY name ASC`),
+      query(`SELECT id, name FROM official_match_referees ORDER BY name ASC`),
+      query(
+        `SELECT
+           id,
+           name,
+           COALESCE(default_regulation_half_minutes, 30)::int AS default_regulation_half_minutes,
+           COALESCE(default_extra_time_enabled, 0)::int AS default_extra_time_enabled,
+           COALESCE(default_extra_first_half_minutes, 15)::int AS default_extra_first_half_minutes,
+           COALESCE(default_extra_second_half_minutes, 15)::int AS default_extra_second_half_minutes,
+           COALESCE(default_penalties_enabled, 0)::int AS default_penalties_enabled,
+           COALESCE(default_shootout_enabled, 0)::int AS default_shootout_enabled,
+           COALESCE(default_shootout_rounds_per_team, 5)::int AS default_shootout_rounds_per_team
+         FROM official_match_stages
+         ORDER BY name ASC`
+      ),
+    ]);
     return res.json({ venues, referees, stages });
   } catch (err) {
     if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
