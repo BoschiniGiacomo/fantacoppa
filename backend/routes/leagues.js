@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const crypto = require('crypto');
 const { query } = require('../config/database');
 const { authenticateToken } = require('../middleware/auth');
 const fs = require('fs');
@@ -771,6 +772,77 @@ async function ensureJoinRequestsTable() {
   return true;
 }
 
+let leagueInvitesTableReady = false;
+async function ensureLeagueInvitesTable() {
+  if (leagueInvitesTableReady) return true;
+  await query(
+    `CREATE TABLE IF NOT EXISTS league_invites (
+       id BIGSERIAL PRIMARY KEY,
+       league_id INTEGER NOT NULL REFERENCES leagues(id) ON DELETE CASCADE,
+       token_hash TEXT NOT NULL,
+       created_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+       revoked_at TIMESTAMPTZ NULL
+     )`
+  );
+  await query(
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_league_invites_token_hash
+     ON league_invites (token_hash)`
+  );
+  await query(
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_league_invites_one_active
+     ON league_invites (league_id)
+     WHERE revoked_at IS NULL`
+  );
+  await query(
+    `CREATE INDEX IF NOT EXISTS idx_league_invites_league_created
+     ON league_invites (league_id, created_at DESC)`
+  );
+  leagueInvitesTableReady = true;
+  return true;
+}
+
+function hashInviteToken(token) {
+  return crypto.createHash('sha256').update(String(token || ''), 'utf8').digest('hex');
+}
+
+function generateInviteToken() {
+  return crypto.randomBytes(32).toString('base64url');
+}
+
+function buildInviteUrl(token) {
+  return `fantacoppa://invite/${encodeURIComponent(String(token || ''))}`;
+}
+
+function buildInviteShareText(leagueName, token) {
+  const name = String(leagueName || 'questa lega').trim() || 'questa lega';
+  return `Unisciti a ${name} su FantaCoppa:\n${buildInviteUrl(token)}`;
+}
+
+/** Soft rate limit redeem falliti: chiave userId (o IP), max 30 / 10 min. */
+const inviteRedeemFailBuckets = new Map();
+function inviteRedeemRateLimited(key) {
+  const now = Date.now();
+  const windowMs = 10 * 60 * 1000;
+  const maxFails = 30;
+  let bucket = inviteRedeemFailBuckets.get(key);
+  if (!bucket || now - bucket.startedAt > windowMs) {
+    bucket = { startedAt: now, fails: 0 };
+    inviteRedeemFailBuckets.set(key, bucket);
+  }
+  return bucket.fails >= maxFails;
+}
+function noteInviteRedeemFail(key) {
+  const now = Date.now();
+  const windowMs = 10 * 60 * 1000;
+  let bucket = inviteRedeemFailBuckets.get(key);
+  if (!bucket || now - bucket.startedAt > windowMs) {
+    bucket = { startedAt: now, fails: 0 };
+  }
+  bucket.fails += 1;
+  inviteRedeemFailBuckets.set(key, bucket);
+}
+
 async function getLeagueByIdForUser(leagueId, userId) {
   const rows = await query(
     `SELECT l.id, l.name, l.access_code, l.creator_id, l.created_at,
@@ -1061,6 +1133,170 @@ router.get('/search', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Search leagues error:', error);
     res.status(500).json({ message: 'Errore durante la ricerca leghe' });
+  }
+});
+
+// POST /api/leagues/invites/redeem — entra in lega con token (prima di /:id)
+router.post('/invites/redeem', authenticateToken, async (req, res) => {
+  try {
+    const userId = Number(req.user?.userId);
+    if (!Number.isFinite(userId) || userId <= 0) {
+      return res.status(401).json({ message: 'Non autenticato' });
+    }
+    const rateKey = `u:${userId}`;
+    if (inviteRedeemRateLimited(rateKey)) {
+      return res.status(429).json({ message: 'Troppi tentativi. Riprova più tardi.' });
+    }
+
+    const token = String(req.body?.token || '').trim();
+    if (!token || token.length < 20 || token.length > 200) {
+      noteInviteRedeemFail(rateKey);
+      return res.status(400).json({ message: 'Invito non valido o scaduto' });
+    }
+
+    await ensureLeagueInvitesTable();
+    const tokenHash = hashInviteToken(token);
+    const rows = await query(
+      `
+      SELECT i.id, i.league_id, l.name AS league_name, l.initial_budget
+      FROM league_invites i
+      INNER JOIN leagues l ON l.id = i.league_id
+      WHERE i.token_hash = ?
+        AND i.revoked_at IS NULL
+      LIMIT 1
+      `,
+      [tokenHash]
+    );
+    const invite = rows?.[0];
+    if (!invite) {
+      noteInviteRedeemFail(rateKey);
+      return res.status(400).json({ message: 'Invito non valido o scaduto' });
+    }
+
+    const leagueId = Number(invite.league_id);
+    const already = await query(
+      `SELECT 1 FROM league_members WHERE league_id = ? AND user_id = ? LIMIT 1`,
+      [leagueId, userId]
+    );
+    if (already.length > 0) {
+      return res.status(200).json({
+        message: 'Sei già iscritto a questa lega',
+        leagueId,
+        league_name: invite.league_name,
+        already_member: true,
+      });
+    }
+
+    await addUserToLeagueWithInitialBudget(userId, leagueId, Number(invite.initial_budget || 100));
+    return res.json({
+      message: 'Iscrizione completata',
+      leagueId,
+      league_name: invite.league_name,
+      already_member: false,
+    });
+  } catch (error) {
+    console.error('Redeem league invite error:', error);
+    return res.status(500).json({ message: 'Errore durante l\'iscrizione con invito' });
+  }
+});
+
+// GET /api/leagues/:id/invites/active — meta invito attivo (senza token)
+router.get('/:id/invites/active', authenticateToken, async (req, res) => {
+  try {
+    const userId = Number(req.user.userId);
+    const leagueId = toValidLeagueId(req.params.id);
+    if (!leagueId) return res.status(400).json({ message: 'League ID non valido' });
+    if (!(await isLeagueAdmin(userId, leagueId))) {
+      return res.status(403).json({ message: 'Solo gli admin possono gestire gli inviti' });
+    }
+    await ensureLeagueInvitesTable();
+    const rows = await query(
+      `
+      SELECT created_at
+      FROM league_invites
+      WHERE league_id = ?
+        AND revoked_at IS NULL
+      ORDER BY created_at DESC
+      LIMIT 1
+      `,
+      [leagueId]
+    );
+    if (!rows?.[0]) {
+      return res.json({ active: false, created_at: null });
+    }
+    return res.json({ active: true, created_at: rows[0].created_at });
+  } catch (error) {
+    console.error('Get active league invite error:', error);
+    return res.status(500).json({ message: 'Errore caricamento invito' });
+  }
+});
+
+// POST /api/leagues/:id/invites — crea o rigenera invito
+router.post('/:id/invites', authenticateToken, async (req, res) => {
+  try {
+    const userId = Number(req.user.userId);
+    const leagueId = toValidLeagueId(req.params.id);
+    if (!leagueId) return res.status(400).json({ message: 'League ID non valido' });
+    if (!(await isLeagueAdmin(userId, leagueId))) {
+      return res.status(403).json({ message: 'Solo gli admin possono creare inviti' });
+    }
+
+    const leagueRows = await query(
+      `SELECT id, name FROM leagues WHERE id = ? LIMIT 1`,
+      [leagueId]
+    );
+    const league = leagueRows?.[0];
+    if (!league) return res.status(404).json({ message: 'Lega non trovata' });
+
+    await ensureLeagueInvitesTable();
+    const token = generateInviteToken();
+    const tokenHash = hashInviteToken(token);
+
+    await query(
+      `UPDATE league_invites SET revoked_at = NOW() WHERE league_id = ? AND revoked_at IS NULL`,
+      [leagueId]
+    );
+    await query(
+      `
+      INSERT INTO league_invites (league_id, token_hash, created_by, created_at, revoked_at)
+      VALUES (?, ?, ?, NOW(), NULL)
+      `,
+      [leagueId, tokenHash, userId]
+    );
+
+    const url = buildInviteUrl(token);
+    const share_text = buildInviteShareText(league.name, token);
+    return res.json({
+      token,
+      url,
+      share_text,
+      league_name: league.name,
+      created_at: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('Create league invite error:', error);
+    return res.status(500).json({ message: 'Errore creazione invito' });
+  }
+});
+
+// DELETE /api/leagues/:id/invites — revoca invito attivo
+router.delete('/:id/invites', authenticateToken, async (req, res) => {
+  try {
+    const userId = Number(req.user.userId);
+    const leagueId = toValidLeagueId(req.params.id);
+    if (!leagueId) return res.status(400).json({ message: 'League ID non valido' });
+    if (!(await isLeagueAdmin(userId, leagueId))) {
+      return res.status(403).json({ message: 'Solo gli admin possono revocare gli inviti' });
+    }
+    await ensureLeagueInvitesTable();
+    await query(
+      `UPDATE league_invites SET revoked_at = NOW() WHERE league_id = ? AND revoked_at IS NULL`,
+      [leagueId]
+    );
+    return res.json({ ok: true, active: false });
+  } catch (error) {
+    console.error('Revoke league invite error:', error);
+    return res.status(500).json({ message: 'Errore revoca invito' });
   }
 });
 
