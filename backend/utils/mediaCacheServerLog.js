@@ -1,6 +1,6 @@
 /**
- * Log Render per lettura path media da DB (stesso stile di DEBUG_FORGOT_BREVO).
- * Nota: il download del file da Supabase avviene sul telefono, non su Render.
+ * Log Render per path media da DB / download client.
+ * Una riga per lettura DB; una-due per egress reale.
  */
 const LOG = '[DEBUG_MEDIA_CACHE]';
 
@@ -22,46 +22,24 @@ function clientMeta(req) {
   };
 }
 
+function shortClient(meta) {
+  return `v${meta.appVersion}#${meta.appVersionCode} ip=${meta.ip}`;
+}
+
 /**
- * @param {'app_loading'|'login_logo'|'login_background'} asset
+ * @param {'app_loading'|'login_logo'|'login_background'|'match_background'} asset
  * @param {import('express').Request} req
  * @param {{ path?: string|null, type?: string|null, ok?: boolean, error?: string }} result
  */
 function logMediaDbRead(asset, req, result = {}) {
-  const labels = {
-    app_loading: 'video/immagine caricamento',
-    login_logo: 'logo login',
-    login_background: 'sfondo login',
-  };
-  const label = labels[asset] || asset;
-  const endpoint =
-    asset === 'app_loading'
-      ? 'GET /api/public/app-loading'
-      : asset === 'login_background'
-        ? 'GET /api/public/login-background'
-        : 'GET /api/public/login-logo';
   const meta = clientMeta(req);
-  const pathVal = trimPath(result.path);
+  const pathVal = trimPath(result.path) || '(none)';
   const typeVal = trimPath(result.type);
   const ok = result.ok !== false && !result.error;
-
-  console.log(`${LOG} === lettura ${label} da DB ===`);
-  console.log(`${LOG} endpoint=${endpoint}`);
-  console.log(`${LOG} esito=${ok ? 'ok' : 'errore'}${result.error ? ` error=${result.error}` : ''}`);
-
-  if (!pathVal) {
-    console.log(`${LOG} path=(nessuno configurato in app_settings)`);
-  } else {
-    console.log(`${LOG} path=${pathVal}${typeVal ? ` type=${typeVal}` : ''}`);
-  }
-
-  console.log(
-    `${LOG} client: ip=${meta.ip} appVersion=${meta.appVersion} build=${meta.appVersionCode}`
-  );
-  console.log(
-    `${LOG} nota: questa riga = solo query DB (path). Il file Supabase si scarica sul telefono se non è in cache disco.`
-  );
-  console.log(`${LOG} === fine lettura ${label} da DB ===`);
+  const status = ok ? 'ok' : `err${result.error ? `=${result.error}` : ''}`;
+  const typePart = typeVal ? ` type=${typeVal}` : '';
+  // Solo path da DB: se path = bundle app non c'è download.
+  console.log(`${LOG} db ${asset} ${status} path=${pathVal}${typePart} ${shortClient(meta)}`);
 }
 
 /** Su Render logghiamo solo eventi con egress Supabase (vecchie app possono ancora inviare disk_hit). */
@@ -102,39 +80,8 @@ function logMediaClientEvent(req, body = {}) {
   const event = trimPath(body.event) || '(unknown)';
   const pathVal = trimPath(body.path);
   const meta = clientMeta(req);
-
-  const assetLabel =
-    asset === 'team_logo'
-      ? 'logo squadra ufficiale'
-      : asset === 'fantasy_team_logo'
-        ? 'logo squadra fantasy'
-        : asset === 'player_photo'
-          ? 'foto giocatore'
-          : asset === 'loading_video'
-            ? 'video caricamento'
-            : asset === 'login_logo'
-              ? 'logo login'
-              : asset === 'login_background'
-                ? 'sfondo login'
-                : asset;
-
-  console.log(`${LOG} === download Supabase (${asset}) ===`);
-  console.log(`${LOG} event=${event}`);
-  if (pathVal) console.log(`${LOG} path=${pathVal}`);
-  console.log(
-    `${LOG} client: ip=${meta.ip} appVersion=${meta.appVersion} build=${meta.appVersionCode}`
-  );
-
-  if (event === 'disk_download_start') {
-    console.log(`${LOG} interpretazione: egress — download ${assetLabel} avviato sul telefono`);
-  } else if (event === 'disk_download_ok') {
-    console.log(`${LOG} interpretazione: egress — download ${assetLabel} completato e salvato in locale`);
-  } else if (event === 'disk_download_fail_remote_fallback') {
-    console.log(`${LOG} interpretazione: download fallito, uso URL remoto (egress possibile)`);
-  } else {
-    console.log(`${LOG} interpretazione: egress — ${assetLabel} servito da rete (non da cache disco)`);
-  }
-  console.log(`${LOG} === fine download Supabase (${asset}) ===`);
+  const pathPart = pathVal ? ` path=${pathVal}` : '';
+  console.log(`${LOG} egress ${asset} ${event}${pathPart} ${shortClient(meta)}`);
 }
 
 module.exports = {

@@ -1,7 +1,6 @@
 import 'react-native-gesture-handler';
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import * as SplashScreen from 'expo-splash-screen';
-import * as Linking from 'expo-linking';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 import { NavigationContainer } from '@react-navigation/native';
@@ -52,7 +51,6 @@ import InsertVotesScreen from './src/screens/InsertVotesScreen';
 import LeagueStatisticsScreen from './src/screens/LeagueStatisticsScreen';
 import LiveScoresScreen from './src/screens/LiveScoresScreen';
 import UpdateRequiredScreen from './src/screens/UpdateRequiredScreen';
-import InviteJoinScreen from './src/screens/InviteJoinScreen';
 
 // Components
 import MainTabBar from './src/components/MainTabBar';
@@ -61,10 +59,6 @@ import LeagueBottomMenu from './src/components/LeagueBottomMenu';
 import { OnboardingProvider } from './src/context/OnboardingContext';
 import { leagueService } from './src/services/api';
 import { peekLeagueDetail, peekHomeLeaguesBootstrapSnapshot, getLeagueDetailWarmMeta, setLeagueDetail } from './src/services/leagueWarmCache';
-import {
-  savePendingLeagueInviteToken,
-  consumePendingLeagueInviteToken,
-} from './src/utils/pendingLeagueInvite';
 
 function readLeagueBootstrapFromCache(leagueId) {
   const n = Number(leagueId);
@@ -182,90 +176,16 @@ function MainTabs() {
 }
 
 // Stack Navigator principale
-function extractInviteTokenFromUrl(url) {
-  if (!url) return null;
-  try {
-    const parsed = Linking.parse(String(url));
-    const path = String(parsed?.path || '').replace(/^\/+/, '');
-    if (path.startsWith('invite/')) {
-      const token = path.slice('invite/'.length).split('/')[0];
-      return token ? decodeURIComponent(token) : null;
-    }
-    if (parsed?.hostname === 'invite' && parsed?.path) {
-      const token = String(parsed.path).replace(/^\/+/, '').split('/')[0];
-      return token ? decodeURIComponent(token) : null;
-    }
-  } catch (_) {}
-  const m = String(url).match(/invite\/([^/?#]+)/i);
-  return m?.[1] ? decodeURIComponent(m[1]) : null;
-}
-
 function AppNavigator() {
   const { user, loading, updateRequiredInfo, bootstrapProgress } = useAuth();
   const { uri: loadingMediaUri, type: loadingMediaType } = useAppLoadingMedia();
   const { ready: authBrandingReady } = useAuthBranding();
   const [bootstrapTimedOut, setBootstrapTimedOut] = useState(false);
-  const navigationRef = useRef(null);
-  const pendingInviteHandledRef = useRef(false);
-
-  const openInvite = useCallback(async (rawUrlOrToken, { isToken = false } = {}) => {
-    const token = isToken
-      ? String(rawUrlOrToken || '').trim()
-      : extractInviteTokenFromUrl(rawUrlOrToken);
-    if (!token) return;
-    if (!user) {
-      await savePendingLeagueInviteToken(token);
-      return;
-    }
-    const tryNav = (attempt = 0) => {
-      const nav = navigationRef.current;
-      if (nav?.navigate) {
-        nav.navigate('InviteJoin', { token });
-        return;
-      }
-      if (attempt < 8) setTimeout(() => tryNav(attempt + 1), 200);
-    };
-    tryNav();
-  }, [user]);
 
   useEffect(() => {
     const timer = setTimeout(() => setBootstrapTimedOut(true), 16000);
     return () => clearTimeout(timer);
   }, []);
-
-  useEffect(() => {
-    Linking.getInitialURL()
-      .then((url) => {
-        if (url) openInvite(url);
-      })
-      .catch(() => {});
-    const sub = Linking.addEventListener('url', ({ url }) => {
-      openInvite(url);
-    });
-    return () => {
-      try {
-        sub?.remove?.();
-      } catch (_) {}
-    };
-  }, [openInvite]);
-
-  useEffect(() => {
-    if (!user) {
-      pendingInviteHandledRef.current = false;
-      return;
-    }
-    if (pendingInviteHandledRef.current) return;
-    pendingInviteHandledRef.current = true;
-    (async () => {
-      try {
-        const token = await consumePendingLeagueInviteToken();
-        if (token) {
-          // Attendi montaggio stack autenticato
-          setTimeout(() => openInvite(token, { isToken: true }), 250);
-        }
-      } catch (_) {}
-    })();
-  }, [user, openInvite]);
 
   if (updateRequiredInfo) {
     return <UpdateRequiredScreen updateInfo={updateRequiredInfo} />;
@@ -298,34 +218,12 @@ function AppNavigator() {
     );
   }
 
-  const linking = {
-    prefixes: [Linking.createURL('/'), 'fantacoppa://'],
-    config: {
-      screens: {
-        InviteJoin: 'invite/:token',
-        MainTabs: {
-          screens: {
-            Dashboard: 'home',
-            Leghe: 'leagues',
-            Partite: 'matches',
-            Profilo: 'profile',
-          },
-        },
-      },
-    },
-  };
-
   return (
-    <NavigationContainer ref={navigationRef} linking={user ? linking : undefined}>
+    <NavigationContainer>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {user ? (
           <>
             <Stack.Screen name="MainTabs" component={MainTabs} />
-            <Stack.Screen
-              name="InviteJoin"
-              component={InviteJoinScreen}
-              options={{ headerShown: false }}
-            />
             <Stack.Screen 
               name="League" 
               component={LeagueScreenWrapped}
