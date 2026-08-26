@@ -8300,45 +8300,59 @@ router.get('/admin/matches/standings/ties', authenticateToken, requireSuperuserL
     if (!Number.isFinite(competitionId) || competitionId <= 0) return res.json({ ties: [] });
 
     await ensureStandingsTieOrderTable();
+    // Solo leghe con partite di girone: evita computeStandings su stagioni vuote.
     const leagues = await query(
       `
-      SELECT id, name
-      FROM leagues
-      WHERE official_group_id = ?
-        AND COALESCE(is_official, 0) = 1
-      ORDER BY NULLIF(to_jsonb(leagues)->>'reference_year','')::int DESC NULLS LAST, id DESC
+      SELECT DISTINCT l.id, l.name,
+        NULLIF(to_jsonb(l)->>'reference_year','')::int AS reference_year
+      FROM leagues l
+      WHERE l.official_group_id = ?
+        AND COALESCE(l.is_official, 0) = 1
+        AND EXISTS (
+          SELECT 1
+          FROM official_matches m
+          INNER JOIN teams th ON th.id = m.home_team_id AND th.league_id = l.id
+          INNER JOIN teams ta ON ta.id = m.away_team_id AND ta.league_id = l.id
+          WHERE m.competition_id = ?
+            AND m.match_stage_id = 1
+        )
+      ORDER BY reference_year DESC NULLS LAST, l.id DESC
       `,
-      [competitionId]
+      [competitionId, competitionId]
     );
 
-    const ties = [];
-    for (const l of leagues || []) {
-      const leagueId = Number(l.id);
-      if (!Number.isFinite(leagueId) || leagueId <= 0) continue;
-      const standings = await computeStandingsFromMatches({ leagueId, groupId: competitionId });
-      const byPoints = new Map();
-      for (const row of standings || []) {
-        const pts = Number(row.points);
-        if (!Number.isFinite(pts)) continue;
-        if (!byPoints.has(pts)) byPoints.set(pts, []);
-        byPoints.get(pts).push(row);
-      }
-      for (const [points, teams] of byPoints.entries()) {
-        if (!Array.isArray(teams) || teams.length < 2) continue;
-        ties.push({
-          league_id: leagueId,
-          league_name: l.name || `Lega ${leagueId}`,
-          points,
-          teams: teams.map((t) => ({
-            team_id: Number(t.team_id),
-            team_name: t.team_name,
-            goal_diff: Number(t.goal_diff),
-            goals_for: Number(t.gf || 0),
-            points: Number(t.points),
-          })),
-        });
-      }
-    }
+    const tiesNested = await Promise.all(
+      (leagues || []).map(async (l) => {
+        const leagueId = Number(l.id);
+        if (!Number.isFinite(leagueId) || leagueId <= 0) return [];
+        const standings = await computeStandingsFromMatches({ leagueId, groupId: competitionId });
+        const byPoints = new Map();
+        for (const row of standings || []) {
+          const pts = Number(row.points);
+          if (!Number.isFinite(pts)) continue;
+          if (!byPoints.has(pts)) byPoints.set(pts, []);
+          byPoints.get(pts).push(row);
+        }
+        const out = [];
+        for (const [points, teams] of byPoints.entries()) {
+          if (!Array.isArray(teams) || teams.length < 2) continue;
+          out.push({
+            league_id: leagueId,
+            league_name: l.name || `Lega ${leagueId}`,
+            points,
+            teams: teams.map((t) => ({
+              team_id: Number(t.team_id),
+              team_name: t.team_name,
+              goal_diff: Number(t.goal_diff),
+              goals_for: Number(t.gf || 0),
+              points: Number(t.points),
+            })),
+          });
+        }
+        return out;
+      })
+    );
+    const ties = tiesNested.flat();
     return res.json({ ties });
   } catch (err) {
     if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);

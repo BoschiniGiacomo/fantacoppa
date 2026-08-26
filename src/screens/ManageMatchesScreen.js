@@ -415,6 +415,11 @@ export default function ManageMatchesScreen() {
   const editHydrateGenRef = useRef(0);
   const [standingsTies, setStandingsTies] = useState([]);
   const [tieOrders, setTieOrders] = useState({});
+  const [standingsCompetitionId, setStandingsCompetitionId] = useState(null);
+  const [standingsLoading, setStandingsLoading] = useState(false);
+  const [savingTieKey, setSavingTieKey] = useState(null);
+  const standingsCacheRef = useRef({});
+  const standingsInflightRef = useRef({});
 
   useEffect(() => {
     leaguesByCompRef.current = leaguesByComp;
@@ -742,18 +747,72 @@ export default function ManageMatchesScreen() {
     });
   };
 
-  const loadStandingsTies = async (competitionIdParam) => {
-    if (!canManageCompetitions || !competitionIdParam) return;
-    const res = await adminMatchesService.getStandingsTies(competitionIdParam);
-    const ties = Array.isArray(res?.data?.ties) ? res.data.ties : [];
-    setStandingsTies(ties);
+  const applyStandingsTiesPayload = useCallback((ties) => {
+    const list = Array.isArray(ties) ? ties : [];
+    setStandingsTies(list);
     const nextOrders = {};
-    ties.forEach((t) => {
+    list.forEach((t) => {
       const key = `${Number(t.league_id)}-${Number(t.points)}`;
       nextOrders[key] = (Array.isArray(t.teams) ? t.teams : []).map((x) => Number(x.team_id));
     });
     setTieOrders(nextOrders);
-  };
+  }, []);
+
+  const standingsCompetitionIdRef = useRef(standingsCompetitionId);
+  useEffect(() => {
+    standingsCompetitionIdRef.current = standingsCompetitionId;
+  }, [standingsCompetitionId]);
+
+  const loadStandingsTies = useCallback(async (competitionIdParam, { force = false } = {}) => {
+    if (!canManageCompetitions || !competitionIdParam) return;
+    const cid = Number(competitionIdParam);
+    if (!Number.isFinite(cid) || cid <= 0) return;
+
+    const applyIfCurrent = (ties) => {
+      if (Number(standingsCompetitionIdRef.current) !== cid) return;
+      applyStandingsTiesPayload(ties);
+    };
+
+    if (!force) {
+      const cached = standingsCacheRef.current[cid];
+      if (cached) {
+        applyIfCurrent(cached.ties);
+        if (Number(standingsCompetitionIdRef.current) === cid) setStandingsLoading(false);
+        return;
+      }
+      if (standingsInflightRef.current[cid]) {
+        setStandingsLoading(true);
+        try {
+          const ties = await standingsInflightRef.current[cid];
+          applyIfCurrent(ties);
+        } finally {
+          if (Number(standingsCompetitionIdRef.current) === cid) setStandingsLoading(false);
+        }
+        return;
+      }
+    }
+
+    const promise = (async () => {
+      const res = await adminMatchesService.getStandingsTies(cid);
+      const ties = Array.isArray(res?.data?.ties) ? res.data.ties : [];
+      standingsCacheRef.current[cid] = { ties };
+      return ties;
+    })();
+    standingsInflightRef.current[cid] = promise;
+    setStandingsLoading(true);
+    try {
+      const ties = await promise;
+      applyIfCurrent(ties);
+    } catch (e) {
+      if (Number(standingsCompetitionIdRef.current) === cid) {
+        applyStandingsTiesPayload([]);
+      }
+      throw e;
+    } finally {
+      delete standingsInflightRef.current[cid];
+      if (Number(standingsCompetitionIdRef.current) === cid) setStandingsLoading(false);
+    }
+  }, [applyStandingsTiesPayload, canManageCompetitions]);
 
   const loadLeaguesForCompetition = async (compId, { force = false } = {}) => {
     if (!compId) return [];
@@ -876,10 +935,21 @@ export default function ManageMatchesScreen() {
   }, [competitionId]);
 
   useEffect(() => {
-    if (activeTab === 'standings' && competitionId) {
-      loadStandingsTies(competitionId).catch(() => {});
+    if (!canManageCompetitions || !competitions.length) return;
+    setStandingsCompetitionId((prev) => {
+      if (prev && competitions.some((c) => Number(c.id) === Number(prev))) return prev;
+      if (competitionId && competitions.some((c) => Number(c.id) === Number(competitionId))) {
+        return Number(competitionId);
+      }
+      return Number(competitions[0].id);
+    });
+  }, [canManageCompetitions, competitions, competitionId]);
+
+  useEffect(() => {
+    if (activeTab === 'standings' && standingsCompetitionId) {
+      loadStandingsTies(standingsCompetitionId).catch(() => {});
     }
-  }, [activeTab, competitionId]);
+  }, [activeTab, standingsCompetitionId, loadStandingsTies]);
 
   useEffect(() => {
     if (!canManageMatches) return;
@@ -1104,6 +1174,10 @@ export default function ManageMatchesScreen() {
     </>
   );
 
+  const invalidateStandingsCache = useCallback(() => {
+    standingsCacheRef.current = {};
+  }, []);
+
   const createMatch = async () => {
     if (!canSubmitMatch) {
       showToast('Completa competizione, lega e kickoff.');
@@ -1128,6 +1202,7 @@ export default function ManageMatchesScreen() {
       setIsAdminOnly(false);
       setVenue(defaultVenueName);
       setReferee('');
+      invalidateStandingsCache();
       setMatchStageId(null);
       resetMatchTimingFields();
       await loadMatches();
@@ -1298,6 +1373,7 @@ export default function ManageMatchesScreen() {
         ...buildMatchTimingPayload(),
       };
       const res = await adminMatchesService.update(editingMatchId, payload);
+      invalidateStandingsCache();
       await loadMatches();
       showToast('Partita aggiornata', 'success');
       setTimeout(() => {
@@ -1395,6 +1471,7 @@ export default function ManageMatchesScreen() {
         setConfirmModal(null);
         try {
           await adminMatchesService.remove(id);
+          invalidateStandingsCache();
           await loadMatches();
           showToast('Partita eliminata', 'success');
         } catch (e) {
@@ -1634,6 +1711,7 @@ export default function ManageMatchesScreen() {
         home_score: homeScore === '' ? null : Number(homeScore),
         away_score: awayScore === '' ? null : Number(awayScore),
       });
+      invalidateStandingsCache();
       showToast('Dettagli partita salvati', 'success');
     } catch (e) {
       showToast(e?.response?.data?.message || e?.message || 'Salvataggio dettagli non riuscito');
@@ -1644,8 +1722,8 @@ export default function ManageMatchesScreen() {
     try {
       setRefreshing(true);
       await loadAll();
-      if (activeTab === 'standings' && competitionId) {
-        await loadStandingsTies(competitionId);
+      if (activeTab === 'standings' && standingsCompetitionId) {
+        await loadStandingsTies(standingsCompetitionId, { force: true });
       }
     } finally {
       setRefreshing(false);
@@ -1671,16 +1749,36 @@ export default function ManageMatchesScreen() {
       showToast('Ordine non valido');
       return;
     }
+    setSavingTieKey(key);
     try {
       await adminMatchesService.resolveStandingsTie({
+        competition_id: Number(standingsCompetitionId),
         league_id: Number(tie.league_id),
         points: Number(tie.points),
         ordered_team_ids: orderedIds,
       });
-      await loadStandingsTies(competitionId);
-      showToast('Ordine parimerito salvato', 'success');
+      // Aggiorna cache locale senza ricaricare tutte le classifica.
+      const cid = Number(standingsCompetitionId);
+      if (standingsCacheRef.current[cid]) {
+        const cachedTies = standingsCacheRef.current[cid].ties || [];
+        standingsCacheRef.current[cid] = {
+          ties: cachedTies.map((t) => {
+            if (Number(t.league_id) !== Number(tie.league_id) || Number(t.points) !== Number(tie.points)) {
+              return t;
+            }
+            const teamMap = new Map((t.teams || []).map((x) => [Number(x.team_id), x]));
+            return {
+              ...t,
+              teams: orderedIds.map((id) => teamMap.get(Number(id))).filter(Boolean),
+            };
+          }),
+        };
+      }
+      showToast('Ordine salvato', 'success');
     } catch (e) {
       showToast(e?.response?.data?.message || e?.message || 'Salvataggio ordine non riuscito');
+    } finally {
+      setSavingTieKey(null);
     }
   };
 
@@ -2634,55 +2732,119 @@ export default function ManageMatchesScreen() {
           </View>
         )}
         {activeTab === 'standings' && canManageCompetitions && (
-          <View style={styles.card}>
-            <Text style={styles.tabIntroTitle}>Parimerito</Text>
-            <Text style={styles.muted}>Ordina le squadre a pari punti nella classifica ufficiale.</Text>
-                <Text style={styles.label}>Competizione</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-              <View style={styles.rowWrap}>
-                {competitions.map((c) => (
-                  <TouchableOpacity
-                    key={`std-comp-${c.id}`}
-                    style={[styles.chip, competitionId === c.id && styles.chipActive]}
-                    onPress={() => {
-                      setCompetitionId(c.id);
-                      loadStandingsTies(c.id).catch(() => {});
-                    }}
-                  >
-                    <Text style={[styles.chipText, competitionId === c.id && styles.chipTextActive]}>{c.name}</Text>
-                  </TouchableOpacity>
-                ))}
+          <View style={styles.standingsTabWrap}>
+            <View style={styles.standingsHeroCard}>
+              <View style={styles.standingsHeroTop}>
+                <View style={styles.detailsSectionIconWrap}>
+                  <Ionicons name="podium-outline" size={16} color="#4f46e5" />
+                </View>
+                <Text style={styles.detailsSectionTitle}>Parimerito</Text>
+                <View style={styles.detailsSectionCount}>
+                  <Text style={styles.detailsSectionCountText}>{standingsTies.length}</Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.standingsRefreshBtn}
+                  onPress={() => standingsCompetitionId && loadStandingsTies(standingsCompetitionId, { force: true }).catch(() => {})}
+                  accessibilityLabel="Aggiorna parimerito"
+                  disabled={standingsLoading || !standingsCompetitionId}
+                >
+                  {standingsLoading ? (
+                    <ActivityIndicator size="small" color="#667eea" />
+                  ) : (
+                    <Ionicons name="refresh" size={16} color="#667eea" />
+                  )}
+                </TouchableOpacity>
               </View>
-            </ScrollView>
-            {standingsTies.length === 0 ? <Text style={styles.muted}>Nessun parimerito attuale da risolvere.</Text> : null}
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.standingsCompRow}>
+                {competitions.map((c) => {
+                  const active = Number(standingsCompetitionId) === Number(c.id);
+                  return (
+                    <TouchableOpacity
+                      key={`std-comp-${c.id}`}
+                      style={[styles.standingsCompChip, active && styles.standingsCompChipActive]}
+                      onPress={() => setStandingsCompetitionId(Number(c.id))}
+                    >
+                      <Text style={[styles.standingsCompChipText, active && styles.standingsCompChipTextActive]} numberOfLines={1}>
+                        {c.name}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </View>
+
+            {standingsLoading && standingsTies.length === 0 ? (
+              <View style={styles.standingsLoadingBox}>
+                <ActivityIndicator size="small" color="#667eea" />
+                <Text style={styles.detailsEmpty}>Caricamento…</Text>
+              </View>
+            ) : null}
+
+            {!standingsLoading && standingsTies.length === 0 ? (
+              <View style={styles.standingsEmptyCard}>
+                <Ionicons name="checkmark-circle-outline" size={22} color="#94a3b8" />
+                <Text style={styles.standingsEmptyTitle}>Nessun parimerito</Text>
+                <Text style={styles.detailsEmpty}>Tutte le posizioni sono già determinate</Text>
+              </View>
+            ) : null}
+
             {standingsTies.map((tie) => {
               const key = `${Number(tie.league_id)}-${Number(tie.points)}`;
               const order = tieOrders[key] || [];
               const teamMap = new Map((tie.teams || []).map((t) => [Number(t.team_id), t]));
+              const isSaving = savingTieKey === key;
               return (
-                <View key={`tie-${key}`} style={styles.tieCard}>
-                  <Text style={styles.groupName}>{tie.league_name}</Text>
-                  <Text style={styles.groupMeta}>Pari a {tie.points} punti</Text>
+                <View key={`tie-${key}`} style={styles.standingsTieCard}>
+                  <View style={styles.standingsTieHeader}>
+                    <Text style={styles.standingsTieLeague} numberOfLines={1}>{tie.league_name}</Text>
+                    <View style={styles.standingsPtsPill}>
+                      <Text style={styles.standingsPtsPillText}>{tie.points} pt</Text>
+                    </View>
+                  </View>
                   {order.map((teamId, idx) => {
                     const t = teamMap.get(Number(teamId));
                     if (!t) return null;
+                    const gd = Number(t.goal_diff);
+                    const gdLabel = Number.isFinite(gd) ? (gd > 0 ? `+${gd}` : `${gd}`) : '0';
                     return (
-                      <View key={`tie-team-${key}-${teamId}`} style={styles.tieRow}>
-                        <Text style={styles.tiePos}>{idx + 1}</Text>
-                        <Text style={styles.tieTeam}>{t.team_name} (DR {t.goal_diff})</Text>
+                      <View key={`tie-team-${key}-${teamId}`} style={styles.standingsTieRow}>
+                        <Text style={styles.standingsTiePos}>{idx + 1}</Text>
+                        <View style={styles.standingsTieTeamCol}>
+                          <Text style={styles.standingsTieTeam} numberOfLines={1}>{t.team_name}</Text>
+                          <Text style={styles.standingsTieMeta}>DR {gdLabel}</Text>
+                        </View>
                         <View style={styles.tieArrows}>
-                          <TouchableOpacity style={styles.iconBtnSmall} onPress={() => moveTieTeam(key, idx, -1)} disabled={idx === 0}>
-                            <Ionicons name="chevron-up" size={16} color={idx === 0 ? '#bbb' : '#333'} />
+                          <TouchableOpacity
+                            style={[styles.iconBtnSmall, idx === 0 && styles.iconBtnSmallDisabled]}
+                            onPress={() => moveTieTeam(key, idx, -1)}
+                            disabled={idx === 0 || isSaving}
+                          >
+                            <Ionicons name="chevron-up" size={16} color={idx === 0 ? '#cbd5e1' : '#334155'} />
                           </TouchableOpacity>
-                          <TouchableOpacity style={styles.iconBtnSmall} onPress={() => moveTieTeam(key, idx, 1)} disabled={idx === order.length - 1}>
-                            <Ionicons name="chevron-down" size={16} color={idx === order.length - 1 ? '#bbb' : '#333'} />
+                          <TouchableOpacity
+                            style={[styles.iconBtnSmall, idx === order.length - 1 && styles.iconBtnSmallDisabled]}
+                            onPress={() => moveTieTeam(key, idx, 1)}
+                            disabled={idx === order.length - 1 || isSaving}
+                          >
+                            <Ionicons name="chevron-down" size={16} color={idx === order.length - 1 ? '#cbd5e1' : '#334155'} />
                           </TouchableOpacity>
                         </View>
                       </View>
                     );
                   })}
-                  <TouchableOpacity style={styles.primaryBtn} onPress={() => saveTieOrder(tie)}>
-                    <Text style={styles.primaryBtnText}>Salva ordine</Text>
+                  <TouchableOpacity
+                    style={[styles.standingsSaveBtn, isSaving && styles.standingsSaveBtnBusy]}
+                    onPress={() => saveTieOrder(tie)}
+                    disabled={isSaving}
+                  >
+                    {isSaving ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <>
+                        <Ionicons name="checkmark" size={16} color="#fff" />
+                        <Text style={styles.standingsSaveBtnText}>Salva ordine</Text>
+                      </>
+                    )}
                   </TouchableOpacity>
                 </View>
               );
@@ -3442,6 +3604,163 @@ const styles = StyleSheet.create({
   detailsTabWrap: {
     marginTop: 4,
     gap: 10,
+  },
+  standingsTabWrap: {
+    marginTop: 4,
+    gap: 10,
+  },
+  standingsHeroCard: {
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#e8eaf1',
+    paddingBottom: 12,
+    overflow: 'hidden',
+  },
+  standingsHeroTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+  },
+  standingsRefreshBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#eef2ff',
+  },
+  standingsCompRow: {
+    paddingHorizontal: 12,
+    gap: 8,
+  },
+  standingsCompChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: '#f1f5f9',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  standingsCompChipActive: {
+    backgroundColor: '#eef2ff',
+    borderColor: '#c7d2fe',
+  },
+  standingsCompChipText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#64748b',
+  },
+  standingsCompChipTextActive: {
+    color: '#4338ca',
+  },
+  standingsLoadingBox: {
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#e8eaf1',
+    paddingVertical: 28,
+    alignItems: 'center',
+    gap: 8,
+  },
+  standingsEmptyCard: {
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#e8eaf1',
+    paddingVertical: 28,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    gap: 6,
+  },
+  standingsEmptyTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#64748b',
+  },
+  standingsTieCard: {
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#e8eaf1',
+    padding: 12,
+    gap: 8,
+  },
+  standingsTieHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 2,
+  },
+  standingsTieLeague: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#0f172a',
+  },
+  standingsPtsPill: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+    backgroundColor: '#f1f5f9',
+  },
+  standingsPtsPillText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#64748b',
+  },
+  standingsTieRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 6,
+    borderTopWidth: 1,
+    borderTopColor: '#f1f5f9',
+  },
+  standingsTiePos: {
+    width: 22,
+    textAlign: 'center',
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#4338ca',
+  },
+  standingsTieTeamCol: {
+    flex: 1,
+    gap: 1,
+  },
+  standingsTieTeam: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  standingsTieMeta: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#94a3b8',
+  },
+  standingsSaveBtn: {
+    marginTop: 4,
+    minHeight: 40,
+    borderRadius: 10,
+    backgroundColor: '#667eea',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  standingsSaveBtnBusy: {
+    opacity: 0.75,
+  },
+  standingsSaveBtnText: {
+    color: '#fff',
+    fontWeight: '800',
+    fontSize: 13,
+  },
+  iconBtnSmallDisabled: {
+    backgroundColor: '#f8fafc',
+    borderColor: '#e2e8f0',
   },
   detailsSectionCard: {
     backgroundColor: '#fff',
