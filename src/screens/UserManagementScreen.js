@@ -15,7 +15,7 @@ import { leagueService, marketService } from '../services/api';
 import { hideLeague, showDashboardError } from '../utils/dashboardEvents';
 
 export default function UserManagementScreen({ route, navigation }) {
-  const { leagueId, userRole } = route.params;
+  const { leagueId, userRole, initialTab } = route.params || {};
   const insets = useSafeAreaInsets();
   const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -36,7 +36,9 @@ export default function UserManagementScreen({ route, navigation }) {
     admin: true,
   });
   const [sortBy, setSortBy] = useState('nome'); // 'nome', 'squadra', 'allenatore'
-  const [activeTab, setActiveTab] = useState('members'); // 'members', 'requests'
+  const [activeTab, setActiveTab] = useState(
+    String(initialTab || '') === 'requests' ? 'requests' : 'members'
+  ); // 'members', 'requests'
   const [requireJoinApproval, setRequireJoinApproval] = useState(false);
   const [joinRequests, setJoinRequests] = useState([]);
   const [loadingJoinRequests, setLoadingJoinRequests] = useState(false);

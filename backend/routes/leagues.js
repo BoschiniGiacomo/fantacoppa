@@ -1318,8 +1318,23 @@ router.get('/:id/dashboard-data', authenticateToken, async (req, res) => {
     const hasSubmittedFormation = Array.isArray(sfRows) && sfRows.length > 0;
 
     let readyToCalculate = null;
+    let pendingJoinRequests = 0;
     if (String(league?.role || '') === 'admin') {
       readyToCalculate = await findReadyToCalculateMatchday(leagueId, effectiveLeagueId);
+      try {
+        await ensureJoinRequestsTable();
+        const joinCountRows = await query(
+          `SELECT COUNT(*)::int AS c
+           FROM league_join_requests
+           WHERE league_id = ?
+             AND status = 'pending'`,
+          [leagueId]
+        );
+        pendingJoinRequests = Number(joinCountRows[0]?.c || 0);
+      } catch (joinErr) {
+        console.error('Dashboard pending join requests error:', joinErr);
+        pendingJoinRequests = 0;
+      }
     }
 
     return res.json({
@@ -1343,6 +1358,7 @@ router.get('/:id/dashboard-data', authenticateToken, async (req, res) => {
       next_deadline: nextDeadline,
       has_submitted_formation: hasSubmittedFormation,
       ready_to_calculate: readyToCalculate,
+      pending_join_requests: pendingJoinRequests,
     });
   } catch (error) {
     console.error('Dashboard data error:', error);

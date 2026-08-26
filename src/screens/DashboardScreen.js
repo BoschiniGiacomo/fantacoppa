@@ -338,7 +338,7 @@ export default function DashboardScreen({ navigation, route }) {
         }
       >
         {favoriteLeagues.length > 0 && renderSection('Preferite', favoriteLeagues, 'star')}
-        {normalLeagues.length > 0 && renderSection('Tutte le Leghe', normalLeagues, 'trophy')}
+        {normalLeagues.length > 0 && renderSection('Tutte le leghe', normalLeagues, 'trophy')}
         {archivedLeagues.length > 0 && renderSection(
           'Archiviate',
           archivedLeagues,

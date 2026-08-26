@@ -33,10 +33,12 @@ export default function LeagueScreen({ route, navigation }) {
   const [showTeamInfoModal, setShowTeamInfoModal] = useState(false);
   const [squadPlayersCount, setSquadPlayersCount] = useState(0);
   const [marketPlayersCount, setMarketPlayersCount] = useState(0);
+  const [squadFull, setSquadFull] = useState(false);
   const [liveMatchday, setLiveMatchday] = useState(null);
   const [nextDeadline, setNextDeadline] = useState(null);       // { deadline: string, giornata: number }
   const [deadlineCountdown, setDeadlineCountdown] = useState(null); // { days, hours, mins, secs }
-  const [readyToCalculate, setReadyToCalculate] = useState(null); // { giornata, teams_total, teams_with_votes }
+  const [readyToCalculate, setReadyToCalculate] = useState(null); // { giornata, reason, teams_total, ... }
+  const [pendingJoinRequests, setPendingJoinRequests] = useState(0);
   const [toastMsg, setToastMsg] = useState(null);
   const parseDeadlineDate = (value) => parseAppDate(value);
 
@@ -158,14 +160,16 @@ export default function LeagueScreen({ route, navigation }) {
 
         setSquadPlayersCount(Number(payloadObj.squad_players_count || 0));
         setMarketPlayersCount(Number(payloadObj.market_players_count || 0));
+        setSquadFull(!!payloadObj.squad_full);
         setLiveMatchday(Number(payloadObj.live_matchday || 0) || null);
 
         const rtc = payloadObj?.ready_to_calculate;
         const rtcGiornata = Number(rtc?.giornata || 0);
+        const role = String(safeLeague?.role || '');
         setReadyToCalculate(
           rtc
           && rtcGiornata > 0
-          && String(safeLeague?.role || '') === 'admin'
+          && role === 'admin'
             ? {
                 giornata: rtcGiornata,
                 reason: String(rtc.reason || '').trim() || 'votes_coverage',
@@ -173,6 +177,9 @@ export default function LeagueScreen({ route, navigation }) {
                 teams_with_votes: Number(rtc.teams_with_votes || 0),
               }
             : null
+        );
+        setPendingJoinRequests(
+          role === 'admin' ? Math.max(0, Number(payloadObj.pending_join_requests || 0)) : 0
         );
 
         const isAutoLineupMode = Number(safeLeague?.auto_lineup_mode || 0) === 1;
@@ -277,6 +284,16 @@ export default function LeagueScreen({ route, navigation }) {
     /^Squadra\s*\d+$/i.test(userTeamInfo.team_name.trim()) &&
     /^Allenatore\s*\d+$/i.test(userTeamInfo.coach_name.trim());
   const isAutoLineupMode = Number(displayLeague?.auto_lineup_mode || 0) === 1;
+  const isSuperuserViewer = String(displayLeague?.role || '') === 'superuser_viewer';
+  const needsCompleteSquad = !isSuperuserViewer && squadPlayersCount > 0 && !squadFull;
+  const showJoinRequestsShortcut = pendingJoinRequests > 0;
+  const showShortcuts = !!(
+    hasDefaultNames
+    || squadPlayersCount === 0
+    || needsCompleteSquad
+    || readyToCalculate
+    || showJoinRequestsShortcut
+  );
 
   // Medaglie top 3
   const medalColors = ['#ffc107', '#adb5bd', '#cd7f32']; // oro, argento, bronzo
@@ -342,7 +359,7 @@ export default function LeagueScreen({ route, navigation }) {
       )}
 
       {/* ── Shortcut setup ── */}
-      {(hasDefaultNames || squadPlayersCount === 0 || readyToCalculate) && (
+      {showShortcuts && (
         <View style={styles.tipsWrap}>
           {hasDefaultNames && (
             <TouchableOpacity
@@ -363,7 +380,7 @@ export default function LeagueScreen({ route, navigation }) {
               </View>
             </TouchableOpacity>
           )}
-          {squadPlayersCount === 0 && (
+          {squadPlayersCount === 0 && !isSuperuserViewer && (
             <TouchableOpacity
               style={styles.actionCard}
               activeOpacity={0.75}
@@ -382,6 +399,52 @@ export default function LeagueScreen({ route, navigation }) {
               </View>
             </TouchableOpacity>
           )}
+          {needsCompleteSquad && (
+            <TouchableOpacity
+              style={styles.actionCard}
+              activeOpacity={0.75}
+              onPress={() => navigation.navigate('Market', { leagueId })}
+            >
+              <View style={[styles.actionIconWell, styles.actionIconWellAmber]}>
+                <Ionicons name="people-outline" size={18} color="#c27803" />
+              </View>
+              <View style={styles.actionTextWrap}>
+                <Text style={styles.actionTitle}>Completa la rosa</Text>
+                <Text style={styles.actionDesc}>Mancano ancora dei ruoli</Text>
+              </View>
+              <View style={styles.actionCta}>
+                <Text style={[styles.actionCtaText, styles.actionCtaTextAmber]}>Mercato</Text>
+                <Ionicons name="chevron-forward" size={14} color="#c27803" />
+              </View>
+            </TouchableOpacity>
+          )}
+          {showJoinRequestsShortcut ? (
+            <TouchableOpacity
+              style={styles.actionCard}
+              activeOpacity={0.75}
+              onPress={() => navigation.navigate('UserManagement', {
+                leagueId,
+                userRole: 'admin',
+                initialTab: 'requests',
+              })}
+            >
+              <View style={[styles.actionIconWell, styles.actionIconWellIndigo]}>
+                <Ionicons name="person-add-outline" size={18} color="#667eea" />
+              </View>
+              <View style={styles.actionTextWrap}>
+                <Text style={styles.actionTitle}>
+                  {pendingJoinRequests === 1
+                    ? '1 richiesta di ingresso'
+                    : `${pendingJoinRequests} richieste di ingresso`}
+                </Text>
+                <Text style={styles.actionDesc}>In attesa di approvazione</Text>
+              </View>
+              <View style={styles.actionCta}>
+                <Text style={[styles.actionCtaText, styles.actionCtaTextIndigo]}>Gestisci</Text>
+                <Ionicons name="chevron-forward" size={14} color="#667eea" />
+              </View>
+            </TouchableOpacity>
+          ) : null}
           {readyToCalculate ? (
             <TouchableOpacity
               style={styles.actionCard}
