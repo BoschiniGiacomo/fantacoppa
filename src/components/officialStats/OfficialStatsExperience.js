@@ -1297,6 +1297,7 @@ export default function OfficialStatsExperience({
   onPressTeam,
   onPressMatch,
   competitionId = null,
+  showTrendingPlayers = true,
   searchPlaceholder = 'Cerca giocatore o squadra',
   searchIncludesTeam = true,
   onScroll,
@@ -1441,7 +1442,7 @@ export default function OfficialStatsExperience({
           />
           <TrendingPlayersStrip
             competitionId={competitionId}
-            visible={!searching}
+            visible={showTrendingPlayers && !searching}
             onPressPlayer={onPressPlayer}
             showTeamName={searchIncludesTeam}
           />
@@ -1493,7 +1494,7 @@ export default function OfficialStatsExperience({
                 />
                 <TrendingPlayersStrip
                   competitionId={competitionId}
-                  visible={!searching}
+                  visible={showTrendingPlayers && !searching}
                   onPressPlayer={onPressPlayer}
                   showTeamName={searchIncludesTeam}
                 />

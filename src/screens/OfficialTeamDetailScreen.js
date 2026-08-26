@@ -1564,6 +1564,7 @@ export default function OfficialTeamDetailScreen({ navigation, route }) {
               general={statsGeneral}
               outcomes={statsOutcomes}
               competitionId={competitionId}
+              showTrendingPlayers={false}
               searchPlaceholder="Cerca giocatore"
               searchIncludesTeam={false}
               extraAfterOverview={(
