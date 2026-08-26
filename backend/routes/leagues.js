@@ -810,8 +810,24 @@ function generateInviteToken() {
   return crypto.randomBytes(32).toString('base64url');
 }
 
-function buildInviteUrl(token) {
+function buildInviteDeepLink(token) {
   return `fantacoppa://invite/${encodeURIComponent(String(token || ''))}`;
+}
+
+function getPublicInviteBaseUrl() {
+  const fromEnv = String(
+    process.env.PUBLIC_APP_BASE_URL ||
+    process.env.INVITE_PUBLIC_BASE_URL ||
+    ''
+  ).trim().replace(/\/+$/, '');
+  if (fromEnv) return fromEnv;
+  return 'https://fantacoppa-backend.onrender.com';
+}
+
+/** URL https cliccabile su WhatsApp/email (landing che apre l'app). */
+function buildInviteUrl(token) {
+  const t = encodeURIComponent(String(token || ''));
+  return `${getPublicInviteBaseUrl()}/invite/${t}`;
 }
 
 function buildInviteShareText(leagueName, token) {
@@ -1265,10 +1281,12 @@ router.post('/:id/invites', authenticateToken, async (req, res) => {
     );
 
     const url = buildInviteUrl(token);
+    const deep_link = buildInviteDeepLink(token);
     const share_text = buildInviteShareText(league.name, token);
     return res.json({
       token,
       url,
+      deep_link,
       share_text,
       league_name: league.name,
       created_at: new Date().toISOString(),
