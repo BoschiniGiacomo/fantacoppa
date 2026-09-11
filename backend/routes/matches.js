@@ -6898,6 +6898,44 @@ router.get('/matches/groups/:groupId/hall-of-fame', authenticateToken, async (re
   }
 });
 
+// GET /matches/groups/:groupId/higher-lower-pack — pack stats per minigioco (1 fetch)
+router.get('/matches/groups/:groupId/higher-lower-pack', authenticateToken, async (req, res) => {
+  try {
+    const groupId = Number(req.params.groupId);
+    if (!groupId || groupId <= 0) return res.status(400).json({ message: 'groupId non valido' });
+
+    await query(
+      `ALTER TABLE official_league_groups ADD COLUMN IF NOT EXISTS show_in_main_menu SMALLINT NOT NULL DEFAULT 0`
+    );
+    const menuRows = await query(
+      `SELECT id FROM official_league_groups
+       WHERE COALESCE(show_in_main_menu, 0) = 1
+       ORDER BY id ASC
+       LIMIT 1`
+    );
+    const menuGroupId = Number(menuRows[0]?.id || 0);
+    if (!menuGroupId || menuGroupId !== groupId) {
+      return res.status(403).json({ message: 'Pack disponibile solo per il gruppo ufficiale del menu' });
+    }
+
+    const group = await fetchOfficialGroupRow(groupId);
+    if (!group) return res.status(404).json({ message: 'Gruppo non trovato' });
+
+    const {
+      fetchHigherLowerPackFromStore,
+    } = require('../utils/officialGroupAbsoluteStatsStore');
+    const pack = await fetchHigherLowerPackFromStore(groupId);
+    return res.json({
+      ...pack,
+      group: { id: groupId, name: String(group.name || '').trim() },
+    });
+  } catch (err) {
+    if (isMissingDbObjectError(err)) return matchesNotConfigured(res, err);
+    console.error('[higher-lower-pack]', err);
+    return res.status(500).json({ message: 'Errore caricamento pack Higher or Lower', error: err.message });
+  }
+});
+
 router.put('/admin/matches/:matchId/unavailable-players', authenticateToken, requireSuperuserLevels([1, 2]), async (req, res) => {
   try {
     const matchId = Number(req.params.matchId);
@@ -8776,6 +8814,8 @@ router.get(
 router.officialGroupStatsApi = {
   listOfficialGroupSeasonLeagues,
   computeOfficialGroupSeasonStats,
+  fetchOfficialGroupEditionWinLeaderboard,
+  mergeAbsoluteStatsByCluster,
 };
 
 module.exports = router;

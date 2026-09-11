@@ -22,6 +22,7 @@ const superuserRoutes = require('./routes/superuser');
 const playerStatsRoutes = require('./routes/playerStats');
 const notificationsRoutes = require('./routes/notifications');
 const publicAppRoutes = require('./routes/publicApp');
+const minigamesRoutes = require('./routes/minigames');
 
 // Import database (per testare connessione all'avvio)
 const { pool } = require('./config/database');
@@ -89,6 +90,7 @@ app.use('/api/public', publicAppRoutes);
 app.use('/api/superuser', superuserRoutes);
 app.use('/api/players', playerStatsRoutes);
 app.use('/api/notifications', notificationsRoutes);
+app.use('/api/minigames', minigamesRoutes);
 
 // Health check endpoint (include stato DB se possibile)
 app.get('/api/health', async (req, res) => {

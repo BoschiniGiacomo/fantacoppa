@@ -31,6 +31,8 @@ import MatchDetailScreen from './src/screens/MatchDetailScreen';
 import OfficialTeamDetailScreen from './src/screens/OfficialTeamDetailScreen';
 import OfficialGroupDetailScreen from './src/screens/OfficialGroupDetailScreen';
 import ManageMatchesScreen from './src/screens/ManageMatchesScreen';
+import MinigamesHubScreen from './src/screens/MinigamesHubScreen';
+import HigherLowerGameScreen from './src/screens/HigherLowerGameScreen';
 import DeleteAccountScreen from './src/screens/DeleteAccountScreen';
 import TeamsScreen from './src/screens/TeamsScreen';
 import TeamDetailScreen from './src/screens/TeamDetailScreen';
@@ -357,6 +359,16 @@ function AppNavigator() {
                 <Stack.Screen
                   name="OfficialGroupDetail"
                   component={OfficialGroupDetailScreen}
+                  options={{ headerShown: false }}
+                />
+                <Stack.Screen
+                  name="MinigamesHub"
+                  component={MinigamesHubScreen}
+                  options={{ headerShown: false }}
+                />
+                <Stack.Screen
+                  name="HigherLowerGame"
+                  component={HigherLowerGameScreen}
                   options={{ headerShown: false }}
                 />
               </>

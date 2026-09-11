@@ -640,6 +640,8 @@ export const matchesService = {
     }),
   getOfficialGroupHallOfFame: (groupId) =>
     api.get(`matches/groups/${groupId}/hall-of-fame`, { timeout: 60000 }),
+  getHigherLowerPack: (groupId) =>
+    api.get(`matches/groups/${groupId}/higher-lower-pack`, { timeout: 90000 }),
   toggleMatchNotifications: (matchId, enabled) =>
     api.post('matches/notifications/toggle', { match_id: matchId, enabled: enabled ? 1 : 0 }),
   setFavoriteMatch: (matchId, isFavorite) =>
@@ -951,6 +953,13 @@ export const playerStatsService = {
   getPlayerAbsoluteRanks: (playerId, leagueId) => api.get(`/players/${playerId}/absolute-ranks/${leagueId}`),
   getPlayerCareer: (playerId, leagueId) => api.get(`/players/${playerId}/career/${leagueId}`),
   getPlayerCompare: (playerId, leagueId) => api.get(`/players/${playerId}/compare/${leagueId}`),
+};
+
+export const minigamesService = {
+  getBest: (gameKey, groupId) =>
+    api.get(`/minigames/${gameKey}/best`, { params: { group_id: groupId } }),
+  submitBest: (gameKey, groupId, score) =>
+    api.post(`/minigames/${gameKey}/best`, { group_id: groupId, score }),
 };
 
 export default api;

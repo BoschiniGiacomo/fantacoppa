@@ -3,6 +3,8 @@ const { query } = require('../config/database');
 const TABLE = 'official_group_cluster_absolute_stats';
 
 let tableReadyPromise = null;
+const packCache = new Map(); // groupId -> { expiresAt, payload }
+const PACK_CACHE_TTL_MS = 3 * 60 * 1000;
 
 /** Entity id nello store: cluster reale, oppure -player_id per i player senza cluster. */
 function absoluteEntityIdForPlayer(clusterId, playerId) {
@@ -11,6 +13,13 @@ function absoluteEntityIdForPlayer(clusterId, playerId) {
   const pid = Number(playerId);
   if (Number.isFinite(pid) && pid > 0) return -pid;
   return null;
+}
+
+function stripBirthYearNameSuffix(name) {
+  return String(name || '')
+    .replace(/\s*\(\s*'\d{2}\s*\)\s*$/u, '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function rankByDescendingValue(rows, getValue, targetEntityIds) {
@@ -42,25 +51,47 @@ function rankByDescendingValue(rows, getValue, targetEntityIds) {
   return null;
 }
 
+async function ensureColumn(sql) {
+  try {
+    await query(sql);
+  } catch (_) {
+    // colonna già presente o ALTER non supportato in questo ambiente
+  }
+}
+
 async function ensureOfficialGroupAbsoluteStatsTable() {
   if (!tableReadyPromise) {
-    tableReadyPromise = query(`
-      CREATE TABLE IF NOT EXISTS ${TABLE} (
-        official_group_id INTEGER NOT NULL,
-        cluster_id INTEGER NOT NULL,
-        representative_player_id INTEGER,
-        total_goals INTEGER NOT NULL DEFAULT 0,
-        total_presences INTEGER NOT NULL DEFAULT 0,
-        refreshed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        PRIMARY KEY (official_group_id, cluster_id)
-      )
-    `).then(() => query(`
-      CREATE INDEX IF NOT EXISTS idx_ogcas_group_presences
-        ON ${TABLE} (official_group_id, total_presences DESC)
-    `)).then(() => query(`
-      CREATE INDEX IF NOT EXISTS idx_ogcas_group_goals
-        ON ${TABLE} (official_group_id, total_goals DESC)
-    `)).catch((error) => {
+    tableReadyPromise = (async () => {
+      await query(`
+        CREATE TABLE IF NOT EXISTS ${TABLE} (
+          official_group_id INTEGER NOT NULL,
+          cluster_id INTEGER NOT NULL,
+          representative_player_id INTEGER,
+          total_goals INTEGER NOT NULL DEFAULT 0,
+          total_presences INTEGER NOT NULL DEFAULT 0,
+          total_trophies INTEGER NOT NULL DEFAULT 0,
+          editions_played INTEGER NOT NULL DEFAULT 0,
+          teams_count INTEGER NOT NULL DEFAULT 0,
+          display_name TEXT,
+          photo_path TEXT,
+          refreshed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          PRIMARY KEY (official_group_id, cluster_id)
+        )
+      `);
+      await ensureColumn(`ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS total_trophies INTEGER NOT NULL DEFAULT 0`);
+      await ensureColumn(`ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS editions_played INTEGER NOT NULL DEFAULT 0`);
+      await ensureColumn(`ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS teams_count INTEGER NOT NULL DEFAULT 0`);
+      await ensureColumn(`ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS display_name TEXT`);
+      await ensureColumn(`ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS photo_path TEXT`);
+      await query(`
+        CREATE INDEX IF NOT EXISTS idx_ogcas_group_presences
+          ON ${TABLE} (official_group_id, total_presences DESC)
+      `);
+      await query(`
+        CREATE INDEX IF NOT EXISTS idx_ogcas_group_goals
+          ON ${TABLE} (official_group_id, total_goals DESC)
+      `);
+    })().catch((error) => {
       tableReadyPromise = null;
       throw error;
     });
@@ -102,6 +133,41 @@ async function fetchClusterIdForPlayers(groupId, playerIds) {
   return map;
 }
 
+function emptyEntity(pid) {
+  return {
+    total_goals: 0,
+    total_presences: 0,
+    total_trophies: 0,
+    editions_played: 0,
+    teams_count: 0,
+    display_name: null,
+    photo_path: null,
+    representative_player_id: pid > 0 ? pid : null,
+  };
+}
+
+async function fetchEditionAndTeamCountsByPlayer(groupId) {
+  const gid = Number(groupId);
+  if (!Number.isFinite(gid) || gid <= 0) return [];
+
+  return query(
+    `SELECT
+       p.id AS player_id,
+       TRIM(CONCAT(COALESCE(p.first_name, ''), ' ', COALESCE(p.last_name, ''))) AS name,
+       NULLIF(TRIM(COALESCE(p.photo_path, '')), '') AS photo_path,
+       COUNT(DISTINCT t.league_id)::int AS editions_played,
+       COUNT(DISTINCT p.team_id)::int AS teams_count
+     FROM players p
+     INNER JOIN teams t ON t.id = p.team_id
+     INNER JOIN leagues l ON l.id = t.league_id
+     WHERE l.official_group_id = ?
+       AND COALESCE(l.is_official, 0) = 1
+       AND COALESCE(l.is_official_squad_public, 0) = 1
+     GROUP BY p.id, p.first_name, p.last_name, p.photo_path`,
+    [gid],
+  );
+}
+
 async function upsertLeaderboardsSnapshot(groupId, stats) {
   const gid = Number(groupId);
   if (!Number.isFinite(gid) || gid <= 0) return { upserted: 0 };
@@ -109,41 +175,118 @@ async function upsertLeaderboardsSnapshot(groupId, stats) {
   await ensureOfficialGroupAbsoluteStatsTable();
 
   const scorers = Array.isArray(stats?.scorers) ? stats.scorers : [];
-  const presences = Array.isArray(stats?.presences) ? stats.presences : [];
+  const presentces = Array.isArray(stats?.presences) ? stats.presences : [];
+  const editionWins = Array.isArray(stats?.edition_wins) ? stats.edition_wins : [];
+  const playerMetaRows = Array.isArray(stats?.player_meta) ? stats.player_meta : [];
+
   const playerIds = [
     ...scorers.map((row) => Number(row.player_id)),
-    ...presences.map((row) => Number(row.player_id)),
+    ...presentces.map((row) => Number(row.player_id)),
+    ...editionWins.map((row) => Number(row.player_id)),
+    ...playerMetaRows.map((row) => Number(row.player_id)),
   ];
   const clusterByPlayer = await fetchClusterIdForPlayers(gid, playerIds);
 
   const byEntity = new Map();
+
+  const touch = (pid, mutate) => {
+    const entityId = absoluteEntityIdForPlayer(clusterByPlayer.get(pid), pid);
+    if (!entityId) return;
+    const prev = byEntity.get(entityId) || emptyEntity(pid);
+    mutate(prev, pid);
+    byEntity.set(entityId, prev);
+  };
+
   for (const row of scorers) {
     const pid = Number(row.player_id);
-    const entityId = absoluteEntityIdForPlayer(clusterByPlayer.get(pid), pid);
-    if (!entityId) continue;
-    const prev = byEntity.get(entityId) || {
-      total_goals: 0,
-      total_presences: 0,
-      representative_player_id: pid > 0 ? pid : null,
-    };
-    prev.total_goals = Number(row.value) || 0;
-    if (pid > 0) prev.representative_player_id = pid;
-    byEntity.set(entityId, prev);
+    touch(pid, (prev) => {
+      prev.total_goals = Number(row.value) || 0;
+      if (pid > 0) prev.representative_player_id = pid;
+      const name = stripBirthYearNameSuffix(row.name);
+      if (name) prev.display_name = name;
+      if (row.photo_path) prev.photo_path = String(row.photo_path);
+    });
   }
 
-  for (const row of presences) {
+  for (const row of presentces) {
+    const pid = Number(row.player_id);
+    touch(pid, (prev) => {
+      prev.total_presences = Number(row.value) || 0;
+      if (pid > 0 && !prev.representative_player_id) prev.representative_player_id = pid;
+      const name = stripBirthYearNameSuffix(row.name);
+      if (name && !prev.display_name) prev.display_name = name;
+      if (row.photo_path && !prev.photo_path) prev.photo_path = String(row.photo_path);
+    });
+  }
+
+  for (const row of editionWins) {
+    const pid = Number(row.player_id);
+    touch(pid, (prev) => {
+      // edition_wins leaderboard = trofei (edizioni vinte con presenza)
+      prev.total_trophies = Number(row.value) || 0;
+      if (pid > 0 && !prev.representative_player_id) prev.representative_player_id = pid;
+      const name = stripBirthYearNameSuffix(row.name);
+      if (name && !prev.display_name) prev.display_name = name;
+    });
+  }
+
+  // editions_played / teams_count: somma a livello entity (cluster = union)
+  const editionsByEntity = new Map(); // entity -> Set(leagueKey) — usiamo count aggregato per player poi max/sum
+  const teamsByEntity = new Map();
+  const leagueSets = new Map();
+  const teamSets = new Map();
+
+  for (const row of playerMetaRows) {
     const pid = Number(row.player_id);
     const entityId = absoluteEntityIdForPlayer(clusterByPlayer.get(pid), pid);
     if (!entityId) continue;
-    const prev = byEntity.get(entityId) || {
-      total_goals: 0,
-      total_presences: 0,
-      representative_player_id: pid > 0 ? pid : null,
-    };
-    prev.total_presences = Number(row.value) || 0;
+    const prev = byEntity.get(entityId) || emptyEntity(pid);
     if (pid > 0 && !prev.representative_player_id) prev.representative_player_id = pid;
+    const name = stripBirthYearNameSuffix(row.name);
+    if (name && !prev.display_name) prev.display_name = name;
+    if (row.photo_path && !prev.photo_path) prev.photo_path = String(row.photo_path);
+
+    // Per cluster: editions/teams sono conteggi union — qui usiamo MAX sul singolo player
+    // e poi ricalcoliamo sotto con set se abbiamo league/team lists; altrimenti somma cauta con max.
+    const ep = Number(row.editions_played) || 0;
+    const tc = Number(row.teams_count) || 0;
+    prev.editions_played = Math.max(Number(prev.editions_played) || 0, ep);
+    prev.teams_count = Math.max(Number(prev.teams_count) || 0, tc);
     byEntity.set(entityId, prev);
+
+    if (!leagueSets.has(entityId)) leagueSets.set(entityId, new Set());
+    if (!teamSets.has(entityId)) teamSets.set(entityId, new Set());
+    // Se il backend passa league_ids / team_ids, unisci; altrimenti lascia max
+    if (Array.isArray(row.league_ids)) {
+      for (const lid of row.league_ids) {
+        const n = Number(lid);
+        if (n > 0) leagueSets.get(entityId).add(n);
+      }
+    }
+    if (Array.isArray(row.team_ids)) {
+      for (const tid of row.team_ids) {
+        const n = Number(tid);
+        if (n > 0) teamSets.get(entityId).add(n);
+      }
+    }
   }
+
+  for (const [entityId, set] of leagueSets.entries()) {
+    if (!set.size) continue;
+    const prev = byEntity.get(entityId);
+    if (!prev) continue;
+    prev.editions_played = set.size;
+  }
+  for (const [entityId, set] of teamSets.entries()) {
+    if (!set.size) continue;
+    const prev = byEntity.get(entityId);
+    if (!prev) continue;
+    prev.teams_count = set.size;
+  }
+
+  // silence unused if no detailed sets
+  void editionsByEntity;
+  void teamsByEntity;
 
   await query(
     `DELETE FROM ${TABLE} WHERE official_group_id = ?`,
@@ -151,9 +294,12 @@ async function upsertLeaderboardsSnapshot(groupId, stats) {
   );
 
   const entries = [...byEntity.entries()];
-  if (!entries.length) return { upserted: 0 };
+  if (!entries.length) {
+    packCache.delete(gid);
+    return { upserted: 0 };
+  }
 
-  const CHUNK_SIZE = 150;
+  const CHUNK_SIZE = 100;
   let upserted = 0;
   for (let offset = 0; offset < entries.length; offset += CHUNK_SIZE) {
     const chunk = entries.slice(offset, offset + CHUNK_SIZE);
@@ -165,20 +311,27 @@ async function upsertLeaderboardsSnapshot(groupId, stats) {
         row.representative_player_id,
         Number(row.total_goals) || 0,
         Number(row.total_presences) || 0,
+        Number(row.total_trophies) || 0,
+        Number(row.editions_played) || 0,
+        Number(row.teams_count) || 0,
+        row.display_name || null,
+        row.photo_path || null,
       );
-      return '(?, ?, ?, ?, ?, NOW())';
+      return '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())';
     });
 
     await query(
       `INSERT INTO ${TABLE} (
          official_group_id, cluster_id, representative_player_id,
-         total_goals, total_presences, refreshed_at
+         total_goals, total_presences, total_trophies, editions_played, teams_count,
+         display_name, photo_path, refreshed_at
        ) VALUES ${valueParts.join(', ')}`,
       params,
     );
     upserted += chunk.length;
   }
 
+  packCache.delete(gid);
   return { upserted };
 }
 
@@ -274,6 +427,64 @@ async function refreshOfficialGroupAbsoluteStatsStore(groupId, stats) {
   return upsertLeaderboardsSnapshot(groupId, stats);
 }
 
+async function buildPlayerMetaForGroup(groupId) {
+  const rows = await fetchEditionAndTeamCountsByPlayer(groupId);
+  // Passiamo anche league_ids/team_ids per union a livello cluster
+  const detailed = await query(
+    `SELECT
+       p.id AS player_id,
+       t.league_id,
+       p.team_id,
+       TRIM(CONCAT(COALESCE(p.first_name, ''), ' ', COALESCE(p.last_name, ''))) AS name,
+       NULLIF(TRIM(COALESCE(p.photo_path, '')), '') AS photo_path
+     FROM players p
+     INNER JOIN teams t ON t.id = p.team_id
+     INNER JOIN leagues l ON l.id = t.league_id
+     WHERE l.official_group_id = ?
+       AND COALESCE(l.is_official, 0) = 1
+       AND COALESCE(l.is_official_squad_public, 0) = 1`,
+    [groupId],
+  );
+
+  const byPlayer = new Map();
+  for (const row of rows || []) {
+    const pid = Number(row.player_id);
+    if (!(pid > 0)) continue;
+    byPlayer.set(pid, {
+      player_id: pid,
+      name: row.name,
+      photo_path: row.photo_path || null,
+      editions_played: Number(row.editions_played) || 0,
+      teams_count: Number(row.teams_count) || 0,
+      league_ids: [],
+      team_ids: [],
+    });
+  }
+  for (const row of detailed || []) {
+    const pid = Number(row.player_id);
+    if (!(pid > 0)) continue;
+    let entry = byPlayer.get(pid);
+    if (!entry) {
+      entry = {
+        player_id: pid,
+        name: row.name,
+        photo_path: row.photo_path || null,
+        editions_played: 0,
+        teams_count: 0,
+        league_ids: [],
+        team_ids: [],
+      };
+      byPlayer.set(pid, entry);
+    }
+    const lid = Number(row.league_id);
+    const tid = Number(row.team_id);
+    if (lid > 0) entry.league_ids.push(lid);
+    if (tid > 0) entry.team_ids.push(tid);
+    if (row.photo_path && !entry.photo_path) entry.photo_path = row.photo_path;
+  }
+  return [...byPlayer.values()];
+}
+
 async function recomputeAndStoreOfficialGroupAbsoluteStats(groupId) {
   const gid = Number(groupId);
   if (!Number.isFinite(gid) || gid <= 0) return { upserted: 0 };
@@ -282,6 +493,8 @@ async function recomputeAndStoreOfficialGroupAbsoluteStats(groupId) {
   const officialGroupStatsApi = matchesMod.officialGroupStatsApi || matchesMod;
   const listOfficialGroupSeasonLeagues = officialGroupStatsApi?.listOfficialGroupSeasonLeagues;
   const computeOfficialGroupSeasonStats = officialGroupStatsApi?.computeOfficialGroupSeasonStats;
+  const fetchOfficialGroupEditionWinLeaderboard = officialGroupStatsApi?.fetchOfficialGroupEditionWinLeaderboard;
+  const mergeAbsoluteStatsByCluster = officialGroupStatsApi?.mergeAbsoluteStatsByCluster;
   if (!listOfficialGroupSeasonLeagues || !computeOfficialGroupSeasonStats) {
     throw new Error('officialGroupStatsApi non disponibile');
   }
@@ -296,10 +509,128 @@ async function recomputeAndStoreOfficialGroupAbsoluteStats(groupId) {
   ];
   if (!leagueIds.length) return { upserted: 0 };
 
-  const stats = await computeOfficialGroupSeasonStats(gid, leagueIds, true, {
-    leaderboards: ['scorers', 'presences'],
+  const [stats, player_meta] = await Promise.all([
+    computeOfficialGroupSeasonStats(gid, leagueIds, true, {
+      leaderboards: ['scorers', 'presences'],
+    }),
+    buildPlayerMetaForGroup(gid),
+  ]);
+
+  let edition_wins = [];
+  if (typeof fetchOfficialGroupEditionWinLeaderboard === 'function'
+    && typeof mergeAbsoluteStatsByCluster === 'function') {
+    try {
+      const raw = await fetchOfficialGroupEditionWinLeaderboard(gid, leagueIds);
+      edition_wins = await mergeAbsoluteStatsByCluster(raw, gid);
+    } catch (error) {
+      console.error('[OfficialGroupAbsoluteStats] edition_wins failed:', error?.message || error);
+    }
+  }
+
+  return refreshOfficialGroupAbsoluteStatsStore(gid, {
+    ...stats,
+    edition_wins,
+    player_meta,
   });
-  return refreshOfficialGroupAbsoluteStatsStore(gid, stats);
+}
+
+async function fetchHigherLowerPackFromStore(groupId) {
+  const gid = Number(groupId);
+  if (!Number.isFinite(gid) || gid <= 0) {
+    return { group_id: gid, refreshed_at: null, players: [] };
+  }
+
+  const cached = packCache.get(gid);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.payload;
+  }
+
+  await ensureOfficialGroupAbsoluteStatsTable();
+  let rows = await query(
+    `SELECT cluster_id, representative_player_id, total_goals, total_presences,
+            COALESCE(total_trophies, 0) AS total_trophies,
+            COALESCE(editions_played, 0) AS editions_played,
+            COALESCE(teams_count, 0) AS teams_count,
+            display_name, photo_path, refreshed_at
+     FROM ${TABLE}
+     WHERE official_group_id = ?`,
+    [gid],
+  );
+
+  if (!rows?.length) {
+    await recomputeAndStoreOfficialGroupAbsoluteStats(gid);
+    rows = await query(
+      `SELECT cluster_id, representative_player_id, total_goals, total_presences,
+              COALESCE(total_trophies, 0) AS total_trophies,
+              COALESCE(editions_played, 0) AS editions_played,
+              COALESCE(teams_count, 0) AS teams_count,
+              display_name, photo_path, refreshed_at
+       FROM ${TABLE}
+       WHERE official_group_id = ?`,
+      [gid],
+    );
+  }
+
+  // Completa nome/foto se mancanti
+  const missingIds = (rows || [])
+    .filter((r) => !r.display_name || !r.photo_path)
+    .map((r) => Number(r.representative_player_id))
+    .filter((id) => id > 0);
+  const nameById = new Map();
+  if (missingIds.length) {
+    const ph = [...new Set(missingIds)].map(() => '?').join(', ');
+    const nameRows = await query(
+      `SELECT id,
+              TRIM(CONCAT(COALESCE(first_name, ''), ' ', COALESCE(last_name, ''))) AS name,
+              NULLIF(TRIM(COALESCE(photo_path, '')), '') AS photo_path
+       FROM players
+       WHERE id IN (${ph})`,
+      [...new Set(missingIds)],
+    );
+    for (const r of nameRows || []) {
+      nameById.set(Number(r.id), {
+        name: stripBirthYearNameSuffix(r.name),
+        photo_path: r.photo_path || null,
+      });
+    }
+  }
+
+  let refreshedAt = null;
+  const players = [];
+  for (const row of rows || []) {
+    const entityId = Number(row.cluster_id);
+    const playerId = Number(row.representative_player_id) || null;
+    const meta = playerId ? nameById.get(playerId) : null;
+    const name = stripBirthYearNameSuffix(row.display_name) || meta?.name || '';
+    if (!name) continue;
+    const goals = Number(row.total_goals) || 0;
+    const appearances = Number(row.total_presences) || 0;
+    const trophies = Number(row.total_trophies) || 0;
+    const editionsPlayed = Number(row.editions_played) || 0;
+    const teamsCount = Number(row.teams_count) || 0;
+    if (goals + appearances + trophies + editionsPlayed + teamsCount <= 0) continue;
+
+    if (!refreshedAt && row.refreshed_at) refreshedAt = row.refreshed_at;
+    players.push({
+      entity_id: entityId,
+      player_id: playerId,
+      name,
+      photo_path: row.photo_path || meta?.photo_path || null,
+      goals,
+      appearances,
+      trophies,
+      editions_played: editionsPlayed,
+      teams_count: teamsCount,
+    });
+  }
+
+  const payload = {
+    group_id: gid,
+    refreshed_at: refreshedAt,
+    players,
+  };
+  packCache.set(gid, { expiresAt: Date.now() + PACK_CACHE_TTL_MS, payload });
+  return payload;
 }
 
 module.exports = {
@@ -310,4 +641,6 @@ module.exports = {
   fetchClusterAbsoluteRanksFromStore,
   refreshOfficialGroupAbsoluteStatsStore,
   recomputeAndStoreOfficialGroupAbsoluteStats,
+  fetchHigherLowerPackFromStore,
+  absoluteEntityIdForPlayer,
 };

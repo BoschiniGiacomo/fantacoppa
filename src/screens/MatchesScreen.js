@@ -928,6 +928,21 @@ export default function MatchesScreen() {
                 ))}
               </View>
             ))}
+
+            <TouchableOpacity
+              style={styles.minigamesCta}
+              activeOpacity={0.88}
+              onPress={() => navigation.navigate('MinigamesHub')}
+            >
+              <View style={styles.minigamesCtaIcon}>
+                <Ionicons name="game-controller-outline" size={22} color="#667eea" />
+              </View>
+              <View style={styles.minigamesCtaBody}>
+                <Text style={styles.minigamesCtaTitle}>Quanto conosci la Coppa dei Cantoni?</Text>
+                <Text style={styles.minigamesCtaSub}>Sfida Higher or Lower · Minigiochi</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color="#94a3b8" />
+            </TouchableOpacity>
           </ScrollView>
         )}
       </View>
@@ -1286,6 +1301,29 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#ececec',
   },
+  minigamesCta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    marginBottom: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: '#c7d2fe',
+  },
+  minigamesCtaIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: '#eef2ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  minigamesCtaBody: { flex: 1 },
+  minigamesCtaTitle: { fontSize: 14, fontWeight: '800', color: '#111827' },
+  minigamesCtaSub: { marginTop: 3, fontSize: 12, color: '#667eea', fontWeight: '600' },
   groupTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
