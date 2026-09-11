@@ -9,9 +9,9 @@ export const RECENT_WINDOW = 15;
  * Sale più in fretta all’inizio; 20+ molto stretto.
  */
 export const DIFFICULTY_TIERS = [
-  { upTo: 2, min: 0.42, max: 1.0 }, // 0–2
-  { upTo: 5, min: 0.28, max: 0.58 }, // 3–5
-  { upTo: 9, min: 0.18, max: 0.40 }, // 6–9
+  { upTo: 2, min: 0.33, max: 1.0 }, // 0–2
+  { upTo: 5, min: 0.22, max: 0.50 }, // 3–5
+  { upTo: 9, min: 0.13, max: 0.33 }, // 6–9
   { upTo: 14, min: 0.10, max: 0.24 }, // 10–14
   { upTo: 19, min: 0.05, max: 0.14 }, // 15–19
   { upTo: Infinity, min: 0.02, max: 0.07 }, // 20+
@@ -198,6 +198,7 @@ export function pickOpponent(pool, cardA, recentEntityIds = [], options = {}) {
     groupMaxYear = null,
     ranges: rangesOpt = null,
     earlyExitCount = EARLY_EXIT_COUNT,
+    cooldownEntityIds = null,
   } = options;
 
   const aId = Number(cardA?.entity_id);
@@ -220,6 +221,7 @@ export function pickOpponent(pool, cardA, recentEntityIds = [], options = {}) {
   const maxYear = resolveGroupMaxYear(pool, groupMaxYear);
   const recencyA = recencyScore(cardA, maxYear);
   const recent = new Set((recentEntityIds || []).map(Number));
+  const cooldown = new Set((cooldownEntityIds || []).map(Number));
 
   const metricsPreferred = shuffleInPlace(
     METRICS.filter((m) => !(excludeMetricKey && m.key === excludeMetricKey)),
@@ -236,13 +238,13 @@ export function pickOpponent(pool, cardA, recentEntityIds = [], options = {}) {
   }
 
   const stages = [
-    // Tier 0: prima solo giocatori degli ultimi EASY_RECENCY_YEARS anni
-    { allowRecent: false, bandStep: 0, allowExcludedMetric: false, easyWindowOnly: tier === 0 },
-    { allowRecent: false, bandStep: 1, allowExcludedMetric: false, easyWindowOnly: tier === 0 },
-    { allowRecent: true, bandStep: 1, allowExcludedMetric: false, easyWindowOnly: tier <= 1 },
-    { allowRecent: true, bandStep: 2, allowExcludedMetric: false, easyWindowOnly: false },
-    { allowRecent: true, bandStep: 3, allowExcludedMetric: true, easyWindowOnly: false },
-    { allowRecent: true, bandStep: 99, allowExcludedMetric: true, easyWindowOnly: false },
+    // Prima evita recent di sessione + cooldown 15 min (se possibile).
+    { allowRecent: false, allowCooldown: false, bandStep: 0, allowExcludedMetric: false, easyWindowOnly: tier === 0 },
+    { allowRecent: false, allowCooldown: false, bandStep: 1, allowExcludedMetric: false, easyWindowOnly: tier === 0 },
+    { allowRecent: true, allowCooldown: false, bandStep: 1, allowExcludedMetric: false, easyWindowOnly: tier <= 1 },
+    { allowRecent: true, allowCooldown: false, bandStep: 2, allowExcludedMetric: false, easyWindowOnly: false },
+    { allowRecent: true, allowCooldown: true, bandStep: 3, allowExcludedMetric: true, easyWindowOnly: false },
+    { allowRecent: true, allowCooldown: true, bandStep: 99, allowExcludedMetric: true, easyWindowOnly: false },
   ];
 
   for (const stage of stages) {
@@ -262,6 +264,7 @@ export function pickOpponent(pool, cardA, recentEntityIds = [], options = {}) {
         const candidate = players[i];
         const id = Number(candidate.entity_id);
         if (!stage.allowRecent && recent.has(id)) continue;
+        if (!stage.allowCooldown && cooldown.has(id)) continue;
         if (stage.easyWindowOnly && !isInEasyRecencyWindow(candidate, maxYear)) continue;
         const bVal = getMetricValue(candidate, metric);
         if (!(bVal > 0) || bVal === aVal) continue;
@@ -310,23 +313,28 @@ export function createInitialRound(players, options = {}) {
 
   const ranges = buildMetricRanges(pool);
   const groupMaxYear = resolveGroupMaxYear(pool, options.groupMaxYear);
+  const cooldownEntityIds = options.cooldownEntityIds || [];
+  const cooldown = new Set(cooldownEntityIds.map(Number));
 
   const easyPool = pool.filter((p) => isInEasyRecencyWindow(p, groupMaxYear));
   const seedSource = easyPool.length >= 2 ? easyPool : pool;
   const sampleSize = Math.min(seedSource.length, 36);
   const sample = shuffleInPlace([...seedSource]).slice(0, sampleSize);
+  const freshSample = sample.filter((p) => !cooldown.has(Number(p.entity_id)));
+  const seedPool = freshSample.length >= 2 ? freshSample : sample;
 
-  const seedCount = Math.min(INITIAL_SEED_TRIES, sample.length);
+  const seedCount = Math.min(INITIAL_SEED_TRIES, seedPool.length);
   const sharedOpts = {
     streak: 0,
     excludeMetricKey: null,
     groupMaxYear,
     ranges,
     earlyExitCount: 10,
+    cooldownEntityIds,
   };
 
   for (let i = 0; i < seedCount; i += 1) {
-    const cardA = sample[i];
+    const cardA = seedPool[i];
     const built = tryBuildRound(pool, cardA, [cardA.entity_id], sharedOpts);
     if (!built) continue;
     return {
@@ -378,6 +386,7 @@ export function advanceRound(pool, currentB, recentEntityIds = [], previousMetri
     excludeMetricKey: previousMetricKey,
     groupMaxYear,
     ranges,
+    cooldownEntityIds: options.cooldownEntityIds || [],
   });
   if (!built) return null;
 

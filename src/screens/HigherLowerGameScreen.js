@@ -20,7 +20,7 @@ import {
   advanceRound,
   filterPlayablePlayers,
 } from '../minigames/higherLower/engine';
-import { getLocalBest, setLocalBest, mergeBest } from '../minigames/higherLower/storage';
+import { getLocalBest, setLocalBest, mergeBest, getCooldownEntityIds, markPlayersSeen } from '../minigames/higherLower/storage';
 import MinigamePlayerAvatar from '../minigames/higherLower/MinigamePlayerAvatar';
 import HigherLowerInfoModal from '../minigames/higherLower/HigherLowerInfoModal';
 import HigherLowerLogo from '../minigames/higherLower/HigherLowerLogo';
@@ -276,6 +276,9 @@ export default function HigherLowerGameScreen({ navigation, route }) {
   /** Dopo lo slide: reset Y solo post-commit, altrimenti flash della card A. */
   const pendingStackYResetRef = useRef(false);
   const recentRef = useRef([]);
+  /** Giocatori visti negli ultimi 15 min (persisted). */
+  const cooldownRef = useRef([]);
+  const groupIdRef = useRef(routeGroupId);
   const poolRef = useRef(pool);
   const phaseRef = useRef(phase);
   const bestRef = useRef(0);
@@ -286,6 +289,10 @@ export default function HigherLowerGameScreen({ navigation, route }) {
   const timersRef = useRef([]);
   const [showStreakInBadge, setShowStreakInBadge] = useState(false);
   const [streakPopValue, setStreakPopValue] = useState(0);
+
+  useEffect(() => {
+    groupIdRef.current = groupId;
+  }, [groupId]);
 
   const clearTimers = useCallback(() => {
     timersRef.current.forEach(clearTimeout);
@@ -362,9 +369,25 @@ export default function HigherLowerGameScreen({ navigation, route }) {
     ]).start();
   }, [streakScale]);
 
+  const rememberSeen = useCallback((entityIds) => {
+    const gid = groupIdRef.current;
+    if (!gid) return;
+    const ids = (entityIds || [])
+      .map((id) => Number(id))
+      .filter((id) => Number.isFinite(id));
+    if (!ids.length) return;
+    const merged = new Set(cooldownRef.current.map(Number));
+    ids.forEach((id) => merged.add(id));
+    cooldownRef.current = [...merged];
+    void markPlayersSeen(gid, ids).then((next) => {
+      if (Array.isArray(next)) cooldownRef.current = next;
+    });
+  }, []);
+
   const bootstrapRound = useCallback((players) => {
     const initial = createInitialRound(players, {
       groupMaxYear: groupMaxYearRef.current,
+      cooldownEntityIds: cooldownRef.current,
     });
     if (!initial) {
       setError('Servono almeno due giocatori con statistiche per giocare.');
@@ -374,6 +397,7 @@ export default function HigherLowerGameScreen({ navigation, route }) {
     clearTimers();
     recordAtStartRef.current = bestRef.current;
     recentRef.current = initial.recentEntityIds || [];
+    rememberSeen([initial.cardA?.entity_id, initial.cardB?.entity_id]);
     setRound(initial);
     setStreak(0);
     setPhase('guess');
@@ -389,7 +413,7 @@ export default function HigherLowerGameScreen({ navigation, route }) {
     streakInY.setValue(22);
     streakInOpacity.setValue(0);
     return true;
-  }, [vsBadgeScale, streakInY, streakInOpacity, stackY, promptOpacity, clearTimers]);
+  }, [vsBadgeScale, streakInY, streakInOpacity, stackY, promptOpacity, clearTimers, rememberSeen]);
 
   const loadPack = useCallback(async () => {
     setError(null);
@@ -404,7 +428,7 @@ export default function HigherLowerGameScreen({ navigation, route }) {
         setGroupId(gid);
         setGroupName(gname);
       }
-
+      groupIdRef.current = gid;
       const keepCurrentRound =
         (poolRef.current?.length || 0) >= 2
         && phaseRef.current !== 'gameover'
@@ -415,17 +439,17 @@ export default function HigherLowerGameScreen({ navigation, route }) {
         groupMaxYearRef.current = peekHigherLowerGroupMaxYear(gid);
         setPool(cached);
         poolRef.current = cached;
-        if (!keepCurrentRound) bootstrapRound(cached);
         setLoading(false);
       } else {
         setLoading(true);
       }
 
-      const [players, localBest] = await Promise.all([
+      const [players, localBest, cooldownIds] = await Promise.all([
         fetchHigherLowerPackCached(gid, { force: !!cached }),
         getLocalBest(gid),
+        getCooldownEntityIds(gid),
       ]);
-
+      cooldownRef.current = cooldownIds;
       let serverBest = 0;
       try {
         const bestRes = await minigamesService.getBest(HIGHER_LOWER_GAME_KEY, gid);
@@ -456,15 +480,22 @@ export default function HigherLowerGameScreen({ navigation, route }) {
   }, [groupId, groupName, bootstrapRound]);
 
   useEffect(() => {
-    const cached = peekHigherLowerPack(routeGroupId);
-    if (cached?.length >= 2) bootstrapRound(cached);
-    loadPack();
-    getSistemaSettings()
-      .then((sistema) => {
-        const visible = getVisibleMinigames(sistema);
-        setSoloMinigame(visible.length === 1);
-      })
-      .catch(() => {});
+    let cancelled = false;
+    (async () => {
+      if (routeGroupId) {
+        const ids = await getCooldownEntityIds(routeGroupId);
+        if (!cancelled) cooldownRef.current = ids;
+      }
+      if (cancelled) return;
+      loadPack();
+      getSistemaSettings()
+        .then((sistema) => {
+          const visible = getVisibleMinigames(sistema);
+          setSoloMinigame(visible.length === 1);
+        })
+        .catch(() => {});
+    })();
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -590,7 +621,10 @@ export default function HigherLowerGameScreen({ navigation, route }) {
           recentRef.current,
           round?.metric?.key || null,
           nextStreak,
-          { groupMaxYear: groupMaxYearRef.current },
+          {
+            groupMaxYear: groupMaxYearRef.current,
+            cooldownEntityIds: cooldownRef.current,
+          },
         );
         if (!next) {
           setPhase('gameover');
@@ -599,6 +633,7 @@ export default function HigherLowerGameScreen({ navigation, route }) {
           return;
         }
 
+        rememberSeen([next.cardA?.entity_id, next.cardB?.entity_id]);
         const slotH = cardsBlockH > 0
           ? Math.max(120, (cardsBlockH - VS_ROW_H) / 2)
           : 160;
