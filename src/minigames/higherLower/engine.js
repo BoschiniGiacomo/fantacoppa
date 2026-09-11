@@ -1,5 +1,26 @@
 import { METRICS, getMetricValue } from './metrics';
 
+/** Quanti entity_id evitare di ripescare (poi si rilassa). */
+export const RECENT_WINDOW = 15;
+/** Ogni N risposte corrette sale di un tier di difficoltà. */
+export const TIER_EVERY = 5;
+
+/**
+ * Fasce di delta relativo |a-b| / (max-min metrica).
+ * Tier 0 = gap larghi (facile); tier alti = gap stretti (difficile).
+ * Parametri regolabili dopo playtest.
+ */
+export const GAP_BANDS = [
+  { min: 0.42, max: 1.0 }, // 0–4
+  { min: 0.28, max: 0.58 }, // 5–9
+  { min: 0.18, max: 0.40 }, // 10–14
+  { min: 0.10, max: 0.26 }, // 15–19
+  { min: 0.05, max: 0.16 }, // 20+
+];
+
+/** Anni di “vecchiaia” per normalizzare la familiarità (recency → 0). */
+const RECENCY_SPAN_YEARS = 8;
+
 function shuffleInPlace(arr) {
   for (let i = arr.length - 1; i > 0; i -= 1) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -23,56 +44,236 @@ export function filterPlayablePlayers(players) {
   });
 }
 
-/**
- * Sceglie un avversario con valore diverso sulla metrica (mai a parità).
- * Preferisce chi non è nei recenti; se necessario rilassa il filtro recenti.
- */
-export function pickOpponent(pool, cardA, metric, recentEntityIds = []) {
-  const aId = Number(cardA?.entity_id);
-  const aVal = getMetricValue(cardA, metric);
-  const recent = new Set((recentEntityIds || []).map(Number));
-
-  const different = (pool || []).filter((p) => {
-    const id = Number(p.entity_id);
-    if (!Number.isFinite(id) || id === aId) return false;
-    return getMetricValue(p, metric) !== aVal;
-  });
-  if (!different.length) return null;
-
-  const fresh = different.filter((p) => !recent.has(Number(p.entity_id)));
-  const poolToUse = fresh.length ? fresh : different;
-  return poolToUse[Math.floor(Math.random() * poolToUse.length)];
+export function getDifficultyTier(streak) {
+  const s = Math.max(0, Number(streak) || 0);
+  return Math.min(GAP_BANDS.length - 1, Math.floor(s / TIER_EVERY));
 }
 
-function tryBuildRound(pool, cardA, recentEntityIds = [], excludeMetricKey = null) {
-  if (!cardA) return null;
+export function getGapBand(streak) {
+  return GAP_BANDS[getDifficultyTier(streak)];
+}
 
-  const metricAttempts = shuffleInPlace(
-    METRICS.filter((m) => !(excludeMetricKey && m.key === excludeMetricKey))
+function resolveGroupMaxYear(pool, explicitMax) {
+  if (Number.isFinite(Number(explicitMax))) return Number(explicitMax);
+  let max = null;
+  for (const p of pool || []) {
+    const y = Number(p?.last_edition_year);
+    if (!Number.isFinite(y)) continue;
+    if (max == null || y > max) max = y;
+  }
+  return max;
+}
+
+/** 1 = giocato di recente (più familiare/facile), 0 = anni fa / sconosciuto. */
+export function recencyScore(player, groupMaxYear) {
+  const y = Number(player?.last_edition_year);
+  if (!Number.isFinite(y) || !Number.isFinite(groupMaxYear)) return 0.5;
+  const age = Math.max(0, groupMaxYear - y);
+  return Math.max(0, Math.min(1, 1 - age / RECENCY_SPAN_YEARS));
+}
+
+export function buildMetricRanges(pool) {
+  const ranges = Object.create(null);
+  for (const metric of METRICS) {
+    let min = Infinity;
+    let max = -Infinity;
+    for (const p of pool || []) {
+      const v = getMetricValue(p, metric);
+      if (v < min) min = v;
+      if (v > max) max = v;
+    }
+    if (!Number.isFinite(min) || !Number.isFinite(max)) {
+      ranges[metric.key] = { min: 0, max: 0, span: 1 };
+    } else {
+      ranges[metric.key] = { min, max, span: Math.max(1, max - min) };
+    }
+  }
+  return ranges;
+}
+
+function relativeGap(cardA, cardB, metric, ranges) {
+  const a = getMetricValue(cardA, metric);
+  const b = getMetricValue(cardB, metric);
+  const span = ranges[metric.key]?.span || 1;
+  return Math.abs(a - b) / span;
+}
+
+function gapFitScore(relGap, band) {
+  if (relGap >= band.min && relGap <= band.max) {
+    const mid = (band.min + band.max) / 2;
+    const half = Math.max(0.01, (band.max - band.min) / 2);
+    return 1 - (Math.abs(relGap - mid) / half) * 0.2;
+  }
+  if (relGap < band.min) {
+    return Math.max(0, 0.4 - (band.min - relGap) * 2.2);
+  }
+  return Math.max(0, 0.4 - (relGap - band.max) * 1.6);
+}
+
+function expandBand(band, step) {
+  if (step <= 0) return band;
+  const loosen = 0.08 * step;
+  return {
+    min: Math.max(0.02, band.min - loosen),
+    max: Math.min(1, band.max + loosen * 1.4),
+  };
+}
+
+function weightedPick(scored) {
+  if (!scored.length) return null;
+  const top = scored.slice(0, Math.min(12, scored.length));
+  let total = 0;
+  const weights = top.map((row) => {
+    const w = Math.max(0.05, row.score) ** 2;
+    total += w;
+    return w;
+  });
+  let r = Math.random() * total;
+  for (let i = 0; i < top.length; i += 1) {
+    r -= weights[i];
+    if (r <= 0) return top[i];
+  }
+  return top[0];
+}
+
+/**
+ * Score combinato: gap (fascia di difficoltà) + familiarità (recency).
+ * Early game → preferisce giocatori recenti; late → più oscuri.
+ */
+function scorePair({
+  relGap,
+  band,
+  recencyA,
+  recencyB,
+  tier,
+  jitter,
+}) {
+  const gapScore = gapFitScore(relGap, band);
+  const familiarity = (recencyA + recencyB) / 2;
+  const difficulty01 = tier / Math.max(1, GAP_BANDS.length - 1);
+  const recencyFit = difficulty01 < 0.45
+    ? familiarity
+    : (1 - familiarity);
+  return gapScore * 0.7 + recencyFit * 0.24 + jitter * 0.06;
+}
+
+/**
+ * Sceglie metrica + avversario in base allo streak.
+ * - Mai valori pari
+ * - Evita ultima metrica (rilassa solo se necessario)
+ * - Evita ultimi RECENT_WINDOW entity (rilassa se necessario)
+ * - Delta relativo nella fascia del tier, con allargamento progressivo
+ */
+export function pickOpponent(pool, cardA, recentEntityIds = [], options = {}) {
+  const {
+    streak = 0,
+    excludeMetricKey = null,
+    groupMaxYear = null,
+    ranges: rangesOpt = null,
+  } = options;
+
+  const aId = Number(cardA?.entity_id);
+  if (!Number.isFinite(aId)) return null;
+
+  const players = (pool || []).filter((p) => {
+    const id = Number(p?.entity_id);
+    return Number.isFinite(id) && id !== aId;
+  });
+  if (!players.length) return null;
+
+  const ranges = rangesOpt || buildMetricRanges(pool);
+  const tier = getDifficultyTier(streak);
+  const baseBand = GAP_BANDS[tier];
+  const maxYear = resolveGroupMaxYear(pool, groupMaxYear);
+  const recencyA = recencyScore(cardA, maxYear);
+  const recent = new Set((recentEntityIds || []).map(Number));
+
+  const metricsPreferred = shuffleInPlace(
+    METRICS.filter((m) => !(excludeMetricKey && m.key === excludeMetricKey)),
   );
-  // Se serve, riprova anche la metrica esclusa come ultima chance
-  if (excludeMetricKey) {
-    const excluded = METRICS.find((m) => m.key === excludeMetricKey);
-    if (excluded) metricAttempts.push(excluded);
+  const metricsFallback = excludeMetricKey
+    ? [...metricsPreferred, ...(METRICS.filter((m) => m.key === excludeMetricKey))]
+    : metricsPreferred;
+
+  // Ladder di rilassamento: (allowRecent, bandStep, allowExcludedMetric)
+  const stages = [
+    { allowRecent: false, bandStep: 0, allowExcludedMetric: false },
+    { allowRecent: false, bandStep: 1, allowExcludedMetric: false },
+    { allowRecent: true, bandStep: 1, allowExcludedMetric: false },
+    { allowRecent: true, bandStep: 2, allowExcludedMetric: false },
+    { allowRecent: true, bandStep: 3, allowExcludedMetric: true },
+    { allowRecent: true, bandStep: 99, allowExcludedMetric: true }, // qualsiasi gap ≠ 0
+  ];
+
+  for (const stage of stages) {
+    const band = stage.bandStep >= 99
+      ? { min: 0.001, max: 1 }
+      : expandBand(baseBand, stage.bandStep);
+    const metrics = stage.allowExcludedMetric ? metricsFallback : metricsPreferred;
+    if (!metrics.length) continue;
+
+    const scored = [];
+    for (const metric of metrics) {
+      const aVal = getMetricValue(cardA, metric);
+      for (const candidate of players) {
+        const id = Number(candidate.entity_id);
+        if (!stage.allowRecent && recent.has(id)) continue;
+        const bVal = getMetricValue(candidate, metric);
+        if (bVal === aVal) continue;
+        const relGap = relativeGap(cardA, candidate, metric, ranges);
+        if (stage.bandStep < 99 && (relGap < band.min || relGap > band.max)) continue;
+
+        scored.push({
+          cardB: candidate,
+          metric,
+          score: scorePair({
+            relGap,
+            band,
+            recencyA,
+            recencyB: recencyScore(candidate, maxYear),
+            tier,
+            jitter: Math.random(),
+          }),
+        });
+      }
+    }
+
+    if (!scored.length) continue;
+    scored.sort((x, y) => y.score - x.score);
+    const pick = weightedPick(scored);
+    if (pick) return { cardB: pick.cardB, metric: pick.metric };
   }
 
-  for (const metric of metricAttempts) {
-    const cardB = pickOpponent(pool, cardA, metric, recentEntityIds);
-    if (!cardB) continue;
-    if (getMetricValue(cardA, metric) === getMetricValue(cardB, metric)) continue;
-    return { cardA, cardB, metric };
-  }
   return null;
 }
 
-export function createInitialRound(players) {
+function tryBuildRound(pool, cardA, recentEntityIds = [], options = {}) {
+  if (!cardA) return null;
+  const picked = pickOpponent(pool, cardA, recentEntityIds, options);
+  if (!picked) return null;
+  return { cardA, cardB: picked.cardB, metric: picked.metric };
+}
+
+export function createInitialRound(players, options = {}) {
   const pool = filterPlayablePlayers(players);
   if (pool.length < 2) return null;
 
+  const ranges = buildMetricRanges(pool);
+  const groupMaxYear = resolveGroupMaxYear(pool, options.groupMaxYear);
   const shuffled = shuffleInPlace([...pool]);
+
+  // Preferisci un cardA recente all'inizio (più riconoscibile).
+  shuffled.sort((a, b) => recencyScore(b, groupMaxYear) - recencyScore(a, groupMaxYear)
+    + (Math.random() - 0.5) * 0.3);
+
   for (let i = 0; i < shuffled.length; i += 1) {
     const cardA = shuffled[i];
-    const built = tryBuildRound(pool, cardA, [cardA.entity_id]);
+    const built = tryBuildRound(pool, cardA, [cardA.entity_id], {
+      streak: 0,
+      excludeMetricKey: null,
+      groupMaxYear,
+      ranges,
+    });
     if (!built) continue;
     return {
       ...built,
@@ -97,18 +298,25 @@ export function evaluateGuess(guess, cardA, cardB, metric) {
   };
 }
 
-export function advanceRound(pool, currentB, recentEntityIds = [], previousMetricKey = null) {
+export function advanceRound(pool, currentB, recentEntityIds = [], previousMetricKey = null, streak = 0, options = {}) {
   const players = filterPlayablePlayers(pool);
   if (players.length < 2 || !currentB) return null;
 
-  const nextRecent = [...(recentEntityIds || []), currentB.entity_id].slice(-8);
-  const built = tryBuildRound(players, currentB, nextRecent, previousMetricKey);
+  const ranges = buildMetricRanges(players);
+  const groupMaxYear = resolveGroupMaxYear(players, options.groupMaxYear);
+  const nextRecent = [...(recentEntityIds || []), currentB.entity_id].slice(-RECENT_WINDOW);
+  const built = tryBuildRound(players, currentB, nextRecent, {
+    streak,
+    excludeMetricKey: previousMetricKey,
+    groupMaxYear,
+    ranges,
+  });
   if (!built) return null;
 
   return {
     cardA: built.cardA,
     cardB: built.cardB,
     metric: built.metric,
-    recentEntityIds: [...nextRecent, built.cardB.entity_id].slice(-8),
+    recentEntityIds: [...nextRecent, built.cardB.entity_id].slice(-RECENT_WINDOW),
   };
 }

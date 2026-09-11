@@ -26,6 +26,7 @@ import HigherLowerInfoModal from '../minigames/higherLower/HigherLowerInfoModal'
 import HigherLowerLogo from '../minigames/higherLower/HigherLowerLogo';
 import {
   peekHigherLowerPack,
+  peekHigherLowerGroupMaxYear,
   fetchHigherLowerPackCached,
 } from '../minigames/higherLower/packCache';
 import { getSistemaSettings, getVisibleMinigames } from '../utils/sistemaSettings';
@@ -192,6 +193,9 @@ export default function HigherLowerGameScreen({ navigation, route }) {
   const phaseRef = useRef(phase);
   const bestRef = useRef(0);
   const recordAtStartRef = useRef(0);
+  const groupMaxYearRef = useRef(
+    routeGroupId ? peekHigherLowerGroupMaxYear(routeGroupId) : null,
+  );
   const [showStreakInBadge, setShowStreakInBadge] = useState(false);
   const [streakPopValue, setStreakPopValue] = useState(0);
 
@@ -258,7 +262,9 @@ export default function HigherLowerGameScreen({ navigation, route }) {
   }, [streakScale]);
 
   const bootstrapRound = useCallback((players) => {
-    const initial = createInitialRound(players);
+    const initial = createInitialRound(players, {
+      groupMaxYear: groupMaxYearRef.current,
+    });
     if (!initial) {
       setError('Servono almeno due giocatori con statistiche per giocare.');
       setRound(null);
@@ -301,6 +307,7 @@ export default function HigherLowerGameScreen({ navigation, route }) {
 
       const cached = peekHigherLowerPack(gid);
       if (cached?.length >= 2) {
+        groupMaxYearRef.current = peekHigherLowerGroupMaxYear(gid);
         setPool(cached);
         poolRef.current = cached;
         if (!keepCurrentRound) bootstrapRound(cached);
@@ -324,6 +331,7 @@ export default function HigherLowerGameScreen({ navigation, route }) {
       bestRef.current = mergedBest;
       setBest(mergedBest);
 
+      groupMaxYearRef.current = peekHigherLowerGroupMaxYear(gid);
       const playable = filterPlayablePlayers(players);
       setPool(playable);
       poolRef.current = playable;
@@ -407,6 +415,8 @@ export default function HigherLowerGameScreen({ navigation, route }) {
           round.cardB,
           recentRef.current,
           round?.metric?.key || null,
+          nextStreak,
+          { groupMaxYear: groupMaxYearRef.current },
         );
         if (!next) {
           setPhase('gameover');

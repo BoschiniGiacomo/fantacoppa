@@ -3,7 +3,7 @@ const { query } = require('../config/database');
 const TABLE = 'official_group_cluster_absolute_stats';
 
 /** Bump quando cambia la logica di aggregazione (es. teams_count per squadra ufficiale). */
-const ABSOLUTE_STATS_LOGIC_VERSION = 3;
+const ABSOLUTE_STATS_LOGIC_VERSION = 4;
 const logicRefreshDone = new Set(); // groupId già ricalcolato per questa versione di processo
 
 let tableReadyPromise = null;
@@ -220,6 +220,48 @@ async function fetchEditionAndTeamCountsByPlayer(groupId) {
      GROUP BY p.id, p.first_name, p.last_name, p.photo_path`,
     [gid],
   );
+}
+
+/**
+ * Ultimo anno edizione (MAX reference_year) per entity (cluster o -player_id).
+ * Usato dal minigioco per familiarità / difficoltà.
+ */
+async function fetchLastEditionYearByEntity(groupId) {
+  const gid = Number(groupId);
+  if (!Number.isFinite(gid) || gid <= 0) return new Map();
+
+  const rows = await query(
+    `SELECT
+       CASE
+         WHEN pc.id IS NOT NULL THEN pc.id
+         ELSE -p.id
+       END AS entity_id,
+       MAX(l.reference_year)::int AS last_edition_year
+     FROM players p
+     INNER JOIN teams t ON t.id = p.team_id
+     INNER JOIN leagues l ON l.id = t.league_id
+     LEFT JOIN player_cluster_members pcm ON pcm.player_id = p.id
+     LEFT JOIN player_clusters pc
+       ON pc.id = pcm.cluster_id
+      AND pc.official_group_id = ?
+      AND pc.status = 'approved'
+     WHERE l.official_group_id = ?
+       AND COALESCE(l.is_official, 0) = 1
+       AND COALESCE(l.is_official_squad_public, 0) = 1
+       AND l.reference_year IS NOT NULL
+     GROUP BY 1`,
+    [gid, gid],
+  );
+
+  const map = new Map();
+  for (const row of rows || []) {
+    const eid = Number(row.entity_id);
+    const year = Number(row.last_edition_year);
+    if (!Number.isFinite(eid) || eid === 0) continue;
+    if (!Number.isFinite(year) || year < 1990) continue;
+    map.set(eid, year);
+  }
+  return map;
 }
 
 /**
@@ -741,6 +783,12 @@ async function fetchHigherLowerPackFromStore(groupId) {
   }
 
   let refreshedAt = null;
+  const lastYearByEntity = await fetchLastEditionYearByEntity(gid);
+  let groupMaxYear = null;
+  for (const y of lastYearByEntity.values()) {
+    if (groupMaxYear == null || y > groupMaxYear) groupMaxYear = y;
+  }
+
   const playersRaw = [];
   for (const row of rows || []) {
     const entityId = Number(row.cluster_id);
@@ -759,6 +807,7 @@ async function fetchHigherLowerPackFromStore(groupId) {
     if (goals + appearances + trophies + editionsPlayed + teamsCount <= 0) continue;
 
     if (!refreshedAt && row.refreshed_at) refreshedAt = row.refreshed_at;
+    const lastEditionYear = lastYearByEntity.get(entityId) || null;
     playersRaw.push({
       entity_id: entityId,
       player_id: playerId,
@@ -770,6 +819,7 @@ async function fetchHigherLowerPackFromStore(groupId) {
       trophies,
       editions_played: editionsPlayed,
       teams_count: teamsCount,
+      last_edition_year: lastEditionYear,
     });
   }
 
@@ -781,6 +831,7 @@ async function fetchHigherLowerPackFromStore(groupId) {
   const payload = {
     group_id: gid,
     refreshed_at: refreshedAt,
+    group_max_year: groupMaxYear,
     players,
   };
   packCache.set(gid, {
