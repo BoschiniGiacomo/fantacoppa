@@ -23,6 +23,7 @@ import {
 import { getLocalBest, setLocalBest, mergeBest } from '../minigames/higherLower/storage';
 import MinigamePlayerAvatar from '../minigames/higherLower/MinigamePlayerAvatar';
 import HigherLowerInfoModal from '../minigames/higherLower/HigherLowerInfoModal';
+import HigherLowerLogo from '../minigames/higherLower/HigherLowerLogo';
 import {
   peekHigherLowerPack,
   fetchHigherLowerPackCached,
@@ -460,12 +461,42 @@ export default function HigherLowerGameScreen({ navigation, route }) {
       <Modal visible={phase === 'gameover'} transparent animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Partita finita</Text>
-            <Text style={styles.modalScoreLabel}>Punteggio</Text>
-            <Text style={styles.modalScore}>{streak}</Text>
-            <Text style={styles.modalRecord}>Record: {best}</Text>
-            <TouchableOpacity style={styles.primaryBtn} onPress={onReplay} activeOpacity={0.9}>
-              <Text style={styles.primaryBtnText}>Rigioca</Text>
+            <View style={styles.modalAccentRow}>
+              <View style={styles.modalAccentGreen} />
+              <View style={styles.modalAccentRed} />
+            </View>
+
+            <View style={styles.modalLogoWrap}>
+              <HigherLowerLogo size={56} />
+            </View>
+
+            <Text style={styles.modalTitle}>Serie terminata</Text>
+            <Text style={styles.modalSubtitle}>La streak si è interrotta</Text>
+
+            <View style={styles.modalScoreBox}>
+              <View style={styles.modalArrows}>
+                <View style={[styles.modalArrowChip, styles.modalArrowHigher]}>
+                  <Ionicons name="arrow-up" size={16} color="#16a34a" />
+                </View>
+                <View style={[styles.modalArrowChip, styles.modalArrowLower]}>
+                  <Ionicons name="arrow-down" size={16} color="#dc2626" />
+                </View>
+              </View>
+              <Text style={styles.modalScoreLabel}>Punteggio</Text>
+              <Text style={styles.modalScore}>{streak}</Text>
+              {streak > 0 && streak >= best ? (
+                <View style={styles.modalRecordBadge}>
+                  <Ionicons name="flame" size={14} color="#16a34a" />
+                  <Text style={styles.modalRecordBadgeText}>Nuovo record</Text>
+                </View>
+              ) : (
+                <Text style={styles.modalRecord}>Record: {best}</Text>
+              )}
+            </View>
+
+            <TouchableOpacity style={styles.modalReplayBtn} onPress={onReplay} activeOpacity={0.9}>
+              <Ionicons name="refresh" size={18} color="#fff" />
+              <Text style={styles.modalReplayBtnText}>Rigioca</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.secondaryBtn}
@@ -615,7 +646,7 @@ const styles = StyleSheet.create({
   loadingText: { marginTop: 12, color: '#64748b' },
   errorText: { color: '#b91c1c', textAlign: 'center', marginBottom: 16 },
   primaryBtn: {
-    backgroundColor: '#667eea',
+    backgroundColor: '#111827',
     borderRadius: 12,
     height: 48,
     paddingHorizontal: 24,
@@ -624,11 +655,11 @@ const styles = StyleSheet.create({
     alignSelf: 'stretch',
   },
   primaryBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
-  secondaryBtn: { marginTop: 12, alignItems: 'center', paddingVertical: 10 },
-  secondaryBtnText: { color: '#667eea', fontWeight: '700', fontSize: 15 },
+  secondaryBtn: { marginTop: 10, alignItems: 'center', paddingVertical: 10 },
+  secondaryBtnText: { color: '#64748b', fontWeight: '700', fontSize: 15 },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(15,23,42,0.45)',
+    backgroundColor: 'rgba(15,23,42,0.55)',
     alignItems: 'center',
     justifyContent: 'center',
     padding: 24,
@@ -637,14 +668,124 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 360,
     backgroundColor: '#fff',
-    borderRadius: 18,
-    padding: 22,
+    borderRadius: 22,
+    paddingTop: 0,
+    paddingHorizontal: 22,
+    paddingBottom: 20,
     alignItems: 'center',
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
   },
-  modalTitle: { fontSize: 20, fontWeight: '800', color: '#111827' },
-  modalScoreLabel: { marginTop: 14, fontSize: 13, color: '#94a3b8', fontWeight: '600' },
-  modalScore: { fontSize: 48, fontWeight: '900', color: '#667eea' },
-  modalRecord: { marginBottom: 18, color: '#64748b', fontWeight: '600' },
+  modalAccentRow: {
+    flexDirection: 'row',
+    alignSelf: 'stretch',
+    height: 5,
+    marginBottom: 18,
+  },
+  modalAccentGreen: { flex: 1, backgroundColor: '#22c55e' },
+  modalAccentRed: { flex: 1, backgroundColor: '#ef4444' },
+  modalLogoWrap: {
+    marginBottom: 10,
+  },
+  modalTitle: {
+    fontSize: 22,
+    fontWeight: '900',
+    color: '#111827',
+    letterSpacing: -0.3,
+  },
+  modalSubtitle: {
+    marginTop: 4,
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#94a3b8',
+  },
+  modalScoreBox: {
+    marginTop: 18,
+    marginBottom: 18,
+    alignSelf: 'stretch',
+    alignItems: 'center',
+    backgroundColor: '#f8fafc',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#eef2ff',
+    paddingVertical: 16,
+    paddingHorizontal: 14,
+  },
+  modalArrows: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 10,
+  },
+  modalArrowChip: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalArrowHigher: {
+    backgroundColor: '#dcfce7',
+  },
+  modalArrowLower: {
+    backgroundColor: '#fee2e2',
+  },
+  modalScoreLabel: {
+    fontSize: 12,
+    color: '#94a3b8',
+    fontWeight: '700',
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+  },
+  modalScore: {
+    marginTop: 2,
+    fontSize: 52,
+    fontWeight: '900',
+    color: '#111827',
+    letterSpacing: -1,
+    fontVariant: ['tabular-nums'],
+  },
+  modalRecord: {
+    marginTop: 4,
+    color: '#64748b',
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  modalRecordBadge: {
+    marginTop: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: '#dcfce7',
+  },
+  modalRecordBadgeText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#16a34a',
+  },
+  modalReplayBtn: {
+    alignSelf: 'stretch',
+    height: 50,
+    borderRadius: 14,
+    backgroundColor: '#16a34a',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    shadowColor: '#16a34a',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.22,
+    shadowRadius: 10,
+    elevation: 4,
+  },
+  modalReplayBtnText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '800',
+  },
   skelBlock: { backgroundColor: '#e8edf3', borderRadius: 8 },
   skelCard: { borderColor: '#e8edf3' },
   skelPrompt: { alignSelf: 'center', width: '62%', height: 16, marginBottom: 10, borderRadius: 8 },

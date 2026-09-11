@@ -1,4 +1,4 @@
-import { METRICS, getMetricValue, pickRandomMetric } from './metrics';
+import { METRICS, getMetricValue } from './metrics';
 
 function shuffleInPlace(arr) {
   for (let i = arr.length - 1; i > 0; i -= 1) {
@@ -24,29 +24,45 @@ export function filterPlayablePlayers(players) {
 }
 
 /**
- * Preferisce coppie con valori diversi sulla metrica.
+ * Sceglie un avversario con valore diverso sulla metrica (mai a parità).
+ * Preferisce chi non è nei recenti; se necessario rilassa il filtro recenti.
  */
 export function pickOpponent(pool, cardA, metric, recentEntityIds = []) {
   const aId = Number(cardA?.entity_id);
   const aVal = getMetricValue(cardA, metric);
   const recent = new Set((recentEntityIds || []).map(Number));
 
-  const candidates = (pool || []).filter((p) => {
+  const different = (pool || []).filter((p) => {
     const id = Number(p.entity_id);
     if (!Number.isFinite(id) || id === aId) return false;
-    if (recent.has(id)) return false;
-    return true;
+    return getMetricValue(p, metric) !== aVal;
   });
+  if (!different.length) return null;
 
-  const different = candidates.filter((p) => getMetricValue(p, metric) !== aVal);
-  const poolToUse = different.length >= 3 ? different : (candidates.length ? candidates : []);
-  if (!poolToUse.length) {
-    // fallback: chiunque tranne A
-    const fallback = (pool || []).filter((p) => Number(p.entity_id) !== aId);
-    if (!fallback.length) return null;
-    return fallback[Math.floor(Math.random() * fallback.length)];
-  }
+  const fresh = different.filter((p) => !recent.has(Number(p.entity_id)));
+  const poolToUse = fresh.length ? fresh : different;
   return poolToUse[Math.floor(Math.random() * poolToUse.length)];
+}
+
+function tryBuildRound(pool, cardA, recentEntityIds = [], excludeMetricKey = null) {
+  if (!cardA) return null;
+
+  const metricAttempts = shuffleInPlace(
+    METRICS.filter((m) => !(excludeMetricKey && m.key === excludeMetricKey))
+  );
+  // Se serve, riprova anche la metrica esclusa come ultima chance
+  if (excludeMetricKey) {
+    const excluded = METRICS.find((m) => m.key === excludeMetricKey);
+    if (excluded) metricAttempts.push(excluded);
+  }
+
+  for (const metric of metricAttempts) {
+    const cardB = pickOpponent(pool, cardA, metric, recentEntityIds);
+    if (!cardB) continue;
+    if (getMetricValue(cardA, metric) === getMetricValue(cardB, metric)) continue;
+    return { cardA, cardB, metric };
+  }
+  return null;
 }
 
 export function createInitialRound(players) {
@@ -54,26 +70,25 @@ export function createInitialRound(players) {
   if (pool.length < 2) return null;
 
   const shuffled = shuffleInPlace([...pool]);
-  const cardA = shuffled[0];
-  const metric = pickRandomMetric(METRICS, cardA);
-  const cardB = pickOpponent(pool, cardA, metric, [cardA.entity_id]);
-  if (!cardB) return null;
-
-  return {
-    cardA,
-    cardB,
-    metric,
-    recentEntityIds: [cardA.entity_id, cardB.entity_id],
-  };
+  for (let i = 0; i < shuffled.length; i += 1) {
+    const cardA = shuffled[i];
+    const built = tryBuildRound(pool, cardA, [cardA.entity_id]);
+    if (!built) continue;
+    return {
+      ...built,
+      recentEntityIds: [built.cardA.entity_id, built.cardB.entity_id],
+    };
+  }
+  return null;
 }
 
 /**
- * Higher = B > A; Lower = B <= A (minore o uguale).
+ * Higher = B > A; Lower = B < A (parità non ammessa in round validi).
  */
 export function evaluateGuess(guess, cardA, cardB, metric) {
   const aVal = getMetricValue(cardA, metric);
   const bVal = getMetricValue(cardB, metric);
-  const correct = guess === 'higher' ? bVal > aVal : bVal <= aVal;
+  const correct = guess === 'higher' ? bVal > aVal : bVal < aVal;
   return {
     correct,
     aVal,
@@ -86,15 +101,14 @@ export function advanceRound(pool, currentB, recentEntityIds = [], previousMetri
   const players = filterPlayablePlayers(pool);
   if (players.length < 2 || !currentB) return null;
 
-  const metric = pickRandomMetric(METRICS, currentB, previousMetricKey);
   const nextRecent = [...(recentEntityIds || []), currentB.entity_id].slice(-8);
-  const cardB = pickOpponent(players, currentB, metric, nextRecent);
-  if (!cardB) return null;
+  const built = tryBuildRound(players, currentB, nextRecent, previousMetricKey);
+  if (!built) return null;
 
   return {
-    cardA: currentB,
-    cardB,
-    metric,
-    recentEntityIds: [...nextRecent, cardB.entity_id].slice(-8),
+    cardA: built.cardA,
+    cardB: built.cardB,
+    metric: built.metric,
+    recentEntityIds: [...nextRecent, built.cardB.entity_id].slice(-8),
   };
 }
