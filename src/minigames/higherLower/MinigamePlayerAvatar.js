@@ -5,10 +5,10 @@ import { PlayerPhotoImage } from '../../components/StableCachedImage';
 /** Slot layout (spazio riservato nella card). */
 const SLOT_WIDTH = 80;
 const SLOT_HEIGHT = 96;
-/** Disegno più grande dello slot: straborda senza crop. */
-const PHOTO_ZOOM = 1.08;
-const PHOTO_SIDE_BLEED = 1.28;
-const PHOTO_VERT_BLEED = 1.14;
+/** Disegno rispetto allo slot: bleed moderato, evita sfori eccessivi. */
+const PHOTO_ZOOM = 1.0;
+const PHOTO_SIDE_BLEED = 1.14;
+const PHOTO_VERT_BLEED = 1.06;
 
 function stripBirthYearNameSuffix(name) {
   return String(name || '')

@@ -33,12 +33,14 @@ import PromoActionCarousel from '../components/PromoActionCarousel';
 import CompareVsIcon from '../components/CompareVsIcon';
 import HigherLowerLogo from '../minigames/higherLower/HigherLowerLogo';
 import { useAuth } from '../context/AuthContext';
-import { getMenuOfficialGroup } from '../utils/menuOfficialGroupSettings';
+import { getMenuOfficialGroup, peekMenuOfficialGroup } from '../utils/menuOfficialGroupSettings';
 import {
   getSistemaSettings,
   getVisibleMinigames,
   normalizeSistemaSettings,
+  peekSistemaSettings,
 } from '../utils/sistemaSettings';
+import { warmMatchesPromoMeta } from '../services/matchesPromoPrefetch';
 import {
   fetchTrendingPlayersCached,
   peekTrendingPlayersMemory,
@@ -347,8 +349,17 @@ export default function MatchesScreen() {
   const [trendingPlayers, setTrendingPlayers] = useState(() => peekTrendingPlayersMemory() || []);
   const [trendingLoading, setTrendingLoading] = useState(false);
   const [headerHeight, setHeaderHeight] = useState(0);
-  const [menuOfficialGroup, setMenuOfficialGroup] = useState(null);
-  const [sistemaSettings, setSistemaSettings] = useState(() => normalizeSistemaSettings(null));
+  const peekedMenuGroup = peekMenuOfficialGroup();
+  const peekedSistema = peekSistemaSettings();
+  const [menuOfficialGroup, setMenuOfficialGroup] = useState(() =>
+    (peekedMenuGroup === undefined ? null : peekedMenuGroup),
+  );
+  const [sistemaSettings, setSistemaSettings] = useState(() =>
+    peekedSistema || normalizeSistemaSettings(null),
+  );
+  const [promoMetaReady, setPromoMetaReady] = useState(() =>
+    peekedMenuGroup !== undefined && !!peekedSistema,
+  );
   const searchInputRef = useRef(null);
   const searchSeqRef = useRef(0);
   const trendingSeqRef = useRef(0);
@@ -721,16 +732,47 @@ export default function MatchesScreen() {
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
-      Promise.all([getMenuOfficialGroup(), getSistemaSettings()]).then(([group, sistema]) => {
+      const applyPromoMeta = (group, sistema) => {
         if (cancelled) return;
         setMenuOfficialGroup(group);
         setSistemaSettings(sistema);
-      });
+        setPromoMetaReady(true);
+      };
+
+      const peekedGroup = peekMenuOfficialGroup();
+      const peekedSis = peekSistemaSettings();
+      if (peekedGroup !== undefined && peekedSis) {
+        applyPromoMeta(peekedGroup, peekedSis);
+      }
+
+      Promise.all([getMenuOfficialGroup(), getSistemaSettings()])
+        .then(([group, sistema]) => applyPromoMeta(group, sistema))
+        .catch(() => {
+          if (!cancelled) setPromoMetaReady(true);
+        });
+
       return () => {
         cancelled = true;
       };
     }, [])
   );
+
+  useEffect(() => {
+    // Backup: se il tab Partite monta prima del warm login, avvia subito il prefetch.
+    if (!promoMetaReady) {
+      warmMatchesPromoMeta()
+        .then(() => {
+          const g = peekMenuOfficialGroup();
+          const s = peekSistemaSettings();
+          if (g !== undefined && s) {
+            setMenuOfficialGroup(g);
+            setSistemaSettings(s);
+            setPromoMetaReady(true);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [promoMetaReady]);
 
   const visibleMinigames = useMemo(
     () => getVisibleMinigames(sistemaSettings),
@@ -1044,7 +1086,7 @@ export default function MatchesScreen() {
         )}
       </View>
 
-      {promoSlides.length > 0 ? (
+      {promoMetaReady && promoSlides.length > 0 ? (
         <PromoActionCarousel slides={promoSlides} />
       ) : null}
 

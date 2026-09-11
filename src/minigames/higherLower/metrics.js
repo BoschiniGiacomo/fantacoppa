@@ -4,34 +4,60 @@ export const METRICS = [
   {
     key: 'appearances',
     field: 'appearances',
-    prompt: 'Chi ha più presenze?',
+    /** Usato in “più o meno X …” */
+    compareLabel: 'presenze',
     unitLabel: 'presenze',
   },
   {
     key: 'goals',
     field: 'goals',
-    prompt: 'Chi ha fatto più gol?',
+    compareLabel: 'gol',
     unitLabel: 'gol',
   },
   {
     key: 'trophies',
     field: 'trophies',
-    prompt: 'Chi ha vinto più trofei?',
+    compareLabel: 'trofei',
     unitLabel: 'trofei',
   },
   {
     key: 'teams_count',
     field: 'teams_count',
-    prompt: 'Chi ha giocato in più squadre?',
+    compareLabel: 'squadre',
     unitLabel: 'squadre',
   },
   {
     key: 'editions_played',
     field: 'editions_played',
-    prompt: 'Chi ha giocato più edizioni?',
+    compareLabel: 'edizioni',
     unitLabel: 'edizioni',
   },
 ];
+
+function stripBirthYearNameSuffix(name) {
+  return String(name || '')
+    .replace(/\s*\(\s*'\d{2}\s*\)\s*$/u, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Nome corto per la domanda (cognome se disponibile). */
+export function promptPlayerName(player) {
+  const full = stripBirthYearNameSuffix(player?.name);
+  if (!full) return 'il giocatore sopra';
+  const parts = full.split(/\s+/).filter(Boolean);
+  if (parts.length === 1) return parts[0];
+  return parts[parts.length - 1];
+}
+
+/**
+ * Domanda chiara: Higher/Lower = valore del giocatore SOTTO rispetto a quello SOPRA.
+ */
+export function buildComparePrompt(metric, cardA) {
+  const label = metric?.compareLabel || metric?.unitLabel || 'valore';
+  const topName = promptPlayerName(cardA);
+  return `Il giocatore sotto ha più o meno ${label} di ${topName}?`;
+}
 
 export function getMetricValue(player, metric) {
   if (!player || !metric) return 0;

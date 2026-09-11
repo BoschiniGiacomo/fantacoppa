@@ -9,6 +9,7 @@ import {
 import { prefetchLeagueWarmData, invalidateAllLeagueWarmCache } from '../services/leagueWarmCache';
 import { clearStripTeamsCache } from '../services/matchesStripTeamsCache';
 import { fetchAndCacheStripTeams } from '../services/matchesStripPrefetch';
+import { warmMatchesPromoMeta } from '../services/matchesPromoPrefetch';
 import { registerPushTokenIfPermitted } from '../services/notificationService';
 
 const AuthContext = createContext({});
@@ -331,10 +332,13 @@ export const AuthProvider = ({ children }) => {
         const activeToken = (await AsyncStorage.getItem(AUTH_TOKEN_KEY)) || storedToken;
         fetchAndCacheStripTeams(activeToken).catch(() => {});
         try {
-          await prefetchLeagueWarmData({
-            onProgress: (f) => setBootstrapProgress(0.24 + Math.min(1, f) * 0.7),
-            userId: parsedUser?.id,
-          });
+          await Promise.all([
+            warmMatchesPromoMeta().catch(() => {}),
+            prefetchLeagueWarmData({
+              onProgress: (f) => setBootstrapProgress(0.24 + Math.min(1, f) * 0.7),
+              userId: parsedUser?.id,
+            }).catch(() => {}),
+          ]);
         } catch (_) {
           // Prefetch non deve far uscire dalla sessione.
         }
@@ -369,7 +373,10 @@ export const AuthProvider = ({ children }) => {
       }
       registerPushTokenIfPermitted().catch(() => {});
       fetchAndCacheStripTeams(newToken, { force: true }).catch(() => {});
-      await prefetchLeagueWarmData({ onProgress: () => {}, userId: newUser?.id });
+      await Promise.all([
+        warmMatchesPromoMeta().catch(() => {}),
+        prefetchLeagueWarmData({ onProgress: () => {}, userId: newUser?.id }).catch(() => {}),
+      ]);
 
       return { success: true };
     } catch (error) {
@@ -404,7 +411,10 @@ export const AuthProvider = ({ children }) => {
       }
       registerPushTokenIfPermitted().catch(() => {});
       fetchAndCacheStripTeams(newToken, { force: true }).catch(() => {});
-      await prefetchLeagueWarmData({ onProgress: () => {}, userId: newUser?.id });
+      await Promise.all([
+        warmMatchesPromoMeta().catch(() => {}),
+        prefetchLeagueWarmData({ onProgress: () => {}, userId: newUser?.id }).catch(() => {}),
+      ]);
 
       return { success: true };
     } catch (error) {

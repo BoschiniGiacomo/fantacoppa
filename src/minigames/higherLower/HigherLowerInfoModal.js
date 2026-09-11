@@ -19,7 +19,7 @@ const INFO_STEPS = [
   {
     icon: 'swap-vertical',
     title: 'Confronta il secondo',
-    body: 'Higher = più alto · Lower = più basso',
+    body: 'Higher/Lower = il giocatore sotto rispetto a quello sopra',
   },
   {
     icon: 'flame-outline',

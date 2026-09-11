@@ -13,7 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { minigamesService } from '../services/api';
 import { getMenuOfficialGroup } from '../utils/menuOfficialGroupSettings';
-import { HIGHER_LOWER_GAME_KEY, getMetricValue } from '../minigames/higherLower/metrics';
+import { HIGHER_LOWER_GAME_KEY, getMetricValue, buildComparePrompt } from '../minigames/higherLower/metrics';
 import {
   createInitialRound,
   evaluateGuess,
@@ -97,7 +97,14 @@ function PlayerCard({
         />
       </View>
       <View style={styles.cardTextCol}>
-        <Text style={styles.cardName} numberOfLines={2}>{player?.name || '—'}</Text>
+        <Text
+          style={styles.cardName}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.82}
+        >
+          {player?.name || '—'}
+        </Text>
         <View style={styles.metricChip}>
           <Text style={styles.metricChipText}>{metric?.unitLabel || 'stat'}</Text>
         </View>
@@ -120,6 +127,31 @@ function PlayerCard({
 
 function SkeletonBlock({ style }) {
   return <View style={[styles.skelBlock, style]} />;
+}
+
+function GuessButtons({ disabled = false, onHigher, onLower }) {
+  return (
+    <View style={styles.actions}>
+      <TouchableOpacity
+        style={[styles.guessBtn, styles.higherBtn, disabled && styles.guessBtnDisabled]}
+        activeOpacity={0.88}
+        onPress={onHigher}
+        disabled={disabled}
+      >
+        <Ionicons name="arrow-up" size={22} color="#fff" />
+        <Text style={styles.guessBtnText}>Higher</Text>
+      </TouchableOpacity>
+      <TouchableOpacity
+        style={[styles.guessBtn, styles.lowerBtn, disabled && styles.guessBtnDisabled]}
+        activeOpacity={0.88}
+        onPress={onLower}
+        disabled={disabled}
+      >
+        <Text style={styles.guessBtnText}>Lower</Text>
+        <Ionicons name="arrow-down" size={22} color="#fff" />
+      </TouchableOpacity>
+    </View>
+  );
 }
 
 function HigherLowerSkeleton() {
@@ -153,10 +185,7 @@ function HigherLowerSkeleton() {
           </View>
         </View>
       </View>
-      <View style={styles.actions}>
-        <SkeletonBlock style={[styles.skelBtn, { alignSelf: 'flex-start' }]} />
-        <SkeletonBlock style={[styles.skelBtn, { alignSelf: 'flex-end', marginTop: -10 }]} />
-      </View>
+      <GuessButtons disabled />
       <Text style={styles.skelHint}>Carico i giocatori…</Text>
     </View>
   );
@@ -467,7 +496,9 @@ export default function HigherLowerGameScreen({ navigation, route }) {
     navigation.navigate('MainTabs', { screen: 'Partite' });
   };
 
-  const prompt = round?.metric?.prompt || 'Higher or Lower';
+  const prompt = round
+    ? buildComparePrompt(round.metric, round.cardA)
+    : 'Higher or Lower';
   const bHighlight = lastResult
     ? (lastResult.correct ? 'win' : 'lose')
     : null;
@@ -586,26 +617,11 @@ export default function HigherLowerGameScreen({ navigation, route }) {
           </View>
 
           {phase === 'guess' ? (
-            <View style={styles.actions}>
-              <TouchableOpacity
-                style={[styles.guessBtn, styles.higherBtn]}
-                activeOpacity={0.88}
-                onPress={() => onGuess('higher')}
-                disabled={busy}
-              >
-                <Ionicons name="arrow-up" size={22} color="#fff" />
-                <Text style={styles.guessBtnText}>Higher</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.guessBtn, styles.lowerBtn]}
-                activeOpacity={0.88}
-                onPress={() => onGuess('lower')}
-                disabled={busy}
-              >
-                <Text style={styles.guessBtnText}>Lower</Text>
-                <Ionicons name="arrow-down" size={22} color="#fff" />
-              </TouchableOpacity>
-            </View>
+            <GuessButtons
+              disabled={busy}
+              onHigher={() => onGuess('higher')}
+              onLower={() => onGuess('lower')}
+            />
           ) : (
             <View style={styles.feedbackRow}>
               {!lastResult?.correct ? (
@@ -724,11 +740,11 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 14,
+    gap: 10,
     backgroundColor: '#fff',
     borderRadius: 18,
-    paddingLeft: 12,
-    paddingRight: 16,
+    paddingLeft: 10,
+    paddingRight: 8,
     paddingVertical: 12,
     borderWidth: 1,
     borderColor: '#ececec',
@@ -821,6 +837,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#dc2626',
     marginTop: -10,
     zIndex: 1,
+  },
+  guessBtnDisabled: {
+    opacity: 0.45,
   },
   guessBtnText: {
     color: '#fff',

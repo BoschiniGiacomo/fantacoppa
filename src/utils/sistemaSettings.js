@@ -1,4 +1,5 @@
 import api, { superuserService } from '../services/api';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export const PROMO_SLIDE_DEFS = [
   {
@@ -29,6 +30,11 @@ export const DEFAULT_SISTEMA_SETTINGS = {
 
 const KNOWN_SLIDES = new Set(PROMO_SLIDE_DEFS.map((s) => s.id));
 const KNOWN_MINIGAMES = new Set(MINIGAME_DEFS.map((m) => m.id));
+const CACHE_KEY = '@sistema_settings_v1';
+
+let memoryLoaded = false;
+let memoryValue = null;
+let inflight = null;
 
 export function normalizeSistemaSettings(raw) {
   const parsed = raw && typeof raw === 'object' ? raw : {};
@@ -74,6 +80,42 @@ export function normalizeSistemaSettings(raw) {
   };
 }
 
+function setMemory(value) {
+  memoryLoaded = true;
+  memoryValue = normalizeSistemaSettings(value);
+}
+
+/** Sync: null se non ancora in cache. */
+export function peekSistemaSettings() {
+  if (!memoryLoaded || !memoryValue) return null;
+  return memoryValue;
+}
+
+export function seedSistemaSettings(value) {
+  setMemory(value);
+}
+
+async function readDisk() {
+  try {
+    const raw = await AsyncStorage.getItem(CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && parsed._v === 1 && parsed.settings) {
+      return normalizeSistemaSettings(parsed.settings);
+    }
+  } catch (_) {}
+  return null;
+}
+
+async function writeDisk(settings) {
+  try {
+    await AsyncStorage.setItem(
+      CACHE_KEY,
+      JSON.stringify({ _v: 1, settings: normalizeSistemaSettings(settings) }),
+    );
+  } catch (_) {}
+}
+
 export function getVisibleMinigames(settings) {
   const normalized = normalizeSistemaSettings(settings);
   return normalized.minigames.filter((m) => m.visible);
@@ -91,19 +133,58 @@ export function getVisiblePromoSlideIds(settings, { hasMenuGroup = false } = {})
     .map((s) => s.id);
 }
 
-export async function getSistemaSettings() {
-  try {
-    const res = await api.get('/public/sistema-settings');
-    return normalizeSistemaSettings(res.data);
-  } catch (_) {
-    return normalizeSistemaSettings(DEFAULT_SISTEMA_SETTINGS);
+export async function getSistemaSettings({ force = false } = {}) {
+  if (!force && memoryLoaded && memoryValue) {
+    void refreshSistemaSettings().catch(() => {});
+    return memoryValue;
   }
+
+  if (!force && !memoryLoaded) {
+    const disk = await readDisk();
+    if (disk) {
+      setMemory(disk);
+      void refreshSistemaSettings().catch(() => {});
+      return disk;
+    }
+  }
+
+  return refreshSistemaSettings();
+}
+
+export async function refreshSistemaSettings() {
+  if (inflight) return inflight;
+  inflight = (async () => {
+    try {
+      const res = await api.get('/public/sistema-settings');
+      const normalized = normalizeSistemaSettings(res.data);
+      setMemory(normalized);
+      await writeDisk(normalized);
+      return normalized;
+    } catch (_) {
+      const fallback = normalizeSistemaSettings(DEFAULT_SISTEMA_SETTINGS);
+      if (!memoryLoaded) {
+        setMemory(fallback);
+        await writeDisk(fallback);
+      }
+      return memoryLoaded ? memoryValue : fallback;
+    } finally {
+      inflight = null;
+    }
+  })();
+  return inflight;
+}
+
+export function warmSistemaSettings() {
+  return getSistemaSettings().catch(() => normalizeSistemaSettings(DEFAULT_SISTEMA_SETTINGS));
 }
 
 export async function saveSistemaSettings(next) {
   const normalized = normalizeSistemaSettings(next);
   const res = await superuserService.updateSistemaSettings(normalized);
-  return normalizeSistemaSettings(res.data || normalized);
+  const saved = normalizeSistemaSettings(res.data || normalized);
+  setMemory(saved);
+  await writeDisk(saved);
+  return saved;
 }
 
 export function toggleSlideVisible(settings, slideId, visible) {

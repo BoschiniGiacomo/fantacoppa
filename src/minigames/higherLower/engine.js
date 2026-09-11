@@ -91,11 +91,8 @@ export function buildMetricRanges(pool) {
   return ranges;
 }
 
-function relativeGap(cardA, cardB, metric, ranges) {
-  const a = getMetricValue(cardA, metric);
-  const b = getMetricValue(cardB, metric);
-  const span = ranges[metric.key]?.span || 1;
-  return Math.abs(a - b) / span;
+function relativeGapFromValues(aVal, bVal, span) {
+  return Math.abs(aVal - bVal) / Math.max(1, span);
 }
 
 function gapFitScore(relGap, band) {
@@ -157,6 +154,11 @@ function scorePair({
   return gapScore * 0.7 + recencyFit * 0.24 + jitter * 0.06;
 }
 
+/** Quanti candidati bastano per uscire presto (varietà + velocità). */
+const EARLY_EXIT_COUNT = 14;
+/** Seed massimi per il round iniziale. */
+const INITIAL_SEED_TRIES = 6;
+
 /**
  * Sceglie metrica + avversario in base allo streak.
  * - Mai valori pari
@@ -170,16 +172,22 @@ export function pickOpponent(pool, cardA, recentEntityIds = [], options = {}) {
     excludeMetricKey = null,
     groupMaxYear = null,
     ranges: rangesOpt = null,
+    earlyExitCount = EARLY_EXIT_COUNT,
   } = options;
 
   const aId = Number(cardA?.entity_id);
   if (!Number.isFinite(aId)) return null;
 
-  const players = (pool || []).filter((p) => {
+  const players = [];
+  for (let i = 0; i < (pool || []).length; i += 1) {
+    const p = pool[i];
     const id = Number(p?.entity_id);
-    return Number.isFinite(id) && id !== aId;
-  });
+    if (Number.isFinite(id) && id !== aId) players.push(p);
+  }
   if (!players.length) return null;
+
+  // Ordine random → early-exit non biasa sempre gli stessi id.
+  shuffleInPlace(players);
 
   const ranges = rangesOpt || buildMetricRanges(pool);
   const tier = getDifficultyTier(streak);
@@ -192,17 +200,23 @@ export function pickOpponent(pool, cardA, recentEntityIds = [], options = {}) {
     METRICS.filter((m) => !(excludeMetricKey && m.key === excludeMetricKey)),
   );
   const metricsFallback = excludeMetricKey
-    ? [...metricsPreferred, ...(METRICS.filter((m) => m.key === excludeMetricKey))]
+    ? [...metricsPreferred, ...METRICS.filter((m) => m.key === excludeMetricKey)]
     : metricsPreferred;
 
-  // Ladder di rilassamento: (allowRecent, bandStep, allowExcludedMetric)
+  const aVals = Object.create(null);
+  const spans = Object.create(null);
+  for (const metric of METRICS) {
+    aVals[metric.key] = getMetricValue(cardA, metric);
+    spans[metric.key] = ranges[metric.key]?.span || 1;
+  }
+
   const stages = [
     { allowRecent: false, bandStep: 0, allowExcludedMetric: false },
     { allowRecent: false, bandStep: 1, allowExcludedMetric: false },
     { allowRecent: true, bandStep: 1, allowExcludedMetric: false },
     { allowRecent: true, bandStep: 2, allowExcludedMetric: false },
     { allowRecent: true, bandStep: 3, allowExcludedMetric: true },
-    { allowRecent: true, bandStep: 99, allowExcludedMetric: true }, // qualsiasi gap ≠ 0
+    { allowRecent: true, bandStep: 99, allowExcludedMetric: true },
   ];
 
   for (const stage of stages) {
@@ -213,14 +227,16 @@ export function pickOpponent(pool, cardA, recentEntityIds = [], options = {}) {
     if (!metrics.length) continue;
 
     const scored = [];
-    for (const metric of metrics) {
-      const aVal = getMetricValue(cardA, metric);
-      for (const candidate of players) {
+    metricLoop: for (const metric of metrics) {
+      const aVal = aVals[metric.key];
+      const span = spans[metric.key];
+      for (let i = 0; i < players.length; i += 1) {
+        const candidate = players[i];
         const id = Number(candidate.entity_id);
         if (!stage.allowRecent && recent.has(id)) continue;
         const bVal = getMetricValue(candidate, metric);
         if (bVal === aVal) continue;
-        const relGap = relativeGap(cardA, candidate, metric, ranges);
+        const relGap = relativeGapFromValues(aVal, bVal, span);
         if (stage.bandStep < 99 && (relGap < band.min || relGap > band.max)) continue;
 
         scored.push({
@@ -235,6 +251,8 @@ export function pickOpponent(pool, cardA, recentEntityIds = [], options = {}) {
             jitter: Math.random(),
           }),
         });
+
+        if (scored.length >= earlyExitCount) break metricLoop;
       }
     }
 
@@ -254,25 +272,50 @@ function tryBuildRound(pool, cardA, recentEntityIds = [], options = {}) {
   return { cardA, cardB: picked.cardB, metric: picked.metric };
 }
 
+/**
+ * Round iniziale veloce: pochi seed “recenti” + early-exit su candidati.
+ * Evita di scansionare tutto il pool × tutte le metriche × tutti gli stage.
+ */
 export function createInitialRound(players, options = {}) {
   const pool = filterPlayablePlayers(players);
   if (pool.length < 2) return null;
 
   const ranges = buildMetricRanges(pool);
   const groupMaxYear = resolveGroupMaxYear(pool, options.groupMaxYear);
-  const shuffled = shuffleInPlace([...pool]);
 
-  // Preferisci un cardA recente all'inizio (più riconoscibile).
-  shuffled.sort((a, b) => recencyScore(b, groupMaxYear) - recencyScore(a, groupMaxYear)
-    + (Math.random() - 0.5) * 0.3);
+  // Campione misto: metà pool shuffled basta per scegliere seed familiari.
+  const sampleSize = Math.min(pool.length, 36);
+  const sample = shuffleInPlace([...pool]).slice(0, sampleSize);
+  sample.sort((a, b) => {
+    const dr = recencyScore(b, groupMaxYear) - recencyScore(a, groupMaxYear);
+    return dr !== 0 ? dr : Math.random() - 0.5;
+  });
 
-  for (let i = 0; i < shuffled.length; i += 1) {
-    const cardA = shuffled[i];
+  const seedCount = Math.min(INITIAL_SEED_TRIES, sample.length);
+  const sharedOpts = {
+    streak: 0,
+    excludeMetricKey: null,
+    groupMaxYear,
+    ranges,
+    earlyExitCount: 10,
+  };
+
+  for (let i = 0; i < seedCount; i += 1) {
+    const cardA = sample[i];
+    const built = tryBuildRound(pool, cardA, [cardA.entity_id], sharedOpts);
+    if (!built) continue;
+    return {
+      ...built,
+      recentEntityIds: [built.cardA.entity_id, built.cardB.entity_id],
+    };
+  }
+
+  // Fallback raro: prova ancora qualche seed random dal pool intero.
+  const fallback = shuffleInPlace([...pool]).slice(0, 4);
+  for (const cardA of fallback) {
     const built = tryBuildRound(pool, cardA, [cardA.entity_id], {
-      streak: 0,
-      excludeMetricKey: null,
-      groupMaxYear,
-      ranges,
+      ...sharedOpts,
+      earlyExitCount: EARLY_EXIT_COUNT,
     });
     if (!built) continue;
     return {
