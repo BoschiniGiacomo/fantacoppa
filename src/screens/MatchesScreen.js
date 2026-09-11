@@ -29,8 +29,15 @@ import {
 } from '../services/matchesStripTeamsCache';
 import { PlayerPhotoImage, TeamLogoImage } from '../components/StableCachedImage';
 import FollowTeamsPreferencesModal from '../components/FollowTeamsPreferencesModal';
+import PromoActionCarousel from '../components/PromoActionCarousel';
+import CompareVsIcon from '../components/CompareVsIcon';
 import { useAuth } from '../context/AuthContext';
 import { getMenuOfficialGroup } from '../utils/menuOfficialGroupSettings';
+import {
+  fetchTrendingPlayersCached,
+  peekTrendingPlayersMemory,
+} from '../utils/trendingPlayersCache';
+import { warmStableMediaIndex } from '../utils/stableMediaDiskCache';
 import { canOpenMatchManagement as roleCanOpenMatchManagement } from '../utils/userRoles';
 import {
   computeLiveHeroClock,
@@ -331,7 +338,7 @@ export default function MatchesScreen() {
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchTeams, setSearchTeams] = useState([]);
   const [searchPlayers, setSearchPlayers] = useState([]);
-  const [trendingPlayers, setTrendingPlayers] = useState([]);
+  const [trendingPlayers, setTrendingPlayers] = useState(() => peekTrendingPlayersMemory() || []);
   const [trendingLoading, setTrendingLoading] = useState(false);
   const [headerHeight, setHeaderHeight] = useState(0);
   const [menuOfficialGroup, setMenuOfficialGroup] = useState(null);
@@ -370,6 +377,13 @@ export default function MatchesScreen() {
       void loadStripTeams(false);
       // Ruolo admin/GM può essere cambiato da SuperUser: riallinea subito.
       refreshSession?.().catch(() => {});
+      // Prefetch "più cercati" + warm cache foto (così all'apertura search sono già pronti)
+      warmStableMediaIndex();
+      fetchTrendingPlayersCached()
+        .then((players) => {
+          if (Array.isArray(players) && players.length) setTrendingPlayers(players);
+        })
+        .catch(() => {});
     }, [loadStripTeams, refreshSession])
   );
 
@@ -602,15 +616,21 @@ export default function MatchesScreen() {
     const seq = trendingSeqRef.current;
     let cancelled = false;
 
+    const cached = peekTrendingPlayersMemory();
+    if (cached?.length) {
+      setTrendingPlayers(cached);
+      setTrendingLoading(false);
+    }
+
     const run = async () => {
       try {
-        setTrendingLoading(true);
-        const res = await matchesService.getTrendingPlayers();
+        if (!cached?.length) setTrendingLoading(true);
+        const players = await fetchTrendingPlayersCached({ force: !cached?.length });
         if (cancelled || seq !== trendingSeqRef.current) return;
-        setTrendingPlayers(Array.isArray(res?.data?.players) ? res.data.players : []);
+        setTrendingPlayers(Array.isArray(players) ? players : []);
       } catch (_) {
         if (cancelled || seq !== trendingSeqRef.current) return;
-        setTrendingPlayers([]);
+        if (!cached?.length) setTrendingPlayers([]);
       } finally {
         if (!cancelled && seq === trendingSeqRef.current) {
           setTrendingLoading(false);
@@ -707,6 +727,29 @@ export default function MatchesScreen() {
     const name = String(menuOfficialGroup?.name || '').trim();
     return name ? `Quanto conosci ${name}?` : null;
   }, [menuOfficialGroup]);
+
+  const promoSlides = useMemo(() => {
+    const slides = [];
+    if (minigamesCtaTitle) {
+      slides.push({
+        id: 'minigames',
+        icon: 'game-controller-outline',
+        title: minigamesCtaTitle,
+        subtitle: 'Sfida Higher or Lower · Minigiochi',
+        onPress: () => navigation.navigate('MinigamesHub'),
+      });
+    }
+    slides.push({
+      id: 'player_compare',
+      title: 'Chi vince il confronto?',
+      subtitle: 'Confronta statistiche dei giocatori',
+      renderIcon: () => <CompareVsIcon size={22} color="#667eea" withPeople />,
+      onPress: () => navigation.navigate('PlayerCompare'),
+    });
+    // Estendibile: news, lega in evidenza, partita live, ecc.
+    // slides.push({ id: 'news', icon: 'newspaper-outline', title: '...', subtitle: '...', onPress: () => ... });
+    return slides;
+  }, [minigamesCtaTitle, navigation]);
 
   const formatTime = (iso) => {
     const d = new Date(iso);
@@ -951,21 +994,8 @@ export default function MatchesScreen() {
         )}
       </View>
 
-      {minigamesCtaTitle ? (
-        <TouchableOpacity
-          style={styles.minigamesCta}
-          activeOpacity={0.88}
-          onPress={() => navigation.navigate('MinigamesHub')}
-        >
-          <View style={styles.minigamesCtaIcon}>
-            <Ionicons name="game-controller-outline" size={22} color="#667eea" />
-          </View>
-          <View style={styles.minigamesCtaBody}>
-            <Text style={styles.minigamesCtaTitle}>{minigamesCtaTitle}</Text>
-            <Text style={styles.minigamesCtaSub}>Sfida Higher or Lower · Minigiochi</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={20} color="#94a3b8" />
-        </TouchableOpacity>
+      {promoSlides.length > 0 ? (
+        <PromoActionCarousel slides={promoSlides} />
       ) : null}
 
       {showCalendarPicker ? (
@@ -1323,40 +1353,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#ececec',
   },
-  minigamesCta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    backgroundColor: '#fff',
-    marginHorizontal: 12,
-    marginBottom: 8,
-    marginTop: 4,
-    borderRadius: 14,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    borderWidth: 1,
-    borderColor: '#c7d2fe',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  minigamesCtaIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 11,
-    backgroundColor: '#eef2ff',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  minigamesCtaBody: { flex: 1 },
-  minigamesCtaTitle: { fontSize: 13, fontWeight: '800', color: '#111827' },
-  minigamesCtaSub: { marginTop: 2, fontSize: 11, color: '#667eea', fontWeight: '600' },
   fabStar: {
     position: 'absolute',
     right: 20,
-    bottom: 88,
+    bottom: 96,
     width: 56,
     height: 56,
     borderRadius: 28,

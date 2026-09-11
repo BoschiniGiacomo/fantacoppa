@@ -1,10 +1,18 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Image, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { resolveDisplayMediaUri, resolveDisplayMediaUriSync } from '../utils/resolveDisplayMediaUri';
 
+function isRemoteUri(uri) {
+  return !!uri && /^https?:\/\//i.test(String(uri));
+}
+
+function isLocalUri(uri) {
+  return !!uri && /^(file:|asset:|content:)/i.test(String(uri));
+}
+
 /**
- * Logo squadra / foto giocatore: bundle sincrono al primo frame, poi cache disco / rete.
+ * Logo squadra / foto giocatore: bundle/memory sync al primo frame, poi cache disco / rete.
  */
 export default function StableCachedImage({
   logoUrl,
@@ -32,22 +40,47 @@ export default function StableCachedImage({
 
   const [uri, setUri] = useState(syncUri);
   const [failed, setFailed] = useState(false);
+  const loadedOkRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
+    loadedOkRef.current = false;
     setFailed(false);
     const immediate = resolveDisplayMediaUriSync(fields).uri;
     if (immediate) setUri(immediate);
+    else setUri(null);
 
     (async () => {
       const { uri: resolved } = await resolveDisplayMediaUri(fields);
-      if (!cancelled && resolved) setUri(resolved);
+      if (cancelled || !resolved) return;
+      setUri((prev) => {
+        // Evita reload tardivo remote→file se l'immagine remota è già a schermo.
+        if (
+          loadedOkRef.current
+          && prev
+          && isRemoteUri(prev)
+          && isLocalUri(resolved)
+          && prev !== resolved
+        ) {
+          return prev;
+        }
+        return resolved;
+      });
+      setFailed(false);
     })();
 
     return () => {
       cancelled = true;
     };
   }, [fields]);
+
+  useEffect(() => {
+    if (syncUri) {
+      loadedOkRef.current = false;
+      setFailed(false);
+      setUri(syncUri);
+    }
+  }, [syncUri]);
 
   const showFallback = !uri || failed;
 
@@ -67,7 +100,11 @@ export default function StableCachedImage({
       source={{ uri }}
       style={style}
       resizeMode={resizeMode}
+      onLoad={() => {
+        loadedOkRef.current = true;
+      }}
       onError={(e) => {
+        loadedOkRef.current = false;
         setFailed(true);
         onError?.(e);
       }}

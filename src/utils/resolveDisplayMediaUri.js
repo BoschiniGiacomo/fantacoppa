@@ -2,7 +2,7 @@ import { publicAssetUrl } from '../services/api';
 import { getBundledAssetUri } from './bundledUploads';
 import { normalizeUploadPath, resolveCanonicalUploadPath } from './normalizeUploadPath';
 import { logMediaCache, mediaUriSource } from './mediaCacheDebug';
-import { resolveMediaLocalFirst } from './stableMediaDiskCache';
+import { resolveMediaLocalFirst, peekMemoryCachedLocalUri } from './stableMediaDiskCache';
 
 function pickStorageInput({ logoUrl, logoPath, photoPath, teamLogo }) {
   const candidates = [logoPath, photoPath, teamLogo, logoUrl];
@@ -47,6 +47,10 @@ export function resolveDisplayMediaUriSync({
   const bundled = getBundledAssetUri(storagePath);
   if (bundled) {
     return { uri: bundled, path: storagePath };
+  }
+  const memoryLocal = peekMemoryCachedLocalUri(storagePath);
+  if (memoryLocal) {
+    return { uri: memoryLocal, path: storagePath };
   }
   const remote = publicAssetUrl(resolveCanonicalUploadPath(storagePath) || storagePath);
   return { uri: remote || null, path: storagePath };
