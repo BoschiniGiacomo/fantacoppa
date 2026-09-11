@@ -36,23 +36,6 @@ const VS_ROW_H = 64;
 const SLIDE_DURATION_MS = 560;
 const SLIDE_START_DELAY_MS = 1650;
 
-/** Log diagnostici remount/refresh card (togli o metti false quando ok). */
-const HL_DEBUG_CARDS = true;
-let hlCardInstanceSeq = 0;
-
-function hlLog(...args) {
-  if (__DEV__ && HL_DEBUG_CARDS) {
-    // eslint-disable-next-line no-console
-    console.log('[HL-card]', ...args);
-  }
-}
-
-function playerLabel(player) {
-  const id = player?.entity_id;
-  const name = String(player?.name || '?').split(' ').pop();
-  return `${name}#${id}`;
-}
-
 function PlayerCard({
   player,
   metric,
@@ -62,7 +45,6 @@ function PlayerCard({
   valueScale,
   countUp = false,
   fill = false,
-  stackIndex = null,
 }) {
   const target = valueOverride != null ? valueOverride : getMetricValue(player, metric);
   const targetNum = Number(target) || 0;
@@ -72,60 +54,18 @@ function PlayerCard({
   const prevPlayerIdRef = useRef(player?.entity_id);
   const prevMetricKeyRef = useRef(metric?.key);
   const countUpActiveRef = useRef(false);
-  const instanceIdRef = useRef(null);
-  if (instanceIdRef.current == null) {
-    hlCardInstanceSeq += 1;
-    instanceIdRef.current = hlCardInstanceSeq;
-  }
-  const inst = instanceIdRef.current;
-
-  useEffect(() => {
-    hlLog('MOUNT', {
-      inst,
-      stackIndex,
-      player: playerLabel(player),
-      metric: metric?.key,
-      showValue,
-      countUp,
-      highlight,
-      fill,
-    });
-    return () => {
-      hlLog('UNMOUNT', {
-        inst,
-        stackIndex,
-        player: playerLabel(player),
-        metric: metric?.key,
-      });
-    };
-    // Solo lifecycle istanza
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   useEffect(() => {
     const playerId = player?.entity_id;
     const metricKey = metric?.key;
-    const prevPlayerId = prevPlayerIdRef.current;
-    const prevMetricKey = prevMetricKeyRef.current;
-    const samePlayer = prevPlayerId === playerId && playerId != null;
-    const metricChanged = prevMetricKey !== metricKey;
-    const playerChanged = prevPlayerId !== playerId;
-
-    if (playerChanged || metricChanged) {
-      hlLog(playerChanged ? 'PLAYER_SWAP (full identity change)' : 'METRIC_ONLY (chip+number)', {
-        inst,
-        stackIndex,
-        from: { player: prevPlayerId, metric: prevMetricKey },
-        to: { player: playerLabel(player), metric: metricKey, value: targetNum },
-      });
-    }
+    const samePlayer = prevPlayerIdRef.current === playerId && playerId != null;
+    const metricChanged = prevMetricKeyRef.current !== metricKey;
 
     prevPlayerIdRef.current = playerId;
     prevMetricKeyRef.current = metricKey;
 
-    // Stesso giocatore, nuova statistica: micro-fade solo su chip+numero (niente dip forte).
+    // Stesso giocatore, nuova statistica: micro-fade solo su chip+numero.
     if (samePlayer && metricChanged) {
-      hlLog('stats soft swap', { inst, metric: metricKey, value: targetNum });
       statsOpacity.setValue(0.72);
       Animated.timing(statsOpacity, {
         toValue: 1,
@@ -134,7 +74,7 @@ function PlayerCard({
         useNativeDriver: true,
       }).start();
     }
-  }, [player?.entity_id, metric?.key, targetNum, statsOpacity, stackIndex, inst, player]);
+  }, [player?.entity_id, metric?.key, statsOpacity]);
 
   useEffect(() => {
     if (!showValue) {
@@ -156,15 +96,9 @@ function PlayerCard({
     }
     countUpActiveRef.current = true;
 
-    hlLog('countUp START 0→value', {
-      inst,
-      player: playerLabel(player),
-      value: targetNum,
-    });
-    const fromValue = 0;
     const toValue = targetNum;
-    countAnim.setValue(fromValue);
-    setDisplayValue(fromValue);
+    countAnim.setValue(0);
+    setDisplayValue(0);
     const listenerId = countAnim.addListener(({ value }) => {
       setDisplayValue(Math.round(value));
     });
@@ -184,7 +118,7 @@ function PlayerCard({
       anim.stop();
       countAnim.removeListener(listenerId);
     };
-    // Parte solo sull'edge reveal (countUp true). targetNum/player letti al via.
+    // Parte solo sull'edge reveal (countUp true).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showValue, countUp]);
 
@@ -558,21 +492,8 @@ export default function HigherLowerGameScreen({ navigation, route }) {
   }, [groupId, best]);
 
   const finishSlideToNext = useCallback((next) => {
-    hlLog('finishSlideToNext COMMIT', {
-      beforeStack: [
-        round?.cardA?.entity_id,
-        round?.cardB?.entity_id,
-        next?.cardB?.entity_id,
-      ],
-      afterStack: [next?.cardA?.entity_id, next?.cardB?.entity_id],
-      metricFrom: round?.metric?.key,
-      metricTo: next?.metric?.key,
-      note: 'Y resta a -travel finché useLayoutEffect non conferma [B,C]',
-    });
     recentRef.current = next.recentEntityIds || [];
-    // Importante: NON resettare stackY qui.
-    // setValue(0) è sync, setRound è async → un frame con [A,B,C] a Y=0
-    // fa riapparire nome/foto della card vecchia (A).
+    // Non resettare stackY qui: setValue è sync, setRound async → flash della card A.
     pendingStackYResetRef.current = true;
     setRound(next);
     setSlideNext(null);
@@ -586,7 +507,6 @@ export default function HigherLowerGameScreen({ navigation, route }) {
     streakInOpacity.setValue(0);
     valueScale.setValue(1);
   }, [
-    round,
     promptOpacity,
     vsBadgeScale,
     streakInY,
@@ -600,9 +520,6 @@ export default function HigherLowerGameScreen({ navigation, route }) {
     if (slideNext != null) return;
     if (phase !== 'guess') return;
     pendingStackYResetRef.current = false;
-    hlLog('stackY reset after commit', {
-      stack: [round?.cardA?.entity_id, round?.cardB?.entity_id],
-    });
     stackY.setValue(0);
   }, [phase, slideNext, round, stackY]);
 
@@ -619,11 +536,6 @@ export default function HigherLowerGameScreen({ navigation, route }) {
       if (!finished) return;
       setSlideNext(next);
       setPhase('slide');
-      hlLog('slide START append C', {
-        stack: [round?.cardA?.entity_id, round?.cardB?.entity_id, next?.cardB?.entity_id],
-        keepMetricOnB: round?.metric?.key,
-        incomingMetric: next?.metric?.key,
-      });
       vsBadgeScale.setValue(1);
       Animated.parallel([
         Animated.timing(stackY, {
@@ -908,7 +820,6 @@ export default function HigherLowerGameScreen({ navigation, route }) {
                       valueScale={item.valueScale}
                       countUp={item.countUp}
                       fill={cardSlotH != null}
-                      stackIndex={index}
                     />
                   </View>
                 );

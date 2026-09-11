@@ -186,6 +186,7 @@ const INITIAL_SEED_TRIES = 6;
 /**
  * Sceglie metrica + avversario in base allo streak.
  * - Mai valori pari
+ * - Mai valori a 0 (regalerebbe Higher/Lower)
  * - Evita ultima metrica (rilassa solo se necessario)
  * - Evita ultimi RECENT_WINDOW entity (rilassa se necessario)
  * - Delta relativo nella fascia del tier, con allargamento progressivo
@@ -254,6 +255,8 @@ export function pickOpponent(pool, cardA, recentEntityIds = [], options = {}) {
     const scored = [];
     metricLoop: for (const metric of metrics) {
       const aVal = aVals[metric.key];
+      // 0 su A (o B sotto) = turno gratis → escludi sempre.
+      if (!(aVal > 0)) continue;
       const span = spans[metric.key];
       for (let i = 0; i < players.length; i += 1) {
         const candidate = players[i];
@@ -261,7 +264,7 @@ export function pickOpponent(pool, cardA, recentEntityIds = [], options = {}) {
         if (!stage.allowRecent && recent.has(id)) continue;
         if (stage.easyWindowOnly && !isInEasyRecencyWindow(candidate, maxYear)) continue;
         const bVal = getMetricValue(candidate, metric);
-        if (bVal === aVal) continue;
+        if (!(bVal > 0) || bVal === aVal) continue;
         const relGap = relativeGapFromValues(aVal, bVal, span);
         if (stage.bandStep < 99 && (relGap < band.min || relGap > band.max)) continue;
 
