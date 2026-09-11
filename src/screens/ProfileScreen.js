@@ -151,6 +151,8 @@ function notificationStatusLabel(status) {
       return 'Bloccate';
     case 'denied':
       return 'Disattive';
+    case 'expo-go-unsupported':
+      return 'Non disponibili in Expo Go';
     default:
       return 'Sconosciuto';
   }

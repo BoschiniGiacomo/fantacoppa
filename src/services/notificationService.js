@@ -1,7 +1,27 @@
-import * as Notifications from 'expo-notifications';
 import { Linking, Platform } from 'react-native';
+import { isRunningInExpoGo } from 'expo';
 import Constants from 'expo-constants';
 import { notificationService as notificationApiService } from './api';
+
+/**
+ * Da SDK 53, in Expo Go su Android l'import di expo-notifications crasha
+ * (push remote rimosse; addPushTokenListener → throw). In Expo Go usiamo stub.
+ */
+const PUSH_UNSUPPORTED_IN_EXPO_GO = isRunningInExpoGo() && Platform.OS === 'android';
+
+let Notifications = null;
+if (!PUSH_UNSUPPORTED_IN_EXPO_GO) {
+  // eslint-disable-next-line global-require
+  Notifications = require('expo-notifications');
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowBanner: true,
+      shouldShowList: true,
+      shouldPlaySound: true,
+      shouldSetBadge: false,
+    }),
+  });
+}
 
 const CHANNEL_ID = 'fantacoppa-reminders';
 const SOURCE = 'fantacoppa-local';
@@ -12,17 +32,8 @@ let registerInFlightPromise = null;
 let lastRegisteredToken = null;
 let lastRegisterAtMs = 0;
 
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-  }),
-});
-
 async function ensureAndroidChannel() {
-  if (Platform.OS !== 'android') return;
+  if (!Notifications || Platform.OS !== 'android') return;
   await Notifications.setNotificationChannelAsync(CHANNEL_ID, {
     name: 'Promemoria FantaCoppa',
     importance: Notifications.AndroidImportance.HIGH,
@@ -31,12 +42,13 @@ async function ensureAndroidChannel() {
 }
 
 export async function initNotifications() {
-  if (initialized) return;
+  if (PUSH_UNSUPPORTED_IN_EXPO_GO || initialized) return;
   await ensureAndroidChannel();
   initialized = true;
 }
 
 export async function requestNotificationsPermissionIfNeeded() {
+  if (!Notifications) return false;
   const current = await Notifications.getPermissionsAsync();
   if (current.granted || current.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL) {
     return true;
@@ -55,6 +67,9 @@ export async function openSystemNotificationSettings() {
 
 /** Stato permesso notifiche per UI (senza richiedere il permesso). */
 export async function getNotificationPermissionStatus() {
+  if (PUSH_UNSUPPORTED_IN_EXPO_GO) {
+    return { granted: false, status: 'expo-go-unsupported' };
+  }
   try {
     await initNotifications();
     const current = await Notifications.getPermissionsAsync();
@@ -82,6 +97,8 @@ function resolveExpoProjectId() {
 }
 
 async function registerDevicePushToken({ force = false } = {}) {
+  if (!Notifications) return false;
+
   const nowAtEntry = Date.now();
   if (!force && lastRegisteredToken && nowAtEntry - lastRegisterAtMs < TOKEN_REFRESH_MS) {
     return true;
@@ -128,6 +145,7 @@ async function registerDevicePushToken({ force = false } = {}) {
 }
 
 export async function registerPushTokenIfPermitted() {
+  if (PUSH_UNSUPPORTED_IN_EXPO_GO) return false;
   await initNotifications();
   const ok = await requestNotificationsPermissionIfNeeded();
   if (!ok) {
@@ -138,6 +156,7 @@ export async function registerPushTokenIfPermitted() {
 
 /** Rimuove vecchie notifiche locali programmate (formazione) dopo passaggio a push server. */
 async function cancelLegacyLocalFormationReminders() {
+  if (!Notifications) return;
   const scheduled = await Notifications.getAllScheduledNotificationsAsync();
   const managed = scheduled.filter((n) => n?.content?.data?.source === SOURCE);
   await Promise.all(managed.map((n) => Notifications.cancelScheduledNotificationAsync(n.identifier)));
@@ -148,6 +167,7 @@ async function cancelLegacyLocalFormationReminders() {
  * Promemoria e “giornata calcolata” arrivano via Expo → FCM/APNs anche con app chiusa (cron + calcolo ).
  */
 export async function syncLeagueNotifications(_leagues = []) {
+  if (PUSH_UNSUPPORTED_IN_EXPO_GO) return;
   await initNotifications();
   const hasPermission = await requestNotificationsPermissionIfNeeded();
   if (hasPermission) {
