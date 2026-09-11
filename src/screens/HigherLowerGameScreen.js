@@ -36,6 +36,23 @@ const VS_ROW_H = 64;
 const SLIDE_DURATION_MS = 560;
 const SLIDE_START_DELAY_MS = 1650;
 
+/** Log diagnostici remount/refresh card (togli o metti false quando ok). */
+const HL_DEBUG_CARDS = true;
+let hlCardInstanceSeq = 0;
+
+function hlLog(...args) {
+  if (__DEV__ && HL_DEBUG_CARDS) {
+    // eslint-disable-next-line no-console
+    console.log('[HL-card]', ...args);
+  }
+}
+
+function playerLabel(player) {
+  const id = player?.entity_id;
+  const name = String(player?.name || '?').split(' ').pop();
+  return `${name}#${id}`;
+}
+
 function PlayerCard({
   player,
   metric,
@@ -45,11 +62,78 @@ function PlayerCard({
   valueScale,
   countUp = false,
   fill = false,
+  stackIndex = null,
 }) {
   const target = valueOverride != null ? valueOverride : getMetricValue(player, metric);
   const targetNum = Number(target) || 0;
   const [displayValue, setDisplayValue] = useState(showValue && countUp ? 0 : targetNum);
   const countAnim = useRef(new Animated.Value(0)).current;
+  const statsOpacity = useRef(new Animated.Value(1)).current;
+  const prevPlayerIdRef = useRef(player?.entity_id);
+  const prevMetricKeyRef = useRef(metric?.key);
+  const instanceIdRef = useRef(null);
+  if (instanceIdRef.current == null) {
+    hlCardInstanceSeq += 1;
+    instanceIdRef.current = hlCardInstanceSeq;
+  }
+  const inst = instanceIdRef.current;
+
+  useEffect(() => {
+    hlLog('MOUNT', {
+      inst,
+      stackIndex,
+      player: playerLabel(player),
+      metric: metric?.key,
+      showValue,
+      countUp,
+      highlight,
+      fill,
+    });
+    return () => {
+      hlLog('UNMOUNT', {
+        inst,
+        stackIndex,
+        player: playerLabel(player),
+        metric: metric?.key,
+      });
+    };
+    // Solo lifecycle istanza
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const playerId = player?.entity_id;
+    const metricKey = metric?.key;
+    const prevPlayerId = prevPlayerIdRef.current;
+    const prevMetricKey = prevMetricKeyRef.current;
+    const samePlayer = prevPlayerId === playerId && playerId != null;
+    const metricChanged = prevMetricKey !== metricKey;
+    const playerChanged = prevPlayerId !== playerId;
+
+    if (playerChanged || metricChanged) {
+      hlLog(playerChanged ? 'PLAYER_SWAP (full identity change)' : 'METRIC_ONLY (chip+number)', {
+        inst,
+        stackIndex,
+        from: { player: prevPlayerId, metric: prevMetricKey },
+        to: { player: playerLabel(player), metric: metricKey, value: targetNum },
+      });
+    }
+
+    prevPlayerIdRef.current = playerId;
+    prevMetricKeyRef.current = metricKey;
+
+    // Stesso giocatore, nuova statistica: solo fade di chip/valore (niente “flash” card).
+    if (samePlayer && metricChanged) {
+      hlLog('stats fade start', { inst, metric: metricKey, value: targetNum });
+      statsOpacity.setValue(0.2);
+      Animated.timing(statsOpacity, {
+        toValue: 1,
+        duration: 260,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [player?.entity_id, player?.name, metric?.key, targetNum, statsOpacity, stackIndex, inst, player]);
 
   useEffect(() => {
     if (!showValue) {
@@ -64,6 +148,11 @@ function PlayerCard({
       return undefined;
     }
 
+    hlLog('countUp RESET 0→value (possible flash)', {
+      inst,
+      player: playerLabel(player),
+      value: targetNum,
+    });
     countAnim.setValue(0);
     setDisplayValue(0);
     const listenerId = countAnim.addListener(({ value }) => {
@@ -85,7 +174,7 @@ function PlayerCard({
       anim.stop();
       countAnim.removeListener(listenerId);
     };
-  }, [showValue, countUp, targetNum, countAnim]);
+  }, [showValue, countUp, targetNum, countAnim, inst, player]);
 
   return (
     <View
@@ -112,21 +201,23 @@ function PlayerCard({
         >
           {player?.name || '—'}
         </Text>
-        <View style={styles.metricChip}>
-          <Text style={styles.metricChipText}>{metric?.unitLabel || 'stat'}</Text>
-        </View>
-        {showValue ? (
-          <Animated.Text
-            style={[
-              styles.cardValue,
-              valueScale ? { transform: [{ scale: valueScale }] } : null,
-            ]}
-          >
-            {displayValue}
-          </Animated.Text>
-        ) : (
-          <Text style={styles.cardValueHidden}>??</Text>
-        )}
+        <Animated.View style={{ opacity: statsOpacity }}>
+          <View style={styles.metricChip}>
+            <Text style={styles.metricChipText}>{metric?.unitLabel || 'stat'}</Text>
+          </View>
+          {showValue ? (
+            <Animated.Text
+              style={[
+                styles.cardValue,
+                valueScale ? { transform: [{ scale: valueScale }] } : null,
+              ]}
+            >
+              {displayValue}
+            </Animated.Text>
+          ) : (
+            <Text style={styles.cardValueHidden}>??</Text>
+          )}
+        </Animated.View>
       </View>
     </View>
   );
@@ -446,6 +537,17 @@ export default function HigherLowerGameScreen({ navigation, route }) {
   }, [groupId, best]);
 
   const finishSlideToNext = useCallback((next) => {
+    hlLog('finishSlideToNext COMMIT', {
+      beforeStack: [
+        round?.cardA?.entity_id,
+        round?.cardB?.entity_id,
+        slideNext?.cardB?.entity_id,
+      ],
+      afterStack: [next?.cardA?.entity_id, next?.cardB?.entity_id],
+      metricFrom: round?.metric?.key,
+      metricTo: next?.metric?.key,
+      note: 'Se subito dopo vedi UNMOUNT+MOUNT su B o C, React non riusa le istanze',
+    });
     recentRef.current = next.recentEntityIds || [];
     setRound(next);
     setSlideNext(null);
@@ -459,7 +561,16 @@ export default function HigherLowerGameScreen({ navigation, route }) {
     streakInY.setValue(22);
     streakInOpacity.setValue(0);
     valueScale.setValue(1);
-  }, [stackY, promptOpacity, vsBadgeScale, streakInY, streakInOpacity, valueScale]);
+  }, [
+    round,
+    slideNext,
+    stackY,
+    promptOpacity,
+    vsBadgeScale,
+    streakInY,
+    streakInOpacity,
+    valueScale,
+  ]);
 
   const startAdvanceSlide = useCallback((next, travel) => {
     setShowStreakInBadge(false);
@@ -474,6 +585,11 @@ export default function HigherLowerGameScreen({ navigation, route }) {
       if (!finished) return;
       setSlideNext(next);
       setPhase('slide');
+      hlLog('slide START append C', {
+        stack: [round?.cardA?.entity_id, round?.cardB?.entity_id, next?.cardB?.entity_id],
+        keepMetricOnB: round?.metric?.key,
+        incomingMetric: next?.metric?.key,
+      });
       vsBadgeScale.setValue(1);
       Animated.parallel([
         Animated.timing(stackY, {
@@ -537,9 +653,10 @@ export default function HigherLowerGameScreen({ navigation, route }) {
           return;
         }
 
-        const travel = cardsBlockH > 0
-          ? (cardsBlockH - VS_ROW_H) / 2 + VS_ROW_H
-          : 200;
+        const slotH = cardsBlockH > 0
+          ? Math.max(120, (cardsBlockH - VS_ROW_H) / 2)
+          : 160;
+        const travel = slotH + VS_ROW_H;
         startAdvanceSlide(next, travel);
       }, SLIDE_START_DELAY_MS);
     } else {
@@ -583,15 +700,49 @@ export default function HigherLowerGameScreen({ navigation, route }) {
     return buildComparePrompt(round.metric, round.cardA, round.cardB);
   }, [round, phase, slideNext]);
 
-  const bHighlight = lastResult && phase === 'reveal'
-    ? (lastResult.correct ? 'win' : 'lose')
-    : null;
-
   const cardSlotH = cardsBlockH > 0
     ? Math.max(120, (cardsBlockH - VS_ROW_H) / 2)
     : null;
-  const isSliding = phase === 'slide' && !!slideNext;
-  const showBottomValue = phase === 'reveal' || isSliding;
+
+  /**
+   * Stack stabile keyed by entity_id.
+   * Slide: [A, B, C] → a fine si droppa A e restano [B, C] senza remount.
+   */
+  const stackCards = useMemo(() => {
+    if (!round) return [];
+    const revealMetric = round.metric;
+    const items = [
+      {
+        player: round.cardA,
+        metric: revealMetric,
+        showValue: true,
+        highlight: null,
+        countUp: false,
+        valueScale: null,
+      },
+      {
+        player: round.cardB,
+        metric: revealMetric,
+        showValue: phase !== 'guess' || !!slideNext,
+        highlight: (phase === 'reveal' || !!slideNext) && lastResult
+          ? (lastResult.correct ? 'win' : 'lose')
+          : null,
+        countUp: phase === 'reveal',
+        valueScale: phase === 'reveal' ? valueScale : null,
+      },
+    ];
+    if (slideNext?.cardB) {
+      items.push({
+        player: slideNext.cardB,
+        metric: slideNext.metric,
+        showValue: false,
+        highlight: null,
+        countUp: false,
+        valueScale: null,
+      });
+    }
+    return items;
+  }, [round, slideNext, phase, lastResult, valueScale]);
 
   const vsBadgeContent = (() => {
     if (phase === 'guess' || phase === 'slide' || !lastResult) {
@@ -700,45 +851,42 @@ export default function HigherLowerGameScreen({ navigation, route }) {
             <Animated.View
               style={[
                 styles.cardsStack,
-                cardSlotH != null ? { transform: [{ translateY: stackY }] } : null,
+                { transform: [{ translateY: stackY }] },
               ]}
             >
-              <View style={[styles.cardSlot, cardSlotH != null ? { height: cardSlotH } : styles.cardSlotFlex]}>
-                <PlayerCard
-                  player={round.cardA}
-                  metric={round.metric}
-                  showValue
-                  fill={cardSlotH != null}
-                />
-              </View>
-              <View style={styles.vsSpacer} />
-              <View style={[styles.cardSlot, cardSlotH != null ? { height: cardSlotH } : styles.cardSlotFlex]}>
-                <PlayerCard
-                  player={round.cardB}
-                  metric={isSliding ? slideNext.metric : round.metric}
-                  showValue={showBottomValue}
-                  highlight={bHighlight}
-                  valueScale={phase === 'reveal' ? valueScale : null}
-                  countUp={phase === 'reveal'}
-                  fill={cardSlotH != null}
-                />
-              </View>
-              {isSliding ? (
-                <>
-                  <View style={styles.vsSpacer} />
-                  <View style={[styles.cardSlot, cardSlotH != null ? { height: cardSlotH } : styles.cardSlotFlex]}>
+              {stackCards.map((item, index) => {
+                const id = item.player?.entity_id;
+                return (
+                  <View
+                    key={String(id ?? `idx-${index}`)}
+                    style={[
+                      styles.cardSlot,
+                      cardSlotH != null ? { height: cardSlotH } : styles.cardSlotFlex,
+                      index > 0 ? { marginTop: VS_ROW_H } : null,
+                    ]}
+                  >
                     <PlayerCard
-                      player={slideNext.cardB}
-                      metric={slideNext.metric}
-                      showValue={false}
+                      player={item.player}
+                      metric={item.metric}
+                      showValue={item.showValue}
+                      highlight={item.highlight}
+                      valueScale={item.valueScale}
+                      countUp={item.countUp}
                       fill={cardSlotH != null}
+                      stackIndex={index}
                     />
                   </View>
-                </>
-              ) : null}
+                );
+              })}
             </Animated.View>
 
-            <View style={styles.vsOverlay} pointerEvents="none">
+            <View
+              style={[
+                styles.vsOverlayPinned,
+                cardSlotH != null ? { top: cardSlotH } : styles.vsOverlayFallback,
+              ]}
+              pointerEvents="none"
+            >
               <View style={styles.vsRow}>
                 <View style={styles.vsLine} />
                 <Animated.View style={vsBadgeStyle}>
@@ -883,10 +1031,21 @@ const styles = StyleSheet.create({
   vsSpacer: {
     height: VS_ROW_H,
   },
-  vsOverlay: {
-    ...StyleSheet.absoluteFillObject,
+  vsRowWrap: {
+    height: VS_ROW_H,
     justifyContent: 'center',
     zIndex: 5,
+  },
+  vsOverlayPinned: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: VS_ROW_H,
+    justifyContent: 'center',
+    zIndex: 5,
+  },
+  vsOverlayFallback: {
+    top: '34%',
   },
   card: {
     flex: 1,
