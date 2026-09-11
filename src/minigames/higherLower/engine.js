@@ -2,21 +2,36 @@ import { METRICS, getMetricValue } from './metrics';
 
 /** Quanti entity_id evitare di ripescare (poi si rilassa). */
 export const RECENT_WINDOW = 15;
-/** Ogni N risposte corrette sale di un tier di difficoltà. */
-export const TIER_EVERY = 5;
 
 /**
- * Fasce di delta relativo |a-b| / (max-min metrica).
- * Tier 0 = gap larghi (facile); tier alti = gap stretti (difficile).
- * Parametri regolabili dopo playtest.
+ * Fasce di delta relativo |a-b| / (max-min metrica), per streak.
+ * upTo = streak massimo incluso in questa fascia (Infinity = resto).
+ * Sale più in fretta all’inizio; 20+ molto stretto.
  */
-export const GAP_BANDS = [
-  { min: 0.42, max: 1.0 }, // 0–4
-  { min: 0.28, max: 0.58 }, // 5–9
-  { min: 0.18, max: 0.40 }, // 10–14
-  { min: 0.10, max: 0.26 }, // 15–19
-  { min: 0.05, max: 0.16 }, // 20+
+export const DIFFICULTY_TIERS = [
+  { upTo: 2, min: 0.42, max: 1.0 }, // 0–2
+  { upTo: 5, min: 0.28, max: 0.58 }, // 3–5
+  { upTo: 9, min: 0.18, max: 0.40 }, // 6–9
+  { upTo: 14, min: 0.10, max: 0.24 }, // 10–14
+  { upTo: 19, min: 0.05, max: 0.14 }, // 15–19
+  { upTo: Infinity, min: 0.02, max: 0.07 }, // 20+
 ];
+
+/** @deprecated alias: usare DIFFICULTY_TIERS */
+export const GAP_BANDS = DIFFICULTY_TIERS.map(({ min, max }) => ({ min, max }));
+
+export function getDifficultyTier(streak) {
+  const s = Math.max(0, Number(streak) || 0);
+  for (let i = 0; i < DIFFICULTY_TIERS.length; i += 1) {
+    if (s <= DIFFICULTY_TIERS[i].upTo) return i;
+  }
+  return DIFFICULTY_TIERS.length - 1;
+}
+
+export function getGapBand(streak) {
+  const tier = DIFFICULTY_TIERS[getDifficultyTier(streak)];
+  return { min: tier.min, max: tier.max };
+}
 
 /** Anni di “vecchiaia” per normalizzare la familiarità fuori dalla finestra easy. */
 const RECENCY_SPAN_YEARS = 8;
@@ -47,15 +62,6 @@ export function filterPlayablePlayers(players) {
       + (Number(p.teams_count) || 0);
     return total > 0;
   });
-}
-
-export function getDifficultyTier(streak) {
-  const s = Math.max(0, Number(streak) || 0);
-  return Math.min(GAP_BANDS.length - 1, Math.floor(s / TIER_EVERY));
-}
-
-export function getGapBand(streak) {
-  return GAP_BANDS[getDifficultyTier(streak)];
 }
 
 function resolveGroupMaxYear(pool, explicitMax) {
@@ -165,7 +171,7 @@ function scorePair({
 }) {
   const gapScore = gapFitScore(relGap, band);
   const familiarity = (recencyA + recencyB) / 2;
-  const difficulty01 = tier / Math.max(1, GAP_BANDS.length - 1);
+  const difficulty01 = tier / Math.max(1, DIFFICULTY_TIERS.length - 1);
   const recencyFit = difficulty01 < 0.45
     ? familiarity
     : (1 - familiarity);
@@ -209,7 +215,7 @@ export function pickOpponent(pool, cardA, recentEntityIds = [], options = {}) {
 
   const ranges = rangesOpt || buildMetricRanges(pool);
   const tier = getDifficultyTier(streak);
-  const baseBand = GAP_BANDS[tier];
+  const baseBand = getGapBand(streak);
   const maxYear = resolveGroupMaxYear(pool, groupMaxYear);
   const recencyA = recencyScore(cardA, maxYear);
   const recent = new Set((recentEntityIds || []).map(Number));

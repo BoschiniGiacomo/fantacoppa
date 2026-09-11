@@ -31,6 +31,11 @@ import {
 } from '../minigames/higherLower/packCache';
 import { getSistemaSettings, getVisibleMinigames } from '../utils/sistemaSettings';
 
+/** Altezza fascia VS (margin 10+10 + badge 44). */
+const VS_ROW_H = 64;
+const SLIDE_DURATION_MS = 560;
+const SLIDE_START_DELAY_MS = 1650;
+
 function PlayerCard({
   player,
   metric,
@@ -39,6 +44,7 @@ function PlayerCard({
   highlight,
   valueScale,
   countUp = false,
+  fill = false,
 }) {
   const target = valueOverride != null ? valueOverride : getMetricValue(player, metric);
   const targetNum = Number(target) || 0;
@@ -85,6 +91,7 @@ function PlayerCard({
     <View
       style={[
         styles.card,
+        fill && styles.cardFill,
         highlight === 'win' && styles.cardWin,
         highlight === 'lose' && styles.cardLose,
       ]}
@@ -204,19 +211,24 @@ export default function HigherLowerGameScreen({ navigation, route }) {
   const [round, setRound] = useState(null);
   const [streak, setStreak] = useState(0);
   const [best, setBest] = useState(0);
-  const [phase, setPhase] = useState('guess'); // guess | reveal | gameover
+  const [phase, setPhase] = useState('guess'); // guess | reveal | slide | gameover
   const [lastResult, setLastResult] = useState(null);
   const [busy, setBusy] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
   const [soloMinigame, setSoloMinigame] = useState(
     () => route?.params?.soloMinigame === true,
   );
+  const [cardsBlockH, setCardsBlockH] = useState(0);
+  /** Round successivo già calcolato, in animazione di slide. */
+  const [slideNext, setSlideNext] = useState(null);
 
   const valueScale = useRef(new Animated.Value(1)).current;
   const streakScale = useRef(new Animated.Value(1)).current;
   const vsBadgeScale = useRef(new Animated.Value(1)).current;
   const streakInY = useRef(new Animated.Value(22)).current;
   const streakInOpacity = useRef(new Animated.Value(0)).current;
+  const stackY = useRef(new Animated.Value(0)).current;
+  const promptOpacity = useRef(new Animated.Value(1)).current;
   const recentRef = useRef([]);
   const poolRef = useRef(pool);
   const phaseRef = useRef(phase);
@@ -225,8 +237,22 @@ export default function HigherLowerGameScreen({ navigation, route }) {
   const groupMaxYearRef = useRef(
     routeGroupId ? peekHigherLowerGroupMaxYear(routeGroupId) : null,
   );
+  const timersRef = useRef([]);
   const [showStreakInBadge, setShowStreakInBadge] = useState(false);
   const [streakPopValue, setStreakPopValue] = useState(0);
+
+  const clearTimers = useCallback(() => {
+    timersRef.current.forEach(clearTimeout);
+    timersRef.current = [];
+  }, []);
+
+  const schedule = useCallback((fn, ms) => {
+    const id = setTimeout(fn, ms);
+    timersRef.current.push(id);
+    return id;
+  }, []);
+
+  useEffect(() => () => clearTimers(), [clearTimers]);
 
   useEffect(() => { poolRef.current = pool; }, [pool]);
   useEffect(() => { phaseRef.current = phase; }, [phase]);
@@ -299,6 +325,7 @@ export default function HigherLowerGameScreen({ navigation, route }) {
       setRound(null);
       return false;
     }
+    clearTimers();
     recordAtStartRef.current = bestRef.current;
     recentRef.current = initial.recentEntityIds || [];
     setRound(initial);
@@ -309,11 +336,14 @@ export default function HigherLowerGameScreen({ navigation, route }) {
     setError(null);
     setShowStreakInBadge(false);
     setStreakPopValue(0);
+    setSlideNext(null);
+    stackY.setValue(0);
+    promptOpacity.setValue(1);
     vsBadgeScale.setValue(1);
     streakInY.setValue(22);
     streakInOpacity.setValue(0);
     return true;
-  }, [vsBadgeScale, streakInY, streakInOpacity]);
+  }, [vsBadgeScale, streakInY, streakInOpacity, stackY, promptOpacity, clearTimers]);
 
   const loadPack = useCallback(async () => {
     setError(null);
@@ -415,10 +445,63 @@ export default function HigherLowerGameScreen({ navigation, route }) {
     }
   }, [groupId, best]);
 
+  const finishSlideToNext = useCallback((next) => {
+    recentRef.current = next.recentEntityIds || [];
+    setRound(next);
+    setSlideNext(null);
+    setLastResult(null);
+    setShowStreakInBadge(false);
+    setPhase('guess');
+    setBusy(false);
+    stackY.setValue(0);
+    promptOpacity.setValue(1);
+    vsBadgeScale.setValue(1);
+    streakInY.setValue(22);
+    streakInOpacity.setValue(0);
+    valueScale.setValue(1);
+  }, [stackY, promptOpacity, vsBadgeScale, streakInY, streakInOpacity, valueScale]);
+
+  const startAdvanceSlide = useCallback((next, travel) => {
+    setShowStreakInBadge(false);
+    stackY.setValue(0);
+    promptOpacity.setValue(1);
+
+    Animated.timing(promptOpacity, {
+      toValue: 0,
+      duration: 140,
+      useNativeDriver: true,
+    }).start(({ finished }) => {
+      if (!finished) return;
+      setSlideNext(next);
+      setPhase('slide');
+      vsBadgeScale.setValue(1);
+      Animated.parallel([
+        Animated.timing(stackY, {
+          toValue: -travel,
+          duration: SLIDE_DURATION_MS,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.timing(promptOpacity, {
+          toValue: 1,
+          duration: 220,
+          delay: 80,
+          useNativeDriver: true,
+        }),
+      ]).start(({ finished: slideDone }) => {
+        if (!slideDone) return;
+        finishSlideToNext(next);
+      });
+    });
+  }, [stackY, promptOpacity, vsBadgeScale, finishSlideToNext]);
+
   const onGuess = async (guess) => {
     if (phase !== 'guess' || busy || !round) return;
     setBusy(true);
+    clearTimers();
     setShowStreakInBadge(false);
+    setSlideNext(null);
+    stackY.setValue(0);
     const result = evaluateGuess(guess, round.cardA, round.cardB, round.metric);
     setLastResult(result);
     setPhase('reveal');
@@ -434,11 +517,11 @@ export default function HigherLowerGameScreen({ navigation, route }) {
         void persistBestIfNeeded(nextStreak);
       }
 
-      setTimeout(() => {
+      schedule(() => {
         revealStreakInBadge(nextStreak);
       }, 980);
 
-      setTimeout(() => {
+      schedule(() => {
         const next = advanceRound(
           pool,
           round.cardB,
@@ -453,19 +536,15 @@ export default function HigherLowerGameScreen({ navigation, route }) {
           void persistBestIfNeeded(nextStreak);
           return;
         }
-        recentRef.current = next.recentEntityIds || [];
-        setRound(next);
-        setLastResult(null);
-        setShowStreakInBadge(false);
-        setPhase('guess');
-        setBusy(false);
-        vsBadgeScale.setValue(1);
-        streakInY.setValue(22);
-        streakInOpacity.setValue(0);
-      }, 2700);
+
+        const travel = cardsBlockH > 0
+          ? (cardsBlockH - VS_ROW_H) / 2 + VS_ROW_H
+          : 200;
+        startAdvanceSlide(next, travel);
+      }, SLIDE_START_DELAY_MS);
     } else {
       void persistBestIfNeeded(streak);
-      setTimeout(() => {
+      schedule(() => {
         setPhase('gameover');
         setBusy(false);
       }, 1450);
@@ -496,12 +575,55 @@ export default function HigherLowerGameScreen({ navigation, route }) {
     navigation.navigate('MainTabs', { screen: 'Partite' });
   };
 
-  const prompt = round
-    ? buildComparePrompt(round.metric, round.cardA, round.cardB)
-    : 'Higher or Lower';
-  const bHighlight = lastResult
+  const prompt = useMemo(() => {
+    if (!round) return 'Higher or Lower';
+    if (phase === 'slide' && slideNext) {
+      return buildComparePrompt(slideNext.metric, slideNext.cardA, slideNext.cardB);
+    }
+    return buildComparePrompt(round.metric, round.cardA, round.cardB);
+  }, [round, phase, slideNext]);
+
+  const bHighlight = lastResult && phase === 'reveal'
     ? (lastResult.correct ? 'win' : 'lose')
     : null;
+
+  const cardSlotH = cardsBlockH > 0
+    ? Math.max(120, (cardsBlockH - VS_ROW_H) / 2)
+    : null;
+  const isSliding = phase === 'slide' && !!slideNext;
+  const showBottomValue = phase === 'reveal' || isSliding;
+
+  const vsBadgeContent = (() => {
+    if (phase === 'guess' || phase === 'slide' || !lastResult) {
+      return <Text style={styles.vsText}>O</Text>;
+    }
+    if (lastResult.correct && showStreakInBadge) {
+      return (
+        <Animated.Text
+          style={[
+            styles.vsStreakText,
+            {
+              opacity: streakInOpacity,
+              transform: [{ translateY: streakInY }],
+            },
+          ]}
+        >
+          {streakPopValue}
+        </Animated.Text>
+      );
+    }
+    if (lastResult.correct) {
+      return <Ionicons name="checkmark" size={28} color="#fff" />;
+    }
+    return <Ionicons name="close" size={28} color="#fff" />;
+  })();
+
+  const vsBadgeStyle = [
+    styles.vsBadge,
+    phase === 'reveal' && lastResult?.correct && styles.vsBadgeOk,
+    phase === 'reveal' && lastResult && !lastResult.correct && styles.vsBadgeKo,
+    { transform: [{ scale: vsBadgeScale }] },
+  ];
 
   const recordAtStart = recordAtStartRef.current;
   const scoreVsRecord =
@@ -564,56 +686,67 @@ export default function HigherLowerGameScreen({ navigation, route }) {
         </View>
       ) : (
         <View style={styles.playArea}>
-          <Text style={styles.prompt}>{prompt}</Text>
+          <Animated.Text style={[styles.prompt, { opacity: promptOpacity }]}>
+            {prompt}
+          </Animated.Text>
 
-          <View style={styles.cardsBlock}>
-            <PlayerCard
-              player={round.cardA}
-              metric={round.metric}
-              showValue
-            />
+          <View
+            style={styles.cardsBlock}
+            onLayout={(e) => {
+              const h = Math.round(e.nativeEvent.layout.height);
+              if (h > 0 && h !== cardsBlockH) setCardsBlockH(h);
+            }}
+          >
+            <Animated.View
+              style={[
+                styles.cardsStack,
+                cardSlotH != null ? { transform: [{ translateY: stackY }] } : null,
+              ]}
+            >
+              <View style={[styles.cardSlot, cardSlotH != null ? { height: cardSlotH } : styles.cardSlotFlex]}>
+                <PlayerCard
+                  player={round.cardA}
+                  metric={round.metric}
+                  showValue
+                  fill={cardSlotH != null}
+                />
+              </View>
+              <View style={styles.vsSpacer} />
+              <View style={[styles.cardSlot, cardSlotH != null ? { height: cardSlotH } : styles.cardSlotFlex]}>
+                <PlayerCard
+                  player={round.cardB}
+                  metric={isSliding ? slideNext.metric : round.metric}
+                  showValue={showBottomValue}
+                  highlight={bHighlight}
+                  valueScale={phase === 'reveal' ? valueScale : null}
+                  countUp={phase === 'reveal'}
+                  fill={cardSlotH != null}
+                />
+              </View>
+              {isSliding ? (
+                <>
+                  <View style={styles.vsSpacer} />
+                  <View style={[styles.cardSlot, cardSlotH != null ? { height: cardSlotH } : styles.cardSlotFlex]}>
+                    <PlayerCard
+                      player={slideNext.cardB}
+                      metric={slideNext.metric}
+                      showValue={false}
+                      fill={cardSlotH != null}
+                    />
+                  </View>
+                </>
+              ) : null}
+            </Animated.View>
 
-            <View style={styles.vsRow}>
-              <View style={styles.vsLine} />
-              <Animated.View
-                style={[
-                  styles.vsBadge,
-                  phase !== 'guess' && lastResult?.correct && styles.vsBadgeOk,
-                  phase !== 'guess' && lastResult && !lastResult.correct && styles.vsBadgeKo,
-                  { transform: [{ scale: vsBadgeScale }] },
-                ]}
-              >
-                {phase === 'guess' || !lastResult ? (
-                  <Text style={styles.vsText}>O</Text>
-                ) : lastResult.correct && showStreakInBadge ? (
-                  <Animated.Text
-                    style={[
-                      styles.vsStreakText,
-                      {
-                        opacity: streakInOpacity,
-                        transform: [{ translateY: streakInY }],
-                      },
-                    ]}
-                  >
-                    {streakPopValue}
-                  </Animated.Text>
-                ) : lastResult.correct ? (
-                  <Ionicons name="checkmark" size={28} color="#fff" />
-                ) : (
-                  <Ionicons name="close" size={28} color="#fff" />
-                )}
-              </Animated.View>
-              <View style={styles.vsLine} />
+            <View style={styles.vsOverlay} pointerEvents="none">
+              <View style={styles.vsRow}>
+                <View style={styles.vsLine} />
+                <Animated.View style={vsBadgeStyle}>
+                  {vsBadgeContent}
+                </Animated.View>
+                <View style={styles.vsLine} />
+              </View>
             </View>
-
-            <PlayerCard
-              player={round.cardB}
-              metric={round.metric}
-              showValue={phase !== 'guess'}
-              highlight={bHighlight}
-              valueScale={phase !== 'guess' ? valueScale : null}
-              countUp={phase !== 'guess'}
-            />
           </View>
 
           {phase === 'guess' ? (
@@ -624,7 +757,7 @@ export default function HigherLowerGameScreen({ navigation, route }) {
             />
           ) : (
             <View style={styles.feedbackRow}>
-              {!lastResult?.correct ? (
+              {phase === 'reveal' && !lastResult?.correct ? (
                 <Text style={[styles.feedbackText, styles.koText]}>Sbagliato</Text>
               ) : null}
             </View>
@@ -732,9 +865,28 @@ const styles = StyleSheet.create({
   },
   cardsBlock: {
     flex: 1,
-    justifyContent: 'center',
     minHeight: 0,
-    overflow: 'visible',
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  cardsStack: {
+    width: '100%',
+    flex: 1,
+  },
+  cardSlot: {
+    width: '100%',
+    minHeight: 120,
+  },
+  cardSlotFlex: {
+    flex: 1,
+  },
+  vsSpacer: {
+    height: VS_ROW_H,
+  },
+  vsOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    zIndex: 5,
   },
   card: {
     flex: 1,
@@ -750,6 +902,10 @@ const styles = StyleSheet.create({
     borderColor: '#ececec',
     minHeight: 120,
     overflow: 'visible',
+  },
+  cardFill: {
+    minHeight: 0,
+    height: '100%',
   },
   cardMediaCol: {
     width: 80,
@@ -775,9 +931,8 @@ const styles = StyleSheet.create({
   vsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginVertical: 10,
     gap: 10,
-    zIndex: 3,
+    paddingHorizontal: 0,
   },
   vsLine: { flex: 1, height: 1, backgroundColor: '#e2e8f0' },
   vsBadge: {
