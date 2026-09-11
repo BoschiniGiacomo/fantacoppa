@@ -8,7 +8,6 @@ import {
   ActivityIndicator,
   Modal,
   Pressable,
-  InteractionManager,
   useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -687,7 +686,7 @@ export default function PlayerStatsScreen({ route, navigation }) {
       const defaultKey = editionKey(defaultEdition);
       setSelectedEditionKey(defaultKey);
 
-      InteractionManager.runAfterInteractions(() => {
+      requestIdleCallback(() => {
         if (careerPrefetchStartedRef.current || careerHistory) return;
         careerPrefetchStartedRef.current = true;
         void loadCareer({ prefetch: true });

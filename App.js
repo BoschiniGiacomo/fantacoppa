@@ -4,7 +4,7 @@ import * as SplashScreen from 'expo-splash-screen';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 import { NavigationContainer } from '@react-navigation/native';
-import { createStackNavigator } from '@react-navigation/stack';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { StatusBar } from 'expo-status-bar';
 import { View } from 'react-native';
@@ -74,7 +74,7 @@ import AppLoadingFullScreenModal from './src/components/AppLoadingFullScreenModa
 import { fetchAndCacheStripTeams } from './src/services/matchesStripPrefetch';
 import { readStripTeamsDisk } from './src/services/matchesStripTeamsCache';
 
-const Stack = createStackNavigator();
+const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 
 // Wrapper generico per tutte le schermate dentro una lega

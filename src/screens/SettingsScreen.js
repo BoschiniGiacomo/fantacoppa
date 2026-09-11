@@ -432,7 +432,7 @@ export default function SettingsScreen({ route, navigation }) {
 
       // Apri image picker
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaType?.Images || 'images',
+        mediaTypes: ['images'],
         allowsEditing: true,
         aspect: [1, 1],
         quality: 0.8,
@@ -1145,18 +1145,16 @@ export default function SettingsScreen({ route, navigation }) {
                     mode="time"
                     is24Hour={true}
                     display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                    onChange={(event, selectedDate) => {
+                    onValueChange={(event, selectedDate) => {
                       setShowTimePicker(Platform.OS === 'ios');
-                      if (selectedDate) {
-                        const hours = selectedDate.getHours().toString().padStart(2, '0');
-                        const minutes = selectedDate.getMinutes().toString().padStart(2, '0');
-                        const timeString = `${hours}:${minutes}`;
-                        setSettings({...settings, default_deadline_time: timeString});
-                        // Imposta i secondi a 0 per sicurezza
-                        selectedDate.setSeconds(0, 0);
-                        setTimePickerDate(selectedDate);
-                      }
+                      const hours = selectedDate.getHours().toString().padStart(2, '0');
+                      const minutes = selectedDate.getMinutes().toString().padStart(2, '0');
+                      const timeString = `${hours}:${minutes}`;
+                      setSettings({...settings, default_deadline_time: timeString});
+                      selectedDate.setSeconds(0, 0);
+                      setTimePickerDate(selectedDate);
                     }}
+                    onDismiss={() => setShowTimePicker(false)}
                   />
                 )}
               </View>

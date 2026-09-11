@@ -405,14 +405,13 @@ export default function CalendarManagementScreen({ route, navigation }) {
                   value={selectedDeadline}
                   mode="date"
                   display="default"
-                  onChange={(event, date) => {
+                  onValueChange={(event, date) => {
                     setShowDatePicker(false);
-                    if (date) {
-                      const newDate = new Date(date);
-                      newDate.setHours(selectedDeadline.getHours(), selectedDeadline.getMinutes(), 0, 0);
-                      setSelectedDeadline(newDate);
-                    }
+                    const newDate = new Date(date);
+                    newDate.setHours(selectedDeadline.getHours(), selectedDeadline.getMinutes(), 0, 0);
+                    setSelectedDeadline(newDate);
                   }}
+                  onDismiss={() => setShowDatePicker(false)}
                 />
               )}
 
@@ -421,14 +420,13 @@ export default function CalendarManagementScreen({ route, navigation }) {
                   value={selectedDeadline}
                   mode="time"
                   display="default"
-                  onChange={(event, date) => {
+                  onValueChange={(event, date) => {
                     setShowTimePicker(false);
-                    if (date) {
-                      const newDate = new Date(selectedDeadline);
-                      newDate.setHours(date.getHours(), date.getMinutes(), 0, 0);
-                      setSelectedDeadline(newDate);
-                    }
+                    const newDate = new Date(selectedDeadline);
+                    newDate.setHours(date.getHours(), date.getMinutes(), 0, 0);
+                    setSelectedDeadline(newDate);
                   }}
+                  onDismiss={() => setShowTimePicker(false)}
                 />
               )}
 

@@ -668,17 +668,14 @@ export default function MatchesScreen() {
   const handleCalendarChange = (event, pickedDate) => {
     if (Platform.OS === 'android') {
       setShowCalendarPicker(false);
-      if (event?.type === 'dismissed') return;
-      const nextDate = pickedDate || calendarPickerDate;
-      if (!nextDate) return;
-      setCalendarPickerDate(nextDate);
-      selectDate(toDateKey(nextDate));
-      return;
     }
     // iOS spinner: aggiorna la data in anteprima; chiusura esplicita con Fatto.
-    if (!pickedDate) return;
     setCalendarPickerDate(pickedDate);
     selectDate(toDateKey(pickedDate));
+  };
+
+  const handleCalendarDismiss = () => {
+    setShowCalendarPicker(false);
   };
 
   const closeCalendarPicker = useCallback(() => {
@@ -949,7 +946,8 @@ export default function MatchesScreen() {
                 value={calendarPickerDate}
                 mode="date"
                 display="spinner"
-                onChange={handleCalendarChange}
+                onValueChange={handleCalendarChange}
+                onDismiss={handleCalendarDismiss}
               />
             </View>
           </View>
@@ -958,7 +956,8 @@ export default function MatchesScreen() {
             value={calendarPickerDate}
             mode="date"
             display="default"
-            onChange={handleCalendarChange}
+            onValueChange={handleCalendarChange}
+            onDismiss={handleCalendarDismiss}
           />
         )
       ) : null}

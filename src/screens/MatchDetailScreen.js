@@ -2436,9 +2436,7 @@ export default function MatchDetailScreen({ navigation, route }) {
   const onOverviewKickoffChange = useCallback((event, selectedDate) => {
     if (Platform.OS === 'android') {
       setShowOverviewKickoffPicker(false);
-      if (event?.type === 'dismissed') return;
     }
-    if (!selectedDate) return;
     setOverviewKickoffDateObj((prev) => {
       const next = new Date(prev);
       if (overviewKickoffPickerMode === 'date') {
@@ -2450,6 +2448,10 @@ export default function MatchDetailScreen({ navigation, route }) {
       return next;
     });
   }, [overviewKickoffPickerMode]);
+
+  const onOverviewKickoffDismiss = useCallback(() => {
+    setShowOverviewKickoffPicker(false);
+  }, []);
 
   const overviewVenueOptions = useMemo(() => {
     const list = Array.isArray(overviewDetailsOptions.venues) ? overviewDetailsOptions.venues : [];
@@ -5528,7 +5530,8 @@ export default function MatchDetailScreen({ navigation, route }) {
               value={overviewKickoffDateObj}
               mode={overviewKickoffPickerMode}
               display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-              onChange={onOverviewKickoffChange}
+              onValueChange={onOverviewKickoffChange}
+              onDismiss={onOverviewKickoffDismiss}
             />
           ) : null}
         </>

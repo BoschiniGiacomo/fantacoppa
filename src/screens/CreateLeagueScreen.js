@@ -347,11 +347,13 @@ export default function CreateLeagueScreen({ navigation }) {
   
   const handleTimeChange = (event, selectedTime) => {
     setShowTimePicker(Platform.OS === 'ios');
-    if (selectedTime) {
-      const hours = selectedTime.getHours().toString().padStart(2, '0');
-      const minutes = selectedTime.getMinutes().toString().padStart(2, '0');
-      setFormData({ ...formData, defaultTime: `${hours}:${minutes}` });
-    }
+    const hours = selectedTime.getHours().toString().padStart(2, '0');
+    const minutes = selectedTime.getMinutes().toString().padStart(2, '0');
+    setFormData({ ...formData, defaultTime: `${hours}:${minutes}` });
+  };
+
+  const handleTimeDismiss = () => {
+    setShowTimePicker(false);
   };
   
   const handleSliderChange = (value) => {
@@ -1096,7 +1098,8 @@ export default function CreateLeagueScreen({ navigation }) {
                 mode="time"
                 is24Hour={true}
                 display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                onChange={handleTimeChange}
+                onValueChange={handleTimeChange}
+                onDismiss={handleTimeDismiss}
               />
             )}
           </View>

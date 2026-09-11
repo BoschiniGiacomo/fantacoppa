@@ -1920,7 +1920,7 @@ export default function SuperUserScreen() {
         return;
       }
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaType?.Images || 'images',
+        mediaTypes: ['images'],
         allowsEditing: true,
         aspect: [1, 1],
         quality: 0.8,
@@ -3022,8 +3022,7 @@ export default function SuperUserScreen() {
     if (Platform.OS === 'android') {
       setUserAccessDatePicker(null);
     }
-    if (event?.type === 'dismissed' || !field) return;
-    if (!selectedDate) return;
+    if (!field) return;
     const next = new Date(selectedDate);
     next.setHours(12, 0, 0, 0);
     setUserFilters((prev) => ({
@@ -3033,6 +3032,10 @@ export default function SuperUserScreen() {
     if (Platform.OS === 'ios') {
       setUserAccessDatePicker(null);
     }
+  };
+
+  const onUserAccessDateDismiss = () => {
+    setUserAccessDatePicker(null);
   };
 
   const filteredApprovedClustersByPlayer = useMemo(() => {
@@ -3989,7 +3992,8 @@ export default function SuperUserScreen() {
                             }
                             mode="date"
                             display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                            onChange={onUserAccessDateChange}
+                            onValueChange={onUserAccessDateChange}
+                            onDismiss={onUserAccessDateDismiss}
                             maximumDate={new Date()}
                           />
                         </View>

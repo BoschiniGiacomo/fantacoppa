@@ -1439,7 +1439,6 @@ export default function ManageMatchesScreen() {
     if (Platform.OS === 'android') {
       setShowKickoffPicker(false);
     }
-    if (!selectedDate) return;
     const next = new Date(kickoffDateObj);
     if (kickoffPickerMode === 'date') {
       next.setFullYear(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate());
@@ -1450,15 +1449,21 @@ export default function ManageMatchesScreen() {
     setKickoffAt(formatSqlDateTime(next));
   };
 
+  const onKickoffDismiss = () => {
+    setShowKickoffPicker(false);
+  };
+
   const onFilterDateChange = (event, selectedDate) => {
     if (Platform.OS === 'android') {
       setShowFilterDatePicker(false);
-      if (event?.type === 'dismissed') return;
     }
-    if (!selectedDate) return;
     const ymd = toYmd(selectedDate);
     setFilterYear(selectedDate.getFullYear());
     setDate(ymd);
+  };
+
+  const onFilterDateDismiss = () => {
+    setShowFilterDatePicker(false);
   };
 
   const deleteMatch = useCallback((id) => {
@@ -3368,7 +3373,8 @@ export default function ManageMatchesScreen() {
           mode={kickoffPickerMode}
           is24Hour
           display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-          onChange={onKickoffChange}
+          onValueChange={onKickoffChange}
+          onDismiss={onKickoffDismiss}
         />
       ) : null}
       {showFilterDatePicker ? (
@@ -3377,7 +3383,8 @@ export default function ManageMatchesScreen() {
           mode="date"
           is24Hour
           display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-          onChange={onFilterDateChange}
+          onValueChange={onFilterDateChange}
+          onDismiss={onFilterDateDismiss}
         />
       ) : null}
       {toastMsg ? (
