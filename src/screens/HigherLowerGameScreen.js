@@ -249,7 +249,7 @@ export default function HigherLowerGameScreen({ navigation, route }) {
   const [groupId, setGroupId] = useState(routeGroupId);
   const [groupName, setGroupName] = useState(routeGroupName);
   const cachedStart = routeGroupId ? peekHigherLowerPack(routeGroupId) : null;
-  const [loading, setLoading] = useState(!(cachedStart?.length >= 2));
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [pool, setPool] = useState(cachedStart || []);
   const [round, setRound] = useState(null);
@@ -281,6 +281,7 @@ export default function HigherLowerGameScreen({ navigation, route }) {
   const groupIdRef = useRef(routeGroupId);
   const poolRef = useRef(pool);
   const phaseRef = useRef(phase);
+  const roundRef = useRef(round);
   const bestRef = useRef(0);
   const recordAtStartRef = useRef(0);
   const groupMaxYearRef = useRef(
@@ -309,6 +310,7 @@ export default function HigherLowerGameScreen({ navigation, route }) {
 
   useEffect(() => { poolRef.current = pool; }, [pool]);
   useEffect(() => { phaseRef.current = phase; }, [phase]);
+  useEffect(() => { roundRef.current = round; }, [round]);
   useEffect(() => { bestRef.current = best; }, [best]);
 
   const bounceValue = useCallback(() => {
@@ -429,19 +431,20 @@ export default function HigherLowerGameScreen({ navigation, route }) {
         setGroupName(gname);
       }
       groupIdRef.current = gid;
+
+      // Solo se c’è già un round in corso: non resettare a metà partita.
       const keepCurrentRound =
-        (poolRef.current?.length || 0) >= 2
+        roundRef.current != null
         && phaseRef.current !== 'gameover'
         && phaseRef.current !== 'reveal';
+
+      if (!keepCurrentRound) setLoading(true);
 
       const cached = peekHigherLowerPack(gid);
       if (cached?.length >= 2) {
         groupMaxYearRef.current = peekHigherLowerGroupMaxYear(gid);
         setPool(cached);
         poolRef.current = cached;
-        setLoading(false);
-      } else {
-        setLoading(true);
       }
 
       const [players, localBest, cooldownIds] = await Promise.all([
@@ -467,7 +470,6 @@ export default function HigherLowerGameScreen({ navigation, route }) {
       if (!keepCurrentRound || phaseRef.current === 'gameover') {
         bootstrapRound(playable);
       } else {
-        // Round già avviato da cache: allinea il record di riferimento
         recordAtStartRef.current = mergedBest;
       }
     } catch (e) {

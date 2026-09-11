@@ -344,10 +344,24 @@ export function createInitialRound(players, options = {}) {
   }
 
   // Fallback raro: prova ancora qualche seed random dal pool intero.
-  const fallback = shuffleInPlace([...pool]).slice(0, 4);
+  const fallback = shuffleInPlace([...pool]).slice(0, 8);
   for (const cardA of fallback) {
     const built = tryBuildRound(pool, cardA, [cardA.entity_id], {
       ...sharedOpts,
+      earlyExitCount: EARLY_EXIT_COUNT,
+    });
+    if (!built) continue;
+    return {
+      ...built,
+      recentEntityIds: [built.cardA.entity_id, built.cardB.entity_id],
+    };
+  }
+
+  // Ultima spiaggia: ignora cooldown 15 min piuttosto che lasciare lo schermo vuoto.
+  for (const cardA of shuffleInPlace([...pool]).slice(0, 10)) {
+    const built = tryBuildRound(pool, cardA, [cardA.entity_id], {
+      ...sharedOpts,
+      cooldownEntityIds: [],
       earlyExitCount: EARLY_EXIT_COUNT,
     });
     if (!built) continue;
