@@ -735,7 +735,7 @@ export default function MatchesScreen() {
         id: 'minigames',
         icon: 'game-controller-outline',
         title: minigamesCtaTitle,
-        subtitle: 'Sfida Higher or Lower · Minigiochi',
+        subtitle: 'Sfida Higher or Lower',
         onPress: () => navigation.navigate('MinigamesHub'),
       });
     }

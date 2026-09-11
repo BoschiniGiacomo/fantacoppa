@@ -15,7 +15,7 @@ export default function CompareVsIcon({
 }) {
   const stroke = muted ? '#94a3b8' : color;
   const vsFont = withPeople
-    ? Math.max(9, Math.round(size * 0.42))
+    ? Math.max(7, Math.round(size * 0.30))
     : Math.max(11, Math.round(size * 0.55));
 
   if (!withPeople) {
@@ -26,10 +26,10 @@ export default function CompareVsIcon({
     );
   }
 
-  const personSize = Math.round(size * 0.68);
+  const personSize = Math.round(size * 0.62);
 
   return (
-    <View style={[styles.wrap, { height: size }]}>
+    <View style={[styles.wrap, { height: size, maxWidth: size + 14 }]}>
       <Ionicons name="person-outline" size={personSize} color={stroke} />
       <Text style={[styles.vs, { color: stroke, fontSize: vsFont, lineHeight: vsFont + 2 }]}>
         vs
@@ -44,10 +44,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: 2,
   },
   vs: {
     fontWeight: '700',
-    marginHorizontal: 1,
+    marginHorizontal: 2,
     includeFontPadding: false,
     textAlignVertical: 'center',
   },
