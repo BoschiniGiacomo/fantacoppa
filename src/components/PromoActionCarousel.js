@@ -96,7 +96,7 @@ export default function PromoActionCarousel({
       activeOpacity={0.88}
       onPress={item.onPress}
     >
-      <View style={styles.iconWrap}>
+      <View style={[styles.iconWrap, item.plainIcon && styles.iconWrapPlain]}>
         {typeof item.renderIcon === 'function' ? (
           item.renderIcon()
         ) : (
@@ -201,6 +201,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#eef2ff',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  iconWrapPlain: {
+    backgroundColor: 'transparent',
   },
   body: { flex: 1, minWidth: 0, paddingRight: 8 },
   title: { fontSize: 13, fontWeight: '800', color: '#111827' },

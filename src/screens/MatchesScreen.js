@@ -31,6 +31,7 @@ import { PlayerPhotoImage, TeamLogoImage } from '../components/StableCachedImage
 import FollowTeamsPreferencesModal from '../components/FollowTeamsPreferencesModal';
 import PromoActionCarousel from '../components/PromoActionCarousel';
 import CompareVsIcon from '../components/CompareVsIcon';
+import HigherLowerLogo from '../minigames/higherLower/HigherLowerLogo';
 import { useAuth } from '../context/AuthContext';
 import { getMenuOfficialGroup } from '../utils/menuOfficialGroupSettings';
 import {
@@ -733,9 +734,10 @@ export default function MatchesScreen() {
     if (minigamesCtaTitle) {
       slides.push({
         id: 'minigames',
-        icon: 'game-controller-outline',
         title: minigamesCtaTitle,
         subtitle: 'Sfida Higher or Lower',
+        renderIcon: () => <HigherLowerLogo size={40} />,
+        plainIcon: true,
         onPress: () => navigation.navigate('MinigamesHub'),
       });
     }
