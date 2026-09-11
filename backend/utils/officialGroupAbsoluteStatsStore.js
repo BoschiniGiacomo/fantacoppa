@@ -168,6 +168,43 @@ async function fetchEditionAndTeamCountsByPlayer(groupId) {
   );
 }
 
+/**
+ * Edizioni / squadre a livello entity (cluster o -player_id), allineato al profilo:
+ * editions = numero di rosa/player-id visibili nel gruppo ufficiale pubblico.
+ */
+async function fetchEntityEditionAndTeamCounts(groupId) {
+  const gid = Number(groupId);
+  if (!Number.isFinite(gid) || gid <= 0) return [];
+
+  return query(
+    `SELECT
+       CASE
+         WHEN pc.id IS NOT NULL THEN pc.id
+         ELSE -p.id
+       END AS entity_id,
+       COUNT(DISTINCT p.id)::int AS editions_played,
+       COUNT(DISTINCT p.team_id)::int AS teams_count,
+       MIN(p.id)::int AS representative_player_id
+     FROM players p
+     INNER JOIN teams t ON t.id = p.team_id
+     INNER JOIN leagues l ON l.id = t.league_id
+     LEFT JOIN player_cluster_members pcm ON pcm.player_id = p.id
+     LEFT JOIN player_clusters pc
+       ON pc.id = pcm.cluster_id
+      AND pc.official_group_id = ?
+      AND pc.status = 'approved'
+     WHERE l.official_group_id = ?
+       AND COALESCE(l.is_official, 0) = 1
+       AND COALESCE(l.is_official_squad_public, 0) = 1
+     GROUP BY
+       CASE
+         WHEN pc.id IS NOT NULL THEN pc.id
+         ELSE -p.id
+       END`,
+    [gid, gid],
+  );
+}
+
 async function upsertLeaderboardsSnapshot(groupId, stats) {
   const gid = Number(groupId);
   if (!Number.isFinite(gid) || gid <= 0) return { upserted: 0 };
@@ -230,12 +267,20 @@ async function upsertLeaderboardsSnapshot(groupId, stats) {
     });
   }
 
-  // editions_played / teams_count: somma a livello entity (cluster = union)
-  const editionsByEntity = new Map(); // entity -> Set(leagueKey) — usiamo count aggregato per player poi max/sum
-  const teamsByEntity = new Map();
-  const leagueSets = new Map();
-  const teamSets = new Map();
+  // editions_played / teams_count: conteggio entity-level (cluster union), come overview giocatore
+  const entityCounts = await fetchEntityEditionAndTeamCounts(gid);
+  for (const row of entityCounts || []) {
+    const entityId = Number(row.entity_id);
+    if (!Number.isFinite(entityId) || entityId === 0) continue;
+    const prev = byEntity.get(entityId) || emptyEntity(Number(row.representative_player_id) || 0);
+    prev.editions_played = Number(row.editions_played) || 0;
+    prev.teams_count = Number(row.teams_count) || 0;
+    const repId = Number(row.representative_player_id);
+    if (repId > 0 && !prev.representative_player_id) prev.representative_player_id = repId;
+    byEntity.set(entityId, prev);
+  }
 
+  // Fallback: se manca il conteggio entity, usa max/union da player_meta
   for (const row of playerMetaRows) {
     const pid = Number(row.player_id);
     const entityId = absoluteEntityIdForPlayer(clusterByPlayer.get(pid), pid);
@@ -246,47 +291,16 @@ async function upsertLeaderboardsSnapshot(groupId, stats) {
     if (name && !prev.display_name) prev.display_name = name;
     if (row.photo_path && !prev.photo_path) prev.photo_path = String(row.photo_path);
 
-    // Per cluster: editions/teams sono conteggi union — qui usiamo MAX sul singolo player
-    // e poi ricalcoliamo sotto con set se abbiamo league/team lists; altrimenti somma cauta con max.
-    const ep = Number(row.editions_played) || 0;
-    const tc = Number(row.teams_count) || 0;
-    prev.editions_played = Math.max(Number(prev.editions_played) || 0, ep);
-    prev.teams_count = Math.max(Number(prev.teams_count) || 0, tc);
+    if (!(Number(prev.editions_played) > 0)) {
+      const ep = Number(row.editions_played) || 0;
+      if (ep > 0) prev.editions_played = Math.max(Number(prev.editions_played) || 0, ep);
+    }
+    if (!(Number(prev.teams_count) > 0)) {
+      const tc = Number(row.teams_count) || 0;
+      if (tc > 0) prev.teams_count = Math.max(Number(prev.teams_count) || 0, tc);
+    }
     byEntity.set(entityId, prev);
-
-    if (!leagueSets.has(entityId)) leagueSets.set(entityId, new Set());
-    if (!teamSets.has(entityId)) teamSets.set(entityId, new Set());
-    // Se il backend passa league_ids / team_ids, unisci; altrimenti lascia max
-    if (Array.isArray(row.league_ids)) {
-      for (const lid of row.league_ids) {
-        const n = Number(lid);
-        if (n > 0) leagueSets.get(entityId).add(n);
-      }
-    }
-    if (Array.isArray(row.team_ids)) {
-      for (const tid of row.team_ids) {
-        const n = Number(tid);
-        if (n > 0) teamSets.get(entityId).add(n);
-      }
-    }
   }
-
-  for (const [entityId, set] of leagueSets.entries()) {
-    if (!set.size) continue;
-    const prev = byEntity.get(entityId);
-    if (!prev) continue;
-    prev.editions_played = set.size;
-  }
-  for (const [entityId, set] of teamSets.entries()) {
-    if (!set.size) continue;
-    const prev = byEntity.get(entityId);
-    if (!prev) continue;
-    prev.teams_count = set.size;
-  }
-
-  // silence unused if no detailed sets
-  void editionsByEntity;
-  void teamsByEntity;
 
   await query(
     `DELETE FROM ${TABLE} WHERE official_group_id = ?`,
@@ -542,7 +556,15 @@ async function fetchHigherLowerPackFromStore(groupId) {
 
   const cached = packCache.get(gid);
   if (cached && cached.expiresAt > Date.now()) {
-    return cached.payload;
+    const cachedPlayers = cached.payload?.players || [];
+    const cachedLooksStale = cachedPlayers.some((p) =>
+      ((Number(p.goals) || 0) + (Number(p.appearances) || 0) > 0)
+      && (Number(p.editions_played) || 0) === 0
+    ) && cachedPlayers.every((p) => (Number(p.editions_played) || 0) === 0);
+    if (!cachedLooksStale) {
+      return cached.payload;
+    }
+    packCache.delete(gid);
   }
 
   await ensureOfficialGroupAbsoluteStatsTable();
@@ -557,7 +579,19 @@ async function fetchHigherLowerPackFromStore(groupId) {
     [gid],
   );
 
-  if (!rows?.length) {
+  const snapshotLooksStale = (list) => {
+    if (!list?.length) return true;
+    let activity = 0;
+    let maxEditions = 0;
+    for (const row of list) {
+      activity += (Number(row.total_goals) || 0) + (Number(row.total_presences) || 0);
+      maxEditions = Math.max(maxEditions, Number(row.editions_played) || 0);
+    }
+    // Snapshot pre-fix: gol/presenze presenti ma edizioni tutte a 0
+    return activity > 0 && maxEditions === 0;
+  };
+
+  if (snapshotLooksStale(rows)) {
     await recomputeAndStoreOfficialGroupAbsoluteStats(gid);
     rows = await query(
       `SELECT cluster_id, representative_player_id, total_goals, total_presences,

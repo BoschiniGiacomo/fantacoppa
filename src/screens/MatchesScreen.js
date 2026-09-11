@@ -745,7 +745,8 @@ export default function MatchesScreen() {
       id: 'player_compare',
       title: 'Chi vince il confronto?',
       subtitle: 'Confronta statistiche dei giocatori',
-      renderIcon: () => <CompareVsIcon size={22} color="#667eea" withPeople />,
+      renderIcon: () => <CompareVsIcon size={30} color="#111827" withPeople />,
+      plainIcon: true,
       onPress: () => navigation.navigate('PlayerCompare'),
     });
     // Estendibile: news, lega in evidenza, partita live, ecc.

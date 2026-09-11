@@ -207,7 +207,7 @@ const styles = StyleSheet.create({
   },
   body: { flex: 1, minWidth: 0, paddingRight: 8 },
   title: { fontSize: 13, fontWeight: '800', color: '#111827' },
-  subtitle: { marginTop: 2, fontSize: 11, color: '#667eea', fontWeight: '600' },
+  subtitle: { marginTop: 2, fontSize: 11, color: '#64748b', fontWeight: '400', lineHeight: 16 },
   slidePlaceholder: { height: 64 },
   dots: {
     position: 'absolute',

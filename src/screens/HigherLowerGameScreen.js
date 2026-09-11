@@ -22,6 +22,7 @@ import {
 } from '../minigames/higherLower/engine';
 import { getLocalBest, setLocalBest, mergeBest } from '../minigames/higherLower/storage';
 import MinigamePlayerAvatar from '../minigames/higherLower/MinigamePlayerAvatar';
+import HigherLowerInfoModal from '../minigames/higherLower/HigherLowerInfoModal';
 
 function PlayerCard({
   player,
@@ -34,7 +35,7 @@ function PlayerCard({
   const value = valueOverride != null ? valueOverride : getMetricValue(player, metric);
   return (
     <View style={[styles.card, highlight === 'win' && styles.cardWin, highlight === 'lose' && styles.cardLose]}>
-      <MinigamePlayerAvatar photoPath={player?.photo_path} name={player?.name} size={78} />
+      <MinigamePlayerAvatar photoPath={player?.photo_path} name={player?.name} size={96} />
       <View style={styles.cardTextCol}>
         <Text style={styles.cardName} numberOfLines={2}>{player?.name || '—'}</Text>
         <View style={styles.metricChip}>
@@ -72,6 +73,7 @@ export default function HigherLowerGameScreen({ navigation, route }) {
   const [phase, setPhase] = useState('guess'); // guess | reveal | gameover
   const [lastResult, setLastResult] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [infoOpen, setInfoOpen] = useState(false);
 
   const valueScale = useRef(new Animated.Value(1)).current;
   const streakScale = useRef(new Animated.Value(1)).current;
@@ -229,6 +231,18 @@ export default function HigherLowerGameScreen({ navigation, route }) {
     return 'Statistiche ufficiali';
   }, [groupName]);
 
+  const infoBtn = (
+    <TouchableOpacity
+      onPress={() => setInfoOpen(true)}
+      hitSlop={12}
+      style={styles.backBtn}
+      accessibilityLabel="Come si gioca a Higher or Lower"
+      accessibilityRole="button"
+    >
+      <Ionicons name="information-circle-outline" size={22} color="#94a3b8" />
+    </TouchableOpacity>
+  );
+
   if (loading) {
     return (
       <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
@@ -237,12 +251,13 @@ export default function HigherLowerGameScreen({ navigation, route }) {
             <Ionicons name="chevron-back" size={26} color="#111827" />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Higher or Lower</Text>
-          <View style={styles.backBtn} />
+          {infoBtn}
         </View>
         <View style={styles.center}>
           <ActivityIndicator size="large" color="#667eea" />
           <Text style={styles.loadingText}>Carico i giocatori…</Text>
         </View>
+        <HigherLowerInfoModal visible={infoOpen} onClose={() => setInfoOpen(false)} />
       </SafeAreaView>
     );
   }
@@ -257,7 +272,7 @@ export default function HigherLowerGameScreen({ navigation, route }) {
           <Text style={styles.headerTitle}>Higher or Lower</Text>
           <Text style={styles.headerSub} numberOfLines={1}>{headerSubtitle}</Text>
         </View>
-        <View style={styles.backBtn} />
+        {infoBtn}
       </View>
 
       <View style={styles.scoreBar}>
@@ -285,25 +300,27 @@ export default function HigherLowerGameScreen({ navigation, route }) {
         <View style={styles.playArea}>
           <Text style={styles.prompt}>{prompt}</Text>
 
-          <PlayerCard
-            player={round.cardA}
-            metric={round.metric}
-            showValue
-          />
+          <View style={styles.cardsBlock}>
+            <PlayerCard
+              player={round.cardA}
+              metric={round.metric}
+              showValue
+            />
 
-          <View style={styles.vsRow}>
-            <View style={styles.vsLine} />
-            <Text style={styles.vsText}>VS</Text>
-            <View style={styles.vsLine} />
+            <View style={styles.vsRow}>
+              <View style={styles.vsLine} />
+              <Text style={styles.vsText}>o</Text>
+              <View style={styles.vsLine} />
+            </View>
+
+            <PlayerCard
+              player={round.cardB}
+              metric={round.metric}
+              showValue={phase !== 'guess'}
+              highlight={bHighlight}
+              valueScale={phase !== 'guess' ? valueScale : null}
+            />
           </View>
-
-          <PlayerCard
-            player={round.cardB}
-            metric={round.metric}
-            showValue={phase !== 'guess'}
-            highlight={bHighlight}
-            valueScale={phase !== 'guess' ? valueScale : null}
-          />
 
           {phase === 'guess' ? (
             <View style={styles.actions}>
@@ -355,6 +372,8 @@ export default function HigherLowerGameScreen({ navigation, route }) {
           </View>
         </View>
       </Modal>
+
+      <HigherLowerInfoModal visible={infoOpen} onClose={() => setInfoOpen(false)} />
     </SafeAreaView>
   );
 }
@@ -389,43 +408,60 @@ const styles = StyleSheet.create({
   scoreDivider: { width: 1, backgroundColor: '#e8edf3' },
   scoreLabel: { fontSize: 12, color: '#94a3b8', fontWeight: '600' },
   scoreValue: { marginTop: 2, fontSize: 26, fontWeight: '800', color: '#111827' },
-  playArea: { flex: 1, paddingHorizontal: 16, paddingTop: 14 },
+  playArea: {
+    flex: 1,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 6,
+  },
   prompt: {
     textAlign: 'center',
     fontSize: 16,
     fontWeight: '700',
     color: '#334155',
-    marginBottom: 12,
+    marginBottom: 10,
+  },
+  cardsBlock: {
+    flex: 1,
+    justifyContent: 'center',
+    minHeight: 0,
   },
   card: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 14,
+    gap: 16,
     backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 14,
+    borderRadius: 18,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
     borderWidth: 1,
     borderColor: '#ececec',
+    minHeight: 120,
   },
   cardWin: { borderColor: '#86efac', backgroundColor: '#f0fdf4' },
   cardLose: { borderColor: '#fca5a5', backgroundColor: '#fef2f2' },
-  cardTextCol: { flex: 1 },
-  cardName: { fontSize: 17, fontWeight: '800', color: '#111827' },
+  cardTextCol: { flex: 1, minWidth: 0 },
+  cardName: { fontSize: 18, fontWeight: '800', color: '#111827' },
   metricChip: {
     alignSelf: 'flex-start',
-    marginTop: 6,
+    marginTop: 8,
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 8,
     backgroundColor: '#eef2ff',
   },
   metricChipText: { fontSize: 11, fontWeight: '700', color: '#667eea', textTransform: 'uppercase' },
-  cardValue: { marginTop: 8, fontSize: 34, fontWeight: '900', color: '#111827' },
-  cardValueHidden: { marginTop: 8, fontSize: 34, fontWeight: '900', color: '#cbd5e1' },
-  vsRow: { flexDirection: 'row', alignItems: 'center', marginVertical: 12, gap: 10 },
+  cardValue: { marginTop: 10, fontSize: 40, fontWeight: '900', color: '#111827' },
+  cardValueHidden: { marginTop: 10, fontSize: 40, fontWeight: '900', color: '#cbd5e1' },
+  vsRow: { flexDirection: 'row', alignItems: 'center', marginVertical: 10, gap: 10 },
   vsLine: { flex: 1, height: 1, backgroundColor: '#e2e8f0' },
   vsText: { fontSize: 13, fontWeight: '800', color: '#94a3b8' },
-  actions: { marginTop: 16, gap: 10 },
+  actions: {
+    marginTop: 12,
+    marginBottom: 2,
+    gap: 10,
+  },
   guessBtn: {
     height: 54,
     borderRadius: 14,
@@ -437,7 +473,13 @@ const styles = StyleSheet.create({
   higherBtn: { backgroundColor: '#16a34a' },
   lowerBtn: { backgroundColor: '#dc2626' },
   guessBtnText: { color: '#fff', fontSize: 18, fontWeight: '800' },
-  feedbackRow: { marginTop: 18, alignItems: 'center' },
+  feedbackRow: {
+    marginTop: 12,
+    marginBottom: 2,
+    minHeight: 118,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   feedbackText: { fontSize: 18, fontWeight: '800' },
   okText: { color: '#16a34a' },
   koText: { color: '#dc2626' },

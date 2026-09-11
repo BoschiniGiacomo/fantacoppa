@@ -38,7 +38,13 @@ export function getMetricValue(player, metric) {
   return Number(player[metric.field]) || 0;
 }
 
-export function pickRandomMetric(metrics = METRICS) {
-  if (!metrics.length) return METRICS[0];
-  return metrics[Math.floor(Math.random() * metrics.length)];
+export function pickRandomMetric(metrics = METRICS, cardA = null) {
+  const list = Array.isArray(metrics) && metrics.length ? metrics : METRICS;
+  if (cardA) {
+    const withValue = list.filter((m) => getMetricValue(cardA, m) > 0);
+    if (withValue.length) {
+      return withValue[Math.floor(Math.random() * withValue.length)];
+    }
+  }
+  return list[Math.floor(Math.random() * list.length)];
 }

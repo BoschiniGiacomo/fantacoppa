@@ -55,7 +55,7 @@ export function createInitialRound(players) {
 
   const shuffled = shuffleInPlace([...pool]);
   const cardA = shuffled[0];
-  const metric = pickRandomMetric(METRICS);
+  const metric = pickRandomMetric(METRICS, cardA);
   const cardB = pickOpponent(pool, cardA, metric, [cardA.entity_id]);
   if (!cardB) return null;
 
@@ -86,7 +86,7 @@ export function advanceRound(pool, currentB, recentEntityIds = []) {
   const players = filterPlayablePlayers(pool);
   if (players.length < 2 || !currentB) return null;
 
-  const metric = pickRandomMetric(METRICS);
+  const metric = pickRandomMetric(METRICS, currentB);
   const nextRecent = [...(recentEntityIds || []), currentB.entity_id].slice(-8);
   const cardB = pickOpponent(players, currentB, metric, nextRecent);
   if (!cardB) return null;
