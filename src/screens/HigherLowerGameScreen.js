@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -339,6 +339,8 @@ export default function HigherLowerGameScreen({ navigation, route }) {
   const streakInOpacity = useRef(new Animated.Value(0)).current;
   const stackY = useRef(new Animated.Value(0)).current;
   const promptOpacity = useRef(new Animated.Value(1)).current;
+  /** Dopo lo slide: reset Y solo post-commit, altrimenti flash della card A. */
+  const pendingStackYResetRef = useRef(false);
   const recentRef = useRef([]);
   const poolRef = useRef(pool);
   const phaseRef = useRef(phase);
@@ -565,16 +567,19 @@ export default function HigherLowerGameScreen({ navigation, route }) {
       afterStack: [next?.cardA?.entity_id, next?.cardB?.entity_id],
       metricFrom: round?.metric?.key,
       metricTo: next?.metric?.key,
-      note: 'Se subito dopo vedi UNMOUNT+MOUNT su B o C, React non riusa le istanze',
+      note: 'Y resta a -travel finché useLayoutEffect non conferma [B,C]',
     });
     recentRef.current = next.recentEntityIds || [];
+    // Importante: NON resettare stackY qui.
+    // setValue(0) è sync, setRound è async → un frame con [A,B,C] a Y=0
+    // fa riapparire nome/foto della card vecchia (A).
+    pendingStackYResetRef.current = true;
     setRound(next);
     setSlideNext(null);
     setLastResult(null);
     setShowStreakInBadge(false);
     setPhase('guess');
     setBusy(false);
-    stackY.setValue(0);
     promptOpacity.setValue(1);
     vsBadgeScale.setValue(1);
     streakInY.setValue(22);
@@ -582,13 +587,24 @@ export default function HigherLowerGameScreen({ navigation, route }) {
     valueScale.setValue(1);
   }, [
     round,
-    stackY,
     promptOpacity,
     vsBadgeScale,
     streakInY,
     streakInOpacity,
     valueScale,
   ]);
+
+  // Allinea translateY=0 allo stesso frame del nuovo stack [B,C] (prima del paint).
+  useLayoutEffect(() => {
+    if (!pendingStackYResetRef.current) return;
+    if (slideNext != null) return;
+    if (phase !== 'guess') return;
+    pendingStackYResetRef.current = false;
+    hlLog('stackY reset after commit', {
+      stack: [round?.cardA?.entity_id, round?.cardB?.entity_id],
+    });
+    stackY.setValue(0);
+  }, [phase, slideNext, round, stackY]);
 
   const startAdvanceSlide = useCallback((next, travel) => {
     setShowStreakInBadge(false);
