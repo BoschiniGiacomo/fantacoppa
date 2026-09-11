@@ -939,6 +939,8 @@ export const superuserService = {
     });
   },
   deleteMatchBackground: () => api.delete('/superuser/match-background'),
+  getSistemaSettings: () => api.get('/superuser/sistema-settings'),
+  updateSistemaSettings: (payload) => api.put('/superuser/sistema-settings', payload),
 };
 
 // Player statistics service

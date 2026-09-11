@@ -456,7 +456,7 @@ const styles = StyleSheet.create({
   cardValueHidden: { marginTop: 10, fontSize: 40, fontWeight: '900', color: '#cbd5e1' },
   vsRow: { flexDirection: 'row', alignItems: 'center', marginVertical: 10, gap: 10 },
   vsLine: { flex: 1, height: 1, backgroundColor: '#e2e8f0' },
-  vsText: { fontSize: 13, fontWeight: '800', color: '#94a3b8' },
+  vsText: { fontSize: 25, fontWeight: '800', color: '#94a3b8' },
   actions: {
     marginTop: 12,
     marginBottom: 2,

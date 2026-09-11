@@ -35,6 +35,11 @@ import HigherLowerLogo from '../minigames/higherLower/HigherLowerLogo';
 import { useAuth } from '../context/AuthContext';
 import { getMenuOfficialGroup } from '../utils/menuOfficialGroupSettings';
 import {
+  getSistemaSettings,
+  getVisibleMinigames,
+  normalizeSistemaSettings,
+} from '../utils/sistemaSettings';
+import {
   fetchTrendingPlayersCached,
   peekTrendingPlayersMemory,
 } from '../utils/trendingPlayersCache';
@@ -343,6 +348,7 @@ export default function MatchesScreen() {
   const [trendingLoading, setTrendingLoading] = useState(false);
   const [headerHeight, setHeaderHeight] = useState(0);
   const [menuOfficialGroup, setMenuOfficialGroup] = useState(null);
+  const [sistemaSettings, setSistemaSettings] = useState(() => normalizeSistemaSettings(null));
   const searchInputRef = useRef(null);
   const searchSeqRef = useRef(0);
   const trendingSeqRef = useRef(0);
@@ -715,13 +721,20 @@ export default function MatchesScreen() {
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
-      getMenuOfficialGroup().then((group) => {
-        if (!cancelled) setMenuOfficialGroup(group);
+      Promise.all([getMenuOfficialGroup(), getSistemaSettings()]).then(([group, sistema]) => {
+        if (cancelled) return;
+        setMenuOfficialGroup(group);
+        setSistemaSettings(sistema);
       });
       return () => {
         cancelled = true;
       };
     }, [])
+  );
+
+  const visibleMinigames = useMemo(
+    () => getVisibleMinigames(sistemaSettings),
+    [sistemaSettings],
   );
 
   const minigamesCtaTitle = useMemo(() => {
@@ -731,28 +744,61 @@ export default function MatchesScreen() {
 
   const promoSlides = useMemo(() => {
     const slides = [];
-    if (minigamesCtaTitle) {
-      slides.push({
-        id: 'minigames',
-        title: minigamesCtaTitle,
-        subtitle: 'Sfida Higher or Lower',
-        renderIcon: () => <HigherLowerLogo size={40} />,
-        plainIcon: true,
-        onPress: () => navigation.navigate('MinigamesHub'),
-      });
-    }
-    slides.push({
-      id: 'player_compare',
-      title: 'Chi vince il confronto?',
-      subtitle: 'Confronta statistiche dei giocatori',
-      renderIcon: () => <CompareVsIcon size={30} color="#111827" withPeople />,
-      plainIcon: true,
-      onPress: () => navigation.navigate('PlayerCompare'),
+    const ordered = normalizeSistemaSettings(sistemaSettings).slides;
+    const hasMenuGroup = !!(menuOfficialGroup?.id && minigamesCtaTitle);
+    const anyMinigame = visibleMinigames.length > 0;
+
+    ordered.forEach((cfg) => {
+      if (!cfg.visible) return;
+
+      if (cfg.id === 'minigames') {
+        if (!hasMenuGroup || !anyMinigame) return;
+        const onlyOne = visibleMinigames.length === 1;
+        const onlyHigherLower = onlyOne && visibleMinigames[0].id === 'higher_lower';
+        slides.push({
+          id: 'minigames',
+          title: minigamesCtaTitle,
+          subtitle: onlyHigherLower
+            ? 'Sfida Higher or Lower'
+            : onlyOne
+              ? 'Apri il minigioco'
+              : 'Scegli un minigioco',
+          renderIcon: () => <HigherLowerLogo size={40} />,
+          plainIcon: true,
+          onPress: () => {
+            if (onlyHigherLower) {
+              navigation.navigate('HigherLowerGame', {
+                groupId: menuOfficialGroup.id,
+                groupName: menuOfficialGroup.name,
+              });
+              return;
+            }
+            navigation.navigate('MinigamesHub');
+          },
+        });
+        return;
+      }
+
+      if (cfg.id === 'player_compare') {
+        slides.push({
+          id: 'player_compare',
+          title: 'Chi vince il confronto?',
+          subtitle: 'Confronta statistiche dei giocatori',
+          renderIcon: () => <CompareVsIcon size={30} color="#111827" withPeople />,
+          plainIcon: true,
+          onPress: () => navigation.navigate('PlayerCompare'),
+        });
+      }
     });
-    // Estendibile: news, lega in evidenza, partita live, ecc.
-    // slides.push({ id: 'news', icon: 'newspaper-outline', title: '...', subtitle: '...', onPress: () => ... });
+
     return slides;
-  }, [minigamesCtaTitle, navigation]);
+  }, [
+    sistemaSettings,
+    visibleMinigames,
+    minigamesCtaTitle,
+    menuOfficialGroup,
+    navigation,
+  ]);
 
   const formatTime = (iso) => {
     const d = new Date(iso);

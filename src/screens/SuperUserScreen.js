@@ -23,6 +23,7 @@ import LoopingVideoView from '../components/LoopingVideoView';
 import AppLoadingFullScreenModal from '../components/AppLoadingFullScreenModal';
 import BrandingPreviewFullScreenModal from '../components/BrandingPreviewFullScreenModal';
 import MatchHeroBackgroundOverlay from '../components/MatchHeroBackgroundOverlay';
+import SistemaSettingsPanel from '../components/SistemaSettingsPanel';
 import { useAuth } from '../context/AuthContext';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { superuserService, publicAssetUrl } from '../services/api';
@@ -338,7 +339,7 @@ export default function SuperUserScreen() {
   const { refresh: refreshAuthBranding } = useAuthBranding();
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
-  const [activeTab, setActiveTab] = useState('users'); // 'users', 'leagues', 'officials', 'clusters', 'appSettings'
+  const [activeTab, setActiveTab] = useState('users'); // 'users', 'leagues', 'officials', 'clusters', 'appSettings', 'system'
   const [users, setUsers] = useState([]);
   const [leagues, setLeagues] = useState([]);
   const [officialGroups, setOfficialGroups] = useState([]);
@@ -1203,6 +1204,10 @@ export default function SuperUserScreen() {
       } else if (activeTab === 'clusters') {
         if (!clustersOverviewHydratedRef.current) {
           void loadApprovedClustersByPlayer({ includeSingles: clusterFilters.includeSingles });
+        }
+      } else if (activeTab === 'system') {
+        if (!officialGroupsHydratedRef.current) {
+          void loadOfficialGroups();
         }
       }
     }
@@ -3625,6 +3630,25 @@ export default function SuperUserScreen() {
             Aspetto
           </Text>
         </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.tab, activeTab === 'system' && styles.tabActive]}
+          onPress={() => setActiveTab('system')}
+        >
+          <Ionicons
+            name={activeTab === 'system' ? 'settings' : 'settings-outline'}
+            size={20}
+            color={activeTab === 'system' ? '#667eea' : '#666'}
+          />
+          <Text
+            style={[
+              styles.tabText,
+              activeTab === 'system' && styles.tabTextActive,
+            ]}
+            numberOfLines={1}
+          >
+            Sistema
+          </Text>
+        </TouchableOpacity>
       </ScrollView>
 
       {/* Tab Content */}
@@ -5176,6 +5200,20 @@ export default function SuperUserScreen() {
               ) : null}
             </View>
           </ScrollView>
+        )}
+
+        {activeTab === 'system' && (
+          <SistemaSettingsPanel
+            officialGroups={officialGroups}
+            loadingOfficialGroups={loadingOfficialGroups}
+            togglingMenuGroupId={togglingMenuGroupId}
+            onToggleMainMenuGroup={handleToggleMainMenuGroup}
+            onEnsureOfficialGroups={() => {
+              if (!officialGroupsHydratedRef.current) {
+                void loadOfficialGroups();
+              }
+            }}
+          />
         )}
       </View>
 

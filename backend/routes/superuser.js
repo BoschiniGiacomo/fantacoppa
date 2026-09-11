@@ -10,7 +10,10 @@ const {
   canAccessSuperuserRoutes,
   VALID_USER_ROLE_LEVELS,
 } = require('../utils/userRoles');
-const { ensureAppSettingsTable } = require('../utils/appSettingsStore');
+const {
+  ensureAppSettingsTable,
+  normalizeSistemaSettings,
+} = require('../utils/appSettingsStore');
 const { ensureLeagueOfficialGironiSchema } = require('../utils/leagueOfficialGironi');
 const { SQL_WHERE_PRESENCE_VOTE } = require('../utils/voteRating');
 const { removePlayerPhotoVariants } = require('../utils/mediaStorageCleanup');
@@ -3536,6 +3539,38 @@ router.delete('/match-background', authenticateToken, requireSuperuserLevel1, as
   } catch (error) {
     console.error('Delete match background:', error);
     return res.status(500).json({ message: 'Errore rimozione', error: error.message });
+  }
+});
+
+/**
+ * GET /sistema-settings — slide Partite + minigiochi
+ */
+router.get('/sistema-settings', authenticateToken, requireSuperuser, async (_req, res) => {
+  try {
+    await ensureAppSettingsTable();
+    const rows = await query(
+      `SELECT sistema_json FROM app_settings WHERE id = 1 LIMIT 1`
+    );
+    return res.json(normalizeSistemaSettings(rows[0]?.sistema_json));
+  } catch (error) {
+    return res.status(500).json({ message: 'Errore lettura impostazioni sistema', error: error.message });
+  }
+});
+
+/**
+ * PUT /sistema-settings — aggiorna slide Partite + minigiochi
+ */
+router.put('/sistema-settings', authenticateToken, requireSuperuser, async (req, res) => {
+  try {
+    await ensureAppSettingsTable();
+    const normalized = normalizeSistemaSettings(req.body || {});
+    await query(
+      `UPDATE app_settings SET sistema_json = ?, updated_at = NOW() WHERE id = 1`,
+      [JSON.stringify(normalized)]
+    );
+    return res.json({ success: true, ...normalized });
+  } catch (error) {
+    return res.status(500).json({ message: 'Errore salvataggio impostazioni sistema', error: error.message });
   }
 });
 

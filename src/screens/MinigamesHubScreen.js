@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -15,6 +15,10 @@ import { HIGHER_LOWER_GAME_KEY } from '../minigames/higherLower/metrics';
 import { getLocalBest, mergeBest } from '../minigames/higherLower/storage';
 import HigherLowerLogo from '../minigames/higherLower/HigherLowerLogo';
 import HigherLowerInfoModal from '../minigames/higherLower/HigherLowerInfoModal';
+import {
+  getSistemaSettings,
+  getVisibleMinigames,
+} from '../utils/sistemaSettings';
 
 export default function MinigamesHubScreen({ navigation }) {
   const [loading, setLoading] = useState(true);
@@ -22,27 +26,43 @@ export default function MinigamesHubScreen({ navigation }) {
   const [best, setBest] = useState(0);
   const [error, setError] = useState(null);
   const [infoOpen, setInfoOpen] = useState(false);
+  const [visibleGameIds, setVisibleGameIds] = useState(['higher_lower']);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const menuGroup = await getMenuOfficialGroup();
+      const [menuGroup, sistema] = await Promise.all([
+        getMenuOfficialGroup(),
+        getSistemaSettings(),
+      ]);
+      const visible = getVisibleMinigames(sistema).map((m) => m.id);
+      setVisibleGameIds(visible);
+
+      if (!visible.length) {
+        setGroup(menuGroup);
+        setError('Nessun minigioco abilitato al momento.');
+        return;
+      }
+
       if (!menuGroup?.id) {
         setGroup(null);
         setError('Gruppo ufficiale non configurato nel menu.');
         return;
       }
       setGroup(menuGroup);
-      const local = await getLocalBest(menuGroup.id);
-      let serverBest = 0;
-      try {
-        const res = await minigamesService.getBest(HIGHER_LOWER_GAME_KEY, menuGroup.id);
-        serverBest = Number(res?.data?.best_score) || 0;
-      } catch (_) {}
-      const merged = await mergeBest(menuGroup.id, Math.max(local, serverBest));
-      setBest(merged);
-      matchesService.getHigherLowerPack(menuGroup.id).catch(() => {});
+
+      if (visible.includes('higher_lower')) {
+        const local = await getLocalBest(menuGroup.id);
+        let serverBest = 0;
+        try {
+          const res = await minigamesService.getBest(HIGHER_LOWER_GAME_KEY, menuGroup.id);
+          serverBest = Number(res?.data?.best_score) || 0;
+        } catch (_) {}
+        const merged = await mergeBest(menuGroup.id, Math.max(local, serverBest));
+        setBest(merged);
+        matchesService.getHigherLowerPack(menuGroup.id).catch(() => {});
+      }
     } catch (e) {
       setError(e?.message || 'Impossibile caricare i minigiochi');
     } finally {
@@ -56,6 +76,8 @@ export default function MinigamesHubScreen({ navigation }) {
     return unsub;
   }, [navigation, load]);
 
+  const showHigherLower = visibleGameIds.includes('higher_lower');
+
   const openHigherLower = () => {
     if (!group?.id) return;
     navigation.navigate('HigherLowerGame', {
@@ -63,6 +85,13 @@ export default function MinigamesHubScreen({ navigation }) {
       groupName: group.name,
     });
   };
+
+  const emptyHint = useMemo(() => {
+    if (!visibleGameIds.length) return 'Nessun minigioco visibile.';
+    if (!group?.id) return null;
+    if (!showHigherLower) return 'Nessun minigioco disponibile per questo gruppo.';
+    return null;
+  }, [visibleGameIds, group, showHigherLower]);
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
@@ -89,48 +118,53 @@ export default function MinigamesHubScreen({ navigation }) {
             </View>
           ) : null}
 
-          {group?.name ? (
-            <Text style={styles.sectionLabel}>
-              Storia ufficiale · {group.name}
-            </Text>
-          ) : (
-            <Text style={styles.sectionLabel}>Disponibili</Text>
-          )}
+          {showHigherLower && group?.id ? (
+            <>
+              {group?.name ? (
+                <Text style={styles.sectionLabel}>
+                  Storia ufficiale · {group.name}
+                </Text>
+              ) : (
+                <Text style={styles.sectionLabel}>Disponibili</Text>
+              )}
 
-          <TouchableOpacity
-            style={[styles.gameCard, !group?.id && styles.gameCardDisabled]}
-            activeOpacity={0.88}
-            onPress={openHigherLower}
-            disabled={!group?.id}
-            accessibilityRole="button"
-            accessibilityLabel={`Higher or Lower, personal best ${best}`}
-          >
-            <TouchableOpacity
-              style={styles.infoBtn}
-              onPress={() => setInfoOpen(true)}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              accessibilityLabel="Come si gioca a Higher or Lower"
-              accessibilityRole="button"
-            >
-              <Ionicons name="information-circle-outline" size={20} color="#94a3b8" />
-            </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.gameCard}
+                activeOpacity={0.88}
+                onPress={openHigherLower}
+                accessibilityRole="button"
+                accessibilityLabel={`Higher or Lower, personal best ${best}`}
+              >
+                <TouchableOpacity
+                  style={styles.infoBtn}
+                  onPress={() => setInfoOpen(true)}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  accessibilityLabel="Come si gioca a Higher or Lower"
+                  accessibilityRole="button"
+                >
+                  <Ionicons name="information-circle-outline" size={20} color="#94a3b8" />
+                </TouchableOpacity>
 
-            <View style={styles.gameTop}>
-              <View style={styles.gameIconWrap}>
-                <HigherLowerLogo size={48} />
-              </View>
-              <View style={styles.gameTitleBlock}>
-                <Text style={styles.gameTitle} numberOfLines={1}>Higher or Lower</Text>
-              </View>
-            </View>
+                <View style={styles.gameTop}>
+                  <View style={styles.gameIconWrap}>
+                    <HigherLowerLogo size={48} />
+                  </View>
+                  <View style={styles.gameTitleBlock}>
+                    <Text style={styles.gameTitle} numberOfLines={1}>Higher or Lower</Text>
+                  </View>
+                </View>
 
-            <View style={styles.pbRow}>
-              <Text style={styles.pbLabel}>PB</Text>
-              <Text style={styles.pbValue} accessibilityLabel={`Personal best ${best}`}>
-                {best}
-              </Text>
-            </View>
-          </TouchableOpacity>
+                <View style={styles.pbRow}>
+                  <Text style={styles.pbLabel}>PB</Text>
+                  <Text style={styles.pbValue} accessibilityLabel={`Personal best ${best}`}>
+                    {best}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            </>
+          ) : emptyHint && !error ? (
+            <Text style={styles.emptyText}>{emptyHint}</Text>
+          ) : null}
         </ScrollView>
       )}
 
@@ -184,7 +218,6 @@ const styles = StyleSheet.create({
     borderColor: '#c7d2fe',
     gap: 14,
   },
-  gameCardDisabled: { opacity: 0.55 },
   infoBtn: {
     position: 'absolute',
     top: 10,
@@ -209,7 +242,6 @@ const styles = StyleSheet.create({
   },
   gameTitleBlock: { flex: 1, minWidth: 0 },
   gameTitle: { fontSize: 17, fontWeight: '800', color: '#111827' },
-  gameHint: { marginTop: 3, fontSize: 13, color: '#667eea', fontWeight: '600' },
   pbRow: {
     flexDirection: 'row',
     alignItems: 'baseline',
@@ -242,4 +274,5 @@ const styles = StyleSheet.create({
   errorText: { color: '#b91c1c', fontSize: 14 },
   retryBtn: { marginTop: 10, alignSelf: 'flex-start' },
   retryText: { color: '#667eea', fontWeight: '700' },
+  emptyText: { fontSize: 14, color: '#64748b', lineHeight: 20 },
 });

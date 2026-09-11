@@ -160,6 +160,7 @@ export default function PromoActionCarousel({
             index: i,
           })}
           decelerationRate="fast"
+          scrollEnabled={items.length > 1}
           bounces={items.length > 1}
         />
       ) : (

@@ -1,7 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const { query } = require('../config/database');
-const { ensureAppSettingsTable } = require('../utils/appSettingsStore');
+const {
+  ensureAppSettingsTable,
+  normalizeSistemaSettings,
+} = require('../utils/appSettingsStore');
 const { logMediaDbRead, logMediaClientEvent } = require('../utils/mediaCacheServerLog');
 
 /**
@@ -125,6 +128,23 @@ router.get('/match-background', async (_req, res) => {
   } catch (error) {
     logMediaDbRead('match_background', _req, { ok: false, error: error.message });
     return res.status(500).json({ message: 'Errore lettura impostazioni', error: error.message });
+  }
+});
+
+/**
+ * GET /api/public/sistema-settings
+ * Pubblico: slide CTA Partite + minigiochi visibili.
+ */
+router.get('/sistema-settings', async (_req, res) => {
+  try {
+    await ensureAppSettingsTable();
+    const rows = await query(
+      `SELECT sistema_json FROM app_settings WHERE id = 1 LIMIT 1`
+    );
+    const normalized = normalizeSistemaSettings(rows[0]?.sistema_json);
+    return res.json(normalized);
+  } catch (error) {
+    return res.status(500).json({ message: 'Errore lettura impostazioni sistema', error: error.message });
   }
 });
 

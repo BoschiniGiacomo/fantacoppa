@@ -2,8 +2,12 @@ const { query } = require('../config/database');
 
 const TABLE = 'official_group_cluster_absolute_stats';
 
+/** Bump quando cambia la logica di aggregazione (es. teams_count per squadra ufficiale). */
+const ABSOLUTE_STATS_LOGIC_VERSION = 2;
+const logicRefreshDone = new Set(); // groupId già ricalcolato per questa versione di processo
+
 let tableReadyPromise = null;
-const packCache = new Map(); // groupId -> { expiresAt, payload }
+const packCache = new Map(); // groupId -> { expiresAt, payload, logicVersion }
 const PACK_CACHE_TTL_MS = 3 * 60 * 1000;
 
 /** Entity id nello store: cluster reale, oppure -player_id per i player senza cluster. */
@@ -19,6 +23,19 @@ function stripBirthYearNameSuffix(name) {
   return String(name || '')
     .replace(/\s*\(\s*'\d{2}\s*\)\s*$/u, '')
     .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Chiave squadra ufficiale: stesso club tra edizioni (es. "Scampate 2018" ≈ "Scampate 2019").
+ */
+function normalizeOfficialTeamKey(name) {
+  return String(name || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .replace(/[^\p{L}\p{N} ]/gu, '')
+    .replace(/\s+(19|20)\d{2}$/u, '')
     .trim();
 }
 
@@ -169,22 +186,23 @@ async function fetchEditionAndTeamCountsByPlayer(groupId) {
 }
 
 /**
- * Edizioni / squadre a livello entity (cluster o -player_id), allineato al profilo:
- * editions = numero di rosa/player-id visibili nel gruppo ufficiale pubblico.
+ * Edizioni / squadre a livello entity (cluster o -player_id):
+ * - editions = numero di rosa/player-id nel gruppo ufficiale pubblico
+ * - teams = squadre ufficiali distinte (nome senza anno di edizione)
  */
 async function fetchEntityEditionAndTeamCounts(groupId) {
   const gid = Number(groupId);
   if (!Number.isFinite(gid) || gid <= 0) return [];
 
-  return query(
+  const rows = await query(
     `SELECT
        CASE
          WHEN pc.id IS NOT NULL THEN pc.id
          ELSE -p.id
        END AS entity_id,
-       COUNT(DISTINCT p.id)::int AS editions_played,
-       COUNT(DISTINCT p.team_id)::int AS teams_count,
-       MIN(p.id)::int AS representative_player_id
+       p.id AS player_id,
+       COALESCE(NULLIF(to_jsonb(t)->>'name',''), NULLIF(t.name,''), '') AS team_name,
+       t.id AS team_id
      FROM players p
      INNER JOIN teams t ON t.id = p.team_id
      INNER JOIN leagues l ON l.id = t.league_id
@@ -195,14 +213,46 @@ async function fetchEntityEditionAndTeamCounts(groupId) {
       AND pc.status = 'approved'
      WHERE l.official_group_id = ?
        AND COALESCE(l.is_official, 0) = 1
-       AND COALESCE(l.is_official_squad_public, 0) = 1
-     GROUP BY
-       CASE
-         WHEN pc.id IS NOT NULL THEN pc.id
-         ELSE -p.id
-       END`,
+       AND COALESCE(l.is_official_squad_public, 0) = 1`,
     [gid, gid],
   );
+
+  const byEntity = new Map();
+  for (const row of rows || []) {
+    const entityId = Number(row.entity_id);
+    if (!Number.isFinite(entityId) || entityId === 0) continue;
+    let entry = byEntity.get(entityId);
+    if (!entry) {
+      entry = {
+        entity_id: entityId,
+        playerIds: new Set(),
+        teamKeys: new Set(),
+        representative_player_id: null,
+      };
+      byEntity.set(entityId, entry);
+    }
+    const pid = Number(row.player_id);
+    if (pid > 0) {
+      entry.playerIds.add(pid);
+      if (!entry.representative_player_id || pid < entry.representative_player_id) {
+        entry.representative_player_id = pid;
+      }
+    }
+    const teamKey = normalizeOfficialTeamKey(row.team_name);
+    if (teamKey) {
+      entry.teamKeys.add(teamKey);
+    } else {
+      const tid = Number(row.team_id);
+      if (tid > 0) entry.teamKeys.add(`id:${tid}`);
+    }
+  }
+
+  return [...byEntity.values()].map((entry) => ({
+    entity_id: entry.entity_id,
+    editions_played: entry.playerIds.size,
+    teams_count: entry.teamKeys.size,
+    representative_player_id: entry.representative_player_id,
+  }));
 }
 
 async function upsertLeaderboardsSnapshot(groupId, stats) {
@@ -555,7 +605,11 @@ async function fetchHigherLowerPackFromStore(groupId) {
   }
 
   const cached = packCache.get(gid);
-  if (cached && cached.expiresAt > Date.now()) {
+  if (
+    cached
+    && cached.logicVersion === ABSOLUTE_STATS_LOGIC_VERSION
+    && cached.expiresAt > Date.now()
+  ) {
     const cachedPlayers = cached.payload?.players || [];
     const cachedLooksStale = cachedPlayers.some((p) =>
       ((Number(p.goals) || 0) + (Number(p.appearances) || 0) > 0)
@@ -591,8 +645,10 @@ async function fetchHigherLowerPackFromStore(groupId) {
     return activity > 0 && maxEditions === 0;
   };
 
-  if (snapshotLooksStale(rows)) {
+  const needLogicRefresh = !logicRefreshDone.has(gid);
+  if (needLogicRefresh || snapshotLooksStale(rows)) {
     await recomputeAndStoreOfficialGroupAbsoluteStats(gid);
+    logicRefreshDone.add(gid);
     rows = await query(
       `SELECT cluster_id, representative_player_id, total_goals, total_presences,
               COALESCE(total_trophies, 0) AS total_trophies,
@@ -663,7 +719,11 @@ async function fetchHigherLowerPackFromStore(groupId) {
     refreshed_at: refreshedAt,
     players,
   };
-  packCache.set(gid, { expiresAt: Date.now() + PACK_CACHE_TTL_MS, payload });
+  packCache.set(gid, {
+    expiresAt: Date.now() + PACK_CACHE_TTL_MS,
+    logicVersion: ABSOLUTE_STATS_LOGIC_VERSION,
+    payload,
+  });
   return payload;
 }
 
