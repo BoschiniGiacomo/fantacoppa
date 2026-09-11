@@ -27,6 +27,7 @@ import {
   peekHigherLowerPack,
   fetchHigherLowerPackCached,
 } from '../minigames/higherLower/packCache';
+import { getSistemaSettings, getVisibleMinigames } from '../utils/sistemaSettings';
 
 function PlayerCard({
   player,
@@ -119,6 +120,9 @@ export default function HigherLowerGameScreen({ navigation, route }) {
   const [lastResult, setLastResult] = useState(null);
   const [busy, setBusy] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
+  const [soloMinigame, setSoloMinigame] = useState(
+    () => route?.params?.soloMinigame === true,
+  );
 
   const valueScale = useRef(new Animated.Value(1)).current;
   const streakScale = useRef(new Animated.Value(1)).current;
@@ -235,6 +239,12 @@ export default function HigherLowerGameScreen({ navigation, route }) {
     const cached = peekHigherLowerPack(routeGroupId);
     if (cached?.length >= 2) bootstrapRound(cached);
     loadPack();
+    getSistemaSettings()
+      .then((sistema) => {
+        const visible = getVisibleMinigames(sistema);
+        setSoloMinigame(visible.length === 1);
+      })
+      .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -279,7 +289,12 @@ export default function HigherLowerGameScreen({ navigation, route }) {
       }
 
       setTimeout(() => {
-        const next = advanceRound(pool, round.cardB, recentRef.current);
+        const next = advanceRound(
+          pool,
+          round.cardB,
+          recentRef.current,
+          round?.metric?.key || null,
+        );
         if (!next) {
           setPhase('gameover');
           setBusy(false);
@@ -313,6 +328,16 @@ export default function HigherLowerGameScreen({ navigation, route }) {
       setBusy(false);
     }
     navigation.navigate('MinigamesHub');
+  };
+
+  const goToHome = () => {
+    if (pool.length >= 2) bootstrapRound(pool);
+    else {
+      setPhase('guess');
+      setLastResult(null);
+      setBusy(false);
+    }
+    navigation.navigate('MainTabs', { screen: 'Partite' });
   };
 
   const prompt = round?.metric?.prompt || 'Higher or Lower';
@@ -442,8 +467,13 @@ export default function HigherLowerGameScreen({ navigation, route }) {
             <TouchableOpacity style={styles.primaryBtn} onPress={onReplay} activeOpacity={0.9}>
               <Text style={styles.primaryBtnText}>Rigioca</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.secondaryBtn} onPress={goToHub}>
-              <Text style={styles.secondaryBtnText}>Torna ai minigiochi</Text>
+            <TouchableOpacity
+              style={styles.secondaryBtn}
+              onPress={soloMinigame ? goToHome : goToHub}
+            >
+              <Text style={styles.secondaryBtnText}>
+                {soloMinigame ? 'Torna alle partite' : 'Torna ai minigiochi'}
+              </Text>
             </TouchableOpacity>
           </View>
         </View>

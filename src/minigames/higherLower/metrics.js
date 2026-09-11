@@ -38,13 +38,26 @@ export function getMetricValue(player, metric) {
   return Number(player[metric.field]) || 0;
 }
 
-export function pickRandomMetric(metrics = METRICS, cardA = null) {
+export function pickRandomMetric(metrics = METRICS, cardA = null, excludeKey = null) {
   const list = Array.isArray(metrics) && metrics.length ? metrics : METRICS;
+  const exclude = excludeKey != null ? String(excludeKey) : null;
+
+  const preferred = list.filter((m) => {
+    if (exclude && m.key === exclude) return false;
+    if (cardA && !(getMetricValue(cardA, m) > 0)) return false;
+    return true;
+  });
+  if (preferred.length) {
+    return preferred[Math.floor(Math.random() * preferred.length)];
+  }
+
+  const withoutPrev = list.filter((m) => !(exclude && m.key === exclude));
+  const pool = withoutPrev.length ? withoutPrev : list;
   if (cardA) {
-    const withValue = list.filter((m) => getMetricValue(cardA, m) > 0);
+    const withValue = pool.filter((m) => getMetricValue(cardA, m) > 0);
     if (withValue.length) {
       return withValue[Math.floor(Math.random() * withValue.length)];
     }
   }
-  return list[Math.floor(Math.random() * list.length)];
+  return pool[Math.floor(Math.random() * pool.length)];
 }

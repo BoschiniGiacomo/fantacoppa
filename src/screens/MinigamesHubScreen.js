@@ -84,6 +84,7 @@ export default function MinigamesHubScreen({ navigation }) {
     navigation.navigate('HigherLowerGame', {
       groupId: group.id,
       groupName: group.name,
+      soloMinigame: visibleGameIds.length === 1,
     });
   };
 

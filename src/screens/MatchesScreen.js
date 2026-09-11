@@ -770,6 +770,7 @@ export default function MatchesScreen() {
               navigation.navigate('HigherLowerGame', {
                 groupId: menuOfficialGroup.id,
                 groupName: menuOfficialGroup.name,
+                soloMinigame: true,
               });
               return;
             }

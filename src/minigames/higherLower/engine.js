@@ -82,11 +82,11 @@ export function evaluateGuess(guess, cardA, cardB, metric) {
   };
 }
 
-export function advanceRound(pool, currentB, recentEntityIds = []) {
+export function advanceRound(pool, currentB, recentEntityIds = [], previousMetricKey = null) {
   const players = filterPlayablePlayers(pool);
   if (players.length < 2 || !currentB) return null;
 
-  const metric = pickRandomMetric(METRICS, currentB);
+  const metric = pickRandomMetric(METRICS, currentB, previousMetricKey);
   const nextRecent = [...(recentEntityIds || []), currentB.entity_id].slice(-8);
   const cardB = pickOpponent(players, currentB, metric, nextRecent);
   if (!cardB) return null;
