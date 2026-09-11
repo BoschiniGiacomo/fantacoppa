@@ -33,6 +33,7 @@ export const METRICS = [
     field: 'editions_played',
     compareLabel: 'edizioni',
     unitLabel: 'edizioni',
+    promptTemplate: '{bottom} ha giocato più o meno edizioni di {top}?',
   },
 ];
 

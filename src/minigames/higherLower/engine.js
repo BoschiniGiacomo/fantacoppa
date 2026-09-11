@@ -257,8 +257,9 @@ export function pickOpponent(pool, cardA, recentEntityIds = [], options = {}) {
     const scored = [];
     metricLoop: for (const metric of metrics) {
       const aVal = aVals[metric.key];
-      // 0 su A (o B sotto) = turno gratis → escludi sempre.
+      // 0 = turno gratis; squadre con 1 in alto (visibile) → Higher sempre corretto.
       if (!(aVal > 0)) continue;
+      if (metric.key === 'teams_count' && !(aVal > 1)) continue;
       const span = spans[metric.key];
       for (let i = 0; i < players.length; i += 1) {
         const candidate = players[i];
@@ -268,6 +269,7 @@ export function pickOpponent(pool, cardA, recentEntityIds = [], options = {}) {
         if (stage.easyWindowOnly && !isInEasyRecencyWindow(candidate, maxYear)) continue;
         const bVal = getMetricValue(candidate, metric);
         if (!(bVal > 0) || bVal === aVal) continue;
+        if (metric.key === 'teams_count' && !(bVal > 1)) continue;
         const relGap = relativeGapFromValues(aVal, bVal, span);
         if (stage.bandStep < 99 && (relGap < band.min || relGap > band.max)) continue;
 
