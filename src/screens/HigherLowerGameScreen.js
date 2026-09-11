@@ -63,7 +63,7 @@ function PlayerCard({
       setDisplayValue(Math.round(value));
     });
 
-    const duration = Math.min(620, Math.max(320, 260 + Math.abs(targetNum) * 8));
+    const duration = Math.min(820, Math.max(420, 340 + Math.abs(targetNum) * 10));
     const anim = Animated.timing(countAnim, {
       toValue: targetNum,
       duration,
@@ -138,7 +138,7 @@ function HigherLowerSkeleton() {
         </View>
         <View style={styles.vsRow}>
           <View style={styles.vsLine} />
-          <Text style={styles.vsText}>o</Text>
+          <Text style={styles.vsText}>O</Text>
           <View style={styles.vsLine} />
         </View>
         <View style={[styles.card, styles.skelCard]}>
@@ -184,11 +184,16 @@ export default function HigherLowerGameScreen({ navigation, route }) {
 
   const valueScale = useRef(new Animated.Value(1)).current;
   const streakScale = useRef(new Animated.Value(1)).current;
+  const vsBadgeScale = useRef(new Animated.Value(1)).current;
+  const streakInY = useRef(new Animated.Value(22)).current;
+  const streakInOpacity = useRef(new Animated.Value(0)).current;
   const recentRef = useRef([]);
   const poolRef = useRef(pool);
   const phaseRef = useRef(phase);
   const bestRef = useRef(0);
   const recordAtStartRef = useRef(0);
+  const [showStreakInBadge, setShowStreakInBadge] = useState(false);
+  const [streakPopValue, setStreakPopValue] = useState(0);
 
   useEffect(() => { poolRef.current = pool; }, [pool]);
   useEffect(() => { phaseRef.current = phase; }, [phase]);
@@ -198,24 +203,55 @@ export default function HigherLowerGameScreen({ navigation, route }) {
     valueScale.setValue(0.45);
     Animated.timing(valueScale, {
       toValue: 1,
-      duration: 580,
-      easing: Easing.out(Easing.back(1.2)),
+      duration: 780,
+      easing: Easing.out(Easing.back(1.15)),
       useNativeDriver: true,
     }).start();
   }, [valueScale]);
+
+  const bounceVsBadge = useCallback(() => {
+    vsBadgeScale.setValue(0.35);
+    Animated.spring(vsBadgeScale, {
+      toValue: 1,
+      friction: 5,
+      tension: 120,
+      useNativeDriver: true,
+    }).start();
+  }, [vsBadgeScale]);
+
+  const revealStreakInBadge = useCallback((n) => {
+    setStreakPopValue(n);
+    setShowStreakInBadge(true);
+    streakInY.setValue(22);
+    streakInOpacity.setValue(0);
+    Animated.parallel([
+      Animated.timing(streakInOpacity, {
+        toValue: 1,
+        duration: 220,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true,
+      }),
+      Animated.spring(streakInY, {
+        toValue: 0,
+        friction: 7,
+        tension: 88,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [streakInY, streakInOpacity]);
 
   const bounceStreak = useCallback(() => {
     streakScale.setValue(0.85);
     Animated.sequence([
       Animated.timing(streakScale, {
         toValue: 1.18,
-        duration: 160,
+        duration: 220,
         easing: Easing.out(Easing.quad),
         useNativeDriver: true,
       }),
       Animated.spring(streakScale, {
         toValue: 1,
-        friction: 4,
+        friction: 5,
         useNativeDriver: true,
       }),
     ]).start();
@@ -236,8 +272,13 @@ export default function HigherLowerGameScreen({ navigation, route }) {
     setLastResult(null);
     setBusy(false);
     setError(null);
+    setShowStreakInBadge(false);
+    setStreakPopValue(0);
+    vsBadgeScale.setValue(1);
+    streakInY.setValue(22);
+    streakInOpacity.setValue(0);
     return true;
-  }, []);
+  }, [vsBadgeScale, streakInY, streakInOpacity]);
 
   const loadPack = useCallback(async () => {
     setError(null);
@@ -340,10 +381,12 @@ export default function HigherLowerGameScreen({ navigation, route }) {
   const onGuess = async (guess) => {
     if (phase !== 'guess' || busy || !round) return;
     setBusy(true);
+    setShowStreakInBadge(false);
     const result = evaluateGuess(guess, round.cardA, round.cardB, round.metric);
     setLastResult(result);
     setPhase('reveal');
     bounceValue();
+    bounceVsBadge();
 
     if (result.correct) {
       const nextStreak = streak + 1;
@@ -353,6 +396,10 @@ export default function HigherLowerGameScreen({ navigation, route }) {
         setBest(nextStreak);
         void persistBestIfNeeded(nextStreak);
       }
+
+      setTimeout(() => {
+        revealStreakInBadge(nextStreak);
+      }, 980);
 
       setTimeout(() => {
         const next = advanceRound(
@@ -370,15 +417,19 @@ export default function HigherLowerGameScreen({ navigation, route }) {
         recentRef.current = next.recentEntityIds || [];
         setRound(next);
         setLastResult(null);
+        setShowStreakInBadge(false);
         setPhase('guess');
         setBusy(false);
-      }, 900);
+        vsBadgeScale.setValue(1);
+        streakInY.setValue(22);
+        streakInOpacity.setValue(0);
+      }, 2700);
     } else {
       void persistBestIfNeeded(streak);
       setTimeout(() => {
         setPhase('gameover');
         setBusy(false);
-      }, 1000);
+      }, 1450);
     }
   };
 
@@ -483,7 +534,34 @@ export default function HigherLowerGameScreen({ navigation, route }) {
 
             <View style={styles.vsRow}>
               <View style={styles.vsLine} />
-              <Text style={styles.vsText}>o</Text>
+              <Animated.View
+                style={[
+                  styles.vsBadge,
+                  phase !== 'guess' && lastResult?.correct && styles.vsBadgeOk,
+                  phase !== 'guess' && lastResult && !lastResult.correct && styles.vsBadgeKo,
+                  { transform: [{ scale: vsBadgeScale }] },
+                ]}
+              >
+                {phase === 'guess' || !lastResult ? (
+                  <Text style={styles.vsText}>O</Text>
+                ) : lastResult.correct && showStreakInBadge ? (
+                  <Animated.Text
+                    style={[
+                      styles.vsStreakText,
+                      {
+                        opacity: streakInOpacity,
+                        transform: [{ translateY: streakInY }],
+                      },
+                    ]}
+                  >
+                    {streakPopValue}
+                  </Animated.Text>
+                ) : lastResult.correct ? (
+                  <Ionicons name="checkmark" size={28} color="#fff" />
+                ) : (
+                  <Ionicons name="close" size={28} color="#fff" />
+                )}
+              </Animated.View>
               <View style={styles.vsLine} />
             </View>
 
@@ -520,9 +598,9 @@ export default function HigherLowerGameScreen({ navigation, route }) {
             </View>
           ) : (
             <View style={styles.feedbackRow}>
-              <Text style={[styles.feedbackText, lastResult?.correct ? styles.okText : styles.koText]}>
-                {lastResult?.correct ? 'Corretto!' : 'Sbagliato'}
-              </Text>
+              {!lastResult?.correct ? (
+                <Text style={[styles.feedbackText, styles.koText]}>Sbagliato</Text>
+              ) : null}
             </View>
           )}
         </View>
@@ -668,9 +746,40 @@ const styles = StyleSheet.create({
   metricChipText: { fontSize: 11, fontWeight: '700', color: '#667eea', textTransform: 'uppercase' },
   cardValue: { marginTop: 10, fontSize: 40, fontWeight: '900', color: '#111827' },
   cardValueHidden: { marginTop: 10, fontSize: 40, fontWeight: '900', color: '#cbd5e1' },
-  vsRow: { flexDirection: 'row', alignItems: 'center', marginVertical: 10, gap: 10, zIndex: 0 },
+  vsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 10,
+    gap: 10,
+    zIndex: 3,
+  },
   vsLine: { flex: 1, height: 1, backgroundColor: '#e2e8f0' },
-  vsText: { fontSize: 25, fontWeight: '800', color: '#94a3b8' },
+  vsBadge: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#fff',
+    borderWidth: 1.5,
+    borderColor: '#e2e8f0',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  vsBadgeOk: {
+    backgroundColor: '#16a34a',
+    borderColor: '#16a34a',
+  },
+  vsBadgeKo: {
+    backgroundColor: '#dc2626',
+    borderColor: '#dc2626',
+  },
+  vsText: { fontSize: 20, fontWeight: '800', color: '#94a3b8' },
+  vsStreakText: {
+    fontSize: 20,
+    fontWeight: '900',
+    color: '#fff',
+    fontVariant: ['tabular-nums'],
+  },
   actions: {
     marginTop: 8,
     marginBottom: 4,

@@ -2,8 +2,10 @@ import { matchesService } from '../../services/api';
 import { filterPlayablePlayers } from './engine';
 
 const PACK_TTL_MS = 12 * 60 * 1000;
+/** Bump per invalidare cache memoria client dopo cambi formato pack (es. omonimi + anno). */
+const PACK_CACHE_VERSION = 2;
 
-/** @type {{ groupId: number, players: any[], at: number } | null} */
+/** @type {{ version: number, groupId: number, players: any[], at: number } | null} */
 let memory = null;
 
 let inflight = null; // Promise shared per group
@@ -11,6 +13,7 @@ let inflight = null; // Promise shared per group
 export function peekHigherLowerPack(groupId) {
   const gid = Number(groupId);
   if (!gid || !memory || Number(memory.groupId) !== gid) return null;
+  if (memory.version !== PACK_CACHE_VERSION) return null;
   if (Date.now() - memory.at > PACK_TTL_MS) return null;
   if (!Array.isArray(memory.players) || memory.players.length < 2) return null;
   return memory.players;
@@ -20,7 +23,7 @@ export function storeHigherLowerPack(groupId, players) {
   const gid = Number(groupId);
   const list = filterPlayablePlayers(players);
   if (!gid || list.length < 2) return list;
-  memory = { groupId: gid, players: list, at: Date.now() };
+  memory = { version: PACK_CACHE_VERSION, groupId: gid, players: list, at: Date.now() };
   return list;
 }
 

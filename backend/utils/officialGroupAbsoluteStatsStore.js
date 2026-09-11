@@ -3,7 +3,7 @@ const { query } = require('../config/database');
 const TABLE = 'official_group_cluster_absolute_stats';
 
 /** Bump quando cambia la logica di aggregazione (es. teams_count per squadra ufficiale). */
-const ABSOLUTE_STATS_LOGIC_VERSION = 2;
+const ABSOLUTE_STATS_LOGIC_VERSION = 3;
 const logicRefreshDone = new Set(); // groupId già ricalcolato per questa versione di processo
 
 let tableReadyPromise = null;
@@ -24,6 +24,43 @@ function stripBirthYearNameSuffix(name) {
     .replace(/\s*\(\s*'\d{2}\s*\)\s*$/u, '')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function formatBirthYearSuffix(birthYear) {
+  const y = Number(birthYear);
+  if (!Number.isFinite(y) || y < 1900 || y > 2100) return null;
+  return `('${String(Math.trunc(y)).slice(-2)})`;
+}
+
+/**
+ * Se 2+ entity hanno lo stesso nome, aggiunge ('93) al label (come leaderboard/ricerca).
+ */
+function annotateDuplicatePlayerNames(players, getBirthYear) {
+  const list = Array.isArray(players) ? players : [];
+  if (list.length < 2) {
+    return list.map((p) => ({
+      ...p,
+      name: stripBirthYearNameSuffix(p?.name),
+    }));
+  }
+
+  const counts = new Map();
+  for (const p of list) {
+    const key = stripBirthYearNameSuffix(p?.name).toLowerCase();
+    if (!key) continue;
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+
+  return list.map((p) => {
+    const baseName = stripBirthYearNameSuffix(p?.name);
+    const key = baseName.toLowerCase();
+    if (!key || (counts.get(key) || 0) < 2) {
+      return baseName !== p.name ? { ...p, name: baseName } : p;
+    }
+    const suffix = formatBirthYearSuffix(getBirthYear(p));
+    if (!suffix) return { ...p, name: baseName };
+    return { ...p, name: `${baseName} ${suffix}` };
+  });
 }
 
 /**
@@ -661,35 +698,56 @@ async function fetchHigherLowerPackFromStore(groupId) {
     );
   }
 
-  // Completa nome/foto se mancanti
+  // Completa nome/foto se mancanti + anni nascita per omonimi
+  const allRepIds = [...new Set(
+    (rows || [])
+      .map((r) => {
+        const rep = Number(r.representative_player_id);
+        if (rep > 0) return rep;
+        const eid = Number(r.cluster_id);
+        if (Number.isFinite(eid) && eid < 0) return -eid;
+        return null;
+      })
+      .filter((id) => id > 0),
+  )];
+
   const missingIds = (rows || [])
     .filter((r) => !r.display_name || !r.photo_path)
     .map((r) => Number(r.representative_player_id))
     .filter((id) => id > 0);
   const nameById = new Map();
-  if (missingIds.length) {
-    const ph = [...new Set(missingIds)].map(() => '?').join(', ');
+  const birthById = new Map();
+  const idsToLoad = [...new Set([...missingIds, ...allRepIds])];
+  if (idsToLoad.length) {
+    const ph = idsToLoad.map(() => '?').join(', ');
     const nameRows = await query(
       `SELECT id,
               TRIM(CONCAT(COALESCE(first_name, ''), ' ', COALESCE(last_name, ''))) AS name,
-              NULLIF(TRIM(COALESCE(photo_path, '')), '') AS photo_path
+              NULLIF(TRIM(COALESCE(photo_path, '')), '') AS photo_path,
+              birth_year
        FROM players
        WHERE id IN (${ph})`,
-      [...new Set(missingIds)],
+      idsToLoad,
     );
     for (const r of nameRows || []) {
-      nameById.set(Number(r.id), {
+      const pid = Number(r.id);
+      nameById.set(pid, {
         name: stripBirthYearNameSuffix(r.name),
         photo_path: r.photo_path || null,
       });
+      const by = Number(r.birth_year);
+      if (Number.isFinite(by) && by >= 1900) birthById.set(pid, by);
     }
   }
 
   let refreshedAt = null;
-  const players = [];
+  const playersRaw = [];
   for (const row of rows || []) {
     const entityId = Number(row.cluster_id);
-    const playerId = Number(row.representative_player_id) || null;
+    let playerId = Number(row.representative_player_id) || null;
+    if (!(playerId > 0) && Number.isFinite(entityId) && entityId < 0) {
+      playerId = -entityId;
+    }
     const meta = playerId ? nameById.get(playerId) : null;
     const name = stripBirthYearNameSuffix(row.display_name) || meta?.name || '';
     if (!name) continue;
@@ -701,10 +759,11 @@ async function fetchHigherLowerPackFromStore(groupId) {
     if (goals + appearances + trophies + editionsPlayed + teamsCount <= 0) continue;
 
     if (!refreshedAt && row.refreshed_at) refreshedAt = row.refreshed_at;
-    players.push({
+    playersRaw.push({
       entity_id: entityId,
       player_id: playerId,
       name,
+      birth_year: playerId ? (birthById.get(playerId) || null) : null,
       photo_path: row.photo_path || meta?.photo_path || null,
       goals,
       appearances,
@@ -713,6 +772,11 @@ async function fetchHigherLowerPackFromStore(groupId) {
       teams_count: teamsCount,
     });
   }
+
+  const players = annotateDuplicatePlayerNames(
+    playersRaw,
+    (p) => p.birth_year,
+  ).map(({ birth_year: _by, ...player }) => player);
 
   const payload = {
     group_id: gid,
