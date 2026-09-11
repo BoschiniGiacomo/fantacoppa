@@ -71,6 +71,7 @@ function PlayerCard({
   const statsOpacity = useRef(new Animated.Value(1)).current;
   const prevPlayerIdRef = useRef(player?.entity_id);
   const prevMetricKeyRef = useRef(metric?.key);
+  const countUpActiveRef = useRef(false);
   const instanceIdRef = useRef(null);
   if (instanceIdRef.current == null) {
     hlCardInstanceSeq += 1;
@@ -122,59 +123,77 @@ function PlayerCard({
     prevPlayerIdRef.current = playerId;
     prevMetricKeyRef.current = metricKey;
 
-    // Stesso giocatore, nuova statistica: solo fade di chip/valore (niente “flash” card).
+    // Stesso giocatore, nuova statistica: micro-fade solo su chip+numero (niente dip forte).
     if (samePlayer && metricChanged) {
-      hlLog('stats fade start', { inst, metric: metricKey, value: targetNum });
-      statsOpacity.setValue(0.2);
+      hlLog('stats soft swap', { inst, metric: metricKey, value: targetNum });
+      statsOpacity.setValue(0.72);
       Animated.timing(statsOpacity, {
         toValue: 1,
-        duration: 260,
+        duration: 160,
         easing: Easing.out(Easing.quad),
         useNativeDriver: true,
       }).start();
     }
-  }, [player?.entity_id, player?.name, metric?.key, targetNum, statsOpacity, stackIndex, inst, player]);
+  }, [player?.entity_id, metric?.key, targetNum, statsOpacity, stackIndex, inst, player]);
 
   useEffect(() => {
     if (!showValue) {
       setDisplayValue(0);
       countAnim.setValue(0);
+      countUpActiveRef.current = false;
       return undefined;
     }
 
     if (!countUp) {
       setDisplayValue(targetNum);
       countAnim.setValue(targetNum);
+      countUpActiveRef.current = false;
       return undefined;
     }
 
-    hlLog('countUp RESET 0→value (possible flash)', {
+    if (countUpActiveRef.current) {
+      return undefined;
+    }
+    countUpActiveRef.current = true;
+
+    hlLog('countUp START 0→value', {
       inst,
       player: playerLabel(player),
       value: targetNum,
     });
-    countAnim.setValue(0);
-    setDisplayValue(0);
+    const fromValue = 0;
+    const toValue = targetNum;
+    countAnim.setValue(fromValue);
+    setDisplayValue(fromValue);
     const listenerId = countAnim.addListener(({ value }) => {
       setDisplayValue(Math.round(value));
     });
 
-    const duration = Math.min(820, Math.max(420, 340 + Math.abs(targetNum) * 10));
+    const duration = Math.min(820, Math.max(420, 340 + Math.abs(toValue) * 10));
     const anim = Animated.timing(countAnim, {
-      toValue: targetNum,
+      toValue,
       duration,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: false,
     });
     anim.start(({ finished }) => {
-      if (finished) setDisplayValue(targetNum);
+      if (finished) setDisplayValue(toValue);
     });
 
     return () => {
       anim.stop();
       countAnim.removeListener(listenerId);
     };
-  }, [showValue, countUp, targetNum, countAnim, inst, player]);
+    // Parte solo sull'edge reveal (countUp true). targetNum/player letti al via.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showValue, countUp]);
+
+  // Card già visibile (es. promote): aggiorna solo il numero se cambia la metrica.
+  useEffect(() => {
+    if (!showValue || countUp || countUpActiveRef.current) return;
+    setDisplayValue(targetNum);
+    countAnim.setValue(targetNum);
+  }, [showValue, countUp, targetNum, countAnim]);
 
   return (
     <View
@@ -541,7 +560,7 @@ export default function HigherLowerGameScreen({ navigation, route }) {
       beforeStack: [
         round?.cardA?.entity_id,
         round?.cardB?.entity_id,
-        slideNext?.cardB?.entity_id,
+        next?.cardB?.entity_id,
       ],
       afterStack: [next?.cardA?.entity_id, next?.cardB?.entity_id],
       metricFrom: round?.metric?.key,
@@ -563,7 +582,6 @@ export default function HigherLowerGameScreen({ navigation, route }) {
     valueScale.setValue(1);
   }, [
     round,
-    slideNext,
     stackY,
     promptOpacity,
     vsBadgeScale,
@@ -724,7 +742,8 @@ export default function HigherLowerGameScreen({ navigation, route }) {
         player: round.cardB,
         metric: revealMetric,
         showValue: phase !== 'guess' || !!slideNext,
-        highlight: (phase === 'reveal' || !!slideNext) && lastResult
+        // Highlight solo in reveal: durante slide/settle niente flash verde/rosso sulla card.
+        highlight: phase === 'reveal' && lastResult
           ? (lastResult.correct ? 'win' : 'lose')
           : null,
         countUp: phase === 'reveal',
