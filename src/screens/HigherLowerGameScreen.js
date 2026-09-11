@@ -37,11 +37,64 @@ function PlayerCard({
   valueOverride,
   highlight,
   valueScale,
+  countUp = false,
 }) {
-  const value = valueOverride != null ? valueOverride : getMetricValue(player, metric);
+  const target = valueOverride != null ? valueOverride : getMetricValue(player, metric);
+  const targetNum = Number(target) || 0;
+  const [displayValue, setDisplayValue] = useState(showValue && countUp ? 0 : targetNum);
+  const countAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (!showValue) {
+      setDisplayValue(0);
+      countAnim.setValue(0);
+      return undefined;
+    }
+
+    if (!countUp) {
+      setDisplayValue(targetNum);
+      countAnim.setValue(targetNum);
+      return undefined;
+    }
+
+    countAnim.setValue(0);
+    setDisplayValue(0);
+    const listenerId = countAnim.addListener(({ value }) => {
+      setDisplayValue(Math.round(value));
+    });
+
+    const duration = Math.min(620, Math.max(320, 260 + Math.abs(targetNum) * 8));
+    const anim = Animated.timing(countAnim, {
+      toValue: targetNum,
+      duration,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    });
+    anim.start(({ finished }) => {
+      if (finished) setDisplayValue(targetNum);
+    });
+
+    return () => {
+      anim.stop();
+      countAnim.removeListener(listenerId);
+    };
+  }, [showValue, countUp, targetNum, countAnim]);
+
   return (
-    <View style={[styles.card, highlight === 'win' && styles.cardWin, highlight === 'lose' && styles.cardLose]}>
-      <MinigamePlayerAvatar photoPath={player?.photo_path} name={player?.name} size={96} />
+    <View
+      style={[
+        styles.card,
+        highlight === 'win' && styles.cardWin,
+        highlight === 'lose' && styles.cardLose,
+      ]}
+    >
+      <View style={styles.cardMediaCol}>
+        <MinigamePlayerAvatar
+          photoPath={player?.photo_path}
+          name={player?.name}
+          size={72}
+        />
+      </View>
       <View style={styles.cardTextCol}>
         <Text style={styles.cardName} numberOfLines={2}>{player?.name || '—'}</Text>
         <View style={styles.metricChip}>
@@ -54,7 +107,7 @@ function PlayerCard({
               valueScale ? { transform: [{ scale: valueScale }] } : null,
             ]}
           >
-            {value}
+            {displayValue}
           </Animated.Text>
         ) : (
           <Text style={styles.cardValueHidden}>??</Text>
@@ -74,7 +127,9 @@ function HigherLowerSkeleton() {
       <SkeletonBlock style={styles.skelPrompt} />
       <View style={styles.cardsBlock}>
         <View style={[styles.card, styles.skelCard]}>
-          <SkeletonBlock style={styles.skelAvatar} />
+          <View style={styles.cardMediaCol}>
+            <SkeletonBlock style={styles.skelAvatar} />
+          </View>
           <View style={styles.cardTextCol}>
             <SkeletonBlock style={styles.skelName} />
             <SkeletonBlock style={styles.skelChip} />
@@ -87,7 +142,9 @@ function HigherLowerSkeleton() {
           <View style={styles.vsLine} />
         </View>
         <View style={[styles.card, styles.skelCard]}>
-          <SkeletonBlock style={styles.skelAvatar} />
+          <View style={styles.cardMediaCol}>
+            <SkeletonBlock style={styles.skelAvatar} />
+          </View>
           <View style={styles.cardTextCol}>
             <SkeletonBlock style={styles.skelName} />
             <SkeletonBlock style={styles.skelChip} />
@@ -130,16 +187,19 @@ export default function HigherLowerGameScreen({ navigation, route }) {
   const recentRef = useRef([]);
   const poolRef = useRef(pool);
   const phaseRef = useRef(phase);
+  const bestRef = useRef(0);
+  const recordAtStartRef = useRef(0);
 
   useEffect(() => { poolRef.current = pool; }, [pool]);
   useEffect(() => { phaseRef.current = phase; }, [phase]);
+  useEffect(() => { bestRef.current = best; }, [best]);
 
   const bounceValue = useCallback(() => {
-    valueScale.setValue(0.6);
-    Animated.spring(valueScale, {
+    valueScale.setValue(0.45);
+    Animated.timing(valueScale, {
       toValue: 1,
-      friction: 5,
-      tension: 140,
+      duration: 580,
+      easing: Easing.out(Easing.back(1.2)),
       useNativeDriver: true,
     }).start();
   }, [valueScale]);
@@ -168,6 +228,7 @@ export default function HigherLowerGameScreen({ navigation, route }) {
       setRound(null);
       return false;
     }
+    recordAtStartRef.current = bestRef.current;
     recentRef.current = initial.recentEntityIds || [];
     setRound(initial);
     setStreak(0);
@@ -219,6 +280,7 @@ export default function HigherLowerGameScreen({ navigation, route }) {
       } catch (_) {}
 
       const mergedBest = await mergeBest(gid, Math.max(localBest, serverBest));
+      bestRef.current = mergedBest;
       setBest(mergedBest);
 
       const playable = filterPlayablePlayers(players);
@@ -226,6 +288,9 @@ export default function HigherLowerGameScreen({ navigation, route }) {
       poolRef.current = playable;
       if (!keepCurrentRound || phaseRef.current === 'gameover') {
         bootstrapRound(playable);
+      } else {
+        // Round già avviato da cache: allinea il record di riferimento
+        recordAtStartRef.current = mergedBest;
       }
     } catch (e) {
       if (!(peekHigherLowerPack(groupId)?.length >= 2)) {
@@ -346,6 +411,10 @@ export default function HigherLowerGameScreen({ navigation, route }) {
     ? (lastResult.correct ? 'win' : 'lose')
     : null;
 
+  const recordAtStart = recordAtStartRef.current;
+  const scoreVsRecord =
+    streak > recordAtStart ? 'up' : streak < recordAtStart ? 'down' : 'tie';
+
   const headerSubtitle = useMemo(() => {
     if (groupName) return groupName;
     return 'Statistiche ufficiali';
@@ -424,6 +493,7 @@ export default function HigherLowerGameScreen({ navigation, route }) {
               showValue={phase !== 'guess'}
               highlight={bHighlight}
               valueScale={phase !== 'guess' ? valueScale : null}
+              countUp={phase !== 'guess'}
             />
           </View>
 
@@ -471,27 +541,24 @@ export default function HigherLowerGameScreen({ navigation, route }) {
             </View>
 
             <Text style={styles.modalTitle}>Serie terminata</Text>
-            <Text style={styles.modalSubtitle}>La streak si è interrotta</Text>
 
             <View style={styles.modalScoreBox}>
-              <View style={styles.modalArrows}>
-                <View style={[styles.modalArrowChip, styles.modalArrowHigher]}>
-                  <Ionicons name="arrow-up" size={16} color="#16a34a" />
-                </View>
-                <View style={[styles.modalArrowChip, styles.modalArrowLower]}>
-                  <Ionicons name="arrow-down" size={16} color="#dc2626" />
-                </View>
-              </View>
               <Text style={styles.modalScoreLabel}>Punteggio</Text>
-              <Text style={styles.modalScore}>{streak}</Text>
-              {streak > 0 && streak >= best ? (
-                <View style={styles.modalRecordBadge}>
-                  <Ionicons name="flame" size={14} color="#16a34a" />
-                  <Text style={styles.modalRecordBadgeText}>Nuovo record</Text>
-                </View>
-              ) : (
-                <Text style={styles.modalRecord}>Record: {best}</Text>
-              )}
+              <View style={styles.modalScoreRow}>
+                <Text style={styles.modalScore}>{streak}</Text>
+                {scoreVsRecord === 'up' ? (
+                  <View style={[styles.modalScoreTrend, styles.modalScoreTrendUp]}>
+                    <Ionicons name="arrow-up" size={22} color="#16a34a" />
+                  </View>
+                ) : scoreVsRecord === 'down' ? (
+                  <View style={[styles.modalScoreTrend, styles.modalScoreTrendDown]}>
+                    <Ionicons name="arrow-down" size={22} color="#dc2626" />
+                  </View>
+                ) : (
+                  <Text style={styles.modalScoreTie}>—</Text>
+                )}
+              </View>
+              <Text style={styles.modalRecord}>Record: {best}</Text>
             </View>
 
             <TouchableOpacity style={styles.modalReplayBtn} onPress={onReplay} activeOpacity={0.9}>
@@ -550,6 +617,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 12,
     paddingBottom: 6,
+    overflow: 'visible',
   },
   prompt: {
     textAlign: 'center',
@@ -562,23 +630,32 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     minHeight: 0,
+    overflow: 'visible',
   },
   card: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 16,
+    gap: 14,
     backgroundColor: '#fff',
     borderRadius: 18,
-    paddingHorizontal: 16,
-    paddingVertical: 16,
+    paddingLeft: 12,
+    paddingRight: 16,
+    paddingVertical: 12,
     borderWidth: 1,
     borderColor: '#ececec',
     minHeight: 120,
+    overflow: 'visible',
+  },
+  cardMediaCol: {
+    width: 80,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 2,
   },
   cardWin: { borderColor: '#86efac', backgroundColor: '#f0fdf4' },
   cardLose: { borderColor: '#fca5a5', backgroundColor: '#fef2f2' },
-  cardTextCol: { flex: 1, minWidth: 0 },
+  cardTextCol: { flex: 1, minWidth: 0, zIndex: 1 },
   cardName: { fontSize: 18, fontWeight: '800', color: '#111827' },
   metricChip: {
     alignSelf: 'flex-start',
@@ -591,7 +668,7 @@ const styles = StyleSheet.create({
   metricChipText: { fontSize: 11, fontWeight: '700', color: '#667eea', textTransform: 'uppercase' },
   cardValue: { marginTop: 10, fontSize: 40, fontWeight: '900', color: '#111827' },
   cardValueHidden: { marginTop: 10, fontSize: 40, fontWeight: '900', color: '#cbd5e1' },
-  vsRow: { flexDirection: 'row', alignItems: 'center', marginVertical: 10, gap: 10 },
+  vsRow: { flexDirection: 'row', alignItems: 'center', marginVertical: 10, gap: 10, zIndex: 0 },
   vsLine: { flex: 1, height: 1, backgroundColor: '#e2e8f0' },
   vsText: { fontSize: 25, fontWeight: '800', color: '#94a3b8' },
   actions: {
@@ -712,24 +789,6 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     paddingHorizontal: 14,
   },
-  modalArrows: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 10,
-  },
-  modalArrowChip: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  modalArrowHigher: {
-    backgroundColor: '#dcfce7',
-  },
-  modalArrowLower: {
-    backgroundColor: '#fee2e2',
-  },
   modalScoreLabel: {
     fontSize: 12,
     color: '#94a3b8',
@@ -737,34 +796,44 @@ const styles = StyleSheet.create({
     letterSpacing: 0.4,
     textTransform: 'uppercase',
   },
-  modalScore: {
+  modalScoreRow: {
     marginTop: 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  modalScore: {
     fontSize: 52,
     fontWeight: '900',
     color: '#111827',
     letterSpacing: -1,
     fontVariant: ['tabular-nums'],
   },
-  modalRecord: {
+  modalScoreTrend: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalScoreTrendUp: {
+    backgroundColor: '#dcfce7',
+  },
+  modalScoreTrendDown: {
+    backgroundColor: '#fee2e2',
+  },
+  modalScoreTie: {
+    fontSize: 34,
+    fontWeight: '800',
+    color: '#94a3b8',
     marginTop: 4,
+    lineHeight: 36,
+  },
+  modalRecord: {
+    marginTop: 6,
     color: '#64748b',
     fontWeight: '600',
     fontSize: 14,
-  },
-  modalRecordBadge: {
-    marginTop: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 999,
-    backgroundColor: '#dcfce7',
-  },
-  modalRecordBadgeText: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#16a34a',
   },
   modalReplayBtn: {
     alignSelf: 'stretch',
@@ -789,7 +858,7 @@ const styles = StyleSheet.create({
   skelBlock: { backgroundColor: '#e8edf3', borderRadius: 8 },
   skelCard: { borderColor: '#e8edf3' },
   skelPrompt: { alignSelf: 'center', width: '62%', height: 16, marginBottom: 10, borderRadius: 8 },
-  skelAvatar: { width: 96, height: 96, borderRadius: 48 },
+  skelAvatar: { width: 72, height: 72, borderRadius: 36 },
   skelName: { width: '78%', height: 16, borderRadius: 8 },
   skelChip: { width: 72, height: 18, marginTop: 8, borderRadius: 8 },
   skelValue: { width: 56, height: 34, marginTop: 10, borderRadius: 8 },

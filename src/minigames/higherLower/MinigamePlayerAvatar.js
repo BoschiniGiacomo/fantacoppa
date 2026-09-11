@@ -2,6 +2,14 @@ import React, { useMemo } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { PlayerPhotoImage } from '../../components/StableCachedImage';
 
+/** Slot layout (spazio riservato nella card). */
+const SLOT_WIDTH = 80;
+const SLOT_HEIGHT = 96;
+/** Disegno più grande dello slot: straborda senza crop. */
+const PHOTO_ZOOM = 1.08;
+const PHOTO_SIDE_BLEED = 1.28;
+const PHOTO_VERT_BLEED = 1.14;
+
 function stripBirthYearNameSuffix(name) {
   return String(name || '')
     .replace(/\s*\(\s*'\d{2}\s*\)\s*$/u, '')
@@ -18,40 +26,92 @@ export function playerInitials(name) {
   return `${parts[0][0] || ''}${parts[parts.length - 1][0] || ''}`.toUpperCase();
 }
 
-export default function MinigamePlayerAvatar({ photoPath, name, size = 72, accent = '#667eea' }) {
-  const radius = Math.round(size / 2);
+/**
+ * Avatar minigioco.
+ * Con foto: ritratto più grande dello slot, overflow visible (come confronto).
+ * Senza foto: cerchio con iniziali (size legacy).
+ */
+export default function MinigamePlayerAvatar({
+  photoPath,
+  name,
+  size = 96,
+  accent = '#667eea',
+  slotWidth = SLOT_WIDTH,
+  slotHeight = SLOT_HEIGHT,
+}) {
   const path = String(photoPath || '').trim();
-  const fallbackStyle = useMemo(
+  const circleRadius = Math.round(size / 2);
+
+  const fallbackCircle = useMemo(
     () => ({
       width: size,
       height: size,
-      borderRadius: radius,
+      borderRadius: circleRadius,
       backgroundColor: `${accent}18`,
       alignItems: 'center',
       justifyContent: 'center',
     }),
-    [size, radius, accent],
+    [size, circleRadius, accent],
   );
 
   if (path) {
+    const baseW = slotWidth;
+    const baseH = Math.round(slotWidth * 1.3);
+    const drawW = Math.round(baseW * PHOTO_ZOOM * PHOTO_SIDE_BLEED);
+    const drawH = Math.round(baseH * PHOTO_ZOOM * PHOTO_VERT_BLEED);
+    const top = Math.round((slotHeight - drawH) / 2);
+    const fallbackStyle = {
+      width: baseW,
+      height: baseH,
+      borderRadius: 16,
+      backgroundColor: '#f1f5f9',
+      alignItems: 'center',
+      justifyContent: 'center',
+    };
+
     return (
-      <PlayerPhotoImage
-        photoPath={path}
-        style={{ width: size, height: size, borderRadius: radius }}
-        resizeMode="cover"
-        fallbackStyle={fallbackStyle}
-        fallbackIcon="person-outline"
-        fallbackIconSize={Math.round(size * 0.42)}
-        fallbackColor={accent}
-      />
+      <View
+        style={{
+          width: slotWidth,
+          height: slotHeight,
+          alignItems: 'center',
+          justifyContent: 'center',
+          overflow: 'visible',
+        }}
+      >
+        <PlayerPhotoImage
+          photoPath={path}
+          style={{
+            width: drawW,
+            height: drawH,
+            position: 'absolute',
+            left: (slotWidth - drawW) / 2,
+            top,
+          }}
+          resizeMode="cover"
+          fallbackStyle={fallbackStyle}
+          fallbackIcon="person-outline"
+          fallbackIconSize={Math.round(Math.min(baseW, baseH) * 0.34)}
+          fallbackColor="#94a3b8"
+        />
+      </View>
     );
   }
 
   return (
-    <View style={fallbackStyle}>
-      <Text style={[styles.initials, { fontSize: Math.round(size * 0.32), color: accent }]}>
-        {playerInitials(name)}
-      </Text>
+    <View
+      style={{
+        width: slotWidth,
+        height: slotHeight,
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      <View style={fallbackCircle}>
+        <Text style={[styles.initials, { fontSize: Math.round(size * 0.32), color: accent }]}>
+          {playerInitials(name)}
+        </Text>
+      </View>
     </View>
   );
 }
