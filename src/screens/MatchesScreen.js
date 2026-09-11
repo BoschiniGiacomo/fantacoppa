@@ -30,6 +30,7 @@ import {
 import { PlayerPhotoImage, TeamLogoImage } from '../components/StableCachedImage';
 import FollowTeamsPreferencesModal from '../components/FollowTeamsPreferencesModal';
 import { useAuth } from '../context/AuthContext';
+import { getMenuOfficialGroup } from '../utils/menuOfficialGroupSettings';
 import { canOpenMatchManagement as roleCanOpenMatchManagement } from '../utils/userRoles';
 import {
   computeLiveHeroClock,
@@ -333,6 +334,7 @@ export default function MatchesScreen() {
   const [trendingPlayers, setTrendingPlayers] = useState([]);
   const [trendingLoading, setTrendingLoading] = useState(false);
   const [headerHeight, setHeaderHeight] = useState(0);
+  const [menuOfficialGroup, setMenuOfficialGroup] = useState(null);
   const searchInputRef = useRef(null);
   const searchSeqRef = useRef(0);
   const trendingSeqRef = useRef(0);
@@ -689,6 +691,23 @@ export default function MatchesScreen() {
     daysScrollRef.current.scrollTo({ x: targetX, animated: true });
   }, [selectedDate, dayLayouts, daysViewportWidth]);
 
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      getMenuOfficialGroup().then((group) => {
+        if (!cancelled) setMenuOfficialGroup(group);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }, [])
+  );
+
+  const minigamesCtaTitle = useMemo(() => {
+    const name = String(menuOfficialGroup?.name || '').trim();
+    return name ? `Quanto conosci ${name}?` : null;
+  }, [menuOfficialGroup]);
+
   const formatTime = (iso) => {
     const d = new Date(iso);
     if (Number.isNaN(d.getTime())) return '--:--';
@@ -863,7 +882,7 @@ export default function MatchesScreen() {
         ) : (
           <ScrollView
             style={styles.list}
-            contentContainerStyle={{ paddingBottom: token ? 100 : 24 }}
+            contentContainerStyle={{ paddingBottom: 24 }}
             refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
           >
             {error ? <Text style={styles.errorText}>{error}</Text> : null}
@@ -928,24 +947,27 @@ export default function MatchesScreen() {
                 ))}
               </View>
             ))}
-
-            <TouchableOpacity
-              style={styles.minigamesCta}
-              activeOpacity={0.88}
-              onPress={() => navigation.navigate('MinigamesHub')}
-            >
-              <View style={styles.minigamesCtaIcon}>
-                <Ionicons name="game-controller-outline" size={22} color="#667eea" />
-              </View>
-              <View style={styles.minigamesCtaBody}>
-                <Text style={styles.minigamesCtaTitle}>Quanto conosci la Coppa dei Cantoni?</Text>
-                <Text style={styles.minigamesCtaSub}>Sfida Higher or Lower · Minigiochi</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={20} color="#94a3b8" />
-            </TouchableOpacity>
           </ScrollView>
         )}
       </View>
+
+      {minigamesCtaTitle ? (
+        <TouchableOpacity
+          style={styles.minigamesCta}
+          activeOpacity={0.88}
+          onPress={() => navigation.navigate('MinigamesHub')}
+        >
+          <View style={styles.minigamesCtaIcon}>
+            <Ionicons name="game-controller-outline" size={22} color="#667eea" />
+          </View>
+          <View style={styles.minigamesCtaBody}>
+            <Text style={styles.minigamesCtaTitle}>{minigamesCtaTitle}</Text>
+            <Text style={styles.minigamesCtaSub}>Sfida Higher or Lower · Minigiochi</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={20} color="#94a3b8" />
+        </TouchableOpacity>
+      ) : null}
+
       {showCalendarPicker ? (
         Platform.OS === 'ios' ? (
           <View style={styles.iosCalendarOverlay}>
@@ -1306,24 +1328,47 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 12,
     backgroundColor: '#fff',
+    marginHorizontal: 12,
+    marginBottom: 8,
+    marginTop: 4,
     borderRadius: 14,
-    marginBottom: 12,
-    paddingVertical: 14,
+    paddingVertical: 12,
     paddingHorizontal: 14,
     borderWidth: 1,
     borderColor: '#c7d2fe',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    elevation: 3,
   },
   minigamesCtaIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
+    width: 40,
+    height: 40,
+    borderRadius: 11,
     backgroundColor: '#eef2ff',
     alignItems: 'center',
     justifyContent: 'center',
   },
   minigamesCtaBody: { flex: 1 },
-  minigamesCtaTitle: { fontSize: 14, fontWeight: '800', color: '#111827' },
-  minigamesCtaSub: { marginTop: 3, fontSize: 12, color: '#667eea', fontWeight: '600' },
+  minigamesCtaTitle: { fontSize: 13, fontWeight: '800', color: '#111827' },
+  minigamesCtaSub: { marginTop: 2, fontSize: 11, color: '#667eea', fontWeight: '600' },
+  fabStar: {
+    position: 'absolute',
+    right: 20,
+    bottom: 88,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#667eea',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#667eea',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 5,
+  },
   groupTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1412,22 +1457,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   matchListMinuteText: { fontSize: 11, fontWeight: '800', color: '#111827' },
-  fabStar: {
-    position: 'absolute',
-    right: 20,
-    bottom: 20,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: '#667eea',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#667eea',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 5,
-  },
   heartStripWrap: {
     backgroundColor: '#f5f5f5',
   },
