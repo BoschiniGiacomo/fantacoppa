@@ -497,7 +497,7 @@ export default function HigherLowerGameScreen({ navigation, route }) {
   };
 
   const prompt = round
-    ? buildComparePrompt(round.metric, round.cardA)
+    ? buildComparePrompt(round.metric, round.cardA, round.cardB)
     : 'Higher or Lower';
   const bHighlight = lastResult
     ? (lastResult.correct ? 'win' : 'lose')

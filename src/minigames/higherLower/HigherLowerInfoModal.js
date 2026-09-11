@@ -19,12 +19,12 @@ const INFO_STEPS = [
   {
     icon: 'swap-vertical',
     title: 'Confronta il secondo',
-    body: 'Higher/Lower = il giocatore sotto rispetto a quello sopra',
+    body: 'Higher/Lower = sotto vs sopra',
   },
   {
     icon: 'flame-outline',
     title: 'Allunga lo streak',
-    body: 'Corretta = +1. Sbagli e la partita termina',
+    body: 'Corretta = +1. Sbagli e la striscia termina',
   },
 ];
 

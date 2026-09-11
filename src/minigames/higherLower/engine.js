@@ -18,8 +18,13 @@ export const GAP_BANDS = [
   { min: 0.05, max: 0.16 }, // 20+
 ];
 
-/** Anni di “vecchiaia” per normalizzare la familiarità (recency → 0). */
+/** Anni di “vecchiaia” per normalizzare la familiarità fuori dalla finestra easy. */
 const RECENCY_SPAN_YEARS = 8;
+/**
+ * Primo range (inizio partita): familiarità piena se ha giocato
+ * negli ultimi N anni rispetto all’anno max del gruppo (non solo l’ultimo).
+ */
+export const EASY_RECENCY_YEARS = 3;
 
 function shuffleInPlace(arr) {
   for (let i = arr.length - 1; i > 0; i -= 1) {
@@ -64,12 +69,25 @@ function resolveGroupMaxYear(pool, explicitMax) {
   return max;
 }
 
-/** 1 = giocato di recente (più familiare/facile), 0 = anni fa / sconosciuto. */
+/** true se last_edition_year è negli ultimi EASY_RECENCY_YEARS (es. 0–3). */
+export function isInEasyRecencyWindow(player, groupMaxYear) {
+  const y = Number(player?.last_edition_year);
+  if (!Number.isFinite(y) || !Number.isFinite(groupMaxYear)) return true;
+  return (groupMaxYear - y) <= EASY_RECENCY_YEARS;
+}
+
+/**
+ * 1 = familiare (facile), 0 = anni fa.
+ * Negli ultimi EASY_RECENCY_YEARS anni lo score è piatto (=1), così
+ * non escono quasi solo giocatori dell’ultimo anno.
+ */
 export function recencyScore(player, groupMaxYear) {
   const y = Number(player?.last_edition_year);
-  if (!Number.isFinite(y) || !Number.isFinite(groupMaxYear)) return 0.5;
+  if (!Number.isFinite(y) || !Number.isFinite(groupMaxYear)) return 0.55;
   const age = Math.max(0, groupMaxYear - y);
-  return Math.max(0, Math.min(1, 1 - age / RECENCY_SPAN_YEARS));
+  if (age <= EASY_RECENCY_YEARS) return 1;
+  const leftover = Math.max(1, RECENCY_SPAN_YEARS - EASY_RECENCY_YEARS);
+  return Math.max(0, Math.min(1, 1 - (age - EASY_RECENCY_YEARS) / leftover));
 }
 
 export function buildMetricRanges(pool) {
@@ -211,12 +229,13 @@ export function pickOpponent(pool, cardA, recentEntityIds = [], options = {}) {
   }
 
   const stages = [
-    { allowRecent: false, bandStep: 0, allowExcludedMetric: false },
-    { allowRecent: false, bandStep: 1, allowExcludedMetric: false },
-    { allowRecent: true, bandStep: 1, allowExcludedMetric: false },
-    { allowRecent: true, bandStep: 2, allowExcludedMetric: false },
-    { allowRecent: true, bandStep: 3, allowExcludedMetric: true },
-    { allowRecent: true, bandStep: 99, allowExcludedMetric: true },
+    // Tier 0: prima solo giocatori degli ultimi EASY_RECENCY_YEARS anni
+    { allowRecent: false, bandStep: 0, allowExcludedMetric: false, easyWindowOnly: tier === 0 },
+    { allowRecent: false, bandStep: 1, allowExcludedMetric: false, easyWindowOnly: tier === 0 },
+    { allowRecent: true, bandStep: 1, allowExcludedMetric: false, easyWindowOnly: tier <= 1 },
+    { allowRecent: true, bandStep: 2, allowExcludedMetric: false, easyWindowOnly: false },
+    { allowRecent: true, bandStep: 3, allowExcludedMetric: true, easyWindowOnly: false },
+    { allowRecent: true, bandStep: 99, allowExcludedMetric: true, easyWindowOnly: false },
   ];
 
   for (const stage of stages) {
@@ -234,6 +253,7 @@ export function pickOpponent(pool, cardA, recentEntityIds = [], options = {}) {
         const candidate = players[i];
         const id = Number(candidate.entity_id);
         if (!stage.allowRecent && recent.has(id)) continue;
+        if (stage.easyWindowOnly && !isInEasyRecencyWindow(candidate, maxYear)) continue;
         const bVal = getMetricValue(candidate, metric);
         if (bVal === aVal) continue;
         const relGap = relativeGapFromValues(aVal, bVal, span);
@@ -273,8 +293,7 @@ function tryBuildRound(pool, cardA, recentEntityIds = [], options = {}) {
 }
 
 /**
- * Round iniziale veloce: pochi seed “recenti” + early-exit su candidati.
- * Evita di scansionare tutto il pool × tutte le metriche × tutti gli stage.
+ * Round iniziale veloce: seed dagli ultimi EASY_RECENCY_YEARS anni (range piatto).
  */
 export function createInitialRound(players, options = {}) {
   const pool = filterPlayablePlayers(players);
@@ -283,13 +302,10 @@ export function createInitialRound(players, options = {}) {
   const ranges = buildMetricRanges(pool);
   const groupMaxYear = resolveGroupMaxYear(pool, options.groupMaxYear);
 
-  // Campione misto: metà pool shuffled basta per scegliere seed familiari.
-  const sampleSize = Math.min(pool.length, 36);
-  const sample = shuffleInPlace([...pool]).slice(0, sampleSize);
-  sample.sort((a, b) => {
-    const dr = recencyScore(b, groupMaxYear) - recencyScore(a, groupMaxYear);
-    return dr !== 0 ? dr : Math.random() - 0.5;
-  });
+  const easyPool = pool.filter((p) => isInEasyRecencyWindow(p, groupMaxYear));
+  const seedSource = easyPool.length >= 2 ? easyPool : pool;
+  const sampleSize = Math.min(seedSource.length, 36);
+  const sample = shuffleInPlace([...seedSource]).slice(0, sampleSize);
 
   const seedCount = Math.min(INITIAL_SEED_TRIES, sample.length);
   const sharedOpts = {

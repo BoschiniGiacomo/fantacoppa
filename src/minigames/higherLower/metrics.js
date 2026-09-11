@@ -25,6 +25,8 @@ export const METRICS = [
     field: 'teams_count',
     compareLabel: 'squadre',
     unitLabel: 'squadre',
+    /** Template con {bottom} e {top} (cognomi). */
+    promptTemplate: '{bottom} ha giocato per più o meno squadre di {top}?',
   },
   {
     key: 'editions_played',
@@ -42,21 +44,29 @@ function stripBirthYearNameSuffix(name) {
 }
 
 /** Nome corto per la domanda (cognome se disponibile). */
-export function promptPlayerName(player) {
+export function promptPlayerName(player, fallback = 'lui') {
   const full = stripBirthYearNameSuffix(player?.name);
-  if (!full) return 'il giocatore sopra';
+  if (!full) return fallback;
   const parts = full.split(/\s+/).filter(Boolean);
   if (parts.length === 1) return parts[0];
   return parts[parts.length - 1];
 }
 
 /**
- * Domanda chiara: Higher/Lower = valore del giocatore SOTTO rispetto a quello SOPRA.
+ * Domanda: cognome del sotto vs cognome del sopra.
+ * Es. "Boschini ha più o meno trofei di Bimbi?"
+ * Squadre: "Grossi ha giocato per più o meno squadre di Crivaro?"
  */
-export function buildComparePrompt(metric, cardA) {
+export function buildComparePrompt(metric, cardA, cardB) {
+  const bottomName = promptPlayerName(cardB, 'questo');
+  const topName = promptPlayerName(cardA, 'quello');
+  if (metric?.promptTemplate) {
+    return String(metric.promptTemplate)
+      .replace(/\{bottom\}/g, bottomName)
+      .replace(/\{top\}/g, topName);
+  }
   const label = metric?.compareLabel || metric?.unitLabel || 'valore';
-  const topName = promptPlayerName(cardA);
-  return `Il giocatore sotto ha più o meno ${label} di ${topName}?`;
+  return `${bottomName} ha più o meno ${label} di ${topName}?`;
 }
 
 export function getMetricValue(player, metric) {
