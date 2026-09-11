@@ -50,6 +50,8 @@
       "fallbackToCacheTimeout": 0
     },
     "plugins": [
+      "./plugins/with-android-splash-no-logo",
+      "./plugins/with-android-r8-minify",
       [
         "expo-splash-screen",
         {
