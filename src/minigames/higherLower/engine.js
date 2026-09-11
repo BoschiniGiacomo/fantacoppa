@@ -6,15 +6,16 @@ export const RECENT_WINDOW = 15;
 /**
  * Fasce di delta relativo |a-b| / (max-min metrica), per streak.
  * upTo = streak massimo incluso in questa fascia (Infinity = resto).
- * Sale più in fretta all’inizio; 20+ molto stretto.
+ * maxAgeYears = quanto indietro si può andare su last_edition_year
+ *   (null = tutti gli anni). Si rilassa solo se non si trova un match.
  */
 export const DIFFICULTY_TIERS = [
-  { upTo: 2, min: 0.33, max: 1.0 }, // 0–2
-  { upTo: 5, min: 0.22, max: 0.50 }, // 3–5
-  { upTo: 9, min: 0.13, max: 0.33 }, // 6–9
-  { upTo: 14, min: 0.10, max: 0.24 }, // 10–14
-  { upTo: 19, min: 0.05, max: 0.14 }, // 15–19
-  { upTo: Infinity, min: 0.02, max: 0.07 }, // 20+
+  { upTo: 2, min: 0.33, max: 1.0, maxAgeYears: 3 }, // 0–2 → ultimi 3
+  { upTo: 5, min: 0.22, max: 0.50, maxAgeYears: 5 }, // 3–5 → ultimi 5
+  { upTo: 9, min: 0.13, max: 0.33, maxAgeYears: 10 }, // 6–9 → ultimi 10
+  { upTo: 14, min: 0.10, max: 0.24, maxAgeYears: null }, // 10–14 → tutti
+  { upTo: 19, min: 0.05, max: 0.14, maxAgeYears: null }, // 15–19 → tutti
+  { upTo: Infinity, min: 0.02, max: 0.07, maxAgeYears: null }, // 20+ → tutti
 ];
 
 /** @deprecated alias: usare DIFFICULTY_TIERS */
@@ -33,13 +34,32 @@ export function getGapBand(streak) {
   return { min: tier.min, max: tier.max };
 }
 
-/** Anni di “vecchiaia” per normalizzare la familiarità fuori dalla finestra easy. */
-const RECENCY_SPAN_YEARS = 8;
+/** Finestra anni della fascia streak (null = senza limite). */
+export function getTierMaxAgeYears(streak) {
+  const tier = DIFFICULTY_TIERS[getDifficultyTier(streak)];
+  const v = tier?.maxAgeYears;
+  return v == null ? null : Number(v);
+}
+
+/** Prossima finestra più larga (per rilascio soft), o null = tutti. */
+function getNextWiderMaxAgeYears(tierIndex) {
+  for (let i = tierIndex + 1; i < DIFFICULTY_TIERS.length; i += 1) {
+    const v = DIFFICULTY_TIERS[i].maxAgeYears;
+    if (v == null) return null;
+    const cur = DIFFICULTY_TIERS[tierIndex]?.maxAgeYears;
+    if (cur == null || v > cur) return v;
+  }
+  return null;
+}
+
 /**
- * Primo range (inizio partita): familiarità piena se ha giocato
- * negli ultimi N anni rispetto all’anno max del gruppo (non solo l’ultimo).
+ * Primo range (inizio partita / streak 0–2): ultimi N anni.
+ * Allineato a DIFFICULTY_TIERS[0].maxAgeYears.
  */
 export const EASY_RECENCY_YEARS = 3;
+
+/** Anni di “vecchiaia” per lo score soft fuori dalla finestra easy. */
+const RECENCY_SPAN_YEARS = 10;
 
 function shuffleInPlace(arr) {
   for (let i = arr.length - 1; i > 0; i -= 1) {
@@ -75,11 +95,17 @@ function resolveGroupMaxYear(pool, explicitMax) {
   return max;
 }
 
-/** true se last_edition_year è negli ultimi EASY_RECENCY_YEARS (es. 0–3). */
-export function isInEasyRecencyWindow(player, groupMaxYear) {
+/** true se last_edition_year è entro maxAgeYears dal max del gruppo (null = ok). */
+export function isWithinMaxAgeYears(player, groupMaxYear, maxAgeYears) {
+  if (maxAgeYears == null) return true;
   const y = Number(player?.last_edition_year);
   if (!Number.isFinite(y) || !Number.isFinite(groupMaxYear)) return true;
-  return (groupMaxYear - y) <= EASY_RECENCY_YEARS;
+  return (groupMaxYear - y) <= maxAgeYears;
+}
+
+/** true se last_edition_year è negli ultimi EASY_RECENCY_YEARS (es. 0–3). */
+export function isInEasyRecencyWindow(player, groupMaxYear) {
+  return isWithinMaxAgeYears(player, groupMaxYear, EASY_RECENCY_YEARS);
 }
 
 /**
@@ -218,6 +244,8 @@ export function pickOpponent(pool, cardA, recentEntityIds = [], options = {}) {
   const ranges = rangesOpt || buildMetricRanges(pool);
   const tier = getDifficultyTier(streak);
   const baseBand = getGapBand(streak);
+  const tierMaxAge = DIFFICULTY_TIERS[tier]?.maxAgeYears ?? null;
+  const widerMaxAge = getNextWiderMaxAgeYears(tier);
   const maxYear = resolveGroupMaxYear(pool, groupMaxYear);
   const recencyA = recencyScore(cardA, maxYear);
   const recent = new Set((recentEntityIds || []).map(Number));
@@ -238,13 +266,13 @@ export function pickOpponent(pool, cardA, recentEntityIds = [], options = {}) {
   }
 
   const stages = [
-    // Prima evita recent di sessione + cooldown 15 min (se possibile).
-    { allowRecent: false, allowCooldown: false, bandStep: 0, allowExcludedMetric: false, easyWindowOnly: tier === 0 },
-    { allowRecent: false, allowCooldown: false, bandStep: 1, allowExcludedMetric: false, easyWindowOnly: tier === 0 },
-    { allowRecent: true, allowCooldown: false, bandStep: 1, allowExcludedMetric: false, easyWindowOnly: tier <= 1 },
-    { allowRecent: true, allowCooldown: false, bandStep: 2, allowExcludedMetric: false, easyWindowOnly: false },
-    { allowRecent: true, allowCooldown: true, bandStep: 3, allowExcludedMetric: true, easyWindowOnly: false },
-    { allowRecent: true, allowCooldown: true, bandStep: 99, allowExcludedMetric: true, easyWindowOnly: false },
+    // Finestra anni della fascia streak, poi allarga se serve.
+    { allowRecent: false, allowCooldown: false, bandStep: 0, allowExcludedMetric: false, maxAgeYears: tierMaxAge },
+    { allowRecent: false, allowCooldown: false, bandStep: 1, allowExcludedMetric: false, maxAgeYears: tierMaxAge },
+    { allowRecent: true, allowCooldown: false, bandStep: 1, allowExcludedMetric: false, maxAgeYears: widerMaxAge },
+    { allowRecent: true, allowCooldown: false, bandStep: 2, allowExcludedMetric: false, maxAgeYears: null },
+    { allowRecent: true, allowCooldown: true, bandStep: 3, allowExcludedMetric: true, maxAgeYears: null },
+    { allowRecent: true, allowCooldown: true, bandStep: 99, allowExcludedMetric: true, maxAgeYears: null },
   ];
 
   for (const stage of stages) {
@@ -257,19 +285,25 @@ export function pickOpponent(pool, cardA, recentEntityIds = [], options = {}) {
     const scored = [];
     metricLoop: for (const metric of metrics) {
       const aVal = aVals[metric.key];
-      // 0 = turno gratis; squadre con 1 in alto (visibile) → Higher sempre corretto.
+      // A mai a 0 (visibile = turno gratis). Presenze/squadre/edizioni: A almeno 2.
       if (!(aVal > 0)) continue;
-      if (metric.key === 'teams_count' && !(aVal > 1)) continue;
+      if (
+        (metric.key === 'appearances'
+          || metric.key === 'teams_count'
+          || metric.key === 'editions_played')
+        && !(aVal > 1)
+      ) continue;
       const span = spans[metric.key];
       for (let i = 0; i < players.length; i += 1) {
         const candidate = players[i];
         const id = Number(candidate.entity_id);
         if (!stage.allowRecent && recent.has(id)) continue;
         if (!stage.allowCooldown && cooldown.has(id)) continue;
-        if (stage.easyWindowOnly && !isInEasyRecencyWindow(candidate, maxYear)) continue;
+        if (!isWithinMaxAgeYears(candidate, maxYear, stage.maxAgeYears)) continue;
         const bVal = getMetricValue(candidate, metric);
-        if (!(bVal > 0) || bVal === aVal) continue;
-        if (metric.key === 'teams_count' && !(bVal > 1)) continue;
+        // Gol/trofei: B può essere 0. Altre metriche: B >= 1. Mai pari.
+        const bMin = (metric.key === 'goals' || metric.key === 'trophies') ? 0 : 1;
+        if (bVal < bMin || bVal === aVal) continue;
         const relGap = relativeGapFromValues(aVal, bVal, span);
         if (stage.bandStep < 99 && (relGap < band.min || relGap > band.max)) continue;
 
