@@ -7,6 +7,7 @@ import {
   ScrollView,
   ActivityIndicator,
   RefreshControl,
+  Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { publicAssetUrl } from '../services/api';
@@ -22,6 +23,44 @@ import {
   normalizeSistemaSettings,
 } from '../utils/sistemaSettings';
 
+function StatusPill({ on, label }) {
+  return (
+    <View style={[styles.statusPill, on && styles.statusPillOn]}>
+      <Text style={[styles.statusPillText, on && styles.statusPillTextOn]} numberOfLines={1}>
+        {label}
+      </Text>
+    </View>
+  );
+}
+
+function SectionCard({
+  open,
+  onToggle,
+  icon,
+  title,
+  statusOn,
+  statusLabel,
+  children,
+}) {
+  return (
+    <View style={[styles.card, open && styles.cardOpen]}>
+      <TouchableOpacity style={styles.sectionHeader} onPress={onToggle} activeOpacity={0.75}>
+        <View style={styles.sectionHeaderLeft}>
+          <View style={[styles.sectionIcon, statusOn && styles.sectionIconOn]}>
+            <Ionicons name={icon} size={18} color={statusOn ? '#667eea' : '#94a3b8'} />
+          </View>
+          <View style={styles.sectionCopy}>
+            <Text style={styles.sectionTitle}>{title}</Text>
+            <StatusPill on={statusOn} label={statusLabel} />
+          </View>
+        </View>
+        <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={20} color="#94a3b8" />
+      </TouchableOpacity>
+      {open ? <View style={styles.sectionBody}>{children}</View> : null}
+    </View>
+  );
+}
+
 function CheckRow({
   label,
   hint,
@@ -29,16 +68,20 @@ function CheckRow({
   disabled,
   onToggle,
   rightExtra,
+  last,
 }) {
   return (
     <TouchableOpacity
-      style={[styles.checkRow, disabled && styles.checkRowDisabled]}
+      style={[styles.checkRow, last && styles.checkRowLast, disabled && styles.checkRowDisabled]}
       onPress={disabled ? undefined : onToggle}
       activeOpacity={disabled ? 1 : 0.75}
       disabled={disabled}
     >
+      <View style={[styles.checkBox, checked && styles.checkBoxOn, disabled && styles.checkBoxDisabled]}>
+        {checked ? <Ionicons name="checkmark" size={13} color="#fff" /> : null}
+      </View>
       <View style={styles.checkCopy}>
-        <Text style={[styles.checkLabel, disabled && styles.checkLabelDisabled]} numberOfLines={2}>
+        <Text style={[styles.checkLabel, disabled && styles.checkLabelDisabled]} numberOfLines={1}>
           {label}
         </Text>
         {hint ? (
@@ -46,9 +89,6 @@ function CheckRow({
         ) : null}
       </View>
       {rightExtra}
-      <View style={[styles.checkBox, checked && styles.checkBoxOn, disabled && styles.checkBoxDisabled]}>
-        {checked ? <Ionicons name="checkmark" size={14} color="#fff" /> : null}
-      </View>
     </TouchableOpacity>
   );
 }
@@ -65,6 +105,9 @@ export default function SistemaSettingsPanel({
   const [refreshing, setRefreshing] = useState(false);
   const [settings, setSettings] = useState(DEFAULT_SISTEMA_SETTINGS);
   const [error, setError] = useState(null);
+  const [slidesOpen, setSlidesOpen] = useState(true);
+  const [minigamesOpen, setMinigamesOpen] = useState(true);
+  const [menuOpen, setMenuOpen] = useState(true);
 
   const load = useCallback(async ({ silent = false } = {}) => {
     if (!silent) setLoading(true);
@@ -89,6 +132,7 @@ export default function SistemaSettingsPanel({
     const normalized = normalizeSistemaSettings(next);
     setSettings(normalized);
     setSaving(true);
+    setError(null);
     try {
       const saved = await saveSistemaSettings(normalized);
       setSettings(saved);
@@ -105,17 +149,40 @@ export default function SistemaSettingsPanel({
     [settings.minigames],
   );
 
-  const enabledSlideCount = useMemo(
-    () => settings.slides.filter((s) => s.visible).length,
-    [settings.slides],
+  const enabledSlides = useMemo(
+    () => settings.slides.filter((s) => {
+      if (!s.visible) return false;
+      if (s.id === 'minigames' && !anyMinigameVisible) return false;
+      return true;
+    }),
+    [settings.slides, anyMinigameVisible],
   );
 
-  const showOrderControls = enabledSlideCount >= 2;
+  const enabledMinigames = useMemo(
+    () => settings.minigames.filter((m) => m.visible),
+    [settings.minigames],
+  );
+
+  const showOrderControls = enabledSlides.length >= 2;
 
   const menuGroup = useMemo(
     () => officialGroups.find((g) => Number(g.show_in_main_menu) === 1) || null,
     [officialGroups],
   );
+
+  const slidesStatus = useMemo(() => {
+    const n = enabledSlides.length;
+    if (n === 0) return { on: false, label: 'Nascosto' };
+    if (n === 1) return { on: true, label: '1 slide' };
+    return { on: true, label: `${n} slide` };
+  }, [enabledSlides]);
+
+  const minigamesStatus = useMemo(() => {
+    const n = enabledMinigames.length;
+    if (n === 0) return { on: false, label: 'Nessuno' };
+    if (n === 1) return { on: true, label: '1 gioco' };
+    return { on: true, label: `${n} giochi` };
+  }, [enabledMinigames]);
 
   if (loading) {
     return (
@@ -142,43 +209,53 @@ export default function SistemaSettingsPanel({
         />
       }
     >
-      <Text style={styles.subtitle}>
-        Controlla slide Partite, minigiochi e pulsante centrale del menu
-      </Text>
+      <View style={styles.topRow}>
+        <Text style={styles.subtitle}>
+          Slide Partite, minigiochi e pulsante centrale del menu
+        </Text>
+        {saving ? (
+          <View style={styles.savingChip}>
+            <ActivityIndicator size="small" color="#667eea" />
+            <Text style={styles.savingText}>Salvo</Text>
+          </View>
+        ) : null}
+      </View>
 
       {error ? (
         <View style={styles.errorBox}>
+          <Ionicons name="alert-circle-outline" size={18} color="#b91c1c" />
           <Text style={styles.errorText}>{error}</Text>
         </View>
       ) : null}
 
-      {saving ? (
-        <View style={styles.savingRow}>
-          <ActivityIndicator size="small" color="#667eea" />
-          <Text style={styles.savingText}>Salvataggio…</Text>
-        </View>
-      ) : null}
-
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Pulsante slide (Partite)</Text>
-        <Text style={styles.cardHint}>
-          Seleziona cosa mostrare. Con una sola slide non ruota. Con nessuna, il pulsante è nascosto.
+      <SectionCard
+        open={slidesOpen}
+        onToggle={() => setSlidesOpen((v) => !v)}
+        icon="albums-outline"
+        title="Pulsante slide"
+        statusOn={slidesStatus.on}
+        statusLabel={slidesStatus.label}
+      >
+        <Text style={styles.hint}>
+          Cosa mostrare in Partite. Una sola slide non ruota; nessuna nasconde il pulsante.
           {showOrderControls ? ' Usa le frecce per l’ordine.' : ''}
         </Text>
-        {settings.slides.map((slide) => {
-          const def = PROMO_SLIDE_DEFS.find((d) => d.id === slide.id);
-          const needsMini = !!def?.requiresMinigame;
-          const disabled = needsMini && !anyMinigameVisible;
-          const visibleSlides = settings.slides.filter((s) => s.visible);
-          const visibleIndex = visibleSlides.findIndex((s) => s.id === slide.id);
-          const canOrder = showOrderControls && slide.visible && !disabled;
-          return (
-            <View key={slide.id} style={styles.slideBlock}>
+        <View style={styles.listCard}>
+          {settings.slides.map((slide, index) => {
+            const def = PROMO_SLIDE_DEFS.find((d) => d.id === slide.id);
+            const needsMini = !!def?.requiresMinigame;
+            const disabled = needsMini && !anyMinigameVisible;
+            const visibleIndex = enabledSlides.findIndex((s) => s.id === slide.id);
+            const canOrder = showOrderControls && slide.visible && !disabled;
+            const last = index === settings.slides.length - 1;
+            return (
               <CheckRow
+                key={slide.id}
+                last={last}
                 label={def?.label || slide.id}
                 hint={
                   disabled
-                    ? 'Attiva almeno un minigioco per abilitare questa slide'
+                    ? 'Serve almeno un minigioco attivo'
                     : def?.hint
                 }
                 checked={!!slide.visible && !disabled}
@@ -204,9 +281,9 @@ export default function SistemaSettingsPanel({
                       <TouchableOpacity
                         style={[
                           styles.orderBtn,
-                          visibleIndex >= visibleSlides.length - 1 && styles.orderBtnDisabled,
+                          visibleIndex >= enabledSlides.length - 1 && styles.orderBtnDisabled,
                         ]}
-                        disabled={visibleIndex >= visibleSlides.length - 1}
+                        disabled={visibleIndex >= enabledSlides.length - 1}
                         onPress={() => void persist(moveSlide(settings, slide.id, 'down'))}
                         hitSlop={6}
                       >
@@ -214,7 +291,7 @@ export default function SistemaSettingsPanel({
                           name="chevron-down"
                           size={16}
                           color={
-                            visibleIndex >= visibleSlides.length - 1 ? '#cbd5e1' : '#667eea'
+                            visibleIndex >= enabledSlides.length - 1 ? '#cbd5e1' : '#667eea'
                           }
                         />
                       </TouchableOpacity>
@@ -222,142 +299,245 @@ export default function SistemaSettingsPanel({
                   ) : null
                 }
               />
-            </View>
-          );
-        })}
-      </View>
+            );
+          })}
+        </View>
+      </SectionCard>
 
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Minigiochi visibili</Text>
-        <Text style={styles.cardHint}>
-          Solo i minigiochi attivi compaiono nell’hub e possono alimentare la slide Minigiochi.
-          Con un solo gioco attivo, la slide apre direttamente il gioco.
+      <SectionCard
+        open={minigamesOpen}
+        onToggle={() => setMinigamesOpen((v) => !v)}
+        icon="game-controller-outline"
+        title="Minigiochi"
+        statusOn={minigamesStatus.on}
+        statusLabel={minigamesStatus.label}
+      >
+        <Text style={styles.hint}>
+          Solo i giochi attivi compaiono nell’hub. Con un solo gioco, la slide apre direttamente quello.
         </Text>
-        {settings.minigames.map((game) => {
-          const def = MINIGAME_DEFS.find((d) => d.id === game.id);
-          return (
-            <CheckRow
-              key={game.id}
-              label={def?.label || game.id}
-              checked={!!game.visible}
-              onToggle={() => {
-                void persist(toggleMinigameVisible(settings, game.id, !game.visible));
-              }}
-            />
-          );
-        })}
-      </View>
+        <View style={styles.listCard}>
+          {settings.minigames.map((game, index) => {
+            const def = MINIGAME_DEFS.find((d) => d.id === game.id);
+            return (
+              <CheckRow
+                key={game.id}
+                last={index === settings.minigames.length - 1}
+                label={def?.label || game.id}
+                checked={!!game.visible}
+                onToggle={() => {
+                  void persist(toggleMinigameVisible(settings, game.id, !game.visible));
+                }}
+              />
+            );
+          })}
+        </View>
+      </SectionCard>
 
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Pulsante centrale menu</Text>
-        <Text style={styles.cardHint}>
-          Gruppo ufficiale associato al pulsante centrale. Puoi cambiarlo anche dal tab Ufficiali.
+      <SectionCard
+        open={menuOpen}
+        onToggle={() => setMenuOpen((v) => !v)}
+        icon="apps-outline"
+        title="Pulsante centrale"
+        statusOn={!!menuGroup}
+        statusLabel={menuGroup ? menuGroup.name : 'Non impostato'}
+      >
+        <Text style={styles.hint}>
+          Gruppo ufficiale del pulsante centrale. Modificabile anche dal tab Ufficiali.
         </Text>
         {loadingOfficialGroups && officialGroups.length === 0 ? (
-          <ActivityIndicator color="#667eea" style={{ marginVertical: 12 }} />
+          <View style={styles.inlineLoading}>
+            <ActivityIndicator color="#667eea" />
+          </View>
         ) : officialGroups.length === 0 ? (
           <Text style={styles.emptyText}>Nessun gruppo ufficiale disponibile.</Text>
         ) : (
-          officialGroups.map((group) => {
-            const selected = Number(group.show_in_main_menu) === 1;
-            const busy = togglingMenuGroupId === group.id;
-            const logoUri = group.logo_path ? publicAssetUrl(group.logo_path) : null;
-            return (
-              <TouchableOpacity
-                key={group.id}
-                style={[styles.groupRow, selected && styles.groupRowOn]}
-                activeOpacity={0.75}
-                disabled={!!togglingMenuGroupId}
-                onPress={() => onToggleMainMenuGroup?.(group)}
-              >
-                <View style={[styles.groupAvatar, selected && styles.groupAvatarOn]}>
+          <View style={styles.listCard}>
+            {officialGroups.map((group, index) => {
+              const selected = Number(group.show_in_main_menu) === 1;
+              const busy = togglingMenuGroupId === group.id;
+              const logoUri = group.logo_path ? publicAssetUrl(group.logo_path) : null;
+              const last = index === officialGroups.length - 1;
+              return (
+                <TouchableOpacity
+                  key={group.id}
+                  style={[styles.groupRow, last && styles.checkRowLast, selected && styles.groupRowOn]}
+                  activeOpacity={0.75}
+                  disabled={!!togglingMenuGroupId}
+                  onPress={() => onToggleMainMenuGroup?.(group)}
+                >
                   {logoUri ? (
-                    <Ionicons name="image-outline" size={16} color={selected ? '#667eea' : '#94a3b8'} />
+                    <Image source={{ uri: logoUri }} style={styles.groupLogo} />
                   ) : (
-                    <Text style={styles.groupAvatarText}>
-                      {String(group.name || '?').trim().charAt(0).toUpperCase() || '?'}
+                    <View style={[styles.groupAvatar, selected && styles.groupAvatarOn]}>
+                      <Text style={[styles.groupAvatarText, selected && styles.groupAvatarTextOn]}>
+                        {String(group.name || '?').trim().charAt(0).toUpperCase() || '?'}
+                      </Text>
+                    </View>
+                  )}
+                  <View style={styles.groupCopy}>
+                    <Text style={styles.groupName} numberOfLines={1}>{group.name}</Text>
+                    <Text style={[styles.groupMeta, selected && styles.groupMetaOn]}>
+                      {selected ? 'Attivo nel menu' : 'Tocca per associare'}
                     </Text>
-                  )}
-                </View>
-                <View style={styles.groupCopy}>
-                  <Text style={styles.groupName} numberOfLines={1}>{group.name}</Text>
-                  {selected ? (
-                    <Text style={styles.groupBadge}>Attivo nel menu</Text>
-                  ) : (
-                    <Text style={styles.groupHint}>Tocca per associare</Text>
-                  )}
-                </View>
-                {busy ? (
-                  <ActivityIndicator size="small" color="#667eea" />
-                ) : (
-                  <View style={[styles.radio, selected && styles.radioOn]}>
-                    {selected ? <View style={styles.radioDot} /> : null}
                   </View>
-                )}
-              </TouchableOpacity>
-            );
-          })
+                  {busy ? (
+                    <ActivityIndicator size="small" color="#667eea" />
+                  ) : (
+                    <View style={[styles.radio, selected && styles.radioOn]}>
+                      {selected ? <View style={styles.radioDot} /> : null}
+                    </View>
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
         )}
-        {menuGroup ? (
-          <Text style={styles.footerNote}>
-            Attuale: {menuGroup.name}
-          </Text>
-        ) : (
-          <Text style={styles.footerNote}>Nessun gruppo associato al pulsante centrale.</Text>
-        )}
-      </View>
+      </SectionCard>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1 },
-  scroll: { padding: 16, paddingBottom: 40, gap: 14 },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  root: { flex: 1, backgroundColor: '#f5f5f5' },
+  scroll: { padding: 16, paddingBottom: 32 },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#f5f5f5' },
+  topRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginBottom: 12,
+  },
   subtitle: {
+    flex: 1,
     fontSize: 13,
+    fontWeight: '500',
     color: '#64748b',
     lineHeight: 18,
-    marginBottom: 2,
   },
-  savingRow: {
+  savingChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: '#eef2ff',
+  },
+  savingText: { fontSize: 11, color: '#667eea', fontWeight: '700' },
+  errorBox: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-  },
-  savingText: { fontSize: 12, color: '#667eea', fontWeight: '600' },
-  errorBox: {
     backgroundColor: '#fef2f2',
     borderRadius: 12,
     padding: 12,
     borderWidth: 1,
     borderColor: '#fecaca',
+    marginBottom: 10,
   },
-  errorText: { color: '#b91c1c', fontSize: 13 },
+  errorText: { flex: 1, color: '#b91c1c', fontSize: 13, lineHeight: 18 },
   card: {
     backgroundColor: '#fff',
     borderRadius: 14,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#ececec',
+    marginBottom: 10,
+  },
+  cardOpen: {
+    borderColor: '#c7d2fe',
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  sectionHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+    minWidth: 0,
+  },
+  sectionIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: '#f8fafc',
     borderWidth: 1,
     borderColor: '#e2e8f0',
-    padding: 14,
-    gap: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  cardTitle: { fontSize: 15, fontWeight: '800', color: '#111827' },
-  cardHint: { fontSize: 12, color: '#94a3b8', lineHeight: 17, marginBottom: 4 },
-  slideBlock: { gap: 0 },
+  sectionIconOn: {
+    backgroundColor: '#eef2ff',
+    borderColor: '#c7d2fe',
+  },
+  sectionCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 4,
+  },
+  sectionTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  statusPill: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 999,
+    backgroundColor: '#f1f5f9',
+    maxWidth: '100%',
+  },
+  statusPillOn: {
+    backgroundColor: '#eef2ff',
+  },
+  statusPillText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#64748b',
+  },
+  statusPillTextOn: {
+    color: '#667eea',
+  },
+  sectionBody: {
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#e2e8f0',
+    gap: 10,
+  },
+  hint: {
+    fontSize: 12,
+    color: '#94a3b8',
+    lineHeight: 17,
+  },
+  listCard: {
+    backgroundColor: '#f8fafc',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#eef2ff',
+    overflow: 'hidden',
+  },
   checkRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    paddingVertical: 10,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: '#eef2ff',
+    paddingVertical: 11,
+    paddingHorizontal: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#e2e8f0',
   },
-  checkRowDisabled: { opacity: 0.55 },
-  checkCopy: { flex: 1, minWidth: 0 },
-  checkLabel: { fontSize: 14, fontWeight: '700', color: '#111827' },
-  checkLabelDisabled: { color: '#94a3b8' },
-  checkHint: { marginTop: 2, fontSize: 11, color: '#94a3b8', lineHeight: 15 },
+  checkRowLast: {
+    borderBottomWidth: 0,
+  },
+  checkRowDisabled: {
+    opacity: 0.55,
+  },
   checkBox: {
     width: 22,
     height: 22,
@@ -376,40 +556,65 @@ const styles = StyleSheet.create({
     backgroundColor: '#f1f5f9',
     borderColor: '#e2e8f0',
   },
-  orderBtns: { flexDirection: 'row', gap: 2 },
+  checkCopy: { flex: 1, minWidth: 0 },
+  checkLabel: { fontSize: 14, fontWeight: '700', color: '#111827' },
+  checkLabelDisabled: { color: '#94a3b8' },
+  checkHint: { marginTop: 2, fontSize: 11, color: '#94a3b8', lineHeight: 15 },
+  orderBtns: { flexDirection: 'row', gap: 4 },
   orderBtn: {
     width: 28,
     height: 28,
     borderRadius: 8,
-    backgroundColor: '#eef2ff',
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#c7d2fe',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  orderBtnDisabled: { backgroundColor: '#f8fafc' },
-  emptyText: { fontSize: 13, color: '#94a3b8', paddingVertical: 8 },
+  orderBtnDisabled: {
+    backgroundColor: '#f8fafc',
+    borderColor: '#e2e8f0',
+  },
+  emptyText: { fontSize: 13, color: '#94a3b8', lineHeight: 18 },
+  inlineLoading: { paddingVertical: 16, alignItems: 'center' },
   groupRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    paddingVertical: 10,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: '#eef2ff',
+    paddingVertical: 11,
+    paddingHorizontal: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#e2e8f0',
   },
-  groupRowOn: {},
+  groupRowOn: {
+    backgroundColor: '#eef2ff',
+  },
+  groupLogo: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    backgroundColor: '#fff',
+  },
   groupAvatar: {
     width: 34,
     height: 34,
     borderRadius: 10,
-    backgroundColor: '#f1f5f9',
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  groupAvatarOn: { backgroundColor: '#eef2ff' },
+  groupAvatarOn: {
+    backgroundColor: '#fff',
+    borderColor: '#c7d2fe',
+  },
   groupAvatarText: { fontSize: 14, fontWeight: '800', color: '#64748b' },
+  groupAvatarTextOn: { color: '#667eea' },
   groupCopy: { flex: 1, minWidth: 0 },
   groupName: { fontSize: 14, fontWeight: '700', color: '#111827' },
-  groupBadge: { marginTop: 2, fontSize: 11, fontWeight: '700', color: '#667eea' },
-  groupHint: { marginTop: 2, fontSize: 11, color: '#94a3b8' },
+  groupMeta: { marginTop: 2, fontSize: 11, color: '#94a3b8', fontWeight: '500' },
+  groupMetaOn: { color: '#667eea', fontWeight: '700' },
   radio: {
     width: 20,
     height: 20,
@@ -418,6 +623,7 @@ const styles = StyleSheet.create({
     borderColor: '#cbd5e1',
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: '#fff',
   },
   radioOn: { borderColor: '#667eea' },
   radioDot: {
@@ -425,10 +631,5 @@ const styles = StyleSheet.create({
     height: 10,
     borderRadius: 5,
     backgroundColor: '#667eea',
-  },
-  footerNote: {
-    marginTop: 6,
-    fontSize: 12,
-    color: '#64748b',
   },
 });

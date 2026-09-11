@@ -58,8 +58,12 @@ const styles = StyleSheet.create({
   },
   higher: {
     backgroundColor: '#22c55e',
+    zIndex: 2,
+    elevation: 2,
   },
   lower: {
     backgroundColor: '#ef4444',
+    zIndex: 1,
+    elevation: 1,
   },
 });

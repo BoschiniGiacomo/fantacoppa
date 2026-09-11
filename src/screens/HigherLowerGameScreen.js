@@ -4,14 +4,14 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  ActivityIndicator,
   Modal,
   Animated,
   Easing,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { matchesService, minigamesService } from '../services/api';
+import { useFocusEffect } from '@react-navigation/native';
+import { minigamesService } from '../services/api';
 import { getMenuOfficialGroup } from '../utils/menuOfficialGroupSettings';
 import { HIGHER_LOWER_GAME_KEY, getMetricValue } from '../minigames/higherLower/metrics';
 import {
@@ -23,6 +23,10 @@ import {
 import { getLocalBest, setLocalBest, mergeBest } from '../minigames/higherLower/storage';
 import MinigamePlayerAvatar from '../minigames/higherLower/MinigamePlayerAvatar';
 import HigherLowerInfoModal from '../minigames/higherLower/HigherLowerInfoModal';
+import {
+  peekHigherLowerPack,
+  fetchHigherLowerPackCached,
+} from '../minigames/higherLower/packCache';
 
 function PlayerCard({
   player,
@@ -58,15 +62,56 @@ function PlayerCard({
   );
 }
 
+function SkeletonBlock({ style }) {
+  return <View style={[styles.skelBlock, style]} />;
+}
+
+function HigherLowerSkeleton() {
+  return (
+    <View style={styles.playArea}>
+      <SkeletonBlock style={styles.skelPrompt} />
+      <View style={styles.cardsBlock}>
+        <View style={[styles.card, styles.skelCard]}>
+          <SkeletonBlock style={styles.skelAvatar} />
+          <View style={styles.cardTextCol}>
+            <SkeletonBlock style={styles.skelName} />
+            <SkeletonBlock style={styles.skelChip} />
+            <SkeletonBlock style={styles.skelValue} />
+          </View>
+        </View>
+        <View style={styles.vsRow}>
+          <View style={styles.vsLine} />
+          <Text style={styles.vsText}>o</Text>
+          <View style={styles.vsLine} />
+        </View>
+        <View style={[styles.card, styles.skelCard]}>
+          <SkeletonBlock style={styles.skelAvatar} />
+          <View style={styles.cardTextCol}>
+            <SkeletonBlock style={styles.skelName} />
+            <SkeletonBlock style={styles.skelChip} />
+            <SkeletonBlock style={[styles.skelValue, { width: 72 }]} />
+          </View>
+        </View>
+      </View>
+      <View style={styles.actions}>
+        <SkeletonBlock style={[styles.skelBtn, { alignSelf: 'flex-start' }]} />
+        <SkeletonBlock style={[styles.skelBtn, { alignSelf: 'flex-end', marginTop: -10 }]} />
+      </View>
+      <Text style={styles.skelHint}>Carico i giocatori…</Text>
+    </View>
+  );
+}
+
 export default function HigherLowerGameScreen({ navigation, route }) {
   const routeGroupId = Number(route?.params?.groupId) || null;
   const routeGroupName = route?.params?.groupName || '';
 
   const [groupId, setGroupId] = useState(routeGroupId);
   const [groupName, setGroupName] = useState(routeGroupName);
-  const [loading, setLoading] = useState(true);
+  const cachedStart = routeGroupId ? peekHigherLowerPack(routeGroupId) : null;
+  const [loading, setLoading] = useState(!(cachedStart?.length >= 2));
   const [error, setError] = useState(null);
-  const [pool, setPool] = useState([]);
+  const [pool, setPool] = useState(cachedStart || []);
   const [round, setRound] = useState(null);
   const [streak, setStreak] = useState(0);
   const [best, setBest] = useState(0);
@@ -78,6 +123,11 @@ export default function HigherLowerGameScreen({ navigation, route }) {
   const valueScale = useRef(new Animated.Value(1)).current;
   const streakScale = useRef(new Animated.Value(1)).current;
   const recentRef = useRef([]);
+  const poolRef = useRef(pool);
+  const phaseRef = useRef(phase);
+
+  useEffect(() => { poolRef.current = pool; }, [pool]);
+  useEffect(() => { phaseRef.current = phase; }, [phase]);
 
   const bounceValue = useCallback(() => {
     valueScale.setValue(0.6);
@@ -111,18 +161,19 @@ export default function HigherLowerGameScreen({ navigation, route }) {
     if (!initial) {
       setError('Servono almeno due giocatori con statistiche per giocare.');
       setRound(null);
-      return;
+      return false;
     }
     recentRef.current = initial.recentEntityIds || [];
     setRound(initial);
     setStreak(0);
     setPhase('guess');
     setLastResult(null);
+    setBusy(false);
     setError(null);
+    return true;
   }, []);
 
   const loadPack = useCallback(async () => {
-    setLoading(true);
     setError(null);
     try {
       let gid = groupId;
@@ -136,10 +187,26 @@ export default function HigherLowerGameScreen({ navigation, route }) {
         setGroupName(gname);
       }
 
-      const [packRes, localBest] = await Promise.all([
-        matchesService.getHigherLowerPack(gid),
+      const keepCurrentRound =
+        (poolRef.current?.length || 0) >= 2
+        && phaseRef.current !== 'gameover'
+        && phaseRef.current !== 'reveal';
+
+      const cached = peekHigherLowerPack(gid);
+      if (cached?.length >= 2) {
+        setPool(cached);
+        poolRef.current = cached;
+        if (!keepCurrentRound) bootstrapRound(cached);
+        setLoading(false);
+      } else {
+        setLoading(true);
+      }
+
+      const [players, localBest] = await Promise.all([
+        fetchHigherLowerPackCached(gid, { force: !!cached }),
         getLocalBest(gid),
       ]);
+
       let serverBest = 0;
       try {
         const bestRes = await minigamesService.getBest(HIGHER_LOWER_GAME_KEY, gid);
@@ -149,19 +216,36 @@ export default function HigherLowerGameScreen({ navigation, route }) {
       const mergedBest = await mergeBest(gid, Math.max(localBest, serverBest));
       setBest(mergedBest);
 
-      const players = filterPlayablePlayers(packRes?.data?.players || []);
-      setPool(players);
-      bootstrapRound(players);
+      const playable = filterPlayablePlayers(players);
+      setPool(playable);
+      poolRef.current = playable;
+      if (!keepCurrentRound || phaseRef.current === 'gameover') {
+        bootstrapRound(playable);
+      }
     } catch (e) {
-      setError(e?.response?.data?.message || e?.message || 'Errore caricamento gioco');
+      if (!(peekHigherLowerPack(groupId)?.length >= 2)) {
+        setError(e?.response?.data?.message || e?.message || 'Errore caricamento gioco');
+      }
     } finally {
       setLoading(false);
     }
   }, [groupId, groupName, bootstrapRound]);
 
   useEffect(() => {
+    const cached = peekHigherLowerPack(routeGroupId);
+    if (cached?.length >= 2) bootstrapRound(cached);
     loadPack();
-  }, [loadPack]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (phaseRef.current !== 'gameover') return undefined;
+      const players = poolRef.current;
+      if (players?.length >= 2) bootstrapRound(players);
+      return undefined;
+    }, [bootstrapRound]),
+  );
 
   const persistBestIfNeeded = useCallback(async (score) => {
     if (!groupId || score <= 0) return;
@@ -221,6 +305,16 @@ export default function HigherLowerGameScreen({ navigation, route }) {
     bootstrapRound(pool);
   };
 
+  const goToHub = () => {
+    if (pool.length >= 2) bootstrapRound(pool);
+    else {
+      setPhase('guess');
+      setLastResult(null);
+      setBusy(false);
+    }
+    navigation.navigate('MinigamesHub');
+  };
+
   const prompt = round?.metric?.prompt || 'Higher or Lower';
   const bHighlight = lastResult
     ? (lastResult.correct ? 'win' : 'lose')
@@ -243,24 +337,7 @@ export default function HigherLowerGameScreen({ navigation, route }) {
     </TouchableOpacity>
   );
 
-  if (loading) {
-    return (
-      <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={12} style={styles.backBtn}>
-            <Ionicons name="chevron-back" size={26} color="#111827" />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Higher or Lower</Text>
-          {infoBtn}
-        </View>
-        <View style={styles.center}>
-          <ActivityIndicator size="large" color="#667eea" />
-          <Text style={styles.loadingText}>Carico i giocatori…</Text>
-        </View>
-        <HigherLowerInfoModal visible={infoOpen} onClose={() => setInfoOpen(false)} />
-      </SafeAreaView>
-    );
-  }
+  const showSkeleton = loading && !round;
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
@@ -279,17 +356,19 @@ export default function HigherLowerGameScreen({ navigation, route }) {
         <View style={styles.scoreCell}>
           <Text style={styles.scoreLabel}>Streak</Text>
           <Animated.Text style={[styles.scoreValue, { transform: [{ scale: streakScale }] }]}>
-            {streak}
+            {showSkeleton ? '—' : streak}
           </Animated.Text>
         </View>
         <View style={styles.scoreDivider} />
         <View style={styles.scoreCell}>
           <Text style={styles.scoreLabel}>Record</Text>
-          <Text style={styles.scoreValue}>{best}</Text>
+          <Text style={styles.scoreValue}>{best || (showSkeleton ? '—' : 0)}</Text>
         </View>
       </View>
 
-      {error || !round ? (
+      {showSkeleton ? (
+        <HigherLowerSkeleton />
+      ) : error || !round ? (
         <View style={styles.center}>
           <Text style={styles.errorText}>{error || 'Nessuna partita disponibile'}</Text>
           <TouchableOpacity style={styles.primaryBtn} onPress={loadPack}>
@@ -339,8 +418,8 @@ export default function HigherLowerGameScreen({ navigation, route }) {
                 onPress={() => onGuess('lower')}
                 disabled={busy}
               >
-                <Ionicons name="arrow-down" size={22} color="#fff" />
                 <Text style={styles.guessBtnText}>Lower</Text>
+                <Ionicons name="arrow-down" size={22} color="#fff" />
               </TouchableOpacity>
             </View>
           ) : (
@@ -363,10 +442,7 @@ export default function HigherLowerGameScreen({ navigation, route }) {
             <TouchableOpacity style={styles.primaryBtn} onPress={onReplay} activeOpacity={0.9}>
               <Text style={styles.primaryBtnText}>Rigioca</Text>
             </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.secondaryBtn}
-              onPress={() => navigation.navigate('MinigamesHub')}
-            >
+            <TouchableOpacity style={styles.secondaryBtn} onPress={goToHub}>
               <Text style={styles.secondaryBtnText}>Torna ai minigiochi</Text>
             </TouchableOpacity>
           </View>
@@ -458,25 +534,47 @@ const styles = StyleSheet.create({
   vsLine: { flex: 1, height: 1, backgroundColor: '#e2e8f0' },
   vsText: { fontSize: 25, fontWeight: '800', color: '#94a3b8' },
   actions: {
-    marginTop: 12,
-    marginBottom: 2,
-    gap: 10,
+    marginTop: 8,
+    marginBottom: 4,
+    height: 100,
+    justifyContent: 'flex-start',
   },
   guessBtn: {
     height: 54,
-    borderRadius: 14,
+    width: '64%',
+    borderRadius: 16,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
+    paddingHorizontal: 16,
+    shadowColor: '#0f172a',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.14,
+    shadowRadius: 8,
+    elevation: 4,
   },
-  higherBtn: { backgroundColor: '#16a34a' },
-  lowerBtn: { backgroundColor: '#dc2626' },
-  guessBtnText: { color: '#fff', fontSize: 18, fontWeight: '800' },
+  higherBtn: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#16a34a',
+    zIndex: 2,
+  },
+  lowerBtn: {
+    alignSelf: 'flex-end',
+    backgroundColor: '#dc2626',
+    marginTop: -10,
+    zIndex: 1,
+  },
+  guessBtnText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '800',
+    letterSpacing: 0.2,
+  },
   feedbackRow: {
-    marginTop: 12,
-    marginBottom: 2,
-    minHeight: 118,
+    marginTop: 8,
+    marginBottom: 4,
+    height: 100,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -517,4 +615,19 @@ const styles = StyleSheet.create({
   modalScoreLabel: { marginTop: 14, fontSize: 13, color: '#94a3b8', fontWeight: '600' },
   modalScore: { fontSize: 48, fontWeight: '900', color: '#667eea' },
   modalRecord: { marginBottom: 18, color: '#64748b', fontWeight: '600' },
+  skelBlock: { backgroundColor: '#e8edf3', borderRadius: 8 },
+  skelCard: { borderColor: '#e8edf3' },
+  skelPrompt: { alignSelf: 'center', width: '62%', height: 16, marginBottom: 10, borderRadius: 8 },
+  skelAvatar: { width: 96, height: 96, borderRadius: 48 },
+  skelName: { width: '78%', height: 16, borderRadius: 8 },
+  skelChip: { width: 72, height: 18, marginTop: 8, borderRadius: 8 },
+  skelValue: { width: 56, height: 34, marginTop: 10, borderRadius: 8 },
+  skelBtn: { width: '64%', height: 54, borderRadius: 16, backgroundColor: '#e2e8f0' },
+  skelHint: {
+    marginTop: 10,
+    textAlign: 'center',
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#94a3b8',
+  },
 });

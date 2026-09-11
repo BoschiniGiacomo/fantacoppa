@@ -13,7 +13,7 @@ const AUTO_MS = 6500;
 const RESUME_AFTER_TOUCH_MS = 9000;
 
 /**
- * Carosello CTA estendibile: auto-rotate + swipe orizzontale.
+ * Carosello CTA estendibile: auto-rotate + swipe orizzontale in loop.
  *
  * Ogni slide:
  * {
@@ -37,23 +37,66 @@ export default function PromoActionCarousel({
   const indexRef = useRef(0);
   const pausedUntilRef = useRef(0);
   const userTouchingRef = useRef(false);
+  const jumpLockRef = useRef(false);
 
   const items = useMemo(
     () => (Array.isArray(slides) ? slides.filter((s) => s && s.id && s.title && typeof s.onPress === 'function') : []),
     [slides],
   );
 
+  const loopEnabled = items.length > 1;
+
+  // [clone ultima, ...reali, clone prima] → swipe infinito
+  const loopData = useMemo(() => {
+    if (!loopEnabled) return items;
+    const first = items[0];
+    const last = items[items.length - 1];
+    return [
+      { ...last, _loopKey: `clone-start-${last.id}` },
+      ...items.map((item) => ({ ...item, _loopKey: `real-${item.id}` })),
+      { ...first, _loopKey: `clone-end-${first.id}` },
+    ];
+  }, [items, loopEnabled]);
+
   const pageWidth = trackWidth > 0 ? trackWidth : Math.max(0, windowWidth - 24);
+
+  const scrollToListIndex = useCallback((listIndex, animated = true) => {
+    if (pageWidth <= 0) return;
+    try {
+      listRef.current?.scrollToOffset({
+        offset: Math.max(0, listIndex) * pageWidth,
+        animated,
+      });
+    } catch (_) {}
+  }, [pageWidth]);
 
   const goTo = useCallback((nextIndex, animated = true) => {
     if (!items.length || pageWidth <= 0) return;
-    const clamped = ((nextIndex % items.length) + items.length) % items.length;
-    indexRef.current = clamped;
-    setIndex(clamped);
-    try {
-      listRef.current?.scrollToOffset({ offset: clamped * pageWidth, animated });
-    } catch (_) {}
-  }, [items.length, pageWidth]);
+    const n = items.length;
+    const target = ((nextIndex % n) + n) % n;
+    const current = indexRef.current;
+
+    if (!loopEnabled) {
+      indexRef.current = target;
+      setIndex(target);
+      scrollToListIndex(target, animated);
+      return;
+    }
+
+    // Loop animato oltre i bordi (usa le slide clone)
+    if (animated && current === n - 1 && target === 0) {
+      scrollToListIndex(n + 1, true);
+      return;
+    }
+    if (animated && current === 0 && target === n - 1) {
+      scrollToListIndex(0, true);
+      return;
+    }
+
+    indexRef.current = target;
+    setIndex(target);
+    scrollToListIndex(target + 1, animated);
+  }, [items.length, pageWidth, loopEnabled, scrollToListIndex]);
 
   const pauseAuto = useCallback(() => {
     pausedUntilRef.current = Date.now() + RESUME_AFTER_TOUCH_MS;
@@ -62,31 +105,60 @@ export default function PromoActionCarousel({
   useEffect(() => {
     indexRef.current = 0;
     setIndex(0);
-    if (pageWidth > 0 && items.length) {
-      try {
-        listRef.current?.scrollToOffset({ offset: 0, animated: false });
-      } catch (_) {}
-    }
-  }, [items.length, pageWidth]);
+    if (pageWidth <= 0 || !items.length) return;
+    // Parti sulla prima slide reale (indice 1 se loop)
+    requestAnimationFrame(() => {
+      scrollToListIndex(loopEnabled ? 1 : 0, false);
+    });
+  }, [items.length, pageWidth, loopEnabled, scrollToListIndex]);
 
   useEffect(() => {
-    if (items.length < 2) return undefined;
+    if (!loopEnabled) return undefined;
     const timer = setInterval(() => {
       if (userTouchingRef.current) return;
       if (Date.now() < pausedUntilRef.current) return;
       goTo(indexRef.current + 1, true);
     }, Math.max(4000, Number(autoIntervalMs) || AUTO_MS));
     return () => clearInterval(timer);
-  }, [items.length, autoIntervalMs, goTo]);
+  }, [loopEnabled, autoIntervalMs, goTo]);
+
+  const syncFromListIndex = useCallback((listIndex) => {
+    if (!loopEnabled) {
+      const clamped = Math.max(0, Math.min(items.length - 1, listIndex));
+      indexRef.current = clamped;
+      setIndex(clamped);
+      return;
+    }
+
+    const n = items.length;
+    if (listIndex <= 0) {
+      jumpLockRef.current = true;
+      indexRef.current = n - 1;
+      setIndex(n - 1);
+      scrollToListIndex(n, false);
+      requestAnimationFrame(() => { jumpLockRef.current = false; });
+      return;
+    }
+    if (listIndex >= n + 1) {
+      jumpLockRef.current = true;
+      indexRef.current = 0;
+      setIndex(0);
+      scrollToListIndex(1, false);
+      requestAnimationFrame(() => { jumpLockRef.current = false; });
+      return;
+    }
+
+    const real = listIndex - 1;
+    indexRef.current = real;
+    setIndex(real);
+  }, [loopEnabled, items.length, scrollToListIndex]);
 
   const onMomentumEnd = useCallback((e) => {
-    if (pageWidth <= 0) return;
+    if (pageWidth <= 0 || jumpLockRef.current) return;
     const x = e?.nativeEvent?.contentOffset?.x || 0;
-    const next = Math.round(x / pageWidth);
-    const clamped = Math.max(0, Math.min(items.length - 1, next));
-    indexRef.current = clamped;
-    setIndex(clamped);
-  }, [pageWidth, items.length]);
+    const listIndex = Math.round(x / pageWidth);
+    syncFromListIndex(listIndex);
+  }, [pageWidth, syncFromListIndex]);
 
   if (!items.length) return null;
 
@@ -120,7 +192,7 @@ export default function PromoActionCarousel({
         if (w > 0 && w !== trackWidth) setTrackWidth(w);
       }}
     >
-      {items.length > 1 && pageWidth > 0 ? (
+      {loopEnabled && pageWidth > 0 ? (
         <View style={styles.dots}>
           {items.map((item, i) => (
             <TouchableOpacity
@@ -139,8 +211,8 @@ export default function PromoActionCarousel({
       {pageWidth > 0 ? (
         <FlatList
           ref={listRef}
-          data={items}
-          keyExtractor={(item) => String(item.id)}
+          data={loopData}
+          keyExtractor={(item) => String(item._loopKey || item.id)}
           horizontal
           pagingEnabled
           showsHorizontalScrollIndicator={false}
@@ -159,9 +231,11 @@ export default function PromoActionCarousel({
             offset: pageWidth * i,
             index: i,
           })}
+          initialScrollIndex={loopEnabled ? 1 : 0}
           decelerationRate="fast"
-          scrollEnabled={items.length > 1}
-          bounces={items.length > 1}
+          scrollEnabled={loopEnabled}
+          bounces={false}
+          overScrollMode="never"
         />
       ) : (
         <View style={styles.slidePlaceholder} />

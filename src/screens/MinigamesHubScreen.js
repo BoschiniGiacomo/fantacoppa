@@ -10,11 +10,12 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { getMenuOfficialGroup } from '../utils/menuOfficialGroupSettings';
-import { matchesService, minigamesService } from '../services/api';
+import { minigamesService } from '../services/api';
 import { HIGHER_LOWER_GAME_KEY } from '../minigames/higherLower/metrics';
 import { getLocalBest, mergeBest } from '../minigames/higherLower/storage';
 import HigherLowerLogo from '../minigames/higherLower/HigherLowerLogo';
 import HigherLowerInfoModal from '../minigames/higherLower/HigherLowerInfoModal';
+import { warmHigherLowerPack, fetchHigherLowerPackCached } from '../minigames/higherLower/packCache';
 import {
   getSistemaSettings,
   getVisibleMinigames,
@@ -61,7 +62,7 @@ export default function MinigamesHubScreen({ navigation }) {
         } catch (_) {}
         const merged = await mergeBest(menuGroup.id, Math.max(local, serverBest));
         setBest(merged);
-        matchesService.getHigherLowerPack(menuGroup.id).catch(() => {});
+        warmHigherLowerPack(menuGroup.id);
       }
     } catch (e) {
       setError(e?.message || 'Impossibile caricare i minigiochi');
@@ -155,7 +156,7 @@ export default function MinigamesHubScreen({ navigation }) {
                 </View>
 
                 <View style={styles.pbRow}>
-                  <Text style={styles.pbLabel}>PB</Text>
+                  <Text style={styles.pbLabel}>Record</Text>
                   <Text style={styles.pbValue} accessibilityLabel={`Personal best ${best}`}>
                     {best}
                   </Text>
@@ -176,7 +177,7 @@ export default function MinigamesHubScreen({ navigation }) {
 MinigamesHubScreen.prefetchPack = async (groupId) => {
   if (!groupId) return null;
   try {
-    return await matchesService.getHigherLowerPack(groupId);
+    return await fetchHigherLowerPackCached(groupId);
   } catch (_) {
     return null;
   }
