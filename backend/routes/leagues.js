@@ -1616,20 +1616,38 @@ router.get('/:id/leave/info', authenticateToken, async (req, res) => {
     const leagueId = toValidLeagueId(req.params.id);
     if (!leagueId) return res.status(400).json({ message: 'League ID non valido' });
     const members = await query(
-      `SELECT user_id, role
-       FROM league_members
-       WHERE league_id = ?`,
+      `SELECT lm.user_id, lm.role, u.username
+       FROM league_members lm
+       JOIN users u ON u.id = lm.user_id
+       WHERE lm.league_id = ?
+       ORDER BY LOWER(u.username) ASC`,
       [leagueId]
     );
     const myRow = members.find((m) => Number(m.user_id) === userId);
-    const others = members.filter((m) => Number(m.user_id) !== userId);
+    const others = members
+      .filter((m) => Number(m.user_id) !== userId)
+      .map((m) => ({
+        user_id: Number(m.user_id),
+        role: String(m.role || 'user'),
+        username: String(m.username || '').trim() || `Utente ${m.user_id}`,
+      }));
     const adminCount = members.filter((m) => String(m.role) === 'admin').length;
 
     const onlyUser = members.length <= 1;
-    const onlyAdmin = !!myRow && String(myRow.role) === 'admin' && adminCount <= 1 && others.length > 0;
+    const onlyAdmin =
+      !!myRow
+      && String(myRow.role) === 'admin'
+      && adminCount <= 1
+      && others.length > 0;
+    const leagueMeta = await query(
+      `SELECT COALESCE(is_official, 0) AS is_official FROM leagues WHERE id = ? LIMIT 1`,
+      [leagueId]
+    );
+    const isOfficial = Number(leagueMeta[0]?.is_official || 0) === 1;
     res.json({
       only_user: onlyUser,
       only_admin: onlyAdmin,
+      is_official: isOfficial,
       other_members: others,
     });
   } catch (error) {
@@ -5199,6 +5217,20 @@ router.post('/:id/leave', authenticateToken, async (req, res) => {
     const adminCount = members.filter((m) => String(m.role) === 'admin').length;
     const newAdminId = req.body?.new_admin_id ? Number(req.body.new_admin_id) : null;
 
+    // Ultimo membro di lega ufficiale: non può abbandonare (eliminerebbe di fatto la lega).
+    if (others.length === 0) {
+      const officialRows = await query(
+        `SELECT COALESCE(is_official, 0) AS is_official FROM leagues WHERE id = ? LIMIT 1`,
+        [leagueId]
+      );
+      if (Number(officialRows[0]?.is_official || 0) === 1) {
+        return res.status(403).json({
+          code: 'OFFICIAL_LEAGUE_PROTECTED',
+          message: 'Le leghe ufficiali non possono essere eliminate abbandonandole. Contatta un superutente.',
+        });
+      }
+    }
+
     if (String(me.role) === 'admin' && adminCount <= 1 && others.length > 0) {
       if (!newAdminId || !others.some((m) => Number(m.user_id) === newAdminId)) {
         return res.status(400).json({ message: 'Sei l\'unico admin: seleziona un nuovo admin prima di uscire' });
@@ -5214,7 +5246,7 @@ router.post('/:id/leave', authenticateToken, async (req, res) => {
     await query(`DELETE FROM user_budget WHERE league_id = ? AND user_id = ?`, [leagueId, userId]);
     await query(`DELETE FROM user_league_prefs WHERE league_id = ? AND user_id = ?`, [leagueId, userId]);
 
-    // Se resta vuota, elimina la lega.
+    // Se resta vuota, elimina la lega (ufficiali già bloccate sopra).
     const leftRows = await query(`SELECT COUNT(*)::int AS c FROM league_members WHERE league_id = ?`, [leagueId]);
     const left = Number(leftRows[0]?.c || 0);
     if (left <= 0) {

@@ -425,7 +425,9 @@ export default function LeagueHamburgerMenu({
                   {deletingLeague ? (
                     <ActivityIndicator size="small" color="#fff" />
                   ) : (
-                    <Text style={styles.confirmBtnDangerText}>Elimina per sempre</Text>
+                    <Text style={styles.confirmBtnDangerText} numberOfLines={1}>
+                      Elimina
+                    </Text>
                   )}
                 </TouchableOpacity>
               )}
@@ -454,19 +456,23 @@ const styles = StyleSheet.create({
   },
   hamburgerBadge: {
     position: 'absolute',
-    top: 2,
-    right: 2,
+    top: -4,
+    right: -6,
     width: 16,
     height: 16,
     borderRadius: 8,
     backgroundColor: '#e53935',
     alignItems: 'center',
     justifyContent: 'center',
+    zIndex: 10,
   },
   hamburgerBadgeText: {
     color: '#fff',
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: '800',
+    textAlign: 'center',
+    includeFontPadding: false,
+    lineHeight: 11,
   },
   modalOverlay: {
     flex: 1,
@@ -522,7 +528,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#333',
     marginLeft: 16,
-    fontWeight: '500',
   },
   menuItemBadge: {
     position: 'absolute',
@@ -554,14 +559,12 @@ const styles = StyleSheet.create({
   },
   subMenuItemText: {
     flex: 1,
-    fontSize: 14,
+    fontSize: 15,
     color: '#555',
-    marginLeft: 12,
-    fontWeight: '500',
+    marginLeft: 16,
   },
   subMenuItemTextDanger: {
     color: '#e53935',
-    fontWeight: '700',
   },
   subMenuItemBadge: {
     position: 'absolute',
@@ -614,6 +617,7 @@ const styles = StyleSheet.create({
     flex: 1,
     borderRadius: 10,
     paddingVertical: 13,
+    paddingHorizontal: 12,
     alignItems: 'center',
     justifyContent: 'center',
     minHeight: 46,
@@ -625,6 +629,7 @@ const styles = StyleSheet.create({
     color: '#374151',
     fontWeight: '700',
     fontSize: 15,
+    textAlign: 'center',
   },
   confirmBtnDanger: {
     backgroundColor: '#e53935',
@@ -633,5 +638,6 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '800',
     fontSize: 15,
+    textAlign: 'center',
   },
 });

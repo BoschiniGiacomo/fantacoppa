@@ -325,15 +325,51 @@ export default function UserManagementScreen({ route, navigation }) {
     });
   };
 
-  const handleLeaveLeague = () => {
+  const handleLeaveLeague = async () => {
     if (isReadOnlyObserver) return;
-    if (!leaveInfo) {
-      showToast('Impossibile ottenere le informazioni per lasciare la lega');
-      return;
+
+    // Usa i membri già in schermata (aggiornati) + refresh leave/info per non usare dati stale.
+    const self = members.find(
+      (m) => Number(m?.is_current_user) === 1 || m?.is_current_user === true
+    );
+    const adminCount = members.filter((m) => String(m?.role || '') === 'admin').length;
+    const othersFromScreen = members.filter(
+      (m) => !(Number(m?.is_current_user) === 1 || m?.is_current_user === true)
+    );
+    const onlyUserLocal = members.length <= 1;
+    const onlyAdminLocal =
+      String(self?.role || '') === 'admin'
+      && adminCount <= 1
+      && othersFromScreen.length > 0;
+    const isOfficialLocal =
+      Number(league?.is_official || 0) === 1
+      || !!leaveInfo?.is_official;
+
+    let info = leaveInfo;
+    try {
+      setLeaveInfoLoading(true);
+      const res = await leagueService.leaveLeagueInfo(leagueId);
+      info = res.data || leaveInfo;
+      setLeaveInfo(info);
+    } catch (error) {
+      console.error('Error refreshing leave info:', error);
+    } finally {
+      setLeaveInfoLoading(false);
     }
 
-    if (leaveInfo.only_user) {
-      // Ultimo utente: elimina tutta la lega
+    const onlyUser = info?.only_user ?? onlyUserLocal;
+    // Preferisci il conteggio live dalla lista membri: se c'è già un altro admin, niente modal.
+    const onlyAdmin = onlyAdminLocal || (
+      !!info?.only_admin
+      && adminCount <= 1
+    );
+    const isOfficial = !!(info?.is_official || isOfficialLocal);
+
+    if (onlyUser) {
+      if (isOfficial) {
+        showToast('Le leghe ufficiali non si possono eliminare da qui. Contatta un superutente.');
+        return;
+      }
       setConfirmModal({
         title: 'Eliminazione lega',
         message: 'Sei l\'ultimo utente della lega. Abbandonando, verrà eliminata completamente insieme a tutti i suoi dati. Questa azione è irreversibile.',
@@ -341,25 +377,30 @@ export default function UserManagementScreen({ route, navigation }) {
         destructive: true,
         onConfirm: () => confirmLeaveLeague(null),
       });
-    } else if (leaveInfo.only_admin) {
-      // Ultimo admin: chiedi di nominare un nuovo admin
-      if (leaveInfo.other_members && leaveInfo.other_members.length > 0) {
+      return;
+    }
+
+    if (onlyAdmin && adminCount <= 1) {
+      const candidates = (info?.other_members?.length
+        ? info.other_members
+        : othersFromScreen);
+      if (candidates.length > 0) {
         setSelectedNewAdminId(null);
         setAdminTransferContext({ type: 'leave' });
         setShowNewAdminModal(true);
       } else {
         showToast('Non ci sono altri membri a cui assegnare il ruolo di admin');
       }
-    } else {
-      // Utente normale: conferma
-      setConfirmModal({
-        title: 'Abbandona lega',
-        message: 'Sei sicuro di voler abbandonare la lega? Tutti i tuoi dati relativi a questa lega verranno eliminati.',
-        confirmText: 'Abbandona',
-        destructive: true,
-        onConfirm: () => confirmLeaveLeague(null),
-      });
+      return;
     }
+
+    setConfirmModal({
+      title: 'Abbandona lega',
+      message: 'Sei sicuro di voler abbandonare la lega? Tutti i tuoi dati relativi a questa lega verranno eliminati.',
+      confirmText: 'Abbandona',
+      destructive: true,
+      onConfirm: () => confirmLeaveLeague(null),
+    });
   };
 
   const confirmLeaveLeague = async (newAdminId) => {
@@ -407,9 +448,30 @@ export default function UserManagementScreen({ route, navigation }) {
   const adminCandidates = useMemo(() => {
     if (adminTransferContext?.type === 'demote') {
       const selfId = Number(adminTransferContext.memberId);
-      return members.filter((m) => Number(m?.user_id) !== selfId);
+      return members
+        .filter((m) => Number(m?.user_id) !== selfId)
+        .map((m) => ({
+          user_id: Number(m.user_id),
+          username: String(m.username || '').trim() || `Utente ${m.user_id}`,
+          role: m.role,
+        }));
     }
-    return leaveInfo?.other_members || [];
+    // Abbandono: preferisci other_members dall'API (con username), fallback lista membri in schermata.
+    const fromApi = Array.isArray(leaveInfo?.other_members) ? leaveInfo.other_members : [];
+    if (fromApi.length > 0) {
+      return fromApi.map((m) => ({
+        user_id: Number(m.user_id),
+        username: String(m.username || '').trim() || `Utente ${m.user_id}`,
+        role: m.role,
+      }));
+    }
+    return members
+      .filter((m) => !(Number(m?.is_current_user) === 1 || m?.is_current_user === true))
+      .map((m) => ({
+        user_id: Number(m.user_id),
+        username: String(m.username || '').trim() || `Utente ${m.user_id}`,
+        role: m.role,
+      }));
   }, [adminTransferContext, members, leaveInfo]);
 
   const getRoleBadge = (role) => {
