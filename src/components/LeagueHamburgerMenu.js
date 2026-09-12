@@ -1,27 +1,49 @@
 import React, { useState } from 'react';
-import { View, TouchableOpacity, Text, Modal, StyleSheet, ScrollView } from 'react-native';
+import {
+  View,
+  TouchableOpacity,
+  Text,
+  Modal,
+  StyleSheet,
+  ScrollView,
+  ActivityIndicator,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOnboarding } from '../context/OnboardingContext';
+import { leagueService } from '../services/api';
+import { hideLeague, showDashboardError } from '../utils/dashboardEvents';
 
-export default function LeagueHamburgerMenu({ leagueId, navigation, isAdmin, userRole, isLinkedLeague, linkedLeagueName }) {
+export default function LeagueHamburgerMenu({
+  leagueId,
+  navigation,
+  isAdmin,
+  userRole,
+  isLinkedLeague,
+  linkedLeagueName,
+  isOfficial = false,
+  leagueName = '',
+}) {
   const [menuVisible, setMenuVisible] = useState(false);
   const [settingsExpanded, setSettingsExpanded] = useState(true);
+  const [deleteStep, setDeleteStep] = useState(0); // 0 = chiuso, 1 = prima conferma, 2 = seconda
+  const [deletingLeague, setDeletingLeague] = useState(false);
   const insets = useSafeAreaInsets();
   const { badges, hasHamburgerBadge } = useOnboarding();
   const isSuperuserViewer = userRole === 'superuser_viewer';
   const canViewFullMenu = isAdmin || isSuperuserViewer;
+  const displayLeagueName = String(leagueName || '').trim() || 'questa lega';
 
   // Mappa id menu item -> chiave badge
   const menuBadgeMap = {
-    'market': badges.market,
-    'squad': badges.squad,
+    market: badges.market,
+    squad: badges.squad,
     'settings-squad': badges.settings_team,
   };
 
   // Costruisci il submenu in base al ruolo
   const settingsSubMenu = [];
-  
+
   // Admin e superuser observer vedono menu completo impostazioni.
   if (canViewFullMenu) {
     settingsSubMenu.push({
@@ -87,7 +109,7 @@ export default function LeagueHamburgerMenu({ leagueId, navigation, isAdmin, use
       params: { leagueId, userRole: 'user' },
     });
   }
-  
+
   // In modalità osservatore superuser non ha senso mostrare profilo squadra.
   if (!isSuperuserViewer) {
     settingsSubMenu.push({
@@ -96,6 +118,17 @@ export default function LeagueHamburgerMenu({ leagueId, navigation, isAdmin, use
       icon: 'person-outline',
       screen: 'Settings',
       params: { leagueId, section: 'team' },
+    });
+  }
+
+  // Elimina lega: solo admin, non ufficiali (quelle solo da superutente).
+  if (isAdmin && !isSuperuserViewer && !isOfficial) {
+    settingsSubMenu.push({
+      id: 'settings-delete-league',
+      label: 'Elimina lega',
+      icon: 'trash-outline',
+      action: 'delete-league',
+      destructive: true,
     });
   }
 
@@ -121,21 +154,24 @@ export default function LeagueHamburgerMenu({ leagueId, navigation, isAdmin, use
       screen: 'Squad',
       params: { leagueId },
     },
-    // Mostra "Inserisci Voti" solo per admin e pagellatore, e nascondi per leghe collegate
-    ...((canViewFullMenu || userRole === 'pagellatore') && !isLinkedLeague ? [{
-      id: 'insert-votes',
-      label: 'Inserisci Voti',
-      icon: 'pencil-outline',
-      screen: 'InsertVotes',
-      params: { leagueId },
-    }] : []),
-    ...((isAdmin || userRole === 'pagellatore') ? [{
-      id: 'statistics',
-      label: 'Statistiche',
-      icon: 'stats-chart-outline',
-      screen: 'LeagueStatistics',
-      params: { leagueId },
-    }] : []),
+    ...((canViewFullMenu || userRole === 'pagellatore') && !isLinkedLeague
+      ? [{
+          id: 'insert-votes',
+          label: 'Inserisci Voti',
+          icon: 'pencil-outline',
+          screen: 'InsertVotes',
+          params: { leagueId },
+        }]
+      : []),
+    ...((isAdmin || userRole === 'pagellatore')
+      ? [{
+          id: 'statistics',
+          label: 'Statistiche',
+          icon: 'stats-chart-outline',
+          screen: 'LeagueStatistics',
+          params: { leagueId },
+        }]
+      : []),
     {
       id: 'dashboard',
       label: 'Home',
@@ -159,12 +195,43 @@ export default function LeagueHamburgerMenu({ leagueId, navigation, isAdmin, use
   };
 
   const handleSubMenuItemPress = (item) => {
+    if (item.action === 'delete-league') {
+      setMenuVisible(false);
+      setDeleteStep(1);
+      return;
+    }
     setMenuVisible(false);
-    // Non chiudere la sezione Impostazioni, rimane aperta
     if (item.screen === 'MainTabs') {
       navigation.navigate('MainTabs', item.params);
     } else {
       navigation.navigate(item.screen, item.params);
+    }
+  };
+
+  const closeDeleteFlow = () => {
+    if (deletingLeague) return;
+    setDeleteStep(0);
+  };
+
+  const confirmDeleteLeague = async () => {
+    if (deletingLeague) return;
+    setDeletingLeague(true);
+    try {
+      await leagueService.deleteLeague(leagueId);
+      setDeleteStep(0);
+      hideLeague(leagueId, `Lega "${displayLeagueName}" eliminata.`);
+      navigation.navigate('MainTabs', { screen: 'Dashboard' });
+    } catch (error) {
+      console.error('Error deleting league:', error);
+      setDeleteStep(0);
+      showDashboardError(
+        error?.response?.data?.message
+          || error?.response?.data?.error
+          || 'Errore durante l\'eliminazione della lega'
+      );
+      navigation.navigate('MainTabs', { screen: 'Dashboard' });
+    } finally {
+      setDeletingLeague(false);
     }
   };
 
@@ -195,11 +262,11 @@ export default function LeagueHamburgerMenu({ leagueId, navigation, isAdmin, use
         >
           <View
             style={[
-              styles.menuContainer, 
-              { 
+              styles.menuContainer,
+              {
                 paddingTop: insets.top + 0,
-                paddingBottom: insets.bottom + 0
-              }
+                paddingBottom: insets.bottom + 0,
+              },
             ]}
             onStartShouldSetResponder={() => true}
           >
@@ -213,7 +280,7 @@ export default function LeagueHamburgerMenu({ leagueId, navigation, isAdmin, use
               </TouchableOpacity>
             </View>
 
-            <ScrollView 
+            <ScrollView
               style={styles.scrollView}
               contentContainerStyle={styles.scrollViewContent}
               showsVerticalScrollIndicator={true}
@@ -227,7 +294,8 @@ export default function LeagueHamburgerMenu({ leagueId, navigation, isAdmin, use
                   marginBottom: 4,
                   flexDirection: 'row',
                   alignItems: 'center',
-                }}>
+                }}
+                >
                   <Ionicons name="ribbon" size={18} color="#667eea" style={{ marginRight: 8 }} />
                   <View style={{ flex: 1 }}>
                     <Text style={{ fontSize: 12, color: '#667eea', fontWeight: '600' }}>
@@ -240,68 +308,130 @@ export default function LeagueHamburgerMenu({ leagueId, navigation, isAdmin, use
                 </View>
               )}
               <View style={styles.menuItems}>
-              {/* Impostazioni con sotto-menu */}
-              <View>
-                <TouchableOpacity
-                  style={styles.menuItem}
-                  onPress={handleSettingsPress}
-                >
-                  <Ionicons name="settings-outline" size={24} color="#667eea" />
-                  <Text style={styles.menuItemText}>Impostazioni</Text>
-                  <Ionicons 
-                    name={settingsExpanded ? "chevron-down" : "chevron-forward"} 
-                    size={20} 
-                    color="#ccc" 
-                  />
-                </TouchableOpacity>
-                
-                {settingsExpanded && (
-                  <View style={styles.subMenuContainer}>
-                    {settingsSubMenu.map((item) => (
-                      <TouchableOpacity
-                        key={item.id}
-                        style={styles.subMenuItem}
-                        onPress={() => handleSubMenuItemPress(item)}
-                      >
-                        <View style={{ position: 'relative' }}>
-                          <Ionicons name={item.icon} size={20} color="#667eea" />
-                          {menuBadgeMap[item.id] && (
-                            <View style={styles.subMenuItemBadge}>
-                              <Text style={styles.menuItemBadgeText}>!</Text>
-                            </View>
-                          )}
-                        </View>
-                        <Text style={styles.subMenuItemText}>{item.label}</Text>
-                        <Ionicons name="chevron-forward" size={18} color="#ccc" />
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                )}
-              </View>
+                <View>
+                  <TouchableOpacity
+                    style={styles.menuItem}
+                    onPress={handleSettingsPress}
+                  >
+                    <Ionicons name="settings-outline" size={24} color="#667eea" />
+                    <Text style={styles.menuItemText}>Impostazioni</Text>
+                    <Ionicons
+                      name={settingsExpanded ? 'chevron-down' : 'chevron-forward'}
+                      size={20}
+                      color="#ccc"
+                    />
+                  </TouchableOpacity>
 
-              {/* Altri menu items */}
-              {menuItems.map((item) => (
-                <TouchableOpacity
-                  key={item.id}
-                  style={styles.menuItem}
-                  onPress={() => handleMenuItemPress(item)}
-                >
-                  <View style={{ position: 'relative' }}>
-                    <Ionicons name={item.icon} size={24} color="#667eea" />
-                    {menuBadgeMap[item.id] && (
-                      <View style={styles.menuItemBadge}>
-                        <Text style={styles.menuItemBadgeText}>!</Text>
-                      </View>
-                    )}
-                  </View>
-                  <Text style={styles.menuItemText}>{item.label}</Text>
-                  <Ionicons name="chevron-forward" size={20} color="#ccc" />
-                </TouchableOpacity>
-              ))}
+                  {settingsExpanded && (
+                    <View style={styles.subMenuContainer}>
+                      {settingsSubMenu.map((item) => (
+                        <TouchableOpacity
+                          key={item.id}
+                          style={styles.subMenuItem}
+                          onPress={() => handleSubMenuItemPress(item)}
+                        >
+                          <View style={{ position: 'relative' }}>
+                            <Ionicons
+                              name={item.icon}
+                              size={20}
+                              color={item.destructive ? '#e53935' : '#667eea'}
+                            />
+                            {menuBadgeMap[item.id] && (
+                              <View style={styles.subMenuItemBadge}>
+                                <Text style={styles.menuItemBadgeText}>!</Text>
+                              </View>
+                            )}
+                          </View>
+                          <Text
+                            style={[
+                              styles.subMenuItemText,
+                              item.destructive && styles.subMenuItemTextDanger,
+                            ]}
+                          >
+                            {item.label}
+                          </Text>
+                          <Ionicons name="chevron-forward" size={18} color="#ccc" />
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
+                </View>
+
+                {menuItems.map((item) => (
+                  <TouchableOpacity
+                    key={item.id}
+                    style={styles.menuItem}
+                    onPress={() => handleMenuItemPress(item)}
+                  >
+                    <View style={{ position: 'relative' }}>
+                      <Ionicons name={item.icon} size={24} color="#667eea" />
+                      {menuBadgeMap[item.id] && (
+                        <View style={styles.menuItemBadge}>
+                          <Text style={styles.menuItemBadgeText}>!</Text>
+                        </View>
+                      )}
+                    </View>
+                    <Text style={styles.menuItemText}>{item.label}</Text>
+                    <Ionicons name="chevron-forward" size={20} color="#ccc" />
+                  </TouchableOpacity>
+                ))}
               </View>
             </ScrollView>
           </View>
         </TouchableOpacity>
+      </Modal>
+
+      {/* Doppia conferma eliminazione lega */}
+      <Modal
+        visible={deleteStep > 0}
+        transparent
+        animationType="fade"
+        onRequestClose={closeDeleteFlow}
+      >
+        <View style={styles.confirmOverlay}>
+          <View style={styles.confirmCard}>
+            <View style={styles.confirmIconWrap}>
+              <Ionicons name="warning" size={40} color="#e53935" />
+            </View>
+            <Text style={styles.confirmTitle}>
+              {deleteStep === 1 ? 'Eliminare la lega?' : 'Conferma definitiva'}
+            </Text>
+            <Text style={styles.confirmMessage}>
+              {deleteStep === 1
+                ? `Stai per eliminare definitivamente "${displayLeagueName}". Verranno cancellati membri, rose, formazioni, risultati e impostazioni.`
+                : `Ultima conferma: l'eliminazione di "${displayLeagueName}" è irreversibile. Vuoi procedere?`}
+            </Text>
+            <View style={styles.confirmButtons}>
+              <TouchableOpacity
+                style={[styles.confirmBtn, styles.confirmBtnCancel]}
+                onPress={closeDeleteFlow}
+                disabled={deletingLeague}
+              >
+                <Text style={styles.confirmBtnCancelText}>Annulla</Text>
+              </TouchableOpacity>
+              {deleteStep === 1 ? (
+                <TouchableOpacity
+                  style={[styles.confirmBtn, styles.confirmBtnDanger]}
+                  onPress={() => setDeleteStep(2)}
+                >
+                  <Text style={styles.confirmBtnDangerText}>Continua</Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  style={[styles.confirmBtn, styles.confirmBtnDanger]}
+                  onPress={confirmDeleteLeague}
+                  disabled={deletingLeague}
+                >
+                  {deletingLeague ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={styles.confirmBtnDangerText}>Elimina per sempre</Text>
+                  )}
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+        </View>
       </Modal>
     </>
   );
@@ -322,32 +452,45 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
+  hamburgerBadge: {
+    position: 'absolute',
+    top: 2,
+    right: 2,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#e53935',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  hamburgerBadgeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '800',
+  },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    flexDirection: 'row',
   },
   menuContainer: {
+    width: '80%',
+    maxWidth: 320,
     backgroundColor: '#fff',
-    borderTopRightRadius: 20,
-    borderBottomRightRadius: 20,
-    paddingHorizontal: 20,
-    width: '85%',
-    maxWidth: 350,
     height: '100%',
-    marginRight: 'auto',
     shadowColor: '#000',
     shadowOffset: { width: 2, height: 0 },
     shadowOpacity: 0.25,
-    shadowRadius: 10,
-    elevation: 10,
+    shadowRadius: 8,
+    elevation: 5,
   },
   menuHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 20,
+    padding: 20,
     borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
+    borderBottomColor: '#eee',
   },
   menuTitle: {
     fontSize: 24,
@@ -361,59 +504,25 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollViewContent: {
-    flexGrow: 1,
+    paddingBottom: 20,
   },
   menuItems: {
-    marginTop: 10,
+    paddingTop: 8,
   },
   menuItem: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 16,
+    paddingHorizontal: 20,
     borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+    borderBottomColor: '#f5f5f5',
   },
   menuItemText: {
     flex: 1,
     fontSize: 16,
     color: '#333',
     marginLeft: 16,
-  },
-  subMenuContainer: {
-    backgroundColor: '#f8f9fa',
-    paddingLeft: 20,
-    paddingVertical: 8,
-  },
-  subMenuItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-    paddingLeft: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-  },
-  subMenuItemText: {
-    flex: 1,
-    fontSize: 15,
-    color: '#555',
-    marginLeft: 16,
-  },
-  hamburgerBadge: {
-    position: 'absolute',
-    top: -4,
-    right: -6,
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    backgroundColor: '#e53935',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 10,
-  },
-  hamburgerBadgeText: {
-    color: '#fff',
-    fontSize: 9,
-    fontWeight: '800',
+    fontWeight: '500',
   },
   menuItemBadge: {
     position: 'absolute',
@@ -425,24 +534,104 @@ const styles = StyleSheet.create({
     backgroundColor: '#e53935',
     alignItems: 'center',
     justifyContent: 'center',
-    zIndex: 10,
   },
   menuItemBadgeText: {
     color: '#fff',
-    fontSize: 8,
+    fontSize: 9,
     fontWeight: '800',
+  },
+  subMenuContainer: {
+    backgroundColor: '#f8f9fa',
+    paddingLeft: 20,
+  },
+  subMenuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  subMenuItemText: {
+    flex: 1,
+    fontSize: 14,
+    color: '#555',
+    marginLeft: 12,
+    fontWeight: '500',
+  },
+  subMenuItemTextDanger: {
+    color: '#e53935',
+    fontWeight: '700',
   },
   subMenuItemBadge: {
     position: 'absolute',
-    top: -3,
-    right: -5,
+    top: -4,
+    right: -6,
     width: 12,
     height: 12,
     borderRadius: 6,
     backgroundColor: '#e53935',
     alignItems: 'center',
     justifyContent: 'center',
-    zIndex: 10,
+  },
+  confirmOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  confirmCard: {
+    width: '100%',
+    maxWidth: 400,
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 22,
+  },
+  confirmIconWrap: {
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  confirmTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#1f2937',
+    textAlign: 'center',
+    marginBottom: 10,
+  },
+  confirmMessage: {
+    fontSize: 15,
+    color: '#4b5563',
+    lineHeight: 22,
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  confirmButtons: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  confirmBtn: {
+    flex: 1,
+    borderRadius: 10,
+    paddingVertical: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 46,
+  },
+  confirmBtnCancel: {
+    backgroundColor: '#f3f4f6',
+  },
+  confirmBtnCancelText: {
+    color: '#374151',
+    fontWeight: '700',
+    fontSize: 15,
+  },
+  confirmBtnDanger: {
+    backgroundColor: '#e53935',
+  },
+  confirmBtnDangerText: {
+    color: '#fff',
+    fontWeight: '800',
+    fontSize: 15,
   },
 });
-

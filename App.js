@@ -128,7 +128,16 @@ function withLeagueWrapper(ScreenComponent) {
       <OnboardingProvider leagueId={leagueId}>
         <SafeAreaView style={{ flex: 1 }} edges={['top']}>
           <View style={{ flex: 1 }}>
-            <LeagueHamburgerMenu leagueId={leagueId} navigation={navigation} isAdmin={league?.role === 'admin'} userRole={league?.role} isLinkedLeague={!!league?.linked_to_league_id} linkedLeagueName={league?.linked_league_name} />
+            <LeagueHamburgerMenu
+              leagueId={leagueId}
+              navigation={navigation}
+              isAdmin={league?.role === 'admin'}
+              userRole={league?.role}
+              isLinkedLeague={!!league?.linked_to_league_id}
+              linkedLeagueName={league?.linked_league_name}
+              isOfficial={Number(league?.is_official || 0) === 1}
+              leagueName={league?.name || ''}
+            />
             <ScreenComponent route={route} navigation={navigation} />
             <LeagueBottomMenu leagueId={leagueId} league={league} navigation={navigation} insets={insets} />
           </View>

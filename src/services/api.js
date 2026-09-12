@@ -337,6 +337,7 @@ export const leagueService = {
   getMembers: (leagueId) => api.get(`/leagues/${leagueId}/members`),
   leaveLeagueInfo: (leagueId) => api.get(`/leagues/${leagueId}/leave/info`),
   leaveLeague: (leagueId, newAdminId = null) => api.post(`/leagues/${leagueId}/leave`, { new_admin_id: newAdminId }),
+  deleteLeague: (leagueId) => api.delete(`/leagues/${leagueId}`),
   removeUser: (leagueId, userId) => api.post(`/leagues/${leagueId}/remove-user`, { user_id: userId }),
   changeRole: (leagueId, memberId, newRole, promoteUserId = null) =>
     api.post(`/leagues/${leagueId}/change-role`, {

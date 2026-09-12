@@ -5228,6 +5228,50 @@ router.post('/:id/leave', authenticateToken, async (req, res) => {
   }
 });
 
+/**
+ * DELETE /api/leagues/:id
+ * Admin della lega: elimina tutta la lega (membri e dati).
+ * Leghe ufficiali: solo da zona superutente.
+ */
+router.delete('/:id', authenticateToken, async (req, res) => {
+  try {
+    const userId = Number(req.user.userId);
+    const leagueId = toValidLeagueId(req.params.id);
+    if (!leagueId) return res.status(400).json({ message: 'League ID non valido' });
+
+    const leagueRows = await query(
+      `SELECT id, name, COALESCE(is_official, 0) AS is_official
+       FROM leagues WHERE id = ? LIMIT 1`,
+      [leagueId]
+    );
+    const league = leagueRows[0];
+    if (!league) return res.status(404).json({ message: 'Lega non trovata' });
+
+    if (Number(league.is_official) === 1) {
+      return res.status(403).json({
+        message: 'Le leghe ufficiali non possono essere eliminate da qui. Usa la zona Superutente.',
+      });
+    }
+
+    const roleRows = await query(
+      `SELECT role FROM league_members WHERE league_id = ? AND user_id = ? LIMIT 1`,
+      [leagueId, userId]
+    );
+    if (!roleRows[0] || String(roleRows[0].role) !== 'admin') {
+      return res.status(403).json({ message: 'Solo gli admin possono eliminare la lega' });
+    }
+
+    await query(`DELETE FROM leagues WHERE id = ?`, [leagueId]);
+    return res.json({
+      success: true,
+      message: `Lega "${league.name || ''}" eliminata`,
+    });
+  } catch (error) {
+    console.error('Delete league error:', error);
+    return res.status(500).json({ message: 'Errore durante l\'eliminazione della lega' });
+  }
+});
+
 // POST /api/leagues - creazione lega base
 router.post('/', authenticateToken, async (req, res) => {
   try {
