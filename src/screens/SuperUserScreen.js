@@ -27,6 +27,7 @@ import SistemaSettingsPanel from '../components/SistemaSettingsPanel';
 import { useAuth } from '../context/AuthContext';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { superuserService, publicAssetUrl } from '../services/api';
+import { patchLeagueLocalRole } from '../services/leagueWarmCache';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -1771,12 +1772,22 @@ export default function SuperUserScreen() {
     });
   };
   
-  // Entra in lega come admin
+  // Entra in lega come admin (se già membro con altro ruolo → upgrade ad admin)
   const handleJoinLeagueAsAdmin = async (leagueId) => {
     try {
-      await superuserService.joinLeagueAsAdmin(leagueId);
-      showToast('Aggiunto come admin alla lega', 'success');
-      setTimeout(() => navigation.navigate('League', { leagueId }), 1500);
+      const res = await superuserService.joinLeagueAsAdmin(leagueId);
+      const upgraded = !!res?.data?.upgraded;
+      const alreadyMember = !!res?.data?.already_member;
+      patchLeagueLocalRole(leagueId, 'admin');
+      showToast(
+        upgraded
+          ? 'Ruolo aggiornato ad admin'
+          : alreadyMember
+            ? 'Sei già admin di questa lega'
+            : 'Aggiunto come admin alla lega',
+        'success'
+      );
+      setTimeout(() => navigation.navigate('League', { leagueId }), upgraded || alreadyMember ? 400 : 800);
     } catch (error) {
       console.error('Error joining league as admin:', error);
       showToast(error.response?.data?.message || 'Errore durante l\'operazione');

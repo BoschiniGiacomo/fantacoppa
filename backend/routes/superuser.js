@@ -1039,18 +1039,47 @@ router.post('/leagues/:id/join-as-admin', authenticateToken, requireSuperuser, a
     const leagueId = Number(req.params.id);
     const userId = Number(req.user?.userId);
     if (!leagueId || leagueId <= 0) return res.status(400).json({ message: 'ID lega non valido' });
-    try {
-      await query(`INSERT INTO league_members (league_id, user_id, role) VALUES (?, ?, 'admin') ON CONFLICT (league_id, user_id) DO UPDATE SET role = EXCLUDED.role`, [leagueId, userId]);
-    } catch (_) {
-      const existing = await query(`SELECT id FROM league_members WHERE league_id = ? AND user_id = ? LIMIT 1`, [leagueId, userId]);
-      if (existing.length) {
-        await query(`UPDATE league_members SET role = 'admin' WHERE league_id = ? AND user_id = ?`, [leagueId, userId]);
-      } else {
-        await query(`INSERT INTO league_members (league_id, user_id, role) VALUES (?, ?, 'admin')`, [leagueId, userId]);
+    if (!Number.isFinite(userId) || userId <= 0) {
+      return res.status(401).json({ message: 'Utente non valido' });
+    }
+
+    const existing = await query(
+      `SELECT id, role FROM league_members WHERE league_id = ? AND user_id = ? LIMIT 1`,
+      [leagueId, userId]
+    );
+
+    let upgraded = false;
+    if (existing.length) {
+      const prevRole = String(existing[0].role || '');
+      if (prevRole !== 'admin') {
+        await query(
+          `UPDATE league_members SET role = 'admin' WHERE league_id = ? AND user_id = ?`,
+          [leagueId, userId]
+        );
+        upgraded = true;
+      }
+    } else {
+      try {
+        await query(
+          `INSERT INTO league_members (league_id, user_id, role) VALUES (?, ?, 'admin')
+           ON CONFLICT (league_id, user_id) DO UPDATE SET role = 'admin'`,
+          [leagueId, userId]
+        );
+      } catch (_) {
+        await query(
+          `INSERT INTO league_members (league_id, user_id, role) VALUES (?, ?, 'admin')`,
+          [leagueId, userId]
+        );
       }
     }
+
     await ensureUserBudgetForLeagueMember(userId, leagueId);
-    return res.json({ success: true });
+    return res.json({
+      success: true,
+      role: 'admin',
+      already_member: existing.length > 0,
+      upgraded,
+    });
   } catch (error) {
     return res.status(500).json({ message: 'Errore join admin', error: error.message });
   }
