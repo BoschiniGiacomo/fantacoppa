@@ -4,6 +4,7 @@ import {
   squadService,
   formationService,
 } from './api';
+import { DeviceEventEmitter } from 'react-native';
 import { hiddenLeagues } from '../utils/dashboardEvents';
 import { parseAppDate } from '../utils/dateTime';
 
@@ -170,6 +171,43 @@ export function setLeagueDetail(leagueId, data) {
   const id = nid(leagueId);
   if (id == null) return;
   leagueDetailById.set(id, { data, ts: Date.now() });
+}
+
+/** Evento: ruolo locale aggiornato (es. self-demote admin). */
+export const LEAGUE_ROLE_CHANGED = 'fc_league_role_changed';
+
+/**
+ * Aggiorna subito il ruolo in cache e notifica i wrapper lega (menu hamburger, ecc.).
+ */
+export function patchLeagueLocalRole(leagueId, role) {
+  const id = nid(leagueId);
+  const nextRole = String(role || '').trim();
+  if (id == null || !nextRole) return;
+
+  const detail = leagueDetailById.get(id);
+  if (detail?.data && typeof detail.data === 'object') {
+    detail.data = { ...detail.data, role: nextRole };
+    detail.ts = Date.now();
+  }
+
+  if (homeLeaguesBootstrapSnapshot?.leagues) {
+    homeLeaguesBootstrapSnapshot.leagues = homeLeaguesBootstrapSnapshot.leagues.map((l) =>
+      Number(l?.id) === id ? { ...l, role: nextRole } : l
+    );
+  }
+
+  const dash = dashboardById.get(id);
+  if (dash?.payload && typeof dash.payload === 'object') {
+    const prevLeague = dash.payload.league && typeof dash.payload.league === 'object'
+      ? dash.payload.league
+      : {};
+    dash.payload = {
+      ...dash.payload,
+      league: { ...prevLeague, role: nextRole },
+    };
+  }
+
+  DeviceEventEmitter.emit(LEAGUE_ROLE_CHANGED, { leagueId: id, role: nextRole });
 }
 
 /** null = nessuna cache; array (anche vuota) = cache valida */

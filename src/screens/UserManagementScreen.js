@@ -13,6 +13,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Ionicons } from '@expo/vector-icons';
 import { leagueService, marketService } from '../services/api';
 import { hideLeague, showDashboardError } from '../utils/dashboardEvents';
+import { patchLeagueLocalRole } from '../services/leagueWarmCache';
 
 export default function UserManagementScreen({ route, navigation }) {
   const { leagueId, userRole, initialTab } = route.params || {};
@@ -232,9 +233,10 @@ export default function UserManagementScreen({ route, navigation }) {
     const isSelf =
       !!target
       && (Number(target?.is_current_user) === 1 || target?.is_current_user === true);
+    const previousRole = String(target?.role || '');
     const demotingSelfFromAdmin =
       isSelf
-      && String(target?.role || '') === 'admin'
+      && previousRole === 'admin'
       && newRole !== 'admin'
       && !options?.promoteUserId;
 
@@ -260,6 +262,18 @@ export default function UserManagementScreen({ route, navigation }) {
       setTimeout(() => {
         setSavedRoleMemberId(null);
       }, 2000);
+
+      const selfLostAdmin =
+        isSelf
+        && previousRole === 'admin'
+        && newRole !== 'admin';
+      if (selfLostAdmin) {
+        patchLeagueLocalRole(leagueId, newRole);
+        showToast('Non sei più admin di questa lega.', 'success');
+        navigation.goBack();
+        return;
+      }
+
       loadMembers();
       if (options?.promoteUserId) {
         showToast('Nuovo admin nominato e i tuoi diritti sono stati aggiornati.', 'success');

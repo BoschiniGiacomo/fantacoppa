@@ -76,7 +76,7 @@ export default function LeagueHamburgerMenu({ leagueId, navigation, isAdmin, use
       label: 'Gestione utenti',
       icon: 'people-outline',
       screen: 'UserManagement',
-      params: { leagueId, userRole: 'admin' },
+      params: { leagueId, userRole: userRole || 'admin' },
     });
   } else {
     settingsSubMenu.push({

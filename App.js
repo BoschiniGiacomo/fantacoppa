@@ -7,7 +7,7 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { StatusBar } from 'expo-status-bar';
-import { View } from 'react-native';
+import { View, DeviceEventEmitter } from 'react-native';
 import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // Context
@@ -60,7 +60,7 @@ import LeagueHamburgerMenu from './src/components/LeagueHamburgerMenu';
 import LeagueBottomMenu from './src/components/LeagueBottomMenu';
 import { OnboardingProvider } from './src/context/OnboardingContext';
 import { leagueService } from './src/services/api';
-import { peekLeagueDetail, peekHomeLeaguesBootstrapSnapshot, getLeagueDetailWarmMeta, setLeagueDetail } from './src/services/leagueWarmCache';
+import { peekLeagueDetail, peekHomeLeaguesBootstrapSnapshot, getLeagueDetailWarmMeta, setLeagueDetail, LEAGUE_ROLE_CHANGED } from './src/services/leagueWarmCache';
 
 function readLeagueBootstrapFromCache(leagueId) {
   const n = Number(leagueId);
@@ -112,6 +112,16 @@ function withLeagueWrapper(ScreenComponent) {
       return () => {
         cancelled = true;
       };
+    }, [leagueId]);
+
+    useEffect(() => {
+      const sub = DeviceEventEmitter.addListener(LEAGUE_ROLE_CHANGED, (payload) => {
+        if (Number(payload?.leagueId) !== Number(leagueId)) return;
+        const nextRole = String(payload?.role || '').trim();
+        if (!nextRole) return;
+        setLeague((prev) => (prev ? { ...prev, role: nextRole } : { id: Number(leagueId), role: nextRole }));
+      });
+      return () => sub.remove();
     }, [leagueId]);
 
     return (

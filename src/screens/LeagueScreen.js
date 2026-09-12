@@ -6,13 +6,14 @@ import {
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
+  DeviceEventEmitter,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { useOnboarding } from '../context/OnboardingContext';
 import { leagueService } from '../services/api';
-import { peekDashboard, setDashboard, getDashboardWarmMeta } from '../services/leagueWarmCache';
+import { peekDashboard, setDashboard, getDashboardWarmMeta, LEAGUE_ROLE_CHANGED } from '../services/leagueWarmCache';
 import { Ionicons } from '@expo/vector-icons';
 import TeamInfoModal from '../components/TeamInfoModal';
 import { defaultLogosMap } from '../constants/defaultLogos';
@@ -76,6 +77,20 @@ export default function LeagueScreen({ route, navigation }) {
       loadData();
     }, [leagueId])
   );
+
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener(LEAGUE_ROLE_CHANGED, (payload) => {
+      if (Number(payload?.leagueId) !== Number(leagueId)) return;
+      const nextRole = String(payload?.role || '').trim();
+      if (!nextRole) return;
+      setLeague((prev) => (prev ? { ...prev, role: nextRole } : prev));
+      if (nextRole !== 'admin') {
+        setPendingJoinRequests(0);
+        setReadyToCalculate(null);
+      }
+    });
+    return () => sub.remove();
+  }, [leagueId]);
 
   // Countdown timer per la prossima scadenza formazione
   useEffect(() => {
@@ -424,7 +439,7 @@ export default function LeagueScreen({ route, navigation }) {
               activeOpacity={0.75}
               onPress={() => navigation.navigate('UserManagement', {
                 leagueId,
-                userRole: 'admin',
+                userRole: String(league?.role || 'admin'),
                 initialTab: 'requests',
               })}
             >
