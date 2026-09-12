@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import api, { publicAssetUrl, superuserService } from '../services/api';
+import api, { applyForceUpdatePayload, publicAssetUrl, superuserService } from '../services/api';
 import { getBundledAppLoading } from './bundledUploads';
 import { resolveCanonicalUploadPath } from './normalizeUploadPath';
 import { getCachedLocalUriForPath, resolveMediaLocalFirst } from './stableMediaDiskCache';
@@ -180,6 +180,10 @@ async function resolveLoadingUri(path, type) {
 export async function getAppLoadingMediaSettings() {
   try {
     const res = await api.get('/public/app-loading');
+    // Solo caso eccezione (< 17): backend manda update_required in 200.
+    if (res?.data) {
+      await applyForceUpdatePayload(res.data).catch(() => {});
+    }
     const rawPath = res.data?.path;
     const path = rawPath ? resolveCanonicalUploadPath(rawPath) || rawPath : null;
     const type = res.data?.type;

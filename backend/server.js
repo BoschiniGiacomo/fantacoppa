@@ -26,21 +26,16 @@ const minigamesRoutes = require('./routes/minigames');
 
 // Import database (per testare connessione all'avvio)
 const { pool } = require('./config/database');
+const {
+  MIN_SUPPORTED_APP_VERSION_CODE,
+  readClientVersionCode,
+  isBelowMinSupported,
+  isCrashyForceUpdateClient,
+  buildForceUpdatePayload,
+} = require('./utils/appVersionGate');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const MIN_SUPPORTED_APP_VERSION_CODE = parseInt(process.env.MIN_SUPPORTED_APP_VERSION_CODE || '0', 10) || 0;
-const APP_FORCE_UPDATE_URL = (process.env.APP_FORCE_UPDATE_URL || '').trim();
-// Client sotto questa soglia crashano sul 426 (bug hooks: UpdateRequiredScreen dopo splash).
-// Non forzare l'update via 426 su quelle build: l'app deve restare usabile finché aggiornano dallo store.
-// Default 17 = allineato a MIN_SUPPORTED attuale (iOS store=17, Android store=18).
-// Override con FORCE_UPDATE_UI_MIN_SAFE_VERSION_CODE=0 per disattivare l'eccezione.
-const FORCE_UPDATE_UI_MIN_SAFE_VERSION_CODE = (() => {
-  const raw = process.env.FORCE_UPDATE_UI_MIN_SAFE_VERSION_CODE;
-  if (raw === undefined || raw === null || String(raw).trim() === '') return 17;
-  const n = parseInt(String(raw), 10);
-  return Number.isFinite(n) ? n : 17;
-})();
 
 // Middleware
 app.use(compression({ threshold: 1024 })); // Gzip JSON/HTML sopra ~1KB (meno HTTP outbound)
@@ -70,27 +65,15 @@ app.use('/api', (req, res, next) => {
     return next();
   }
 
-  const versionHeader = req.get('X-App-Version-Code');
-  const currentVersionCode = parseInt(versionHeader || '0', 10) || 0;
+  const currentVersionCode = readClientVersionCode(req);
 
-  if (currentVersionCode < MIN_SUPPORTED_APP_VERSION_CODE) {
-    // Build troppo vecchie: il 426 chiude l'app invece della schermata "Aggiorna".
-    // Es. 1.0.12 / versionCode < 17 → lascia passare le API.
-    if (
-      FORCE_UPDATE_UI_MIN_SAFE_VERSION_CODE > 0
-      && currentVersionCode > 0
-      && currentVersionCode < FORCE_UPDATE_UI_MIN_SAFE_VERSION_CODE
-    ) {
+  if (isBelowMinSupported(currentVersionCode)) {
+    // Caso eccezione (< 17): niente 426 (crash). Soft update su /public/app-loading.
+    if (isCrashyForceUpdateClient(currentVersionCode)) {
       return next();
     }
 
-    return res.status(426).json({
-      code: 'UPDATE_REQUIRED',
-      message: 'Questa versione dell\'app non e piu supportata. Aggiorna per continuare.',
-      current_version_code: currentVersionCode,
-      min_supported_version_code: MIN_SUPPORTED_APP_VERSION_CODE,
-      update_url: APP_FORCE_UPDATE_URL,
-    });
+    return res.status(426).json(buildForceUpdatePayload(currentVersionCode));
   }
 
   return next();

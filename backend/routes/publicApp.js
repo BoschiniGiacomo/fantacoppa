@@ -6,10 +6,12 @@ const {
   normalizeSistemaSettings,
 } = require('../utils/appSettingsStore');
 const { logMediaDbRead, logMediaClientEvent } = require('../utils/mediaCacheServerLog');
+const { getExceptionSoftForceUpdateFields } = require('../utils/appVersionGate');
 
 /**
  * GET /api/public/app-loading
  * Pubblico (nessun token): usato all'avvio app prima del login.
+ * Caso eccezione versionCode < 17 sotto min: include update_required (niente HTTP 426).
  */
 router.get('/app-loading', async (_req, res) => {
   try {
@@ -22,9 +24,11 @@ router.get('/app-loading', async (_req, res) => {
     const pathVal = row.path ? String(row.path).trim() : null;
     const typeVal = String(row.type || '').trim().toLowerCase() === 'video' ? 'video' : pathVal ? 'image' : null;
     logMediaDbRead('app_loading', _req, { path: pathVal, type: typeVal, ok: true });
+    const softUpdate = getExceptionSoftForceUpdateFields(_req);
     return res.json({
       path: pathVal || null,
       type: typeVal,
+      ...(softUpdate || {}),
     });
   } catch (error) {
     logMediaDbRead('app_loading', _req, { ok: false, error: error.message });

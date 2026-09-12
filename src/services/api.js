@@ -101,6 +101,7 @@ let unauthorizedHandler = null;
 let isHandlingUnauthorized = false;
 let updateRequiredHandler = null;
 let isHandlingUpdateRequired = false;
+let pendingForceUpdatePayload = null;
 
 export const setUnauthorizedHandler = (handler) => {
   unauthorizedHandler = handler;
@@ -108,7 +109,36 @@ export const setUnauthorizedHandler = (handler) => {
 
 export const setUpdateRequiredHandler = (handler) => {
   updateRequiredHandler = handler;
+  if (typeof handler === 'function' && pendingForceUpdatePayload) {
+    const queued = pendingForceUpdatePayload;
+    pendingForceUpdatePayload = null;
+    void applyForceUpdatePayload(queued);
+  }
 };
+
+/**
+ * Soft force-update (caso eccezione < 17): payload 200 da /public/app-loading
+ * → stessa UpdateRequiredScreen del 426, senza far crashare il client.
+ */
+export async function applyForceUpdatePayload(payload) {
+  if (!payload || typeof payload !== 'object') return false;
+  const isUpdate =
+    payload.update_required === true
+    || payload.code === 'UPDATE_REQUIRED';
+  if (!isUpdate) return false;
+  if (typeof updateRequiredHandler !== 'function') {
+    pendingForceUpdatePayload = payload;
+    return true;
+  }
+  if (isHandlingUpdateRequired) return true;
+  isHandlingUpdateRequired = true;
+  try {
+    await updateRequiredHandler(payload);
+  } finally {
+    isHandlingUpdateRequired = false;
+  }
+  return true;
+}
 
 // Interceptor per aggiungere il token alle richieste
 api.interceptors.request.use(
