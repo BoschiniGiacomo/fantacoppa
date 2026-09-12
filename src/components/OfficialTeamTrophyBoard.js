@@ -624,6 +624,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingTop: 5,
     paddingBottom: 3,
+    backgroundColor: '#c9a227',
   },
   champCupGoldFill: {
     ...StyleSheet.absoluteFillObject,
@@ -813,6 +814,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingTop: 4,
     paddingBottom: 3,
+    backgroundColor: '#4a1028',
   },
   wineLiquidBody: {
     ...StyleSheet.absoluteFillObject,

@@ -12,9 +12,7 @@ export function MiniChampionshipTrophy() {
           <View style={styles.champCupLid} />
           <View style={styles.champCupRim} />
           <View style={styles.champCupInner}>
-            <View style={styles.champCupGoldFill}>
-              <View style={styles.champCupGoldBand} />
-            </View>
+            <View style={styles.champCupGoldBand} />
             <View style={styles.champStarMedallion}>
               <Ionicons name="star" size={9} color="#fff6cc" />
             </View>
@@ -39,9 +37,7 @@ export function MiniWineTrophy() {
         <View style={styles.wineCupOuter}>
           <View style={styles.wineCupRim} />
           <View style={styles.wineCupInner}>
-            <View style={styles.wineLiquidBody}>
-              <View style={styles.wineLiquidSurface} />
-            </View>
+            <View style={styles.wineLiquidSurface} />
             <View style={styles.wineGrapeMedallion}>
               <MaterialCommunityIcons name="fruit-grapes" size={10} color="#f0d4e4" />
             </View>
@@ -229,9 +225,6 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  champCupGoldFill: {
-    ...StyleSheet.absoluteFillObject,
     backgroundColor: '#d4af37',
   },
   champCupGoldBand: {
@@ -333,9 +326,6 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  wineLiquidBody: {
-    ...StyleSheet.absoluteFillObject,
     backgroundColor: '#7a2040',
   },
   wineLiquidSurface: {
