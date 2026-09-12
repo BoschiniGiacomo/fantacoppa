@@ -28,6 +28,9 @@ export default function LoginScreen({ navigation }) {
   const passwordInputRef = useRef(null);
   const { login } = useAuth();
   const { logo: loginLogo } = useAuthBranding();
+  const [logoUriFailed, setLogoUriFailed] = useState(null);
+
+  const logoUri = loginLogo?.uri && loginLogo.uri !== logoUriFailed ? loginLogo.uri : null;
 
   useEffect(() => {
     let cancelled = false;
@@ -87,11 +90,12 @@ export default function LoginScreen({ navigation }) {
       >
         <View style={styles.content}>
           <View style={styles.header}>
-            {loginLogo?.uri ? (
+            {logoUri ? (
               <Image
-                source={{ uri: loginLogo.uri }}
+                source={{ uri: logoUri }}
                 style={styles.loginLogoImage}
                 resizeMode="contain"
+                onError={() => setLogoUriFailed(logoUri)}
               />
             ) : (
               <View style={styles.logoWrap}>

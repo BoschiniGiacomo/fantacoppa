@@ -1,5 +1,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getBundledAssetUri, getBundledLoginBackground, getBundledLoginLogo } from './bundledUploads';
+import * as FileSystem from 'expo-file-system/legacy';
+import {
+  getBundledAssetUri,
+  getBundledLoginBackground,
+  getBundledLoginLogo,
+} from './bundledUploads';
 import { getLoginLogoSettings } from './loginLogoSettings';
 import { getLoginBackgroundSettings } from './loginBackgroundSettings';
 import { getCachedLocalUriForPath } from './stableMediaDiskCache';
@@ -7,57 +12,59 @@ import { logMediaCache } from './mediaCacheDebug';
 
 const CACHE_KEY = 'auth_branding_cache_v4';
 
-function withBundledDefaults(logo, background) {
-  let nextLogo = logo;
-  let nextBg = background;
-  if (!nextLogo?.uri) {
-    const bundled = getBundledLoginLogo();
-    if (bundled?.uri) nextLogo = bundled;
+async function localFileExists(uri) {
+  if (!uri || typeof uri !== 'string') return false;
+  if (!uri.startsWith('file://') && !uri.startsWith('content://')) return false;
+  try {
+    const info = await FileSystem.getInfoAsync(uri);
+    return !!info?.exists;
+  } catch {
+    return false;
   }
-  if (!nextBg?.uri) {
-    const bundled = getBundledLoginBackground();
-    if (bundled?.uri) nextBg = bundled;
-  }
-  return { logo: nextLogo, background: nextBg };
 }
 
-function preferBundleForPath(item) {
-  if (!item?.path) return item;
+/** Preferisci file disco o asset bundle per un path noto (senza forzare il default di slot). */
+async function preferLocalOrBundled(item) {
+  if (!item?.path) return null;
+  const local = await getCachedLocalUriForPath(item.path, { silent: true });
+  if (local) return { uri: local, path: item.path };
   const bundled = getBundledAssetUri(item.path);
   if (bundled) return { uri: bundled, path: item.path };
-  return item;
+  return null;
 }
 
-async function hydrateFromDisk(logo, background) {
-  let nextLogo = logo;
-  let nextBg = background;
+/**
+ * Da cache AsyncStorage: niente https “stale” senza file locale
+ * (altrimenti Image/ImageBackground restano vuoti e nascondono i fallback).
+ */
+async function resolveCachedBrandingItem(item, slot) {
+  const bundledSlot = slot === 'login_logo' ? getBundledLoginLogo() : getBundledLoginBackground();
+  if (!item) return bundledSlot || null;
 
-  if (nextLogo?.path) {
-    const local = await getCachedLocalUriForPath(nextLogo.path, { asset: 'login_logo' });
-    if (local) {
-      nextLogo = { uri: local, path: nextLogo.path };
-      logMediaCache('logo_cache_disk', { path: nextLogo.path, uri: local, layer: 'async_storage' });
-    } else {
-      nextLogo = preferBundleForPath(nextLogo);
-    }
+  const localOrBundled = await preferLocalOrBundled(item);
+  if (localOrBundled) return localOrBundled;
+
+  if (item.uri && (await localFileExists(item.uri))) {
+    return { uri: item.uri, path: item.path || null };
   }
 
-  if (nextBg?.path) {
-    const local = await getCachedLocalUriForPath(nextBg.path, { asset: 'login_background' });
-    if (local) {
-      nextBg = { uri: local, path: nextBg.path };
-      logMediaCache('login_bg_cache_disk', {
-        path: nextBg.path,
-        uri: local,
-        layer: 'async_storage',
-        asset: 'login_background',
-      });
-    } else {
-      nextBg = preferBundleForPath(nextBg);
-    }
+  if (
+    item.uri
+    && !item.uri.startsWith('http://')
+    && !item.uri.startsWith('https://')
+    && !item.uri.startsWith('file://')
+  ) {
+    return { uri: item.uri, path: item.path || null };
   }
 
-  return withBundledDefaults(nextLogo, nextBg);
+  return bundledSlot || null;
+}
+
+function withBundledDefaults(logo, background) {
+  return {
+    logo: logo?.uri ? logo : getBundledLoginLogo(),
+    background: background?.uri ? background : getBundledLoginBackground(),
+  };
 }
 
 export async function getCachedAuthBranding() {
@@ -65,9 +72,11 @@ export async function getCachedAuthBranding() {
     const raw = await AsyncStorage.getItem(CACHE_KEY);
     if (!raw) return withBundledDefaults(null, null);
     const parsed = JSON.parse(raw);
-    let logo = parsed?.logo?.uri ? parsed.logo : null;
-    let background = parsed?.background?.uri ? parsed.background : null;
-    return hydrateFromDisk(logo, background);
+    const rawLogo = parsed?.logo?.uri || parsed?.logo?.path ? parsed.logo : null;
+    const rawBg = parsed?.background?.uri || parsed?.background?.path ? parsed.background : null;
+    const logo = await resolveCachedBrandingItem(rawLogo, 'login_logo');
+    const background = await resolveCachedBrandingItem(rawBg, 'login_background');
+    return withBundledDefaults(logo, background);
   } catch (e) {
     logMediaCache('logo_cache_error', { error: e?.message || String(e) });
     return withBundledDefaults(null, null);
@@ -80,24 +89,32 @@ async function persistAuthBrandingCache(logo, background) {
   } catch {}
 }
 
-/** Logo e sfondo login: bundle → cache disco → download solo se path nuovo fuori bundle. */
+/** Logo e sfondo login: bundle → cache disco verificata → API. */
 export async function loadAuthBranding() {
   const cached = await getCachedAuthBranding();
   let logo = cached.logo;
   let background = cached.background;
 
   try {
-    const [apiLogo, apiBackground] = await Promise.all([getLoginLogoSettings(), getLoginBackgroundSettings()]);
-    if (apiLogo) {
-      logo = apiLogo;
-    } else if (!logo?.uri) {
-      logo = getBundledLoginLogo();
+    const [apiLogo, apiBackground] = await Promise.all([
+      getLoginLogoSettings(),
+      getLoginBackgroundSettings(),
+    ]);
+
+    if (apiLogo?.uri) {
+      logo = (await preferLocalOrBundled(apiLogo)) || apiLogo;
+    } else {
+      logo = (await resolveCachedBrandingItem(logo, 'login_logo')) || getBundledLoginLogo();
     }
-    if (apiBackground) {
-      background = apiBackground;
-    } else if (!background?.uri) {
-      background = getBundledLoginBackground();
+
+    if (apiBackground?.uri) {
+      background = (await preferLocalOrBundled(apiBackground)) || apiBackground;
+    } else {
+      background =
+        (await resolveCachedBrandingItem(background, 'login_background'))
+        || getBundledLoginBackground();
     }
+
     await persistAuthBrandingCache(logo, background);
     logMediaCache('branding_load_ok', {
       logoPath: logo?.path,
@@ -113,5 +130,5 @@ export async function loadAuthBranding() {
     background = fallback.background;
   }
 
-  return { logo, background };
+  return withBundledDefaults(logo, background);
 }
