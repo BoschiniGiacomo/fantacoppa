@@ -35,7 +35,7 @@ function isCrashyForceUpdateClient(versionCode) {
 function buildForceUpdatePayload(versionCode) {
   return {
     code: 'UPDATE_REQUIRED',
-    message: 'Questa versione dell\'app non e piu supportata. Aggiorna per continuare.',
+    message: 'Questa versione dell\'app non è più supportata. Aggiorna per continuare.',
     current_version_code: versionCode,
     min_supported_version_code: MIN_SUPPORTED_APP_VERSION_CODE,
     update_url: APP_FORCE_UPDATE_URL || null,

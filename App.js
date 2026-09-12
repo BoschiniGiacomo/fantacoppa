@@ -72,7 +72,7 @@ function readLeagueBootstrapFromCache(leagueId) {
   const row = snap.find((l) => Number(l?.id) === n);
   return row && typeof row === 'object' ? row : null;
 }
-import AppLoadingFullScreenModal from './src/components/AppLoadingFullScreenModal';
+import AppLoadingShell from './src/components/AppLoadingShell';
 import { fetchAndCacheStripTeams } from './src/services/matchesStripPrefetch';
 import { readStripTeamsDisk } from './src/services/matchesStripTeamsCache';
 
@@ -183,6 +183,8 @@ function AppNavigator() {
   const { uri: loadingMediaUri, type: loadingMediaType } = useAppLoadingMedia();
   const { ready: authBrandingReady } = useAuthBranding();
   const [bootstrapTimedOut, setBootstrapTimedOut] = useState(false);
+  // Evita smontare il video nello stesso frame in cui monta UpdateRequired (crash Android).
+  const [updateScreenReady, setUpdateScreenReady] = useState(false);
 
   const waitingForAuthBranding = !user && !authBrandingReady;
   // Update richiesto ha priorità sul loader di bootstrap.
@@ -194,23 +196,40 @@ function AppNavigator() {
     return () => clearTimeout(timer);
   }, []);
 
-  // Sempre prima di qualsiasi return: nascosto splash nativo → video AppLoadingShell
   useEffect(() => {
     SplashScreen.hideAsync().catch(() => {});
   }, [showBootstrapLoader, updateRequiredInfo]);
 
-  if (updateRequiredInfo) {
+  useEffect(() => {
+    if (!updateRequiredInfo) {
+      setUpdateScreenReady(false);
+      return undefined;
+    }
+    // Un frame senza video, poi la schermata aggiorna (niente Modal nativo in mezzo).
+    setUpdateScreenReady(false);
+    const t = setTimeout(() => setUpdateScreenReady(true), 80);
+    return () => clearTimeout(t);
+  }, [updateRequiredInfo]);
+
+  if (updateRequiredInfo && updateScreenReady) {
     return <UpdateRequiredScreen updateInfo={updateRequiredInfo} />;
   }
 
-  if (showBootstrapLoader) {
+  if (showBootstrapLoader || (updateRequiredInfo && !updateScreenReady)) {
     return (
-      <AppLoadingFullScreenModal
-        visible
-        uri={loadingMediaUri}
-        mediaType={loadingMediaType}
-        progress={waitingForAuthBranding && !loading ? 1 : bootstrapProgress}
-      />
+      <View style={{ flex: 1, backgroundColor: '#000' }}>
+        <AppLoadingShell
+          uri={updateRequiredInfo ? null : loadingMediaUri}
+          mediaType={updateRequiredInfo ? null : loadingMediaType}
+          progress={
+            updateRequiredInfo
+              ? 1
+              : waitingForAuthBranding && !loading
+                ? 1
+                : bootstrapProgress
+          }
+        />
+      </View>
     );
   }
 

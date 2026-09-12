@@ -23,6 +23,12 @@ function LoopingVideoPlayer({ uri, style, nativeControls, contentFit }) {
       try {
         player.pause();
       } catch (_) {}
+      try {
+        // Rilascia prima dello smontaggio: evita crash nativo Android al force-update.
+        if (typeof player.release === 'function') {
+          player.release();
+        }
+      } catch (_) {}
     };
   }, [player, uri]);
 

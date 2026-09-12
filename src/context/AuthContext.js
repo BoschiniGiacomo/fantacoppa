@@ -5,12 +5,18 @@ import {
   authService,
   setUnauthorizedHandler,
   setUpdateRequiredHandler,
+  getAppVersionInfo,
 } from '../services/api';
 import { prefetchLeagueWarmData, invalidateAllLeagueWarmCache } from '../services/leagueWarmCache';
 import { clearStripTeamsCache } from '../services/matchesStripTeamsCache';
 import { fetchAndCacheStripTeams } from '../services/matchesStripPrefetch';
 import { warmMatchesPromoMeta } from '../services/matchesPromoPrefetch';
 import { registerPushTokenIfPermitted } from '../services/notificationService';
+import {
+  readPersistedForceUpdate,
+  persistForceUpdate,
+  clearPersistedForceUpdate,
+} from '../utils/forceUpdateStorage';
 
 const AuthContext = createContext({});
 
@@ -166,24 +172,47 @@ export const AuthProvider = ({ children }) => {
   }, [token, user?.id]);
 
   useEffect(() => {
+    let cancelled = false;
+
+    const applyUpdateRequired = async (payload) => {
+      const info = {
+        message: payload?.message || 'Per continuare devi aggiornare l\'app.',
+        updateUrl: payload?.update_url || payload?.updateUrl || null,
+        minVersionCode: payload?.min_supported_version_code || payload?.minVersionCode || null,
+      };
+      const currentCode = Number(getAppVersionInfo().code) || 0;
+      const minCode = Number(info.minVersionCode);
+      if (Number.isFinite(minCode) && minCode > 0 && currentCode >= minCode) {
+        await clearPersistedForceUpdate();
+        return;
+      }
+      await persistForceUpdate(info);
+      if (cancelled) return;
+      setUpdateRequiredInfo(info);
+      // Esci subito dal loader: la schermata aggiornamento ha priorità sul bootstrap.
+      setBootstrapProgress(1);
+      setLoading(false);
+    };
+
     setUnauthorizedHandler(async () => {
       invalidateAllLeagueWarmCache();
       setToken(null);
       setUser(null);
       authService.setAuthToken(null);
     });
-    setUpdateRequiredHandler(async (payload) => {
-      setUpdateRequiredInfo({
-        message: payload?.message || 'Per continuare devi aggiornare l\'app.',
-        updateUrl: payload?.update_url || null,
-        minVersionCode: payload?.min_supported_version_code || null,
-      });
-      // Esci subito dal loader: la schermata aggiornamento ha priorità sul bootstrap.
-      setBootstrapProgress(1);
-      setLoading(false);
-    });
+    setUpdateRequiredHandler(applyUpdateRequired);
 
-    loadStoredAuth();
+    (async () => {
+      const persisted = await readPersistedForceUpdate();
+      if (cancelled) return;
+      if (persisted) {
+        setUpdateRequiredInfo(persisted);
+        setBootstrapProgress(1);
+        setLoading(false);
+        return;
+      }
+      loadStoredAuth();
+    })();
 
     // Failsafe: evita spinner infinito in caso di bootstrap bloccato.
     const guard = setTimeout(() => {
@@ -192,6 +221,7 @@ export const AuthProvider = ({ children }) => {
     }, 20000);
 
     return () => {
+      cancelled = true;
       setUnauthorizedHandler(null);
       setUpdateRequiredHandler(null);
       clearTimeout(guard);
