@@ -1745,6 +1745,60 @@ router.post('/:id/change-role', authenticateToken, async (req, res) => {
         });
       }
     }
+
+    // Non lasciare la lega senza admin: se stai togliendo l'ultimo admin, obbligatorio nominarne un altro.
+    const targetRows = await query(
+      `SELECT role FROM league_members WHERE league_id = ? AND user_id = ? LIMIT 1`,
+      [leagueId, memberId]
+    );
+    if (!targetRows[0]) {
+      return res.status(404).json({ message: 'Membro non trovato nella lega' });
+    }
+    const currentRole = String(targetRows[0].role || '');
+    const demotingAdmin = currentRole === 'admin' && newRole !== 'admin';
+    if (demotingAdmin) {
+      const adminCountRows = await query(
+        `SELECT COUNT(*) AS c FROM league_members WHERE league_id = ? AND role = 'admin'`,
+        [leagueId]
+      );
+      const adminCount = Number(adminCountRows[0]?.c || 0);
+      if (adminCount <= 1) {
+        const memberCountRows = await query(
+          `SELECT COUNT(*) AS c FROM league_members WHERE league_id = ?`,
+          [leagueId]
+        );
+        const memberCount = Number(memberCountRows[0]?.c || 0);
+        if (memberCount <= 1) {
+          return res.status(400).json({
+            code: 'ONLY_MEMBER',
+            message: 'Sei l\'unico utente della lega: non puoi togliere a te stesso il ruolo di admin.',
+          });
+        }
+
+        const promoteUserId = Number(req.body?.promote_user_id);
+        if (!Number.isFinite(promoteUserId) || promoteUserId <= 0 || promoteUserId === memberId) {
+          return res.status(400).json({
+            code: 'NEED_NEW_ADMIN',
+            message: 'Devi nominare un altro admin prima di cambiare i tuoi diritti.',
+          });
+        }
+        const promoteRows = await query(
+          `SELECT user_id FROM league_members WHERE league_id = ? AND user_id = ? LIMIT 1`,
+          [leagueId, promoteUserId]
+        );
+        if (!promoteRows[0]) {
+          return res.status(400).json({
+            code: 'NEED_NEW_ADMIN',
+            message: 'Il nuovo admin deve essere un membro della lega.',
+          });
+        }
+        await query(
+          `UPDATE league_members SET role = 'admin' WHERE league_id = ? AND user_id = ?`,
+          [leagueId, promoteUserId]
+        );
+      }
+    }
+
     await query(
       `UPDATE league_members SET role = ? WHERE league_id = ? AND user_id = ?`,
       [newRole, leagueId, memberId]

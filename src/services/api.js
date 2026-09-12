@@ -338,7 +338,12 @@ export const leagueService = {
   leaveLeagueInfo: (leagueId) => api.get(`/leagues/${leagueId}/leave/info`),
   leaveLeague: (leagueId, newAdminId = null) => api.post(`/leagues/${leagueId}/leave`, { new_admin_id: newAdminId }),
   removeUser: (leagueId, userId) => api.post(`/leagues/${leagueId}/remove-user`, { user_id: userId }),
-  changeRole: (leagueId, memberId, newRole) => api.post(`/leagues/${leagueId}/change-role`, { member_id: memberId, new_role: newRole }),
+  changeRole: (leagueId, memberId, newRole, promoteUserId = null) =>
+    api.post(`/leagues/${leagueId}/change-role`, {
+      member_id: memberId,
+      new_role: newRole,
+      ...(promoteUserId != null ? { promote_user_id: promoteUserId } : {}),
+    }),
   // Join requests
   getJoinRequests: (leagueId) => api.get(`/leagues/${leagueId}/join-requests`),
   approveJoinRequest: (leagueId, requestId) => api.post(`/leagues/${leagueId}/join-requests/${requestId}/approve`),

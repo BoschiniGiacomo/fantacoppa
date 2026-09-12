@@ -23,6 +23,8 @@ export default function UserManagementScreen({ route, navigation }) {
   const [leaveInfoLoading, setLeaveInfoLoading] = useState(false);
   const [showNewAdminModal, setShowNewAdminModal] = useState(false);
   const [selectedNewAdminId, setSelectedNewAdminId] = useState(null);
+  /** null | { type: 'leave' } | { type: 'demote', memberId, newRole } */
+  const [adminTransferContext, setAdminTransferContext] = useState(null);
   const [confirmModal, setConfirmModal] = useState(null); // { title, message, confirmText, onConfirm, destructive }
   const [toastMsg, setToastMsg] = useState(null); // { text, type: 'success' | 'error' }
   const [changingRole, setChangingRole] = useState(null);
@@ -219,20 +221,49 @@ export default function UserManagementScreen({ route, navigation }) {
     }
   };
 
-  const handleChangeRole = async (memberId, newRole) => {
+  const handleChangeRole = async (memberId, newRole, options = {}) => {
     if (isReadOnlyObserver) return;
     if (isLinkedLeague && newRole === 'pagellatore') {
       showToast('Nelle leghe collegate i voti arrivano dalla lega primaria: non puoi assegnare il ruolo Pagellatore');
       return;
     }
+
+    const target = members.find((m) => Number(m?.user_id) === Number(memberId));
+    const isSelf =
+      !!target
+      && (Number(target?.is_current_user) === 1 || target?.is_current_user === true);
+    const demotingSelfFromAdmin =
+      isSelf
+      && String(target?.role || '') === 'admin'
+      && newRole !== 'admin'
+      && !options?.promoteUserId;
+
+    if (demotingSelfFromAdmin) {
+      const adminCount = members.filter((m) => String(m?.role || '') === 'admin').length;
+      if (adminCount <= 1) {
+        const otherMembers = members.filter((m) => Number(m?.user_id) !== Number(memberId));
+        if (otherMembers.length === 0) {
+          showToast('Sei l\'unico utente della lega: non puoi togliere a te stesso il ruolo di admin.');
+          return;
+        }
+        setSelectedNewAdminId(null);
+        setAdminTransferContext({ type: 'demote', memberId, newRole });
+        setShowNewAdminModal(true);
+        return;
+      }
+    }
+
     try {
       setChangingRole(memberId);
-      await leagueService.changeRole(leagueId, memberId, newRole);
+      await leagueService.changeRole(leagueId, memberId, newRole, options?.promoteUserId || null);
       setSavedRoleMemberId(memberId);
       setTimeout(() => {
         setSavedRoleMemberId(null);
       }, 2000);
       loadMembers();
+      if (options?.promoteUserId) {
+        showToast('Nuovo admin nominato e i tuoi diritti sono stati aggiornati.', 'success');
+      }
     } catch (error) {
       // Estrai solo il messaggio di errore dall'API, senza mostrare i dettagli tecnici di AxiosError
       let errorMessage = 'Errore durante il cambio ruolo';
@@ -299,6 +330,8 @@ export default function UserManagementScreen({ route, navigation }) {
     } else if (leaveInfo.only_admin) {
       // Ultimo admin: chiedi di nominare un nuovo admin
       if (leaveInfo.other_members && leaveInfo.other_members.length > 0) {
+        setSelectedNewAdminId(null);
+        setAdminTransferContext({ type: 'leave' });
         setShowNewAdminModal(true);
       } else {
         showToast('Non ci sono altri membri a cui assegnare il ruolo di admin');
@@ -333,12 +366,21 @@ export default function UserManagementScreen({ route, navigation }) {
     }
   };
 
-  const handleSelectNewAdmin = () => {
+  const handleSelectNewAdmin = async () => {
     if (!selectedNewAdminId) {
       showToast('Seleziona un nuovo admin');
       return;
     }
+    const ctx = adminTransferContext;
     setShowNewAdminModal(false);
+    setAdminTransferContext(null);
+
+    if (ctx?.type === 'demote') {
+      await handleChangeRole(ctx.memberId, ctx.newRole, { promoteUserId: selectedNewAdminId });
+      setSelectedNewAdminId(null);
+      return;
+    }
+
     setConfirmModal({
       title: 'Abbandona lega',
       message: 'Sei sicuro di voler abbandonare la lega? Tutti i tuoi dati relativi a questa lega verranno eliminati.',
@@ -347,6 +389,14 @@ export default function UserManagementScreen({ route, navigation }) {
       onConfirm: () => confirmLeaveLeague(selectedNewAdminId),
     });
   };
+
+  const adminCandidates = useMemo(() => {
+    if (adminTransferContext?.type === 'demote') {
+      const selfId = Number(adminTransferContext.memberId);
+      return members.filter((m) => Number(m?.user_id) !== selfId);
+    }
+    return leaveInfo?.other_members || [];
+  }, [adminTransferContext, members, leaveInfo]);
 
   const getRoleBadge = (role) => {
     switch (role) {
@@ -737,21 +787,27 @@ export default function UserManagementScreen({ route, navigation }) {
         </ScrollView>
       )}
 
-      {/* Modal per selezionare nuovo admin */}
+      {/* Modal per selezionare nuovo admin (abbandono lega o demote ultimo admin) */}
       <Modal
         visible={showNewAdminModal}
         transparent={true}
         animationType="slide"
-        onRequestClose={() => setShowNewAdminModal(false)}
+        onRequestClose={() => {
+          setShowNewAdminModal(false);
+          setSelectedNewAdminId(null);
+          setAdminTransferContext(null);
+        }}
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Seleziona nuovo admin</Text>
             <Text style={styles.modalSubtitle}>
-              Devi nominare un nuovo admin prima di poter abbandonare la lega.
+              {adminTransferContext?.type === 'demote'
+                ? 'Prima di cambiare i tuoi diritti devi nominare un altro admin. Una lega non può restare senza admin.'
+                : 'Devi nominare un nuovo admin prima di poter abbandonare la lega.'}
             </Text>
             <ScrollView style={styles.modalList}>
-              {leaveInfo?.other_members?.map((member) => (
+              {adminCandidates.map((member) => (
                 <TouchableOpacity
                   key={member.user_id}
                   style={[
@@ -773,6 +829,7 @@ export default function UserManagementScreen({ route, navigation }) {
                 onPress={() => {
                   setShowNewAdminModal(false);
                   setSelectedNewAdminId(null);
+                  setAdminTransferContext(null);
                 }}
               >
                 <Text style={styles.modalButtonTextCancel}>Annulla</Text>
