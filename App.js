@@ -184,30 +184,24 @@ function AppNavigator() {
   const { ready: authBrandingReady } = useAuthBranding();
   const [bootstrapTimedOut, setBootstrapTimedOut] = useState(false);
 
+  const waitingForAuthBranding = !user && !authBrandingReady;
+  // Update richiesto ha priorità sul loader di bootstrap.
+  const showBootstrapLoader =
+    !updateRequiredInfo && ((loading && !bootstrapTimedOut) || waitingForAuthBranding);
+
   useEffect(() => {
     const timer = setTimeout(() => setBootstrapTimedOut(true), 16000);
     return () => clearTimeout(timer);
   }, []);
 
+  // Sempre prima di qualsiasi return: nascosto splash nativo → video AppLoadingShell
+  useEffect(() => {
+    SplashScreen.hideAsync().catch(() => {});
+  }, [showBootstrapLoader, updateRequiredInfo]);
+
   if (updateRequiredInfo) {
     return <UpdateRequiredScreen updateInfo={updateRequiredInfo} />;
   }
-
-  const waitingForAuthBranding = !user && !authBrandingReady;
-  const showBootstrapLoader = (loading && !bootstrapTimedOut) || waitingForAuthBranding;
-
-  // Nascondi subito lo splash nativo (su Android può mostrare l'icona app) → video AppLoadingShell
-  useEffect(() => {
-    if (showBootstrapLoader) {
-      SplashScreen.hideAsync().catch(() => {});
-    }
-  }, [showBootstrapLoader]);
-
-  useEffect(() => {
-    if (!showBootstrapLoader) {
-      SplashScreen.hideAsync().catch(() => {});
-    }
-  }, [showBootstrapLoader]);
 
   if (showBootstrapLoader) {
     return (

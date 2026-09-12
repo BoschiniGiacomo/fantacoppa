@@ -178,6 +178,9 @@ export const AuthProvider = ({ children }) => {
         updateUrl: payload?.update_url || null,
         minVersionCode: payload?.min_supported_version_code || null,
       });
+      // Esci subito dal loader: la schermata aggiornamento ha priorità sul bootstrap.
+      setBootstrapProgress(1);
+      setLoading(false);
     });
 
     loadStoredAuth();
@@ -314,6 +317,14 @@ export const AuthProvider = ({ children }) => {
         sessionOk = true;
         setBootstrapProgress(0.24);
       } catch (verifyError) {
+        const isUpdateRequired =
+          Number(verifyError?.response?.status) === 426
+          || verifyError?.response?.data?.code === 'UPDATE_REQUIRED';
+        if (isUpdateRequired) {
+          // Handler interceptor già setta updateRequiredInfo; non continuare il warm.
+          setBootstrapProgress(1);
+          return;
+        }
         if (isDefinitiveSessionInvalid(verifyError)) {
           console.warn('[auth] Sessione non valida, logout locale:', verifyError?.response?.status || verifyError?.message);
           await clearPersistedAuth();
