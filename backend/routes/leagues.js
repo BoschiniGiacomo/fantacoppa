@@ -763,12 +763,73 @@ async function ensureJoinRequestsTable() {
        UNIQUE (league_id, user_id)
      )`
   );
+  // Tabelle create in passato senza UNIQUE: ON CONFLICT fallirebbe con 500.
+  try {
+    await query(
+      `CREATE UNIQUE INDEX IF NOT EXISTS uq_league_join_requests_league_user
+       ON league_join_requests (league_id, user_id)`
+    );
+  } catch (idxErr) {
+    console.warn(
+      'league_join_requests unique index ensure skipped:',
+      idxErr?.message || idxErr
+    );
+  }
   await query(
     `CREATE INDEX IF NOT EXISTS idx_league_join_requests_league_status
      ON league_join_requests (league_id, status, requested_at DESC)`
   );
   joinRequestsTableReady = true;
   return true;
+}
+
+async function upsertPendingJoinRequest(leagueId, userId) {
+  await ensureJoinRequestsTable();
+  const existing = await query(
+    `SELECT id, status FROM league_join_requests
+     WHERE league_id = ? AND user_id = ?
+     LIMIT 1`,
+    [leagueId, userId]
+  );
+  if (existing.length) {
+    const row = existing[0];
+    if (String(row.status) === 'pending') {
+      return { alreadyPending: true, requestId: row.id };
+    }
+    await query(
+      `UPDATE league_join_requests
+       SET status = 'pending',
+           requested_at = NOW(),
+           reviewed_at = NULL,
+           reviewed_by = NULL
+       WHERE id = ?`,
+      [row.id]
+    );
+    return { alreadyPending: false, requestId: row.id };
+  }
+  try {
+    await query(
+      `INSERT INTO league_join_requests (league_id, user_id, status, requested_at, reviewed_at, reviewed_by)
+       VALUES (?, ?, 'pending', NOW(), NULL, NULL)`,
+      [leagueId, userId]
+    );
+  } catch (insertErr) {
+    // Race: un'altra richiesta ha creato la riga nel frattempo.
+    if (insertErr && (insertErr.code === '23505' || /duplicate/i.test(String(insertErr.message || '')))) {
+      await query(
+        `UPDATE league_join_requests
+         SET status = 'pending',
+             requested_at = NOW(),
+             reviewed_at = NULL,
+             reviewed_by = NULL
+         WHERE league_id = ? AND user_id = ?`,
+        [leagueId, userId]
+      );
+      return { alreadyPending: true };
+    }
+    throw insertErr;
+  }
+  return { alreadyPending: false };
 }
 
 async function getLeagueByIdForUser(leagueId, userId) {
@@ -5236,47 +5297,35 @@ router.post('/:id/join', authenticateToken, async (req, res) => {
 
     const requireApproval = await getRequireJoinApproval(leagueId);
     if (requireApproval) {
-      await ensureJoinRequestsTable();
-      const existingPending = await query(
-        `SELECT id FROM league_join_requests
-         WHERE league_id = ? AND user_id = ? AND status = 'pending'
-         LIMIT 1`,
-        [leagueId, userId]
-      );
-      if (existingPending.length) {
-        return res.status(202).json({
-          message: 'Hai già una richiesta in attesa per questa lega. Attendi l\'accettazione o il rifiuto degli admin.',
-          pending: true,
-          requires_approval: true,
-          already_pending: true,
-          leagueId,
-        });
-      }
-      await query(
-        `INSERT INTO league_join_requests (league_id, user_id, status, requested_at, reviewed_at, reviewed_by)
-         VALUES (?, ?, 'pending', NOW(), NULL, NULL)
-         ON CONFLICT (league_id, user_id)
-         DO UPDATE SET
-           status = 'pending',
-           requested_at = NOW(),
-           reviewed_at = NULL,
-           reviewed_by = NULL`,
-        [leagueId, userId]
-      );
-      return res.status(202).json({
-        message: 'Richiesta inviata. Attendi che un admin della lega ti accetti o ti rifiuti.',
+      const upsert = await upsertPendingJoinRequest(leagueId, userId);
+      // 200 (non 202): alcuni client/proxy trattano male 202; il body indica pending.
+      return res.status(200).json({
+        message: upsert.alreadyPending
+          ? 'Hai già una richiesta in attesa per questa lega. Attendi l\'accettazione o il rifiuto degli admin.'
+          : 'Richiesta inviata. Attendi che un admin della lega ti accetti o ti rifiuti.',
         pending: true,
         requires_approval: true,
+        already_pending: !!upsert.alreadyPending,
+        joined: false,
         leagueId,
       });
     }
 
     await addUserToLeagueWithInitialBudget(userId, leagueId, Number(league.initial_budget || 100));
 
-    res.json({ message: 'Iscrizione completata', leagueId });
+    res.json({
+      message: 'Iscrizione completata',
+      pending: false,
+      requires_approval: false,
+      joined: true,
+      leagueId,
+    });
   } catch (error) {
     console.error('Join league error:', error);
-    res.status(500).json({ message: 'Errore durante l\'iscrizione alla lega' });
+    res.status(500).json({
+      message: 'Errore durante l\'iscrizione alla lega',
+      detail: process.env.NODE_ENV === 'development' ? String(error?.message || error) : undefined,
+    });
   }
 });
 

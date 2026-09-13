@@ -91,18 +91,20 @@ export default function LeaguesScreen({ navigation }) {
       return;
     }
 
+    const needsApproval = leagueRequiresApproval(selectedLeague);
     setJoining(true);
     try {
       const response = await leagueService.join(selectedLeague.id, accessCode || null);
 
-      if (isJoinPendingResponse(response)) {
+      // Con approvazione: mai entrare in lega da questo flusso (solo richiesta / attesa).
+      if (needsApproval || isJoinPendingResponse(response, selectedLeague)) {
         setJoinModalVisible(false);
         setSelectedLeague(null);
         setAccessCode('');
         await loadLeagues();
         showToast(
           response?.data?.message
-            || 'Richiesta inviata. Attendi l\'accettazione o il rifiuto degli admin della lega.',
+            || 'Richiesta inviata. Controlla "In attesa di accettazione" in Home.',
           'success'
         );
         return;
@@ -163,7 +165,7 @@ export default function LeaguesScreen({ navigation }) {
             <View style={[styles.leagueBadge, styles.approvalBadge]}>
               <Ionicons name="hourglass-outline" size={12} color="#856404" />
               <Text style={[styles.leagueBadgeText, { color: '#856404', marginLeft: 4 }]}>
-                Con accettazione
+                Approvazione
               </Text>
             </View>
           ) : null}
@@ -302,8 +304,7 @@ export default function LeaguesScreen({ navigation }) {
               <View style={styles.infoBox}>
                 <Ionicons name="hourglass-outline" size={16} color="#856404" />
                 <Text style={styles.infoBoxText}>
-                  Questa lega richiede l'approvazione degli admin. Dopo la richiesta resti in
-                  attesa di essere accettato o rifiutato: non entrerai subito.
+                  Serve approvazione di un admin: dopo l'invio resti in attesa.
                 </Text>
               </View>
             ) : !leagueHasAccessCode(selectedLeague) ? (
@@ -327,17 +328,12 @@ export default function LeaguesScreen({ navigation }) {
               >
                 {joining ? (
                   <ActivityIndicator color="#fff" size="small" />
+                ) : leagueRequiresApproval(selectedLeague) ? (
+                  <Text style={styles.joinBtnText}>Invia</Text>
                 ) : (
                   <>
-                    <Ionicons
-                      name={leagueRequiresApproval(selectedLeague) ? 'send-outline' : 'enter-outline'}
-                      size={18}
-                      color="#fff"
-                      style={{ marginRight: 6 }}
-                    />
-                    <Text style={styles.joinBtnText}>
-                      {leagueRequiresApproval(selectedLeague) ? 'Invia richiesta' : 'Unisciti'}
-                    </Text>
+                    <Ionicons name="enter-outline" size={18} color="#fff" style={{ marginRight: 6 }} />
+                    <Text style={styles.joinBtnText}>Unisciti</Text>
                   </>
                 )}
               </TouchableOpacity>
@@ -655,6 +651,7 @@ const styles = StyleSheet.create({
   joinBtn: {
     flex: 1,
     paddingVertical: 13,
+    paddingHorizontal: 12,
     borderRadius: 10,
     alignItems: 'center',
     backgroundColor: '#667eea',

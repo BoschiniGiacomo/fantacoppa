@@ -12,11 +12,18 @@ export function leagueRequiresApproval(league) {
 }
 
 /** True se la risposta join è una richiesta in attesa (non iscrizione immediata). */
-export function isJoinPendingResponse(response) {
+export function isJoinPendingResponse(response, selectedLeague = null) {
   const data = response?.data || {};
-  return (
+  // Iscrizione immediata confermata dal backend
+  if (data.joined === true) return false;
+  if (
     Number(response?.status) === 202
     || data.pending === true
     || data.requires_approval === true
-  );
+    || data.joined === false
+  ) {
+    return true;
+  }
+  // La lista dice "approvazione": non navigare nella lega anche se il body è incompleto
+  return leagueRequiresApproval(selectedLeague);
 }
