@@ -5287,13 +5287,6 @@ router.post('/:id/join', authenticateToken, async (req, res) => {
   try {
     const userId = Number(req.user.userId);
     const leagueId = toValidLeagueId(req.params.id);
-    console.log('[JOIN] start', {
-      userId,
-      leagueIdParam: req.params.id,
-      leagueId,
-      bodyKeys: Object.keys(req.body || {}),
-      accessCodeLen: String(req.body?.accessCode ?? req.body?.access_code ?? '').trim().length,
-    });
     if (!leagueId) return res.status(400).json({ message: 'League ID non valido' });
 
     const leagueRows = await query(
@@ -5305,7 +5298,6 @@ router.post('/:id/join', authenticateToken, async (req, res) => {
     );
     const league = leagueRows[0];
     if (!league) {
-      console.log('[JOIN] league not found', { leagueId });
       return res.status(404).json({ message: 'Lega non trovata' });
     }
 
@@ -5314,7 +5306,6 @@ router.post('/:id/join', authenticateToken, async (req, res) => {
       [leagueId, userId]
     );
     if (already.length > 0) {
-      console.log('[JOIN] already member', { leagueId, userId });
       return res.status(200).json({
         message: 'Sei già iscritto a questa lega',
         pending: false,
@@ -5327,26 +5318,17 @@ router.post('/:id/join', authenticateToken, async (req, res) => {
     const incomingCode = String(req.body?.accessCode ?? req.body?.access_code ?? '').trim();
     const requiredCode = String(league.access_code || '').trim();
     if (requiredCode && incomingCode !== requiredCode) {
-      console.log('[JOIN] bad access code', { leagueId, userId, requiredLen: requiredCode.length, incomingLen: incomingCode.length });
       return res.status(400).json({ message: 'Codice di accesso errato' });
     }
 
     const requireApproval = await getRequireJoinApproval(leagueId);
-    console.log('[JOIN] flags', {
-      leagueId,
-      userId,
-      leagueName: league.name,
-      requireApproval,
-      hasAccessCode: !!requiredCode,
-    });
     if (requireApproval) {
       try {
         const upsert = await upsertPendingJoinRequest(leagueId, userId);
-        console.log('[JOIN] pending upsert ok', { leagueId, userId, upsert });
         return res.status(200).json({
-        message: upsert.alreadyPending
-          ? 'Richiesta già in attesa.'
-          : 'Richiesta inviata.',
+          message: upsert.alreadyPending
+            ? 'Richiesta già in attesa.'
+            : 'Richiesta inviata.',
           pending: true,
           requires_approval: true,
           already_pending: !!upsert.alreadyPending,
@@ -5354,25 +5336,12 @@ router.post('/:id/join', authenticateToken, async (req, res) => {
           leagueId,
         });
       } catch (upsertErr) {
-        console.error('[JOIN] pending upsert FAILED', {
-          leagueId,
-          userId,
-          code: upsertErr?.code,
-          message: upsertErr?.message,
-          detail: upsertErr?.detail,
-          stack: upsertErr?.stack,
-        });
-        return res.status(500).json({
-          message: 'Errore durante l\'iscrizione alla lega',
-          join_step: 'upsert_pending_request',
-          detail: String(upsertErr?.message || upsertErr),
-          code: upsertErr?.code || null,
-        });
+        console.error('Join pending upsert error:', upsertErr);
+        return res.status(500).json({ message: 'Errore durante l\'iscrizione alla lega' });
       }
     }
 
     await addUserToLeagueWithInitialBudget(userId, leagueId, Number(league.initial_budget || 100));
-    console.log('[JOIN] joined immediately', { leagueId, userId });
 
     res.json({
       message: 'Iscrizione completata',
@@ -5382,18 +5351,8 @@ router.post('/:id/join', authenticateToken, async (req, res) => {
       leagueId,
     });
   } catch (error) {
-    console.error('[JOIN] error', {
-      message: error?.message,
-      code: error?.code,
-      detail: error?.detail,
-      stack: error?.stack,
-    });
-    res.status(500).json({
-      message: 'Errore durante l\'iscrizione alla lega',
-      join_step: 'join_catch',
-      detail: String(error?.message || error),
-      code: error?.code || null,
-    });
+    console.error('Join league error:', error);
+    res.status(500).json({ message: 'Errore durante l\'iscrizione alla lega' });
   }
 });
 

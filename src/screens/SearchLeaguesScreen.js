@@ -70,29 +70,12 @@ export default function SearchLeaguesScreen({ navigation }) {
 
     const needsApproval = leagueRequiresApproval(selectedLeague);
     const leagueId = selectedLeague.id;
-    console.log('[JOIN] start', {
-      screen: 'SearchLeaguesScreen',
-      leagueId,
-      name: selectedLeague.name,
-      needsApproval,
-      hasAccessCode: leagueHasAccessCode(selectedLeague),
-      require_approval: selectedLeague.require_approval,
-      has_access_code: selectedLeague.has_access_code,
-      accessCodeLen: String(accessCode || '').trim().length,
-    });
 
     setJoining(true);
     try {
       const response = await leagueService.join(leagueId, accessCode || null);
-      console.log('[JOIN] response', {
-        status: response?.status,
-        data: response?.data,
-        pendingCheck: isJoinPendingResponse(response, selectedLeague),
-        needsApproval,
-      });
 
       if (needsApproval || isJoinPendingResponse(response, selectedLeague)) {
-        console.log('[JOIN] path=pending (no navigate)');
         setJoinModalVisible(false);
         setSelectedLeague(null);
         setAccessCode('');
@@ -106,7 +89,6 @@ export default function SearchLeaguesScreen({ navigation }) {
       }
 
       const joinedLeagueId = response?.data?.leagueId || leagueId;
-      console.log('[JOIN] path=joined navigate', { joinedLeagueId });
 
       setJoinModalVisible(false);
       setSelectedLeague(null);
@@ -114,12 +96,6 @@ export default function SearchLeaguesScreen({ navigation }) {
 
       navigation.navigate('League', { leagueId: joinedLeagueId });
     } catch (error) {
-      console.log('[JOIN] error', {
-        message: error?.message,
-        status: error?.response?.status,
-        data: error?.response?.data,
-        url: error?.config?.url,
-      });
       const status = error.response?.status;
       let errorMessage = 'Errore durante l\'unione alla lega';
 
