@@ -99,7 +99,7 @@ export default function SearchLeaguesScreen({ navigation }) {
         if (searchQuery.length >= 2) await searchLeagues();
         showToast(
           response?.data?.message
-            || 'Richiesta inviata. Controlla "In attesa di accettazione" in Home.',
+            || 'Richiesta inviata. La trovi in Home → In attesa.',
           'success'
         );
         return;
@@ -262,7 +262,7 @@ export default function SearchLeaguesScreen({ navigation }) {
               <View style={styles.infoBox}>
                 <Ionicons name="hourglass-outline" size={16} color="#856404" />
                 <Text style={styles.infoBoxText}>
-                  Serve approvazione di un admin: dopo l'invio resti in attesa.
+                  Serve approvazione di un admin: resti in attesa.
                 </Text>
               </View>
             ) : !leagueHasAccessCode(selectedLeague) ? (

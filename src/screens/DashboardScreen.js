@@ -281,12 +281,9 @@ export default function DashboardScreen({ navigation, route }) {
       </View>
       <View style={styles.leagueInfo}>
         <View style={[styles.leagueBadge, styles.pendingBadge]}>
-          <Text style={[styles.leagueBadgeText, { color: '#856404' }]}>In attesa di accettazione</Text>
+          <Text style={[styles.leagueBadgeText, { color: '#856404' }]}>In attesa di revisione</Text>
         </View>
       </View>
-      <Text style={styles.pendingHint}>
-        Gli admin della lega devono accettare o rifiutare la tua richiesta.
-      </Text>
     </View>
   );
 
@@ -375,7 +372,7 @@ export default function DashboardScreen({ navigation, route }) {
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <Ionicons name="time-outline" size={20} color="#b8860b" />
-              <Text style={styles.sectionTitle}>In attesa di accettazione</Text>
+              <Text style={styles.sectionTitle}>In attesa di revisione</Text>
               <Text style={styles.sectionCount}>({filteredPendingRequests.length})</Text>
             </View>
             {filteredPendingRequests.map((req) => renderPendingItem(req))}
@@ -558,12 +555,6 @@ const styles = StyleSheet.create({
   },
   pendingLeagueName: {
     color: '#555',
-  },
-  pendingHint: {
-    fontSize: 13,
-    color: '#888',
-    marginTop: 4,
-    lineHeight: 18,
   },
   leagueBadgeText: {
     fontSize: 12,

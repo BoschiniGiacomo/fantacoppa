@@ -452,7 +452,7 @@ export default function LeagueScreen({ route, navigation }) {
                     ? '1 richiesta di ingresso'
                     : `${pendingJoinRequests} richieste di ingresso`}
                 </Text>
-                <Text style={styles.actionDesc}>In attesa di approvazione</Text>
+                <Text style={styles.actionDesc}>Da revisionare</Text>
               </View>
               <View style={styles.actionCta}>
                 <Text style={[styles.actionCtaText, styles.actionCtaTextIndigo]}>Gestisci</Text>

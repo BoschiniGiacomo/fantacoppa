@@ -5344,9 +5344,9 @@ router.post('/:id/join', authenticateToken, async (req, res) => {
         const upsert = await upsertPendingJoinRequest(leagueId, userId);
         console.log('[JOIN] pending upsert ok', { leagueId, userId, upsert });
         return res.status(200).json({
-          message: upsert.alreadyPending
-            ? 'Hai già una richiesta in attesa per questa lega. Attendi l\'accettazione o il rifiuto degli admin.'
-            : 'Richiesta inviata. Attendi che un admin della lega ti accetti o ti rifiuti.',
+        message: upsert.alreadyPending
+          ? 'Richiesta già in attesa.'
+          : 'Richiesta inviata.',
           pending: true,
           requires_approval: true,
           already_pending: !!upsert.alreadyPending,
