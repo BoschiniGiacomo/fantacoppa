@@ -763,6 +763,20 @@ async function ensureJoinRequestsTable() {
        UNIQUE (league_id, user_id)
      )`
   );
+  // Schema legacy: tabella già esistente senza colonne nuove → ADD COLUMN.
+  const alterStatements = [
+    `ALTER TABLE league_join_requests ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'pending'`,
+    `ALTER TABLE league_join_requests ADD COLUMN IF NOT EXISTS requested_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`,
+    `ALTER TABLE league_join_requests ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ NULL`,
+    `ALTER TABLE league_join_requests ADD COLUMN IF NOT EXISTS reviewed_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL`,
+  ];
+  for (const sql of alterStatements) {
+    try {
+      await query(sql);
+    } catch (alterErr) {
+      console.warn('league_join_requests alter skipped:', alterErr?.message || alterErr);
+    }
+  }
   // Tabelle create in passato senza UNIQUE: ON CONFLICT fallirebbe con 500.
   try {
     await query(
