@@ -987,9 +987,10 @@ router.get('/', authenticateToken, async (req, res) => {
 router.get('/all', authenticateToken, async (req, res) => {
   try {
     await ensureMatchdaysGhostSchema();
+    await ensureJoinRequestsTable();
     const userId = Number(req.user.userId);
     const leagues = await query(
-      `SELECT l.id, l.name, l.access_code, l.creator_id, l.created_at,
+      `SELECT l.id, l.name, l.creator_id, l.created_at,
               l.initial_budget, l.default_deadline_time, l.max_portieri, l.max_difensori,
               l.max_centrocampisti, l.max_attaccanti, l.numero_titolari, l.auto_lineup_mode,
               l.linked_to_league_id,
@@ -1000,6 +1001,13 @@ router.get('/all', authenticateToken, async (req, res) => {
               COALESCE(ulp.archived, 0) AS archived,
               COALESCE(ulp.notifications_enabled, 1) AS notifications_enabled,
               CASE WHEN my.user_id IS NULL THEN 0 ELSE 1 END AS is_joined,
+              CASE WHEN NULLIF(BTRIM(COALESCE(l.access_code, '')), '') IS NOT NULL THEN 1 ELSE 0 END AS has_access_code,
+              COALESCE((
+                SELECT lms.require_approval::int
+                FROM league_market_settings lms
+                WHERE lms.league_id = l.id
+                LIMIT 1
+              ), 0) AS require_approval,
               (SELECT COUNT(*) FROM league_members lm2 WHERE lm2.league_id = l.id) AS user_count,
               COALESCE((
                 SELECT lms.market_locked::int
@@ -1014,8 +1022,14 @@ router.get('/all', authenticateToken, async (req, res) => {
        LEFT JOIN user_league_prefs ulp ON ulp.league_id = l.id AND ulp.user_id = ?
        WHERE my.user_id IS NULL
          AND COALESCE(l.is_hidden_from_discovery, 0) = 0
+         AND NOT EXISTS (
+           SELECT 1 FROM league_join_requests jr
+           WHERE jr.league_id = l.id
+             AND jr.user_id = ?
+             AND jr.status = 'pending'
+         )
        ORDER BY COALESCE(l.is_official, 0) DESC, l.created_at DESC, l.id DESC`,
-      [userId, userId]
+      [userId, userId, userId]
     );
     res.json(leagues);
   } catch (error) {
@@ -1028,17 +1042,25 @@ router.get('/all', authenticateToken, async (req, res) => {
 router.get('/search', authenticateToken, async (req, res) => {
   try {
     await ensureMatchdaysGhostSchema();
+    await ensureJoinRequestsTable();
     const userId = Number(req.user.userId);
     const q = String(req.query.q || '').trim();
     if (!q) return res.json([]);
 
     const leagues = await query(
-      `SELECT l.id, l.name, l.access_code, l.creator_id, l.created_at,
+      `SELECT l.id, l.name, l.creator_id, l.created_at,
               l.initial_budget, l.default_deadline_time, l.max_portieri, l.max_difensori,
               l.max_centrocampisti, l.max_attaccanti, l.numero_titolari, l.auto_lineup_mode,
               l.linked_to_league_id,
               ll.name AS linked_league_name,
               CASE WHEN my.user_id IS NULL THEN 0 ELSE 1 END AS is_joined,
+              CASE WHEN NULLIF(BTRIM(COALESCE(l.access_code, '')), '') IS NOT NULL THEN 1 ELSE 0 END AS has_access_code,
+              COALESCE((
+                SELECT lms.require_approval::int
+                FROM league_market_settings lms
+                WHERE lms.league_id = l.id
+                LIMIT 1
+              ), 0) AS require_approval,
               (SELECT COUNT(*) FROM league_members lm2 WHERE lm2.league_id = l.id) AS user_count,
               COALESCE((
                 SELECT lms.market_locked::int
@@ -1053,14 +1075,53 @@ router.get('/search', authenticateToken, async (req, res) => {
        WHERE l.name ILIKE ?
          AND my.user_id IS NULL
          AND COALESCE(l.is_hidden_from_discovery, 0) = 0
+         AND NOT EXISTS (
+           SELECT 1 FROM league_join_requests jr
+           WHERE jr.league_id = l.id
+             AND jr.user_id = ?
+             AND jr.status = 'pending'
+         )
        ORDER BY l.created_at DESC, l.id DESC
        LIMIT 50`,
-      [userId, `%${q}%`]
+      [userId, `%${q}%`, userId]
     );
     res.json(leagues);
   } catch (error) {
     console.error('Search leagues error:', error);
     res.status(500).json({ message: 'Errore durante la ricerca leghe' });
+  }
+});
+
+// GET /api/leagues/my-join-requests — richieste pending dell'utente corrente
+router.get('/my-join-requests', authenticateToken, async (req, res) => {
+  try {
+    await ensureJoinRequestsTable();
+    const userId = Number(req.user.userId);
+    const rows = await query(
+      `SELECT jr.id AS request_id, jr.league_id, jr.requested_at, jr.status,
+              l.name AS league_name,
+              CASE WHEN NULLIF(BTRIM(COALESCE(l.access_code, '')), '') IS NOT NULL THEN 1 ELSE 0 END AS has_access_code,
+              COALESCE((
+                SELECT lms.require_approval::int
+                FROM league_market_settings lms
+                WHERE lms.league_id = l.id
+                LIMIT 1
+              ), 0) AS require_approval
+       FROM league_join_requests jr
+       JOIN leagues l ON l.id = jr.league_id
+       WHERE jr.user_id = ?
+         AND jr.status = 'pending'
+         AND NOT EXISTS (
+           SELECT 1 FROM league_members lm
+           WHERE lm.league_id = jr.league_id AND lm.user_id = jr.user_id
+         )
+       ORDER BY jr.requested_at DESC`,
+      [userId]
+    );
+    return res.json({ requests: rows });
+  } catch (error) {
+    console.error('My join requests error:', error);
+    return res.status(500).json({ message: 'Errore caricamento richieste in attesa' });
   }
 });
 
@@ -5176,6 +5237,21 @@ router.post('/:id/join', authenticateToken, async (req, res) => {
     const requireApproval = await getRequireJoinApproval(leagueId);
     if (requireApproval) {
       await ensureJoinRequestsTable();
+      const existingPending = await query(
+        `SELECT id FROM league_join_requests
+         WHERE league_id = ? AND user_id = ? AND status = 'pending'
+         LIMIT 1`,
+        [leagueId, userId]
+      );
+      if (existingPending.length) {
+        return res.status(202).json({
+          message: 'Hai già una richiesta in attesa per questa lega. Attendi l\'accettazione o il rifiuto degli admin.',
+          pending: true,
+          requires_approval: true,
+          already_pending: true,
+          leagueId,
+        });
+      }
       await query(
         `INSERT INTO league_join_requests (league_id, user_id, status, requested_at, reviewed_at, reviewed_by)
          VALUES (?, ?, 'pending', NOW(), NULL, NULL)
@@ -5187,7 +5263,12 @@ router.post('/:id/join', authenticateToken, async (req, res) => {
            reviewed_by = NULL`,
         [leagueId, userId]
       );
-      return res.status(202).json({ message: 'Richiesta di iscrizione inviata in attesa di approvazione', pending: true, leagueId });
+      return res.status(202).json({
+        message: 'Richiesta inviata. Attendi che un admin della lega ti accetti o ti rifiuti.',
+        pending: true,
+        requires_approval: true,
+        leagueId,
+      });
     }
 
     await addUserToLeagueWithInitialBudget(userId, leagueId, Number(league.initial_budget || 100));

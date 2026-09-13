@@ -11,6 +11,11 @@ import {
 } from 'react-native';
 import { leagueService } from '../services/api';
 import { Ionicons } from '@expo/vector-icons';
+import {
+  isJoinPendingResponse,
+  leagueHasAccessCode,
+  leagueRequiresApproval,
+} from '../utils/leagueJoin';
 
 export default function SearchLeaguesScreen({ navigation }) {
   const [searchQuery, setSearchQuery] = useState('');
@@ -58,47 +63,47 @@ export default function SearchLeaguesScreen({ navigation }) {
   const handleJoin = async () => {
     if (!selectedLeague) return;
 
-    // Valida il codice di accesso se la lega è privata
-    if (selectedLeague.access_code) {
-      if (!accessCode || accessCode.trim() === '') {
-        showToast('Inserisci il codice di accesso per unirti a questa lega');
-        return;
-      }
+    if (leagueHasAccessCode(selectedLeague) && !String(accessCode || '').trim()) {
+      showToast('Inserisci il codice di accesso per unirti a questa lega');
+      return;
     }
 
     setJoining(true);
     try {
       const response = await leagueService.join(selectedLeague.id, accessCode || null);
-      
-      // Controlla se la lega richiede approvazione
-      if (response?.data?.requires_approval) {
+
+      if (isJoinPendingResponse(response)) {
         setJoinModalVisible(false);
         setSelectedLeague(null);
         setAccessCode('');
-        showToast(response.data.message || 'Richiesta di iscrizione inviata. In attesa di approvazione.', 'success');
+        await searchLeagues();
+        showToast(
+          response?.data?.message
+            || 'Richiesta inviata. Attendi l\'accettazione o il rifiuto degli admin della lega.',
+          'success'
+        );
         return;
       }
-      
+
       const joinedLeagueId = response?.data?.leagueId || selectedLeague.id;
-      
+
       setJoinModalVisible(false);
       setSelectedLeague(null);
       setAccessCode('');
-      
-      // Naviga direttamente alla lega appena unita
+
       navigation.navigate('League', { leagueId: joinedLeagueId });
     } catch (error) {
-      // Gestisci l'errore senza mostrare l'AxiosError nella console
+      const status = error.response?.status;
       let errorMessage = 'Errore durante l\'unione alla lega';
-      
+
       if (error.response?.data?.message) {
         errorMessage = error.response.data.message;
-      } else if (error.response?.status === 400) {
-        errorMessage = error.response?.data?.message || 'Codice di accesso errato';
+      } else if (status === 400 && leagueHasAccessCode(selectedLeague)) {
+        errorMessage = 'Codice di accesso errato';
       } else if (error.message && !error.message.includes('AxiosError')) {
         errorMessage = error.message;
       }
-      
+
       showToast(errorMessage);
     } finally {
       setJoining(false);
@@ -118,16 +123,26 @@ export default function SearchLeaguesScreen({ navigation }) {
         <View style={styles.leagueBadge}>
           <Text style={styles.leagueBadgeText}>ID: {item.id}</Text>
         </View>
-        {item.access_code && (
+        {leagueHasAccessCode(item) ? (
           <View style={[styles.leagueBadge, styles.privateBadge]}>
             <Ionicons name="lock-closed" size={12} color="#fff" />
             <Text style={[styles.leagueBadgeText, { color: '#fff', marginLeft: 4 }]}>Privata</Text>
           </View>
-        )}
+        ) : null}
+        {leagueRequiresApproval(item) ? (
+          <View style={[styles.leagueBadge, styles.approvalBadge]}>
+            <Ionicons name="hourglass-outline" size={12} color="#856404" />
+            <Text style={[styles.leagueBadgeText, { color: '#856404', marginLeft: 4 }]}>
+              Con accettazione
+            </Text>
+          </View>
+        ) : null}
       </View>
       <View style={styles.leagueFooter}>
         <Ionicons name="add-circle-outline" size={20} color="#667eea" />
-        <Text style={styles.joinText}>Unisciti</Text>
+        <Text style={styles.joinText}>
+          {leagueRequiresApproval(item) ? 'Richiedi' : 'Unisciti'}
+        </Text>
       </View>
     </TouchableOpacity>
   );
@@ -194,10 +209,12 @@ export default function SearchLeaguesScreen({ navigation }) {
               <Ionicons name="enter-outline" size={32} color="#667eea" />
             </View>
 
-            <Text style={styles.modalTitle}>Unisciti alla Lega</Text>
+            <Text style={styles.modalTitle}>
+              {leagueRequiresApproval(selectedLeague) ? 'Richiedi accesso' : 'Unisciti alla Lega'}
+            </Text>
             <Text style={styles.modalLeagueName}>{selectedLeague?.name}</Text>
 
-            {selectedLeague?.access_code ? (
+            {leagueHasAccessCode(selectedLeague) ? (
               <View style={styles.inputGroup}>
                 <View style={styles.inputWrapper}>
                   <Ionicons name="lock-closed-outline" size={18} color="#999" style={{ marginRight: 10 }} />
@@ -212,12 +229,22 @@ export default function SearchLeaguesScreen({ navigation }) {
                   />
                 </View>
               </View>
-            ) : (
+            ) : null}
+
+            {leagueRequiresApproval(selectedLeague) ? (
+              <View style={styles.infoBox}>
+                <Ionicons name="hourglass-outline" size={16} color="#856404" />
+                <Text style={styles.infoBoxText}>
+                  Questa lega richiede l'approvazione degli admin. Dopo la richiesta resti in
+                  attesa di essere accettato o rifiutato: non entrerai subito.
+                </Text>
+              </View>
+            ) : !leagueHasAccessCode(selectedLeague) ? (
               <View style={styles.infoBox}>
                 <Ionicons name="globe-outline" size={16} color="#667eea" />
                 <Text style={styles.infoBoxText}>Lega pubblica, accesso libero</Text>
               </View>
-            )}
+            ) : null}
 
             <View style={styles.modalFooter}>
               <TouchableOpacity
@@ -235,8 +262,15 @@ export default function SearchLeaguesScreen({ navigation }) {
                   <ActivityIndicator color="#fff" size="small" />
                 ) : (
                   <>
-                    <Ionicons name="enter-outline" size={18} color="#fff" style={{ marginRight: 6 }} />
-                    <Text style={styles.joinBtnText}>Unisciti</Text>
+                    <Ionicons
+                      name={leagueRequiresApproval(selectedLeague) ? 'send-outline' : 'enter-outline'}
+                      size={18}
+                      color="#fff"
+                      style={{ marginRight: 6 }}
+                    />
+                    <Text style={styles.joinBtnText}>
+                      {leagueRequiresApproval(selectedLeague) ? 'Invia richiesta' : 'Unisciti'}
+                    </Text>
                   </>
                 )}
               </TouchableOpacity>
@@ -365,6 +399,9 @@ const styles = StyleSheet.create({
   privateBadge: {
     backgroundColor: '#667eea',
   },
+  approvalBadge: {
+    backgroundColor: '#fff3cd',
+  },
   leagueBadgeText: {
     fontSize: 12,
     color: '#333',
@@ -446,7 +483,7 @@ const styles = StyleSheet.create({
   },
   infoBox: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     backgroundColor: '#eef0ff',
     borderRadius: 10,
     paddingVertical: 10,
@@ -456,9 +493,11 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   infoBoxText: {
+    flex: 1,
     fontSize: 13,
     color: '#667eea',
     fontWeight: '500',
+    lineHeight: 18,
   },
   modalFooter: {
     flexDirection: 'row',

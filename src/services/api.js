@@ -287,6 +287,7 @@ export const authService = {
 export const leagueService = {
   getAll: () => api.get('/leagues'),
   getAllLeagues: () => api.get('/leagues/all'),
+  getMyJoinRequests: () => api.get('/leagues/my-join-requests'),
   getById: (id) => api.get(`/leagues/${id}`),
   getDashboardData: (leagueId) => api.get(`/leagues/${leagueId}/dashboard-data`),
   create: (data) => api.post('/leagues', data),

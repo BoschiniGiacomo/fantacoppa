@@ -28,6 +28,7 @@ export default function DashboardScreen({ navigation, route }) {
     const snap = peekHomeLeaguesBootstrapSnapshot();
     return snap != null ? snap : [];
   });
+  const [pendingRequests, setPendingRequests] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(() => peekHomeLeaguesBootstrapSnapshot() == null);
   const [refreshing, setRefreshing] = useState(false);
@@ -45,7 +46,10 @@ export default function DashboardScreen({ navigation, route }) {
     const toast = consumePendingToast();
     if (toast) showToast(toast.text, toast.type);
     try {
-      const response = await leagueService.getAll();
+      const [response, pendingRes] = await Promise.all([
+        leagueService.getAll(),
+        leagueService.getMyJoinRequests().catch(() => ({ data: { requests: [] } })),
+      ]);
       const raw = response?.data;
       const data = Array.isArray(raw) ? raw : [];
       const normalized = data.map((league) => ({
@@ -63,6 +67,8 @@ export default function DashboardScreen({ navigation, route }) {
         ? normalized.filter(l => !hiddenLeagues.has(l.id))
         : normalized;
       setLeagues(filtered);
+      const pendingRaw = pendingRes?.data?.requests;
+      setPendingRequests(Array.isArray(pendingRaw) ? pendingRaw : []);
       syncLeagueNotifications(filtered).catch(() => {});
     } catch (error) {
       showToast('Impossibile caricare le leghe');
@@ -109,6 +115,15 @@ export default function DashboardScreen({ navigation, route }) {
   const normalLeagues = useMemo(() => {
     return filteredLeagues.filter(league => !league.favorite && !league.archived);
   }, [filteredLeagues]);
+
+  const filteredPendingRequests = useMemo(() => {
+    const list = Array.isArray(pendingRequests) ? pendingRequests : [];
+    if (!searchQuery.trim()) return list;
+    const query = searchQuery.toLowerCase().trim();
+    return list.filter(
+      (req) => req?.league_name && String(req.league_name).toLowerCase().includes(query)
+    );
+  }, [pendingRequests, searchQuery]);
 
   const toggleFavorite = async (leagueId, currentFavorite) => {
     try {
@@ -258,6 +273,23 @@ export default function DashboardScreen({ navigation, route }) {
     </TouchableOpacity>
   );
 
+  const renderPendingItem = (item) => (
+    <View key={`pending-${item.request_id || item.league_id}`} style={[styles.leagueCard, styles.pendingCard]}>
+      <View style={styles.leagueHeader}>
+        <Ionicons name="hourglass-outline" size={24} color="#b8860b" />
+        <Text style={[styles.leagueName, styles.pendingLeagueName]}>{item.league_name}</Text>
+      </View>
+      <View style={styles.leagueInfo}>
+        <View style={[styles.leagueBadge, styles.pendingBadge]}>
+          <Text style={[styles.leagueBadgeText, { color: '#856404' }]}>In attesa di accettazione</Text>
+        </View>
+      </View>
+      <Text style={styles.pendingHint}>
+        Gli admin della lega devono accettare o rifiutare la tua richiesta.
+      </Text>
+    </View>
+  );
+
   const renderSection = (title, data, icon, isCollapsible = false, expanded = true, onToggle = null) => {
     if (data.length === 0) return null;
     
@@ -339,6 +371,16 @@ export default function DashboardScreen({ navigation, route }) {
       >
         {favoriteLeagues.length > 0 && renderSection('Preferite', favoriteLeagues, 'star')}
         {normalLeagues.length > 0 && renderSection('Tutte le leghe', normalLeagues, 'trophy')}
+        {filteredPendingRequests.length > 0 && (
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Ionicons name="time-outline" size={20} color="#b8860b" />
+              <Text style={styles.sectionTitle}>In attesa di accettazione</Text>
+              <Text style={styles.sectionCount}>({filteredPendingRequests.length})</Text>
+            </View>
+            {filteredPendingRequests.map((req) => renderPendingItem(req))}
+          </View>
+        )}
         {archivedLeagues.length > 0 && renderSection(
           'Archiviate',
           archivedLeagues,
@@ -348,7 +390,7 @@ export default function DashboardScreen({ navigation, route }) {
           () => setArchivedExpanded(!archivedExpanded)
         )}
 
-        {filteredLeagues.length === 0 && (
+        {filteredLeagues.length === 0 && filteredPendingRequests.length === 0 && (
           <View style={styles.emptyContainer}>
             <Ionicons name="trophy-outline" size={64} color="#ccc" />
             <Text style={styles.emptyText}>
@@ -505,6 +547,23 @@ const styles = StyleSheet.create({
   },
   adminBadge: {
     backgroundColor: '#667eea',
+  },
+  pendingBadge: {
+    backgroundColor: '#fff3cd',
+  },
+  pendingCard: {
+    opacity: 0.95,
+    borderWidth: 1,
+    borderColor: '#ffe08a',
+  },
+  pendingLeagueName: {
+    color: '#555',
+  },
+  pendingHint: {
+    fontSize: 13,
+    color: '#888',
+    marginTop: 4,
+    lineHeight: 18,
   },
   leagueBadgeText: {
     fontSize: 12,
