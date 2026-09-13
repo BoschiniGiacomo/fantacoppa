@@ -664,14 +664,7 @@ export default function UserManagementScreen({ route, navigation }) {
             style={[styles.tabItem, activeTab === 'requests' && styles.tabItemActive]}
             onPress={() => { setActiveTab('requests'); loadJoinRequests(); }}
           >
-            <View style={{ position: 'relative', marginRight: 5 }}>
-              <Ionicons name="hourglass-outline" size={16} color={activeTab === 'requests' ? '#fff' : '#666'} />
-              {joinRequests.length > 0 && (
-                <View style={styles.tabIconBang}>
-                  <Text style={styles.tabIconBangText}>!</Text>
-                </View>
-              )}
-            </View>
+            <Ionicons name="hourglass-outline" size={16} color={activeTab === 'requests' ? '#fff' : '#666'} style={{ marginRight: 5 }} />
             <Text style={[styles.tabItemText, activeTab === 'requests' && styles.tabItemTextActive]}>
               Richieste
             </Text>
@@ -1437,25 +1430,6 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 11,
     fontWeight: '700',
-  },
-  tabIconBang: {
-    position: 'absolute',
-    top: -6,
-    right: -8,
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    backgroundColor: '#e53935',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 2,
-  },
-  tabIconBangText: {
-    color: '#fff',
-    fontSize: 9,
-    fontWeight: '800',
-    includeFontPadding: false,
-    lineHeight: 11,
   },
   // Request cards
   requestCard: {
