@@ -12,7 +12,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { leagueService, marketService } from '../services/api';
-import { hideLeague, showDashboardError } from '../utils/dashboardEvents';
+import { hideLeague, showDashboardError, emitJoinRequestsChanged } from '../utils/dashboardEvents';
 import { patchLeagueLocalRole } from '../services/leagueWarmCache';
 
 export default function UserManagementScreen({ route, navigation }) {
@@ -144,7 +144,9 @@ export default function UserManagementScreen({ route, navigation }) {
     try {
       setLoadingJoinRequests(true);
       const res = await leagueService.getJoinRequests(leagueId);
-      setJoinRequests(res.data.requests || []);
+      const list = res.data.requests || [];
+      setJoinRequests(list);
+      emitJoinRequestsChanged(leagueId, list.length);
     } catch (error) {
       console.error('Error loading join requests:', error);
     } finally {
@@ -156,7 +158,11 @@ export default function UserManagementScreen({ route, navigation }) {
     if (isReadOnlyObserver) return;
     try {
       await leagueService.approveJoinRequest(leagueId, requestId);
-      setJoinRequests(prev => prev.filter(r => r.id !== requestId));
+      setJoinRequests((prev) => {
+        const next = prev.filter((r) => r.id !== requestId);
+        emitJoinRequestsChanged(leagueId, next.length);
+        return next;
+      });
       showToast('Richiesta approvata', 'success');
       // Ricarica membri dopo approvazione
       loadMembers();
@@ -170,7 +176,11 @@ export default function UserManagementScreen({ route, navigation }) {
     if (isReadOnlyObserver) return;
     try {
       await leagueService.rejectJoinRequest(leagueId, requestId);
-      setJoinRequests(prev => prev.filter(r => r.id !== requestId));
+      setJoinRequests((prev) => {
+        const next = prev.filter((r) => r.id !== requestId);
+        emitJoinRequestsChanged(leagueId, next.length);
+        return next;
+      });
       showToast('Richiesta rifiutata', 'success');
     } catch (error) {
       console.error('Error rejecting request:', error);
@@ -654,7 +664,14 @@ export default function UserManagementScreen({ route, navigation }) {
             style={[styles.tabItem, activeTab === 'requests' && styles.tabItemActive]}
             onPress={() => { setActiveTab('requests'); loadJoinRequests(); }}
           >
-            <Ionicons name="hourglass-outline" size={16} color={activeTab === 'requests' ? '#fff' : '#666'} style={{ marginRight: 5 }} />
+            <View style={{ position: 'relative', marginRight: 5 }}>
+              <Ionicons name="hourglass-outline" size={16} color={activeTab === 'requests' ? '#fff' : '#666'} />
+              {joinRequests.length > 0 && (
+                <View style={styles.tabIconBang}>
+                  <Text style={styles.tabIconBangText}>!</Text>
+                </View>
+              )}
+            </View>
             <Text style={[styles.tabItemText, activeTab === 'requests' && styles.tabItemTextActive]}>
               Richieste
             </Text>
@@ -1420,6 +1437,25 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 11,
     fontWeight: '700',
+  },
+  tabIconBang: {
+    position: 'absolute',
+    top: -6,
+    right: -8,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: '#e53935',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 2,
+  },
+  tabIconBangText: {
+    color: '#fff',
+    fontSize: 9,
+    fontWeight: '800',
+    includeFontPadding: false,
+    lineHeight: 11,
   },
   // Request cards
   requestCard: {

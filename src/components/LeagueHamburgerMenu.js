@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   TouchableOpacity,
@@ -7,12 +7,13 @@ import {
   StyleSheet,
   ScrollView,
   ActivityIndicator,
+  DeviceEventEmitter,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOnboarding } from '../context/OnboardingContext';
 import { leagueService } from '../services/api';
-import { hideLeague, showDashboardError } from '../utils/dashboardEvents';
+import { hideLeague, showDashboardError, JOIN_REQUESTS_CHANGED } from '../utils/dashboardEvents';
 
 export default function LeagueHamburgerMenu({
   leagueId,
@@ -29,17 +30,44 @@ export default function LeagueHamburgerMenu({
   const [deleteStep, setDeleteStep] = useState(0); // 0 = chiuso, 1 = prima conferma, 2 = seconda
   const [deletingLeague, setDeletingLeague] = useState(false);
   const insets = useSafeAreaInsets();
-  const { badges, hasHamburgerBadge } = useOnboarding();
+  const { badges, hasHamburgerBadge, updateAutoDetect } = useOnboarding();
   const isSuperuserViewer = userRole === 'superuser_viewer';
   const canViewFullMenu = isAdmin || isSuperuserViewer;
   const displayLeagueName = String(leagueName || '').trim() || 'questa lega';
+
+  const refreshJoinRequestsBadge = useCallback(async () => {
+    if (!isAdmin || !leagueId) {
+      updateAutoDetect({ pendingJoinRequests: 0 });
+      return;
+    }
+    try {
+      const res = await leagueService.getJoinRequests(leagueId);
+      const n = Array.isArray(res?.data?.requests) ? res.data.requests.length : 0;
+      updateAutoDetect({ pendingJoinRequests: n });
+    } catch (_) {
+      /* ignore */
+    }
+  }, [isAdmin, leagueId, updateAutoDetect]);
+
+  useEffect(() => {
+    refreshJoinRequestsBadge();
+    const sub = DeviceEventEmitter.addListener(JOIN_REQUESTS_CHANGED, (payload) => {
+      if (Number(payload?.leagueId) !== Number(leagueId)) return;
+      const n = Math.max(0, Number(payload?.count) || 0);
+      updateAutoDetect({ pendingJoinRequests: n });
+    });
+    return () => sub.remove();
+  }, [leagueId, refreshJoinRequestsBadge, updateAutoDetect]);
 
   // Mappa id menu item -> chiave badge
   const menuBadgeMap = {
     market: badges.market,
     squad: badges.squad,
     'settings-squad': badges.settings_team,
+    'settings-users': badges.settings_users,
   };
+  const hasSettingsBadge = !!(badges.settings_team || badges.settings_users);
+  const showHamburgerBang = !!(hasHamburgerBadge || badges.settings_users);
 
   // Costruisci il submenu in base al ruolo
   const settingsSubMenu = [];
@@ -239,10 +267,13 @@ export default function LeagueHamburgerMenu({
     <>
       <TouchableOpacity
         style={styles.hamburgerButton}
-        onPress={() => setMenuVisible(true)}
+        onPress={() => {
+          setMenuVisible(true);
+          refreshJoinRequestsBadge();
+        }}
       >
         <Ionicons name="menu" size={28} color="#667eea" />
-        {hasHamburgerBadge && (
+        {showHamburgerBang && (
           <View style={styles.hamburgerBadge}>
             <Text style={styles.hamburgerBadgeText}>!</Text>
           </View>
@@ -313,7 +344,14 @@ export default function LeagueHamburgerMenu({
                     style={styles.menuItem}
                     onPress={handleSettingsPress}
                   >
-                    <Ionicons name="settings-outline" size={24} color="#667eea" />
+                    <View style={{ position: 'relative' }}>
+                      <Ionicons name="settings-outline" size={24} color="#667eea" />
+                      {hasSettingsBadge && (
+                        <View style={styles.menuItemBadge}>
+                          <Text style={styles.menuItemBadgeText}>!</Text>
+                        </View>
+                      )}
+                    </View>
                     <Text style={styles.menuItemText}>Impostazioni</Text>
                     <Ionicons
                       name={settingsExpanded ? 'chevron-down' : 'chevron-forward'}

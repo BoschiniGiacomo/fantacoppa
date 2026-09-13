@@ -9,6 +9,7 @@ const AUTO_DETECT_DEFAULTS = {
   squadFull: false,
   marketAvailable: false,
   autoLineupMode: false,
+  pendingJoinRequests: 0,
 };
 
 export function OnboardingProvider({ leagueId, children }) {
@@ -88,16 +89,19 @@ export function OnboardingProvider({ leagueId, children }) {
     squad: pendingTasks.fill_squad,
     formation: pendingTasks.submit_formation,
     settings_team: pendingTasks.customize_team,
+    settings_users: Number(autoDetect.pendingJoinRequests || 0) > 0,
   } : {
     dashboard: false,
     market: false,
     squad: false,
     formation: false,
     settings_team: false,
+    settings_users: false,
   };
 
-  // Badge visibili nell'hamburger menu (solo market, squad, settings_team)
-  const hasHamburgerBadge = badges.market || badges.squad || badges.settings_team;
+  // Badge visibili nell'hamburger menu (market, squad, profilo squadra, gestione utenti)
+  const hasHamburgerBadge =
+    badges.market || badges.squad || badges.settings_team || badges.settings_users;
 
   // Qualche badge attivo? (tutti, inclusi quelli nei tab in basso)
   const hasAnyBadge = Object.values(badges).some(Boolean);

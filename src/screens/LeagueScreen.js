@@ -19,6 +19,7 @@ import TeamInfoModal from '../components/TeamInfoModal';
 import { defaultLogosMap } from '../constants/defaultLogos';
 import { FantasyTeamLogoImage } from '../components/StableCachedImage';
 import { parseAppDate } from '../utils/dateTime';
+import { emitJoinRequestsChanged } from '../utils/dashboardEvents';
 
 export default function LeagueScreen({ route, navigation }) {
   const { user } = useAuth();
@@ -87,10 +88,12 @@ export default function LeagueScreen({ route, navigation }) {
       if (nextRole !== 'admin') {
         setPendingJoinRequests(0);
         setReadyToCalculate(null);
+        updateAutoDetect({ pendingJoinRequests: 0 });
+        emitJoinRequestsChanged(leagueId, 0);
       }
     });
     return () => sub.remove();
-  }, [leagueId]);
+  }, [leagueId, updateAutoDetect]);
 
   // Countdown timer per la prossima scadenza formazione
   useEffect(() => {
@@ -196,6 +199,13 @@ export default function LeagueScreen({ route, navigation }) {
         setPendingJoinRequests(
           role === 'admin' ? Math.max(0, Number(payloadObj.pending_join_requests || 0)) : 0
         );
+        if (role === 'admin') {
+          const pendingN = Math.max(0, Number(payloadObj.pending_join_requests || 0));
+          updateAutoDetect({ pendingJoinRequests: pendingN });
+          emitJoinRequestsChanged(leagueId, pendingN);
+        } else {
+          updateAutoDetect({ pendingJoinRequests: 0 });
+        }
 
         const isAutoLineupMode = Number(safeLeague?.auto_lineup_mode || 0) === 1;
         if (isAutoLineupMode) {
