@@ -19,7 +19,7 @@ import TeamInfoModal from '../components/TeamInfoModal';
 import { defaultLogosMap } from '../constants/defaultLogos';
 import { FantasyTeamLogoImage } from '../components/StableCachedImage';
 import { parseAppDate } from '../utils/dateTime';
-import { emitJoinRequestsChanged } from '../utils/dashboardEvents';
+import { emitJoinRequestsChanged, JOIN_REQUESTS_CHANGED } from '../utils/dashboardEvents';
 
 export default function LeagueScreen({ route, navigation }) {
   const { user } = useAuth();
@@ -80,7 +80,7 @@ export default function LeagueScreen({ route, navigation }) {
   );
 
   useEffect(() => {
-    const sub = DeviceEventEmitter.addListener(LEAGUE_ROLE_CHANGED, (payload) => {
+    const subRole = DeviceEventEmitter.addListener(LEAGUE_ROLE_CHANGED, (payload) => {
       if (Number(payload?.leagueId) !== Number(leagueId)) return;
       const nextRole = String(payload?.role || '').trim();
       if (!nextRole) return;
@@ -92,7 +92,14 @@ export default function LeagueScreen({ route, navigation }) {
         emitJoinRequestsChanged(leagueId, 0);
       }
     });
-    return () => sub.remove();
+    const subJoin = DeviceEventEmitter.addListener(JOIN_REQUESTS_CHANGED, (payload) => {
+      if (Number(payload?.leagueId) !== Number(leagueId)) return;
+      setPendingJoinRequests(Math.max(0, Number(payload?.count) || 0));
+    });
+    return () => {
+      subRole.remove();
+      subJoin.remove();
+    };
   }, [leagueId, updateAutoDetect]);
 
   // Countdown timer per la prossima scadenza formazione
@@ -132,6 +139,27 @@ export default function LeagueScreen({ route, navigation }) {
   }, [hasDefaultNamesCheck, squadPlayersCount, marketPlayersCount]);
 
   const loadData = async () => {
+    const syncJoinRequestsCount = async (roleHint) => {
+      const role = String(roleHint || '').trim();
+      if (role && role !== 'admin') {
+        setPendingJoinRequests(0);
+        updateAutoDetect({ pendingJoinRequests: 0 });
+        return;
+      }
+      try {
+        const jr = await leagueService.getJoinRequests(leagueId);
+        const n = Array.isArray(jr?.data?.requests) ? jr.data.requests.length : 0;
+        setPendingJoinRequests(n);
+        updateAutoDetect({ pendingJoinRequests: n });
+        emitJoinRequestsChanged(leagueId, n);
+      } catch (_) {
+        if (role !== 'admin') {
+          setPendingJoinRequests(0);
+          updateAutoDetect({ pendingJoinRequests: 0 });
+        }
+      }
+    };
+
     const applyFromPayload = (payload, { syncTeamModal = true } = {}) => {
       const payloadObj = payload && typeof payload === 'object' ? payload : {};
       const leagueData = payloadObj?.league && typeof payloadObj.league === 'object'
@@ -238,6 +266,8 @@ export default function LeagueScreen({ route, navigation }) {
       );
       // Se poi arriva la rete, non aprire/chiudere il modal dalla warm (evita riaperture stale).
       applyFromPayload(warm, { syncTeamModal: skipNetwork });
+      // Anche con warm fresco: aggiorna sempre le richieste (possono arrivare in qualsiasi momento).
+      void syncJoinRequestsCount(warm?.league?.role);
       if (skipNetwork) {
         return;
       }
@@ -250,6 +280,7 @@ export default function LeagueScreen({ route, navigation }) {
       const payload = res?.data || {};
       applyFromPayload(payload);
       setDashboard(leagueId, payload);
+      void syncJoinRequestsCount(payload?.league?.role);
 
       if (payload.has_submitted_formation) {
         markDone('submitted_formation');
@@ -386,6 +417,33 @@ export default function LeagueScreen({ route, navigation }) {
       {/* ── Shortcut setup ── */}
       {showShortcuts && (
         <View style={styles.tipsWrap}>
+          {showJoinRequestsShortcut ? (
+            <TouchableOpacity
+              style={styles.actionCard}
+              activeOpacity={0.75}
+              onPress={() => navigation.navigate('UserManagement', {
+                leagueId,
+                userRole: String(displayLeague?.role || league?.role || 'admin'),
+                initialTab: 'requests',
+              })}
+            >
+              <View style={[styles.actionIconWell, styles.actionIconWellIndigo]}>
+                <Ionicons name="person-add-outline" size={18} color="#667eea" />
+              </View>
+              <View style={styles.actionTextWrap}>
+                <Text style={styles.actionTitle}>
+                  {pendingJoinRequests === 1
+                    ? '1 richiesta in attesa'
+                    : `${pendingJoinRequests} richieste in attesa`}
+                </Text>
+                <Text style={styles.actionDesc}>Approva o rifiuta gli ingressi</Text>
+              </View>
+              <View style={styles.actionCta}>
+                <Text style={[styles.actionCtaText, styles.actionCtaTextIndigo]}>Richieste</Text>
+                <Ionicons name="chevron-forward" size={14} color="#667eea" />
+              </View>
+            </TouchableOpacity>
+          ) : null}
           {hasDefaultNames && (
             <TouchableOpacity
               style={styles.actionCard}
@@ -443,33 +501,6 @@ export default function LeagueScreen({ route, navigation }) {
               </View>
             </TouchableOpacity>
           )}
-          {showJoinRequestsShortcut ? (
-            <TouchableOpacity
-              style={styles.actionCard}
-              activeOpacity={0.75}
-              onPress={() => navigation.navigate('UserManagement', {
-                leagueId,
-                userRole: String(league?.role || 'admin'),
-                initialTab: 'requests',
-              })}
-            >
-              <View style={[styles.actionIconWell, styles.actionIconWellIndigo]}>
-                <Ionicons name="person-add-outline" size={18} color="#667eea" />
-              </View>
-              <View style={styles.actionTextWrap}>
-                <Text style={styles.actionTitle}>
-                  {pendingJoinRequests === 1
-                    ? '1 richiesta di ingresso'
-                    : `${pendingJoinRequests} richieste di ingresso`}
-                </Text>
-                <Text style={styles.actionDesc}>Da revisionare</Text>
-              </View>
-              <View style={styles.actionCta}>
-                <Text style={[styles.actionCtaText, styles.actionCtaTextIndigo]}>Gestisci</Text>
-                <Ionicons name="chevron-forward" size={14} color="#667eea" />
-              </View>
-            </TouchableOpacity>
-          ) : null}
           {readyToCalculate ? (
             <TouchableOpacity
               style={styles.actionCard}
