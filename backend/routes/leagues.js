@@ -769,6 +769,9 @@ async function ensureJoinRequestsTable() {
     `ALTER TABLE league_join_requests ADD COLUMN IF NOT EXISTS requested_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`,
     `ALTER TABLE league_join_requests ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ NULL`,
     `ALTER TABLE league_join_requests ADD COLUMN IF NOT EXISTS reviewed_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL`,
+    // Legacy: team_name/coach_name NOT NULL — non servono in richiesta (si compilano dopo l'accettazione).
+    `ALTER TABLE league_join_requests ALTER COLUMN team_name DROP NOT NULL`,
+    `ALTER TABLE league_join_requests ALTER COLUMN coach_name DROP NOT NULL`,
   ];
   for (const sql of alterStatements) {
     try {
@@ -822,6 +825,7 @@ async function upsertPendingJoinRequest(leagueId, userId) {
     return { alreadyPending: false, requestId: row.id };
   }
   try {
+    // Solo campi richiesta: niente team_name (si chiede al primo ingresso dopo accept).
     await query(
       `INSERT INTO league_join_requests (league_id, user_id, status, requested_at, reviewed_at, reviewed_by)
        VALUES (?, ?, 'pending', NOW(), NULL, NULL)`,
