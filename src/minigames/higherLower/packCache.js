@@ -3,7 +3,7 @@ import { filterPlayablePlayers } from './engine';
 
 const PACK_TTL_MS = 12 * 60 * 1000;
 /** Bump per invalidare cache memoria client dopo cambi formato pack. */
-const PACK_CACHE_VERSION = 3;
+const PACK_CACHE_VERSION = 4;
 
 /** @type {{ version: number, groupId: number, players: any[], groupMaxYear: number|null, at: number } | null} */
 let memory = null;

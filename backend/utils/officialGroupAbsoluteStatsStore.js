@@ -3,7 +3,7 @@ const { query } = require('../config/database');
 const TABLE = 'official_group_cluster_absolute_stats';
 
 /** Bump quando cambia la logica di aggregazione (es. teams_count per squadra ufficiale). */
-const ABSOLUTE_STATS_LOGIC_VERSION = 4;
+const ABSOLUTE_STATS_LOGIC_VERSION = 5;
 const logicRefreshDone = new Set(); // groupId già ricalcolato per questa versione di processo
 
 let tableReadyPromise = null;
@@ -765,6 +765,7 @@ async function fetchHigherLowerPackFromStore(groupId) {
     const nameRows = await query(
       `SELECT id,
               TRIM(CONCAT(COALESCE(first_name, ''), ' ', COALESCE(last_name, ''))) AS name,
+              NULLIF(TRIM(COALESCE(last_name, '')), '') AS last_name,
               NULLIF(TRIM(COALESCE(photo_path, '')), '') AS photo_path,
               birth_year
        FROM players
@@ -775,6 +776,7 @@ async function fetchHigherLowerPackFromStore(groupId) {
       const pid = Number(r.id);
       nameById.set(pid, {
         name: stripBirthYearNameSuffix(r.name),
+        last_name: stripBirthYearNameSuffix(r.last_name) || null,
         photo_path: r.photo_path || null,
       });
       const by = Number(r.birth_year);
@@ -812,6 +814,7 @@ async function fetchHigherLowerPackFromStore(groupId) {
       entity_id: entityId,
       player_id: playerId,
       name,
+      last_name: meta?.last_name || null,
       birth_year: playerId ? (birthById.get(playerId) || null) : null,
       photo_path: row.photo_path || meta?.photo_path || null,
       goals,

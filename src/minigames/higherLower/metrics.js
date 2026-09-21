@@ -44,13 +44,12 @@ function stripBirthYearNameSuffix(name) {
     .trim();
 }
 
-/** Nome corto per la domanda (cognome se disponibile). */
+/** Cognome per la domanda (campo last_name). */
 export function promptPlayerName(player, fallback = 'lui') {
+  const last = stripBirthYearNameSuffix(player?.last_name);
+  if (last) return last;
   const full = stripBirthYearNameSuffix(player?.name);
-  if (!full) return fallback;
-  const parts = full.split(/\s+/).filter(Boolean);
-  if (parts.length === 1) return parts[0];
-  return parts[parts.length - 1];
+  return full || fallback;
 }
 
 /**
