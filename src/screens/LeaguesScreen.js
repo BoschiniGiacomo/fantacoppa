@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -31,11 +31,38 @@ export default function LeaguesScreen({ navigation }) {
   const [accessCode, setAccessCode] = useState('');
   const [joining, setJoining] = useState(false);
   const [toastMsg, setToastMsg] = useState(null);
+  const [badgeLegendOpen, setBadgeLegendOpen] = useState(false);
+  const legendHideTimerRef = useRef(null);
 
   const showToast = (text, type = 'error') => {
     setToastMsg({ text, type });
     setTimeout(() => setToastMsg(null), 2500);
   };
+
+  const clearLegendHideTimer = useCallback(() => {
+    if (legendHideTimerRef.current) {
+      clearTimeout(legendHideTimerRef.current);
+      legendHideTimerRef.current = null;
+    }
+  }, []);
+
+  /** Toggle sticky dalla "i" in header. */
+  const toggleBadgeLegend = useCallback(() => {
+    clearLegendHideTimer();
+    setBadgeLegendOpen((open) => !open);
+  }, [clearLegendHideTimer]);
+
+  /** Tap sull'icona in card: mostra legenda e la nasconde dopo pochi secondi. */
+  const revealBadgeLegendBriefly = useCallback(() => {
+    clearLegendHideTimer();
+    setBadgeLegendOpen(true);
+    legendHideTimerRef.current = setTimeout(() => {
+      setBadgeLegendOpen(false);
+      legendHideTimerRef.current = null;
+    }, 3200);
+  }, [clearLegendHideTimer]);
+
+  useEffect(() => () => clearLegendHideTimer(), [clearLegendHideTimer]);
 
   // Nessun poll continuo. Lista discovery sempre aggiornata a ogni focus (e pull / dopo join).
   const loadLeagues = useCallback(async () => {
@@ -138,73 +165,89 @@ export default function LeaguesScreen({ navigation }) {
     }
   };
 
-  const renderLeagueItem = ({ item }) => (
-    <TouchableOpacity
-      style={styles.leagueCard}
-      onPress={() => handleLeaguePress(item)}
-    >
-      <View style={styles.leagueHeader}>
-        <Ionicons name="trophy" size={24} color="#ffc107" />
-        <Text style={styles.leagueName}>{item.name}</Text>
-        <View style={styles.usersContainer}>
-          <Ionicons name="people-outline" size={16} color="#999" />
-          <Text style={styles.usersValue}>{item.user_count || 0}</Text>
+  const renderLeagueItem = ({ item }) => {
+    const isPrivate = leagueHasAccessCode(item);
+    const needsApproval = leagueRequiresApproval(item);
+    return (
+      <TouchableOpacity
+        style={styles.leagueCard}
+        onPress={() => handleLeaguePress(item)}
+        activeOpacity={0.85}
+      >
+        <View style={styles.leagueHeader}>
+          <Ionicons name="trophy" size={24} color="#ffc107" />
+          <Text style={styles.leagueName}>{item.name}</Text>
+          <View style={styles.usersContainer}>
+            <Ionicons name="people-outline" size={16} color="#999" />
+            <Text style={styles.usersValue}>{item.user_count || 0}</Text>
+          </View>
         </View>
-      </View>
-      <View style={styles.leagueInfo}>
-        <View style={styles.leagueBadgeContainer}>
-          {leagueHasAccessCode(item) ? (
-            <View style={[styles.leagueBadge, styles.privateBadge]}>
-              <Ionicons name="lock-closed" size={12} color="#fff" />
-              <Text style={[styles.leagueBadgeText, { color: '#fff', marginLeft: 4 }]}>Privata</Text>
-            </View>
-          ) : (
-            <View style={[styles.leagueBadge, styles.publicBadge]}>
-              <Text style={[styles.leagueBadgeText, { color: '#198754' }]}>Pubblica</Text>
-            </View>
-          )}
-          {leagueRequiresApproval(item) ? (
-            <View style={[styles.leagueBadge, styles.approvalBadge]}>
-              <Ionicons name="hourglass-outline" size={12} color="#856404" />
-              <Text style={[styles.leagueBadgeText, { color: '#856404', marginLeft: 4 }]}>
-                Approvazione
+        <View style={styles.leagueInfo}>
+          <View style={styles.leagueBadgeContainer}>
+            <TouchableOpacity
+              style={[
+                styles.leagueBadgeIcon,
+                isPrivate ? styles.privateBadge : styles.publicBadge,
+              ]}
+              onPress={revealBadgeLegendBriefly}
+              activeOpacity={0.75}
+              accessibilityRole="button"
+              accessibilityLabel={isPrivate ? 'Lega privata' : 'Lega pubblica'}
+              accessibilityHint="Mostra legenda dei simboli"
+            >
+              <Ionicons
+                name={isPrivate ? 'lock-closed' : 'globe-outline'}
+                size={14}
+                color={isPrivate ? '#fff' : '#198754'}
+              />
+            </TouchableOpacity>
+            {needsApproval ? (
+              <TouchableOpacity
+                style={[styles.leagueBadgeIcon, styles.approvalBadge]}
+                onPress={revealBadgeLegendBriefly}
+                activeOpacity={0.75}
+                accessibilityRole="button"
+                accessibilityLabel="Richiede approvazione"
+                accessibilityHint="Mostra legenda dei simboli"
+              >
+                <Ionicons name="hourglass-outline" size={14} color="#856404" />
+              </TouchableOpacity>
+            ) : null}
+          </View>
+          <View style={styles.joinContainer}>
+            <Ionicons name="add-circle" size={20} color="#667eea" />
+            <Text style={styles.joinText}>
+              {needsApproval ? 'Richiedi' : 'Unisciti'}
+            </Text>
+          </View>
+        </View>
+        <View style={styles.leagueFooter}>
+          <View style={styles.matchdayContainer}>
+            <View style={styles.matchdayLeft}>
+              <Ionicons name="calendar-outline" size={16} color="#999" />
+              <Text style={styles.leagueMatchday}>
+                {item.current_matchday ? `${item.current_matchday}ª giornata` : 'Non iniziata'}
               </Text>
             </View>
-          ) : null}
-        </View>
-        <View style={styles.joinContainer}>
-          <Ionicons name="add-circle" size={20} color="#667eea" />
-          <Text style={styles.joinText}>
-            {leagueRequiresApproval(item) ? 'Richiedi' : 'Unisciti'}
-          </Text>
-        </View>
-      </View>
-      <View style={styles.leagueFooter}>
-        <View style={styles.matchdayContainer}>
-          <View style={styles.matchdayLeft}>
-            <Ionicons name="calendar-outline" size={16} color="#999" />
-            <Text style={styles.leagueMatchday}>
-              {item.current_matchday ? `${item.current_matchday}ª giornata` : 'Non iniziata'}
-            </Text>
-          </View>
-          <View style={styles.verticalDivider} />
-          <View style={styles.formationContainer}>
-            <Text style={styles.formationLabel}>Auto-formazione</Text>
-            <Text style={[styles.formationValue, (item.auto_lineup_mode === 1 || item.auto_lineup_mode === true) ? styles.formationYes : styles.formationNo]}>
-              {(item.auto_lineup_mode === 1 || item.auto_lineup_mode === true) ? 'Sì' : 'No'}
-            </Text>
-          </View>
-          <View style={styles.verticalDivider} />
-          <View style={styles.marketContainer}>
-            <Text style={styles.marketLabel}>Mercato</Text>
-            <Text style={[styles.marketValue, item.market_locked === 1 ? styles.marketClosed : styles.marketOpen]}>
-              {item.market_locked === 1 ? 'Chiuso' : 'Aperto'}
-            </Text>
+            <View style={styles.verticalDivider} />
+            <View style={styles.formationContainer}>
+              <Text style={styles.formationLabel}>Auto-formazione</Text>
+              <Text style={[styles.formationValue, (item.auto_lineup_mode === 1 || item.auto_lineup_mode === true) ? styles.formationYes : styles.formationNo]}>
+                {(item.auto_lineup_mode === 1 || item.auto_lineup_mode === true) ? 'Sì' : 'No'}
+              </Text>
+            </View>
+            <View style={styles.verticalDivider} />
+            <View style={styles.marketContainer}>
+              <Text style={styles.marketLabel}>Mercato</Text>
+              <Text style={[styles.marketValue, item.market_locked === 1 ? styles.marketClosed : styles.marketOpen]}>
+                {item.market_locked === 1 ? 'Chiuso' : 'Aperto'}
+              </Text>
+            </View>
           </View>
         </View>
-      </View>
-    </TouchableOpacity>
-  );
+      </TouchableOpacity>
+    );
+  };
 
   if (loading) {
     return (
@@ -217,7 +260,22 @@ export default function LeaguesScreen({ navigation }) {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>Crea o unisciti a una lega</Text>
+        <View style={styles.titleRow}>
+          <Text style={styles.title}>Crea o unisciti a una lega</Text>
+          <TouchableOpacity
+            style={[styles.legendToggle, badgeLegendOpen && styles.legendToggleActive]}
+            onPress={toggleBadgeLegend}
+            activeOpacity={0.75}
+            accessibilityRole="button"
+            accessibilityLabel={badgeLegendOpen ? 'Nascondi legenda simboli' : 'Mostra legenda simboli'}
+          >
+            <Ionicons
+              name={badgeLegendOpen ? 'close' : 'information-circle-outline'}
+              size={20}
+              color={badgeLegendOpen ? '#667eea' : '#94a3b8'}
+            />
+          </TouchableOpacity>
+        </View>
         <View style={styles.searchContainer}>
           <Ionicons name="search" size={20} color="#666" style={styles.searchIcon} />
           <TextInput
@@ -234,6 +292,28 @@ export default function LeaguesScreen({ navigation }) {
             </TouchableOpacity>
           )}
         </View>
+        {badgeLegendOpen ? (
+          <View style={styles.badgeLegend}>
+            <View style={styles.badgeLegendItem}>
+              <View style={[styles.leagueBadgeIcon, styles.publicBadge, styles.badgeLegendIcon]}>
+                <Ionicons name="globe-outline" size={13} color="#198754" />
+              </View>
+              <Text style={styles.badgeLegendText}>Pubblica</Text>
+            </View>
+            <View style={styles.badgeLegendItem}>
+              <View style={[styles.leagueBadgeIcon, styles.privateBadge, styles.badgeLegendIcon]}>
+                <Ionicons name="lock-closed" size={13} color="#fff" />
+              </View>
+              <Text style={styles.badgeLegendText}>Privata</Text>
+            </View>
+            <View style={styles.badgeLegendItem}>
+              <View style={[styles.leagueBadgeIcon, styles.approvalBadge, styles.badgeLegendIcon]}>
+                <Ionicons name="hourglass-outline" size={13} color="#856404" />
+              </View>
+              <Text style={styles.badgeLegendText}>Approvazione</Text>
+            </View>
+          </View>
+        ) : null}
       </View>
 
       <FlatList
@@ -377,11 +457,57 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#e0e0e0',
   },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 15,
+    gap: 10,
+  },
   title: {
+    flex: 1,
     fontSize: 24,
     fontWeight: 'bold',
     color: '#333',
-    marginBottom: 15,
+  },
+  legendToggle: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#f1f5f9',
+  },
+  legendToggleActive: {
+    backgroundColor: '#eef2ff',
+  },
+  badgeLegend: {
+    marginTop: 12,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#eef2f7',
+  },
+  badgeLegendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginRight: 4,
+  },
+  badgeLegendIcon: {
+    marginRight: 0,
+    marginBottom: 0,
+  },
+  badgeLegendText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#475569',
   },
   searchContainer: {
     flexDirection: 'row',
@@ -440,6 +566,27 @@ const styles = StyleSheet.create({
   leagueBadgeContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 6,
+  },
+  leagueBadgeIcon: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  adminBadge: {
+    backgroundColor: '#667eea',
+  },
+  privateBadge: {
+    backgroundColor: '#667eea',
+  },
+  approvalBadge: {
+    backgroundColor: '#fff3cd',
+  },
+  publicBadge: {
+    backgroundColor: '#d1e7dd',
   },
   marketContainer: {
     alignItems: 'center',
@@ -468,32 +615,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#999',
     fontWeight: '500',
-  },
-  leagueBadge: {
-    backgroundColor: '#e0e0e0',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-    marginRight: 8,
-    marginBottom: 4,
-  },
-  adminBadge: {
-    backgroundColor: '#667eea',
-  },
-  privateBadge: {
-    backgroundColor: '#667eea',
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  approvalBadge: {
-    backgroundColor: '#fff3cd',
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  leagueBadgeText: {
-    fontSize: 12,
-    color: '#333',
-    fontWeight: '600',
   },
   leagueFooter: {
     flexDirection: 'row',
@@ -540,10 +661,6 @@ const styles = StyleSheet.create({
   },
   formationNo: {
     color: '#dc3545',
-  },
-  publicBadge: {
-    backgroundColor: '#d1e7dd',
-    borderColor: '#198754',
   },
   joinContainer: {
     flexDirection: 'row',
