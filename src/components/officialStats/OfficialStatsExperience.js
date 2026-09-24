@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  FlatList,
   Modal,
   Pressable,
   ScrollView,
@@ -14,8 +15,8 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import Animated, {
   FadeIn,
   FadeInDown,
-  LinearTransition,
 } from 'react-native-reanimated';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle, Line } from 'react-native-svg';
 import { PlayerPhotoImage, TeamLogoImage } from '../StableCachedImage';
 import BonusIcon from '../BonusIcon';
@@ -25,6 +26,8 @@ import { matchesService } from '../../services/api';
 
 export const ABSOLUTE_STATS_KEY = 'absolute';
 export const STATS_LEADERBOARD_PREVIEW = 5;
+/** Sopra questa soglia l'espansione inline spezza il layout: si apre un modal con FlatList. */
+const STATS_LEADERBOARD_INLINE_MAX = 100;
 
 const MEDAL = {
   1: { bg: '#fef3c7', fg: '#b45309' },
@@ -503,6 +506,42 @@ function CategoryChips({ boards, selectedKey, onSelect }) {
   );
 }
 
+function leaderboardRowIdentity(row, fallbackIdx = 0) {
+  const clusterId = Number(row?.cluster_id);
+  if (clusterId > 0) return `c-${clusterId}`;
+  const playerId = Number(row?.player_id);
+  if (playerId > 0) return `p-${playerId}`;
+  return `n-${row?.name}-${fallbackIdx}`;
+}
+
+function LeaderboardRow({
+  row,
+  rank,
+  onPressPlayer,
+  isLast = false,
+}) {
+  const playerName = String(row?.name || '-');
+  const teamName = String(row?.team_name || '').trim();
+  const playerId = Number(row?.player_id);
+  const canOpen = playerId > 0;
+  const value = Number(row?.value || 0);
+  return (
+    <TouchableOpacity
+      style={[styles.lbRow, isLast && styles.lbRowLast]}
+      activeOpacity={canOpen ? 0.72 : 1}
+      disabled={!canOpen}
+      onPress={() => onPressPlayer?.(row)}
+    >
+      <RankBadge rank={rank} />
+      <View style={styles.lbMain}>
+        <Text style={styles.lbName} numberOfLines={1}>{playerName}</Text>
+        {teamName ? <Text style={styles.lbTeam} numberOfLines={1}>{teamName}</Text> : null}
+      </View>
+      <Text style={styles.lbValue}>{value}</Text>
+    </TouchableOpacity>
+  );
+}
+
 function LeaderboardList({
   board,
   expanded,
@@ -512,71 +551,137 @@ function LeaderboardList({
   includeTeam = true,
   animKey,
 }) {
+  const [modalOpen, setModalOpen] = useState(false);
+  const insets = useSafeAreaInsets();
   const list = Array.isArray(board.items) ? board.items : [];
   const filtered = query ? list.filter((row) => rowMatchesQuery(row, query, includeTeam)) : list;
   if (filtered.length === 0) {
     return <Text style={styles.emptyText}>{query ? 'Nessun risultato per la ricerca.' : board.empty}</Text>;
   }
   const canExpand = !query && filtered.length > STATS_LEADERBOARD_PREVIEW;
-  const visible = query || expanded || !canExpand
+  const useModalExpand = canExpand && filtered.length > STATS_LEADERBOARD_INLINE_MAX;
+  const inlineExpanded = expanded && !useModalExpand;
+  const visible = query || inlineExpanded || !canExpand
     ? filtered
     : filtered.slice(0, STATS_LEADERBOARD_PREVIEW);
   const ranks = buildCompetitionRanks(list);
   const indexByIdentity = new Map();
   list.forEach((row, idx) => {
-    const id = Number(row?.cluster_id) > 0
-      ? `c-${row.cluster_id}`
-      : (Number(row?.player_id) > 0 ? `p-${row.player_id}` : `n-${row?.name}-${idx}`);
-    indexByIdentity.set(id, idx);
+    indexByIdentity.set(leaderboardRowIdentity(row, idx), idx);
   });
 
+  const resolveRank = (row, fallbackIdx) => {
+    const identity = leaderboardRowIdentity(row, fallbackIdx);
+    const sourceIndex = indexByIdentity.has(identity) ? indexByIdentity.get(identity) : fallbackIdx;
+    return ranks[sourceIndex] || sourceIndex + 1;
+  };
+
+  const handleExpandPress = () => {
+    if (useModalExpand) {
+      setModalOpen(true);
+      return;
+    }
+    onToggleExpand?.();
+  };
+
+  const showMostraMeno = inlineExpanded;
+
   return (
-    <Animated.View layout={LinearTransition.duration(220)} style={styles.boardCard}>
-      {visible.map((row, i) => {
-        const playerName = String(row?.name || '-');
-        const teamName = String(row?.team_name || '').trim();
-        const playerId = Number(row?.player_id);
-        const clusterId = Number(row?.cluster_id);
-        const identity = clusterId > 0
-          ? `c-${clusterId}`
-          : (playerId > 0 ? `p-${playerId}` : `n-${playerName}-${i}`);
-        const sourceIndex = indexByIdentity.has(identity) ? indexByIdentity.get(identity) : i;
-        const rank = ranks[sourceIndex] || sourceIndex + 1;
-        const value = Number(row?.value || 0);
-        const canOpen = playerId > 0;
-        const isLast = i === visible.length - 1 && !canExpand;
-        return (
-          <Animated.View
-            key={`${animKey}-${identity}`}
-            entering={i < STATS_LEADERBOARD_PREVIEW
-              ? FadeInDown.delay(Math.min(i, 6) * 40).duration(280)
-              : undefined}
-          >
-            <TouchableOpacity
-              style={[styles.lbRow, isLast && styles.lbRowLast]}
-              activeOpacity={canOpen ? 0.72 : 1}
-              disabled={!canOpen}
-              onPress={() => onPressPlayer?.(row)}
-            >
-              <RankBadge rank={rank} />
-              <View style={styles.lbMain}>
-                <Text style={styles.lbName} numberOfLines={1}>{playerName}</Text>
-                {teamName ? <Text style={styles.lbTeam} numberOfLines={1}>{teamName}</Text> : null}
+    <>
+      <View style={styles.boardCard}>
+        {visible.map((row, i) => {
+          const identity = leaderboardRowIdentity(row, i);
+          const isLast = i === visible.length - 1 && !(canExpand && !inlineExpanded);
+          const rowNode = (
+            <LeaderboardRow
+              row={row}
+              rank={resolveRank(row, i)}
+              onPressPlayer={onPressPlayer}
+              isLast={isLast}
+            />
+          );
+          if (i < STATS_LEADERBOARD_PREVIEW) {
+            return (
+              <Animated.View
+                key={`${animKey}-${identity}`}
+                entering={FadeInDown.delay(Math.min(i, 6) * 40).duration(280)}
+              >
+                {rowNode}
+              </Animated.View>
+            );
+          }
+          return (
+            <View key={`${animKey}-${identity}`}>
+              {rowNode}
+            </View>
+          );
+        })}
+        {canExpand ? (
+          <TouchableOpacity style={styles.expandBtn} onPress={handleExpandPress} activeOpacity={0.75}>
+            <Text style={styles.expandText}>
+              {showMostraMeno ? 'Mostra meno' : `Altri ${filtered.length - STATS_LEADERBOARD_PREVIEW}`}
+            </Text>
+            <Ionicons
+              name={showMostraMeno ? 'chevron-up' : 'chevron-down'}
+              size={16}
+              color="#0f172a"
+            />
+          </TouchableOpacity>
+        ) : null}
+      </View>
+
+      {useModalExpand ? (
+        <Modal
+          visible={modalOpen}
+          animationType="slide"
+          presentationStyle="pageSheet"
+          onRequestClose={() => setModalOpen(false)}
+        >
+          <View style={[styles.lbModalRoot, { paddingTop: Math.max(insets.top, 8) }]}>
+            <View style={styles.lbModalHeader}>
+              <View style={[styles.boardIcon, { backgroundColor: `${board.accent || '#667eea'}18` }]}>
+                <BoardGlyph board={board} size={16} color={board.accent || '#667eea'} />
               </View>
-              <Text style={styles.lbValue}>{value}</Text>
-            </TouchableOpacity>
-          </Animated.View>
-        );
-      })}
-      {canExpand ? (
-        <TouchableOpacity style={styles.expandBtn} onPress={onToggleExpand} activeOpacity={0.75}>
-          <Text style={styles.expandText}>
-            {expanded ? 'Mostra meno' : `Altri ${filtered.length - STATS_LEADERBOARD_PREVIEW}`}
-          </Text>
-          <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={16} color="#0f172a" />
-        </TouchableOpacity>
+              <Text style={styles.lbModalTitle} numberOfLines={1}>{board.label}</Text>
+              <Text style={styles.boardCount}>{filtered.length}</Text>
+              <TouchableOpacity
+                style={styles.lbModalClose}
+                onPress={() => setModalOpen(false)}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                accessibilityLabel="Chiudi classifica"
+              >
+                <Ionicons name="close" size={22} color="#0f172a" />
+              </TouchableOpacity>
+            </View>
+            <FlatList
+              data={filtered}
+              keyExtractor={(row, idx) => `${animKey}-modal-${leaderboardRowIdentity(row, idx)}`}
+              renderItem={({ item, index }) => (
+                <LeaderboardRow
+                  row={item}
+                  rank={resolveRank(item, index)}
+                  onPressPlayer={(player) => {
+                    setModalOpen(false);
+                    onPressPlayer?.(player);
+                  }}
+                  isLast={index === filtered.length - 1}
+                />
+              )}
+              style={styles.lbModalList}
+              contentContainerStyle={[
+                styles.lbModalListContent,
+                { paddingBottom: 24 + Math.max(insets.bottom, 0) },
+              ]}
+              initialNumToRender={20}
+              windowSize={11}
+              maxToRenderPerBatch={24}
+              removeClippedSubviews
+              keyboardShouldPersistTaps="handled"
+            />
+          </View>
+        </Modal>
       ) : null}
-    </Animated.View>
+    </>
   );
 }
 
@@ -2229,4 +2334,35 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   expandText: { fontSize: 13, fontWeight: '700', color: '#0f172a' },
+  lbModalRoot: {
+    flex: 1,
+    backgroundColor: '#fff',
+  },
+  lbModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#e8edf3',
+  },
+  lbModalTitle: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#0f172a',
+  },
+  lbModalClose: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#f1f5f9',
+  },
+  lbModalList: { flex: 1 },
+  lbModalListContent: {
+    paddingHorizontal: 12,
+  },
 });
