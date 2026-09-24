@@ -20,7 +20,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { leagueService } from '../services/api';
 import { Ionicons } from '@expo/vector-icons';
 import BonusIcon from '../components/BonusIcon';
-import BudgetVaultPreview from '../components/createLeague/BudgetVaultPreview';
+import BudgetVaultPreview, { BudgetCreditRail } from '../components/createLeague/BudgetVaultPreview';
 import StadiumPlaque from '../components/createLeague/StadiumPlaque';
 import StartersPitchPreview from '../components/createLeague/StartersPitchPreview';
 import TeamsheetBoard from '../components/createLeague/TeamsheetBoard';
@@ -725,39 +725,14 @@ export default function CreateLeagueScreen({ navigation }) {
           error={fieldErrors.budget}
           inputProps={{
             slider: (
-              <View style={styles.zipSliderWrapper} {...panResponder.panHandlers}>
-                <View
-                  ref={sliderTrackRef}
-                  style={styles.zipTrack}
-                  onLayout={(event) => {
-                    sliderWidth.current = event.nativeEvent.layout.width;
-                  }}
-                >
-                  <View style={styles.zipTeethRow}>
-                    {Array.from({ length: 14 }).map((_, i) => (
-                      <View key={`zt-${i}`} style={styles.zipTooth} />
-                    ))}
-                  </View>
-                  <View
-                    style={[
-                      styles.zipFill,
-                      { width: `${((parseInt(formData.initialBudget, 10) || 0) / 1000) * 100}%` },
-                    ]}
-                  />
-                  <View
-                    style={[
-                      styles.zipPull,
-                      { left: `${((parseInt(formData.initialBudget, 10) || 0) / 1000) * 100}%` },
-                    ]}
-                  >
-                    <View style={styles.zipPullHole} />
-                  </View>
-                </View>
-                <View style={styles.zipLabels}>
-                  <Text style={styles.zipLabel}>0</Text>
-                  <Text style={styles.zipLabel}>1000</Text>
-                </View>
-              </View>
+              <BudgetCreditRail
+                value={formData.initialBudget}
+                trackRef={sliderTrackRef}
+                onTrackLayout={(event) => {
+                  sliderWidth.current = event.nativeEvent.layout.width;
+                }}
+                panHandlers={panResponder.panHandlers}
+              />
             ),
             textInput: {
               ref: inputRefs.step1.initialBudget,
@@ -2343,6 +2318,53 @@ const styles = StyleSheet.create({
   sliderWrapper: {
     flex: 1,
     marginVertical: 12,
+  },
+  budgetSliderWrap: {
+    height: 42,
+    justifyContent: 'center',
+  },
+  budgetSliderTrack: {
+    height: 6,
+    backgroundColor: '#e2e8f0',
+    borderRadius: 3,
+    position: 'relative',
+  },
+  budgetSliderFill: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    backgroundColor: '#667eea',
+    borderRadius: 3,
+  },
+  budgetSliderThumb: {
+    position: 'absolute',
+    top: -7,
+    marginLeft: -10,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#667eea',
+    borderWidth: 2,
+    borderColor: '#fff',
+    shadowColor: '#64748b',
+    shadowOpacity: 0.25,
+    shadowRadius: 3,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 3,
+  },
+  budgetSliderLabels: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: -14,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  budgetSliderLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#94a3b8',
   },
   zipSliderWrapper: {
     flex: 1,

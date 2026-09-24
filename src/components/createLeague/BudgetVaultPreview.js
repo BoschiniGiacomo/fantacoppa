@@ -1,198 +1,338 @@
 import React, { useMemo } from 'react';
 import { View, Text, TextInput, StyleSheet } from 'react-native';
+import Svg, { Rect, Ellipse, Defs, LinearGradient, Stop, G } from 'react-native-svg';
 
-const MAX_BUDGET = 1000;
-const MAX_BILLS = 22;
-const FELT_W = 280;
-const FELT_H = 132;
-const MIN_GAP = 38;
+const MAX = 1000;
+const MAX_PILES = 4;
+/** Cap diversi → anche a 1000 le altezze restano diverse. */
+const PILE_CAPS = [10, 5, 8, 4];
+const MAX_LAYERS = Math.max(...PILE_CAPS);
+const MAX_TOTAL_LAYERS = PILE_CAPS.reduce((a, b) => a + b, 0);
+const UNIT = MAX / MAX_TOTAL_LAYERS;
 
-const BILL_COLORS = [
-  { body: '#dcfce7', edge: '#16a34a', band: '#4ade80' },
-  { body: '#bbf7d0', edge: '#15803d', band: '#22c55e' },
-  { body: '#fef3c7', edge: '#ca8a04', band: '#fbbf24' },
-  { body: '#ffedd5', edge: '#c2410c', band: '#fb923c' },
-  { body: '#dbeafe', edge: '#1d4ed8', band: '#60a5fa' },
-  { body: '#ede9fe', edge: '#6d28d9', band: '#a78bfa' },
-];
+const BILL = { w: 58, h: 34, step: 5.2, rx: 8 };
 
-function hash(n) {
-  let x = Math.imul(n ^ 0x9e3779b9, 0x85ebca6b);
-  x ^= x >>> 13;
-  x = Math.imul(x, 0xc2b2ae35);
-  x ^= x >>> 16;
-  return (x >>> 0) / 4294967296;
-}
-
-function billCount(amount) {
-  if (amount < 20) return 0;
-  const t = amount / MAX_BUDGET;
-  const base = Math.round(2 + t * (MAX_BILLS - 2));
-  const jitter = Math.floor(hash(amount * 11) * 3) - 1;
-  return Math.min(MAX_BILLS, Math.max(1, base + jitter));
-}
+const C = {
+  faceTop: '#d8eadc',
+  face: '#9fc7a8',
+  faceMid: '#7eaf8c',
+  edge: '#5a8f6c',
+  edgeDark: '#3f6b50',
+  ink: '#2d4f3a',
+  band: '#eef7f0',
+};
 
 /**
- * Posizioni sparse su tutto il feltro (griglia fine + jitter), niente torri.
+ * Mazzetta frontale: spessore a strati + faccia arrotondato soft.
  */
-function buildBills(amount) {
-  const count = billCount(amount);
-  if (count <= 0) return [];
+function Mazzetta({ layers, index, scale = 1 }) {
+  const n = Math.max(0, Math.min(MAX_LAYERS, layers));
+  if (n <= 0) return null;
 
-  const seed = amount * 2654435761;
-  const cols = Math.ceil(Math.sqrt(count * (FELT_W / FELT_H)));
-  const rows = Math.ceil(count / cols);
-  const cellW = FELT_W / cols;
-  const cellH = FELT_H / rows;
+  const w = BILL.w;
+  const h = BILL.h;
+  const step = BILL.step;
+  const svgW = w + 6;
+  const svgH = h + (n - 1) * step + 6;
+  const x = 3;
+  const topY = 1;
 
-  // Ordine celle mescolato ma una cella → una banconota (copertura omogenea)
-  const cells = Array.from({ length: cols * rows }, (_, i) => i);
-  cells.sort((a, b) => hash(seed + a * 17) - hash(seed + b * 19));
-
-  const bills = [];
-  for (let i = 0; i < count; i += 1) {
-    const cell = cells[i % cells.length];
-    const c = cell % cols;
-    const r = Math.floor(cell / cols);
-    const h1 = hash(seed + i * 97);
-    const h2 = hash(seed + i * 193);
-    const h3 = hash(seed + i * 389);
-    const h4 = hash(seed + i * 557);
-
-    const pad = 6;
-    const bw = 44 + Math.floor(h1 * 12);
-    const bh = 22 + Math.floor(h2 * 6);
-    let left = c * cellW + pad + h3 * Math.max(4, cellW - bw - pad * 2);
-    let top = r * cellH + pad + h4 * Math.max(4, cellH - bh - pad * 2);
-    left = Math.max(4, Math.min(left, FELT_W - bw - 4));
-    top = Math.max(4, Math.min(top, FELT_H - bh - 4));
-
-    // Leggero allontanamento se troppo vicino al precedente
-    if (bills.length > 0) {
-      const prev = bills[bills.length - 1];
-      const dx = left - prev.left;
-      const dy = top - prev.top;
-      if (dx * dx + dy * dy < MIN_GAP * MIN_GAP) {
-        left = Math.min(FELT_W - bw - 4, left + MIN_GAP * 0.6);
-        top = Math.min(FELT_H - bh - 4, top + (h2 > 0.5 ? MIN_GAP * 0.4 : -MIN_GAP * 0.3));
-        top = Math.max(4, top);
-      }
-    }
-
-    bills.push({
-      left,
-      top,
-      w: bw,
-      h: bh,
-      rot: (h1 - 0.5) * 50,
-      color: BILL_COLORS[Math.floor(h2 * BILL_COLORS.length)],
-      z: Math.floor(h3 * 100),
-    });
-  }
-
-  return bills;
-}
-
-function Bill({ bill, small }) {
-  const s = small ? 0.5 : 1;
-  const { color, w, h, rot, left, top, z } = bill;
   return (
-    <View
-      style={[
-        styles.bill,
-        {
-          width: w * s,
-          height: h * s,
-          left: left * s,
-          top: top * s,
-          backgroundColor: color.body,
-          borderColor: color.edge,
-          transform: [{ rotate: `${rot}deg` }],
-          zIndex: z,
-        },
-      ]}
-    >
-      <View style={[styles.stripeL, { backgroundColor: color.band, width: 5 * s }]} />
-      <View style={[styles.stripeR, { backgroundColor: color.band, width: 5 * s }]} />
-      <View style={[styles.band, { backgroundColor: color.band, left: 8 * s, right: 8 * s }]} />
-      <View
-        style={[
-          styles.seal,
-          {
-            borderColor: color.edge,
-            width: 11 * s,
-            height: 11 * s,
-            borderRadius: 6 * s,
-            right: 8 * s,
-            top: 4 * s,
-          },
-        ]}
-      />
+    <View style={{ transform: [{ scale }], marginBottom: scale < 1 ? -((1 - scale) * svgH) / 2 : 0 }}>
+      <Svg width={svgW} height={svgH} viewBox={`0 0 ${svgW} ${svgH}`}>
+        <Defs>
+          <LinearGradient id={`f-${index}`} x1="0" y1="0" x2="0" y2="1">
+            <Stop offset="0" stopColor={C.faceTop} />
+            <Stop offset="0.55" stopColor={C.face} />
+            <Stop offset="1" stopColor={C.faceMid} />
+          </LinearGradient>
+        </Defs>
+
+        {Array.from({ length: n - 1 }).map((_, i) => {
+          const fromTop = n - 2 - i;
+          const y = topY + h - 5 + fromTop * step;
+          return (
+            <Rect
+              key={`e-${i}`}
+              x={x + 1.5}
+              y={y}
+              width={w - 3}
+              height={5.6}
+              rx={2.4}
+              ry={2.4}
+              fill={i % 2 === 0 ? C.edge : C.edgeDark}
+              opacity={0.92}
+            />
+          );
+        })}
+
+        <G>
+          <Rect
+            x={x}
+            y={topY}
+            width={w}
+            height={h}
+            rx={BILL.rx}
+            ry={BILL.rx}
+            fill={`url(#f-${index})`}
+          />
+          <Rect
+            x={x + 2.5}
+            y={topY + 2.5}
+            width={w - 5}
+            height={h - 5}
+            rx={5.5}
+            ry={5.5}
+            fill="none"
+            stroke={C.band}
+            strokeWidth={1.4}
+            opacity={0.9}
+          />
+          <Ellipse
+            cx={x + w / 2}
+            cy={topY + h / 2}
+            rx={8}
+            ry={8}
+            fill={C.faceTop}
+            opacity={0.5}
+          />
+          <Ellipse
+            cx={x + w / 2}
+            cy={topY + h / 2}
+            rx={4.4}
+            ry={4.4}
+            fill="none"
+            stroke={C.ink}
+            strokeWidth={1.2}
+            opacity={0.32}
+          />
+          <Rect
+            x={x + 6}
+            y={topY + 8}
+            width={5}
+            height={h - 16}
+            rx={2.4}
+            fill={C.edge}
+            opacity={0.22}
+          />
+          <Rect
+            x={x + w - 11}
+            y={topY + 8}
+            width={5}
+            height={h - 16}
+            rx={2.4}
+            fill={C.edge}
+            opacity={0.22}
+          />
+        </G>
+      </Svg>
     </View>
   );
 }
 
+function pilesFromBudget(amount) {
+  const totalLayers = Math.min(
+    MAX_TOTAL_LAYERS,
+    Math.round(amount / UNIT)
+  );
+  if (totalLayers <= 0) return [];
+
+  const weightSum = MAX_TOTAL_LAYERS;
+  const assigned = PILE_CAPS.map((cap) =>
+    Math.min(cap, Math.floor((totalLayers * cap) / weightSum))
+  );
+  let rem = totalLayers - assigned.reduce((a, b) => a + b, 0);
+  const order = [0, 2, 1, 3];
+  let guard = 0;
+  while (rem > 0 && guard < 64) {
+    const p = order[guard % MAX_PILES];
+    if (assigned[p] < PILE_CAPS[p]) {
+      assigned[p] += 1;
+      rem -= 1;
+    }
+    guard += 1;
+  }
+
+  return assigned.filter((n) => n > 0);
+}
+
 /**
- * Valigia top-down: banconote sparse (non in torri).
+ * Barra budget custom: binario soft + cursore a mini-banconota.
  */
+export function BudgetCreditRail({
+  value = 0,
+  max = MAX,
+  trackRef,
+  onTrackLayout,
+  panHandlers,
+}) {
+  const amount = Math.min(max, Math.max(0, parseInt(value, 10) || 0));
+  const pct = (amount / max) * 100;
+
+  return (
+    <View style={railStyles.wrap} {...(panHandlers || {})}>
+      <View
+        ref={trackRef}
+        style={railStyles.track}
+        onLayout={onTrackLayout}
+      >
+        <View style={railStyles.well} />
+        <View style={[railStyles.fill, { width: `${pct}%` }]} />
+        <View style={[railStyles.thumb, { left: `${pct}%` }]}>
+          <Svg width={18} height={28} viewBox="0 0 18 28">
+            <Defs>
+              <LinearGradient id="thumbFace" x1="0" y1="0" x2="1" y2="0">
+                <Stop offset="0" stopColor={C.faceTop} />
+                <Stop offset="1" stopColor={C.faceMid} />
+              </LinearGradient>
+            </Defs>
+            <Rect x="0.5" y="0.5" width="17" height="27" rx="5" ry="5" fill="url(#thumbFace)" />
+            <Rect
+              x="2.5"
+              y="2.5"
+              width="13"
+              height="23"
+              rx="3.5"
+              ry="3.5"
+              fill="none"
+              stroke={C.band}
+              strokeWidth="1.2"
+            />
+            <Ellipse cx="9" cy="14" rx="3.2" ry="3.2" fill={C.faceTop} opacity={0.65} />
+            <Ellipse
+              cx="9"
+              cy="14"
+              rx="1.8"
+              ry="1.8"
+              fill="none"
+              stroke={C.ink}
+              strokeWidth="0.9"
+              opacity={0.35}
+            />
+          </Svg>
+        </View>
+      </View>
+      <View style={railStyles.labels}>
+        <Text style={railStyles.label}>0</Text>
+        <Text style={railStyles.label}>{max}</Text>
+      </View>
+    </View>
+  );
+}
+
+const railStyles = StyleSheet.create({
+  wrap: {
+    height: 42,
+    justifyContent: 'center',
+  },
+  track: {
+    height: 14,
+    borderRadius: 8,
+    position: 'relative',
+    justifyContent: 'center',
+  },
+  well: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#e6efe8',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#cfdcd3',
+  },
+  fill: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    backgroundColor: '#7eaf8c',
+    borderRadius: 8,
+  },
+  thumb: {
+    position: 'absolute',
+    top: -7,
+    marginLeft: -9,
+    width: 18,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  labels: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: -14,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  label: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#94a3b8',
+  },
+});
+
 export default function BudgetVaultPreview({
   budget = 0,
   compact = false,
   inputProps,
   error,
 }) {
-  const amount = Math.min(MAX_BUDGET, Math.max(0, parseInt(budget, 10) || 0));
-  const bills = useMemo(() => buildBills(amount), [amount]);
+  const amount = Math.min(MAX, Math.max(0, parseInt(budget, 10) || 0));
+  const piles = useMemo(() => pilesFromBudget(amount), [amount]);
+  const scale = compact ? 0.62 : 1;
 
-  const renderBills = (list, small = false) => {
-    if (list.length === 0) {
-      return <View style={[styles.emptyHint, small && styles.emptyHintSm]} />;
-    }
-    return list.map((b, i) => <Bill key={`b-${i}`} bill={b} small={small} />);
-  };
+  const stage = (
+    <View style={[styles.stage, compact && styles.stageCompact]}>
+      <View style={[styles.shelf, compact && styles.shelfCompact]}>
+        {piles.length === 0 ? (
+          <View style={styles.empty}>
+            <View style={styles.emptyPad} />
+            {!compact ? <Text style={styles.hint}>Trascina per riempire</Text> : null}
+          </View>
+        ) : (
+          <View style={styles.pilesRow}>
+            {piles.map((layers, i) => (
+              <Mazzetta key={`p-${i}`} layers={layers} index={i} scale={scale} />
+            ))}
+          </View>
+        )}
+        <View style={styles.shelfLip} />
+      </View>
+    </View>
+  );
 
   if (compact) {
     return (
-      <View style={styles.compactCase}>
-        <View style={styles.compactInterior}>{renderBills(bills.slice(0, 10), true)}</View>
-        <Text style={styles.compactTicker}>{amount}</Text>
+      <View style={styles.compact}>
+        <Text style={styles.compactAmount}>{amount}</Text>
+        {stage}
       </View>
     );
   }
 
   return (
-    <View style={[styles.wrap, error && styles.wrapError]}>
-      <View style={styles.caseTop}>
-        <View style={styles.caseRim}>
-          <View style={styles.caseCornerTL} />
-          <View style={styles.caseCornerTR} />
-          <View style={styles.caseCornerBL} />
-          <View style={styles.caseCornerBR} />
-          <View style={styles.caseInterior}>
-            <View style={styles.felt}>{renderBills(bills)}</View>
-          </View>
-        </View>
-      </View>
+    <View style={[styles.card, error && styles.cardError]}>
+      {stage}
 
-      <View style={styles.metalRail}>
-        <Text style={styles.budgetLabel}>Budget</Text>
-        <View style={styles.railBody}>
-          <View style={styles.sliderSlot}>{inputProps?.slider}</View>
-          <View style={[styles.tickerDial, error && styles.tickerDialError]}>
-            {inputProps?.textInput ? (
-              <TextInput
-                ref={inputProps.textInput.ref}
-                {...(({ ref: _r, style: _s, ...rest }) => rest)(inputProps.textInput)}
-                style={[styles.tickerInput, inputProps.textInput.style]}
-                placeholderTextColor="#a8a29e"
-                selectionColor="#ca8a04"
-              />
-            ) : (
-              <Text style={styles.tickerText}>{amount}</Text>
-            )}
+      {inputProps ? (
+        <View style={styles.controls}>
+          <View style={styles.sliderCol}>
+            <View style={styles.labelSpacer} />
+            <View style={styles.sliderSlot}>{inputProps.slider}</View>
+          </View>
+          <View style={styles.inputCol}>
+            <Text style={styles.label}>Budget</Text>
+            <TextInput
+              ref={inputProps.textInput?.ref}
+              {...(inputProps.textInput
+                ? (({ ref: _r, style: _s, ...rest }) => rest)(inputProps.textInput)
+                : {})}
+              style={[styles.input, inputProps.textInput?.style, error && styles.inputError]}
+              placeholderTextColor="#94a3b8"
+              selectionColor="#7eaf8c"
+            />
           </View>
         </View>
-      </View>
+      ) : null}
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
     </View>
@@ -200,162 +340,120 @@ export default function BudgetVaultPreview({
 }
 
 const styles = StyleSheet.create({
-  wrap: {
+  card: {
     marginBottom: 4,
-    marginTop: 6,
-  },
-  wrapError: {
-    opacity: 0.98,
-  },
-  caseTop: {
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    backgroundColor: '#92400e',
+    backgroundColor: '#fff',
+    borderRadius: 14,
     borderWidth: 1.5,
-    borderBottomWidth: 0,
-    borderColor: '#78350f',
-    padding: 10,
-    paddingBottom: 8,
+    borderColor: '#e2e8f0',
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    paddingBottom: 12,
   },
-  caseRim: {
-    borderRadius: 12,
-    backgroundColor: '#a16207',
-    borderWidth: 2,
-    borderColor: '#78350f',
-    padding: 8,
-    position: 'relative',
-  },
-  caseCornerTL: {
-    position: 'absolute', top: 6, left: 6, width: 10, height: 10,
-    borderRadius: 5, backgroundColor: '#57534e', borderWidth: 1, borderColor: '#292524', zIndex: 2,
-  },
-  caseCornerTR: {
-    position: 'absolute', top: 6, right: 6, width: 10, height: 10,
-    borderRadius: 5, backgroundColor: '#57534e', borderWidth: 1, borderColor: '#292524', zIndex: 2,
-  },
-  caseCornerBL: {
-    position: 'absolute', bottom: 6, left: 6, width: 10, height: 10,
-    borderRadius: 5, backgroundColor: '#57534e', borderWidth: 1, borderColor: '#292524', zIndex: 2,
-  },
-  caseCornerBR: {
-    position: 'absolute', bottom: 6, right: 6, width: 10, height: 10,
-    borderRadius: 5, backgroundColor: '#57534e', borderWidth: 1, borderColor: '#292524', zIndex: 2,
-  },
-  caseInterior: {
-    borderRadius: 8,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: '#44403c',
-  },
-  felt: {
-    height: FELT_H,
-    backgroundColor: '#14532d',
-    position: 'relative',
-  },
-  emptyHint: {
-    position: 'absolute',
-    left: '50%',
-    top: '50%',
-    marginLeft: -36,
-    marginTop: -16,
-    width: 72,
-    height: 32,
-    borderRadius: 4,
-    borderWidth: 1.5,
-    borderColor: '#166534',
-    borderStyle: 'dashed',
-    opacity: 0.5,
-  },
-  emptyHintSm: {
-    marginLeft: -24,
-    marginTop: -10,
-    width: 48,
-    height: 20,
-  },
-  bill: {
-    position: 'absolute',
-    borderRadius: 4,
-    borderWidth: 1.5,
-    overflow: 'hidden',
-  },
-  stripeL: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    bottom: 0,
-    opacity: 0.75,
-  },
-  stripeR: {
-    position: 'absolute',
-    right: 0,
-    top: 0,
-    bottom: 0,
-    opacity: 0.75,
-  },
-  band: {
-    position: 'absolute',
-    top: '40%',
-    height: 3,
-    borderRadius: 1,
-    opacity: 0.4,
-  },
-  seal: {
-    position: 'absolute',
-    borderWidth: 1.5,
-    backgroundColor: 'rgba(255,255,255,0.4)',
-  },
-  metalRail: {
-    backgroundColor: '#57534e',
-    borderBottomLeftRadius: 14,
-    borderBottomRightRadius: 14,
-    borderWidth: 1.5,
-    borderTopWidth: 0,
-    borderColor: '#44403c',
-    paddingHorizontal: 10,
-    paddingTop: 6,
-    paddingBottom: 8,
-  },
-  budgetLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#a8a29e',
-    marginBottom: 4,
-    marginLeft: 2,
-  },
-  railBody: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  sliderSlot: {
-    flex: 1,
-    justifyContent: 'center',
-  },
-  tickerDial: {
-    width: 56,
-    height: 40,
-    borderRadius: 8,
-    backgroundColor: '#0c0a09',
-    borderWidth: 1.5,
-    borderColor: '#a8a29e',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  tickerDialError: {
+  cardError: {
     borderColor: '#f87171',
   },
-  tickerInput: {
-    width: 50,
-    color: '#fef3c7',
+  label: {
+    fontSize: 11,
+    fontWeight: '600',
+    lineHeight: 15,
+    color: '#64748b',
+    marginBottom: 4,
+    textAlign: 'center',
+  },
+  stage: {
+    marginBottom: 12,
+  },
+  stageCompact: {
+    marginBottom: 0,
+  },
+  shelf: {
+    backgroundColor: '#f3f7f4',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e0e8e2',
+    paddingTop: 14,
+    paddingBottom: 8,
+    paddingHorizontal: 8,
+    minHeight: 148,
+    justifyContent: 'flex-end',
+  },
+  shelfCompact: {
+    minHeight: 72,
+    paddingTop: 6,
+    paddingBottom: 4,
+    paddingHorizontal: 4,
+  },
+  shelfLip: {
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: '#d2ddd5',
+    marginTop: 4,
+    marginHorizontal: 2,
+  },
+  pilesRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+    gap: 6,
+    minHeight: 110,
+  },
+  empty: {
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    minHeight: 110,
+    paddingBottom: 6,
+  },
+  emptyPad: {
+    width: 36,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: '#d5e0d8',
+  },
+  hint: {
+    marginTop: 8,
+    fontSize: 11,
+    fontWeight: '500',
+    color: '#94a3b8',
+  },
+  controls: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    marginBottom: 4,
+    paddingBottom: 12,
+  },
+  sliderCol: {
+    flex: 1,
+  },
+  labelSpacer: {
+    height: 15,
+    marginBottom: 4,
+  },
+  sliderSlot: {
+    height: 42,
+    justifyContent: 'center',
+  },
+  inputCol: {
+    width: 72,
+    alignItems: 'stretch',
+  },
+  input: {
+    width: '100%',
+    height: 42,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1.5,
+    borderColor: '#e2e8f0',
+    borderRadius: 10,
+    color: '#0f172a',
     fontSize: 16,
-    fontWeight: '800',
+    fontWeight: '700',
     textAlign: 'center',
     paddingVertical: 0,
+    paddingHorizontal: 4,
   },
-  tickerText: {
-    color: '#fef3c7',
-    fontSize: 16,
-    fontWeight: '800',
+  inputError: {
+    borderColor: '#f87171',
   },
   error: {
     marginTop: 8,
@@ -363,27 +461,18 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#dc2626',
   },
-  compactCase: {
+  compact: {
     flex: 1,
+    backgroundColor: '#fff',
     borderRadius: 12,
-    overflow: 'hidden',
     borderWidth: 1,
-    borderColor: '#92400e',
-    backgroundColor: '#92400e',
+    borderColor: '#e2e8f0',
+    padding: 10,
   },
-  compactInterior: {
-    height: 72,
-    margin: 6,
-    borderRadius: 8,
-    backgroundColor: '#14532d',
-    position: 'relative',
-    overflow: 'hidden',
-  },
-  compactTicker: {
-    textAlign: 'center',
-    fontSize: 18,
+  compactAmount: {
+    fontSize: 22,
     fontWeight: '800',
-    color: '#fef3c7',
-    paddingBottom: 8,
+    color: '#0f172a',
+    marginBottom: 6,
   },
 });
