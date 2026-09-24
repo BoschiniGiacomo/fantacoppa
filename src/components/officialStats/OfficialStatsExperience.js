@@ -16,7 +16,6 @@ import Animated, {
   FadeIn,
   FadeInDown,
 } from 'react-native-reanimated';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle, Line } from 'react-native-svg';
 import { PlayerPhotoImage, TeamLogoImage } from '../StableCachedImage';
 import BonusIcon from '../BonusIcon';
@@ -26,8 +25,7 @@ import { matchesService } from '../../services/api';
 
 export const ABSOLUTE_STATS_KEY = 'absolute';
 export const STATS_LEADERBOARD_PREVIEW = 5;
-/** Sopra questa soglia l'espansione inline spezza il layout: si apre un modal con FlatList. */
-const STATS_LEADERBOARD_INLINE_MAX = 100;
+const LB_ROW_HEIGHT = 52;
 
 const MEDAL = {
   1: { bg: '#fef3c7', fg: '#b45309' },
@@ -542,6 +540,7 @@ function LeaderboardRow({
   );
 }
 
+/** Lista inline (ricerca): liste filtrate, di solito corte. */
 function LeaderboardList({
   board,
   expanded,
@@ -551,17 +550,13 @@ function LeaderboardList({
   includeTeam = true,
   animKey,
 }) {
-  const [modalOpen, setModalOpen] = useState(false);
-  const insets = useSafeAreaInsets();
   const list = Array.isArray(board.items) ? board.items : [];
   const filtered = query ? list.filter((row) => rowMatchesQuery(row, query, includeTeam)) : list;
   if (filtered.length === 0) {
     return <Text style={styles.emptyText}>{query ? 'Nessun risultato per la ricerca.' : board.empty}</Text>;
   }
   const canExpand = !query && filtered.length > STATS_LEADERBOARD_PREVIEW;
-  const useModalExpand = canExpand && filtered.length > STATS_LEADERBOARD_INLINE_MAX;
-  const inlineExpanded = expanded && !useModalExpand;
-  const visible = query || inlineExpanded || !canExpand
+  const visible = query || expanded || !canExpand
     ? filtered
     : filtered.slice(0, STATS_LEADERBOARD_PREVIEW);
   const ranks = buildCompetitionRanks(list);
@@ -570,118 +565,42 @@ function LeaderboardList({
     indexByIdentity.set(leaderboardRowIdentity(row, idx), idx);
   });
 
-  const resolveRank = (row, fallbackIdx) => {
-    const identity = leaderboardRowIdentity(row, fallbackIdx);
-    const sourceIndex = indexByIdentity.has(identity) ? indexByIdentity.get(identity) : fallbackIdx;
-    return ranks[sourceIndex] || sourceIndex + 1;
-  };
-
-  const handleExpandPress = () => {
-    if (useModalExpand) {
-      setModalOpen(true);
-      return;
-    }
-    onToggleExpand?.();
-  };
-
-  const showMostraMeno = inlineExpanded;
-
   return (
-    <>
-      <View style={styles.boardCard}>
-        {visible.map((row, i) => {
-          const identity = leaderboardRowIdentity(row, i);
-          const isLast = i === visible.length - 1 && !(canExpand && !inlineExpanded);
-          const rowNode = (
-            <LeaderboardRow
-              row={row}
-              rank={resolveRank(row, i)}
-              onPressPlayer={onPressPlayer}
-              isLast={isLast}
-            />
-          );
-          if (i < STATS_LEADERBOARD_PREVIEW) {
-            return (
-              <Animated.View
-                key={`${animKey}-${identity}`}
-                entering={FadeInDown.delay(Math.min(i, 6) * 40).duration(280)}
-              >
-                {rowNode}
-              </Animated.View>
-            );
-          }
+    <View style={styles.boardCard}>
+      {visible.map((row, i) => {
+        const identity = leaderboardRowIdentity(row, i);
+        const sourceIndex = indexByIdentity.has(identity) ? indexByIdentity.get(identity) : i;
+        const rank = ranks[sourceIndex] || sourceIndex + 1;
+        const isLast = i === visible.length - 1 && !(canExpand && !expanded);
+        const rowNode = (
+          <LeaderboardRow
+            row={row}
+            rank={rank}
+            onPressPlayer={onPressPlayer}
+            isLast={isLast}
+          />
+        );
+        if (i < STATS_LEADERBOARD_PREVIEW) {
           return (
-            <View key={`${animKey}-${identity}`}>
+            <Animated.View
+              key={`${animKey}-${identity}`}
+              entering={FadeInDown.delay(Math.min(i, 6) * 40).duration(280)}
+            >
               {rowNode}
-            </View>
+            </Animated.View>
           );
-        })}
-        {canExpand ? (
-          <TouchableOpacity style={styles.expandBtn} onPress={handleExpandPress} activeOpacity={0.75}>
-            <Text style={styles.expandText}>
-              {showMostraMeno ? 'Mostra meno' : `Altri ${filtered.length - STATS_LEADERBOARD_PREVIEW}`}
-            </Text>
-            <Ionicons
-              name={showMostraMeno ? 'chevron-up' : 'chevron-down'}
-              size={16}
-              color="#0f172a"
-            />
-          </TouchableOpacity>
-        ) : null}
-      </View>
-
-      {useModalExpand ? (
-        <Modal
-          visible={modalOpen}
-          animationType="slide"
-          presentationStyle="pageSheet"
-          onRequestClose={() => setModalOpen(false)}
-        >
-          <View style={[styles.lbModalRoot, { paddingTop: Math.max(insets.top, 8) }]}>
-            <View style={styles.lbModalHeader}>
-              <View style={[styles.boardIcon, { backgroundColor: `${board.accent || '#667eea'}18` }]}>
-                <BoardGlyph board={board} size={16} color={board.accent || '#667eea'} />
-              </View>
-              <Text style={styles.lbModalTitle} numberOfLines={1}>{board.label}</Text>
-              <Text style={styles.boardCount}>{filtered.length}</Text>
-              <TouchableOpacity
-                style={styles.lbModalClose}
-                onPress={() => setModalOpen(false)}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                accessibilityLabel="Chiudi classifica"
-              >
-                <Ionicons name="close" size={22} color="#0f172a" />
-              </TouchableOpacity>
-            </View>
-            <FlatList
-              data={filtered}
-              keyExtractor={(row, idx) => `${animKey}-modal-${leaderboardRowIdentity(row, idx)}`}
-              renderItem={({ item, index }) => (
-                <LeaderboardRow
-                  row={item}
-                  rank={resolveRank(item, index)}
-                  onPressPlayer={(player) => {
-                    setModalOpen(false);
-                    onPressPlayer?.(player);
-                  }}
-                  isLast={index === filtered.length - 1}
-                />
-              )}
-              style={styles.lbModalList}
-              contentContainerStyle={[
-                styles.lbModalListContent,
-                { paddingBottom: 24 + Math.max(insets.bottom, 0) },
-              ]}
-              initialNumToRender={20}
-              windowSize={11}
-              maxToRenderPerBatch={24}
-              removeClippedSubviews
-              keyboardShouldPersistTaps="handled"
-            />
-          </View>
-        </Modal>
+        }
+        return <View key={`${animKey}-${identity}`}>{rowNode}</View>;
+      })}
+      {canExpand ? (
+        <TouchableOpacity style={styles.expandBtn} onPress={onToggleExpand} activeOpacity={0.75}>
+          <Text style={styles.expandText}>
+            {expanded ? 'Mostra meno' : `Altri ${filtered.length - STATS_LEADERBOARD_PREVIEW}`}
+          </Text>
+          <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={16} color="#0f172a" />
+        </TouchableOpacity>
       ) : null}
-    </>
+    </View>
   );
 }
 
@@ -1423,6 +1342,12 @@ export default function OfficialStatsExperience({
   const [expanded, setExpanded] = useState(false);
 
   const setCombinedScrollRef = useCallback((node) => {
+    // FlatList espone scrollToOffset; le schermate parent usano scrollTo({ y }).
+    if (node && typeof node.scrollTo !== 'function' && typeof node.scrollToOffset === 'function') {
+      node.scrollTo = ({ y = 0, animated = true } = {}) => {
+        node.scrollToOffset({ offset: y, animated });
+      };
+    }
     internalScrollRef.current = node;
     if (typeof scrollRef === 'function') {
       scrollRef(node);
@@ -1532,6 +1457,236 @@ export default function OfficialStatsExperience({
       .filter((hit) => hit.items.length > 0);
   }, [displayBoards, normalizedQuery, searching, searchIncludesTeam]);
 
+  const activeItems = useMemo(
+    () => (Array.isArray(activeBoard?.items) ? activeBoard.items : []),
+    [activeBoard],
+  );
+  const activeRanks = useMemo(() => buildCompetitionRanks(activeItems), [activeItems]);
+  const activeIndexByIdentity = useMemo(() => {
+    const map = new Map();
+    activeItems.forEach((row, idx) => {
+      map.set(leaderboardRowIdentity(row, idx), idx);
+    });
+    return map;
+  }, [activeItems]);
+  const canExpandBoard = !searching && !loading && activeItems.length > STATS_LEADERBOARD_PREVIEW;
+  const visibleLbRows = useMemo(() => {
+    if (searching || loading) return [];
+    if (!activeBoard) return [];
+    if (activeItems.length === 0) return [];
+    if (!expanded && canExpandBoard) return activeItems.slice(0, STATS_LEADERBOARD_PREVIEW);
+    return activeItems;
+  }, [searching, loading, activeBoard, activeItems, expanded, canExpandBoard]);
+
+  const resolveActiveRank = useCallback((row, fallbackIdx) => {
+    const identity = leaderboardRowIdentity(row, fallbackIdx);
+    const sourceIndex = activeIndexByIdentity.has(identity)
+      ? activeIndexByIdentity.get(identity)
+      : fallbackIdx;
+    return activeRanks[sourceIndex] || sourceIndex + 1;
+  }, [activeIndexByIdentity, activeRanks]);
+
+  const renderLbRow = useCallback(({ item, index }) => {
+    const isLast = index === visibleLbRows.length - 1 && !canExpandBoard;
+    return (
+      <View style={contentInsetTop > 0 ? styles.insetCardMid : null}>
+        <View style={[
+          styles.boardCardSegment,
+          index === 0 ? styles.boardCardSegmentFirst : null,
+          isLast ? styles.boardCardSegmentLast : null,
+        ]}
+        >
+          <LeaderboardRow
+            row={item}
+            rank={resolveActiveRank(item, index)}
+            onPressPlayer={onPressPlayer}
+            isLast={isLast}
+          />
+        </View>
+      </View>
+    );
+  }, [visibleLbRows.length, canExpandBoard, contentInsetTop, resolveActiveRank, onPressPlayer]);
+
+  const lbKeyExtractor = useCallback((row, index) => (
+    `${selectedYear}-${activeBoard?.key || 'b'}-${leaderboardRowIdentity(row, index)}`
+  ), [selectedYear, activeBoard?.key]);
+
+  const renderListHeader = useCallback(() => (
+    <>
+      {contentInsetTop > 0 ? <View style={{ height: contentInsetTop }} pointerEvents="none" /> : null}
+      <View
+        style={
+          contentInsetTop > 0
+            ? (visibleLbRows.length > 0 || canExpandBoard ? styles.insetCardTop : styles.insetCard)
+            : null
+        }
+      >
+        {contentInsetTop > 0 ? (
+          <>
+            <PeriodSelector years={years} selectedYear={selectedYear} onSelectYear={onSelectYear} />
+            <StatsSearchBar
+              value={query}
+              onChange={(text) => {
+                setQuery(text);
+                setExpanded(false);
+              }}
+              placeholder={searchPlaceholder}
+            />
+            <TrendingPlayersStrip
+              competitionId={competitionId}
+              visible={showTrendingPlayers && !searching}
+              onPressPlayer={onPressPlayer}
+              showTeamName={searchIncludesTeam}
+            />
+            {!searching ? (
+              <CategoryChips
+                boards={displayBoards}
+                selectedKey={activeBoard?.key}
+                onSelect={(key) => selectBoardAndScroll(key, true)}
+              />
+            ) : null}
+          </>
+        ) : null}
+        {loading ? (
+          <View style={styles.loadingBox}>
+            <ActivityIndicator color="#667eea" />
+          </View>
+        ) : searching ? (
+          searchHits.length === 0 ? (
+            <Text style={styles.emptyText}>Nessun giocatore trovato.</Text>
+          ) : (
+            searchHits.map((hit, idx) => (
+              <Animated.View
+                key={`search-${hit.board.key}`}
+                entering={FadeIn.delay(idx * 40).duration(220)}
+                style={styles.searchGroup}
+              >
+                <View style={styles.boardHead}>
+                  <View style={[styles.boardIcon, { backgroundColor: `${hit.board.accent}18` }]}>
+                    <BoardGlyph board={hit.board} size={15} color={hit.board.accent} />
+                  </View>
+                  <Text style={styles.boardTitle}>{hit.board.label}</Text>
+                  <Text style={styles.boardCount}>{hit.items.length}</Text>
+                </View>
+                <LeaderboardList
+                  board={{ ...hit.board, items: hit.items }}
+                  expanded
+                  onToggleExpand={() => {}}
+                  onPressPlayer={onPressPlayer}
+                  query={normalizedQuery}
+                  includeTeam={searchIncludesTeam}
+                  animKey={`${selectedYear}-search-${hit.board.key}`}
+                />
+              </Animated.View>
+            ))
+          )
+        ) : (
+          <>
+            {teamHighlights ? (
+              <View style={styles.overviewBlock}>
+                <GroupHighlights
+                  highlights={teamHighlights}
+                  onPressTeam={onPressTeam}
+                  onPressMatch={onPressMatch}
+                />
+              </View>
+            ) : null}
+            {general ? (
+              <View style={styles.overviewBlock}>
+                <TeamGeneral general={general} outcomes={outcomes} onPressMatch={onPressMatch} />
+                {extraAfterOverview}
+              </View>
+            ) : null}
+
+            <View style={styles.playersSection}>
+              <View style={styles.playersSectionHead}>
+                <Text style={styles.playersSectionKicker}>Giocatori</Text>
+              </View>
+              <TeaserStrip
+                boards={displayBoards}
+                showTeamName={searchIncludesTeam}
+                onSelect={(key) => selectBoardAndScroll(key, true)}
+              />
+
+              {activeBoard ? (
+                <View style={styles.boardBlock}>
+                  <View style={styles.boardHead}>
+                    <View style={[styles.boardIcon, { backgroundColor: `${activeBoard.accent}18` }]}>
+                      <BoardGlyph board={activeBoard} size={16} color={activeBoard.accent} />
+                    </View>
+                    <Text style={styles.boardTitle}>{activeBoard.label}</Text>
+                  </View>
+                  {activeItems.length === 0 ? (
+                    <Text style={styles.emptyText}>{activeBoard.empty}</Text>
+                  ) : null}
+                </View>
+              ) : null}
+            </View>
+          </>
+        )}
+      </View>
+    </>
+  ), [
+    contentInsetTop,
+    visibleLbRows.length,
+    canExpandBoard,
+    years,
+    selectedYear,
+    onSelectYear,
+    query,
+    searchPlaceholder,
+    competitionId,
+    showTrendingPlayers,
+    searching,
+    onPressPlayer,
+    searchIncludesTeam,
+    displayBoards,
+    activeBoard,
+    selectBoardAndScroll,
+    loading,
+    searchHits,
+    normalizedQuery,
+    teamHighlights,
+    onPressTeam,
+    onPressMatch,
+    general,
+    outcomes,
+    extraAfterOverview,
+    activeItems.length,
+  ]);
+
+  const renderListFooter = useCallback(() => {
+    if (searching || loading || !(visibleLbRows.length > 0 || canExpandBoard)) return null;
+    return (
+      <View style={contentInsetTop > 0 ? styles.insetCardBottom : null}>
+        {canExpandBoard ? (
+          <View style={[styles.boardCardSegment, styles.boardCardSegmentLast]}>
+            <TouchableOpacity
+              style={styles.expandBtn}
+              onPress={() => setExpanded((v) => !v)}
+              activeOpacity={0.75}
+            >
+              <Text style={styles.expandText}>
+                {expanded
+                  ? 'Mostra meno'
+                  : `Altri ${activeItems.length - STATS_LEADERBOARD_PREVIEW}`}
+              </Text>
+              <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={16} color="#0f172a" />
+            </TouchableOpacity>
+          </View>
+        ) : null}
+      </View>
+    );
+  }, [
+    searching,
+    loading,
+    visibleLbRows.length,
+    canExpandBoard,
+    contentInsetTop,
+    expanded,
+    activeItems.length,
+  ]);
+
   return (
     <View style={styles.root}>
       {contentInsetTop > 0 ? null : (
@@ -1566,9 +1721,14 @@ export default function OfficialStatsExperience({
           <ActivityIndicator color="#667eea" />
         </View>
       ) : (
-        <ScrollView
+        <FlatList
           ref={setCombinedScrollRef}
           style={styles.scroll}
+          data={visibleLbRows}
+          keyExtractor={lbKeyExtractor}
+          renderItem={renderLbRow}
+          ListHeaderComponent={renderListHeader}
+          ListFooterComponent={renderListFooter}
           contentContainerStyle={[
             styles.scrollContent,
             contentInsetTop > 0 ? styles.scrollContentWithInset : null,
@@ -1583,120 +1743,12 @@ export default function OfficialStatsExperience({
           onScrollBeginDrag={handleScrollBeginDrag}
           onScrollEndDrag={handleScrollEndDrag}
           scrollEventThrottle={16}
-        >
-          {contentInsetTop > 0 ? <View style={{ height: contentInsetTop }} pointerEvents="none" /> : null}
-          <View style={contentInsetTop > 0 ? styles.insetCard : null}>
-            {contentInsetTop > 0 ? (
-              <>
-                <PeriodSelector years={years} selectedYear={selectedYear} onSelectYear={onSelectYear} />
-                <StatsSearchBar
-                  value={query}
-                  onChange={(text) => {
-                    setQuery(text);
-                    setExpanded(false);
-                  }}
-                  placeholder={searchPlaceholder}
-                />
-                <TrendingPlayersStrip
-                  competitionId={competitionId}
-                  visible={showTrendingPlayers && !searching}
-                  onPressPlayer={onPressPlayer}
-                  showTeamName={searchIncludesTeam}
-                />
-                {!searching ? (
-                  <CategoryChips
-                    boards={displayBoards}
-                    selectedKey={activeBoard?.key}
-                    onSelect={(key) => selectBoardAndScroll(key, true)}
-                  />
-                ) : null}
-              </>
-            ) : null}
-            {loading ? (
-              <View style={styles.loadingBox}>
-                <ActivityIndicator color="#667eea" />
-              </View>
-            ) : searching ? (
-              searchHits.length === 0 ? (
-                <Text style={styles.emptyText}>Nessun giocatore trovato.</Text>
-              ) : (
-                searchHits.map((hit, idx) => (
-                  <Animated.View
-                    key={`search-${hit.board.key}`}
-                    entering={FadeIn.delay(idx * 40).duration(220)}
-                    style={styles.searchGroup}
-                  >
-                    <View style={styles.boardHead}>
-                      <View style={[styles.boardIcon, { backgroundColor: `${hit.board.accent}18` }]}>
-                        <BoardGlyph board={hit.board} size={15} color={hit.board.accent} />
-                      </View>
-                      <Text style={styles.boardTitle}>{hit.board.label}</Text>
-                      <Text style={styles.boardCount}>{hit.items.length}</Text>
-                    </View>
-                    <LeaderboardList
-                      board={{ ...hit.board, items: hit.items }}
-                      expanded
-                      onToggleExpand={() => {}}
-                      onPressPlayer={onPressPlayer}
-                      query={normalizedQuery}
-                      includeTeam={searchIncludesTeam}
-                      animKey={`${selectedYear}-search-${hit.board.key}`}
-                    />
-                  </Animated.View>
-                ))
-              )
-            ) : (
-              <>
-                {teamHighlights ? (
-                  <View style={styles.overviewBlock}>
-                    <GroupHighlights
-                      highlights={teamHighlights}
-                      onPressTeam={onPressTeam}
-                      onPressMatch={onPressMatch}
-                    />
-                  </View>
-                ) : null}
-                {general ? (
-                  <View style={styles.overviewBlock}>
-                    <TeamGeneral general={general} outcomes={outcomes} onPressMatch={onPressMatch} />
-                    {extraAfterOverview}
-                  </View>
-                ) : null}
-
-                <View style={styles.playersSection}>
-                  <View style={styles.playersSectionHead}>
-                    <Text style={styles.playersSectionKicker}>Giocatori</Text>
-                  </View>
-                  <TeaserStrip
-                    boards={displayBoards}
-                    showTeamName={searchIncludesTeam}
-                    onSelect={(key) => selectBoardAndScroll(key, true)}
-                  />
-
-                  {activeBoard ? (
-                    <View style={styles.boardBlock}>
-                      <View style={styles.boardHead}>
-                        <View style={[styles.boardIcon, { backgroundColor: `${activeBoard.accent}18` }]}>
-                          <BoardGlyph board={activeBoard} size={16} color={activeBoard.accent} />
-                        </View>
-                        <Text style={styles.boardTitle}>{activeBoard.label}</Text>
-                      </View>
-                      <LeaderboardList
-                        board={activeBoard}
-                        expanded={expanded}
-                        onToggleExpand={() => setExpanded((v) => !v)}
-                        onPressPlayer={onPressPlayer}
-                        query=""
-                        includeTeam={searchIncludesTeam}
-                        animKey={`${selectedYear}-${activeBoard.key}`}
-                      />
-                    </View>
-                  ) : null}
-                </View>
-              </>
-            )}
-          </View>
-        </ScrollView>
+          initialNumToRender={12}
+          windowSize={11}
+          maxToRenderPerBatch={16}
+          updateCellsBatchingPeriod={50}
+          removeClippedSubviews
+        />
       )}
     </View>
   );
@@ -1718,7 +1770,33 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingTop: 12,
     paddingBottom: 12,
-    overflow: 'hidden',
+  },
+  insetCardTop: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 14,
+    borderTopRightRadius: 14,
+    borderWidth: 1,
+    borderBottomWidth: 0,
+    borderColor: '#ececec',
+    paddingHorizontal: 8,
+    paddingTop: 12,
+  },
+  insetCardMid: {
+    backgroundColor: '#fff',
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderColor: '#ececec',
+    paddingHorizontal: 8,
+  },
+  insetCardBottom: {
+    backgroundColor: '#fff',
+    borderBottomLeftRadius: 14,
+    borderBottomRightRadius: 14,
+    borderWidth: 1,
+    borderTopWidth: 0,
+    borderColor: '#ececec',
+    paddingHorizontal: 8,
+    paddingBottom: 12,
   },
   periodWrap: { marginBottom: 2, position: 'relative' },
   periodControl: {
@@ -2291,6 +2369,22 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     backgroundColor: '#fff',
   },
+  boardCardSegment: {
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderColor: '#e5e7eb',
+    backgroundColor: '#fff',
+  },
+  boardCardSegmentFirst: {
+    borderTopWidth: 1,
+    borderTopLeftRadius: 14,
+    borderTopRightRadius: 14,
+  },
+  boardCardSegmentLast: {
+    borderBottomWidth: 1,
+    borderBottomLeftRadius: 14,
+    borderBottomRightRadius: 14,
+  },
   lbRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2299,6 +2393,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: '#eef2f7',
+    minHeight: LB_ROW_HEIGHT,
   },
   lbRowLast: { borderBottomWidth: 0 },
   rankBadge: {
@@ -2332,37 +2427,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 4,
     paddingVertical: 12,
+    minHeight: LB_ROW_HEIGHT,
   },
   expandText: { fontSize: 13, fontWeight: '700', color: '#0f172a' },
-  lbModalRoot: {
-    flex: 1,
-    backgroundColor: '#fff',
-  },
-  lbModalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#e8edf3',
-  },
-  lbModalTitle: {
-    flex: 1,
-    fontSize: 16,
-    fontWeight: '800',
-    color: '#0f172a',
-  },
-  lbModalClose: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#f1f5f9',
-  },
-  lbModalList: { flex: 1 },
-  lbModalListContent: {
-    paddingHorizontal: 12,
-  },
 });
