@@ -176,7 +176,7 @@ export const AuthProvider = ({ children }) => {
 
     const applyUpdateRequired = async (payload) => {
       const info = {
-        message: payload?.message || 'Per continuare devi aggiornare l\'app.',
+        message: payload?.message || 'È disponibile una nuova versione. Aggiorna per scoprire le novità.',
         updateUrl: payload?.update_url || payload?.updateUrl || null,
         minVersionCode: payload?.min_supported_version_code || payload?.minVersionCode || null,
       };

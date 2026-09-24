@@ -26,6 +26,8 @@ import MatchHeroBackgroundOverlay from '../components/MatchHeroBackgroundOverlay
 import SistemaSettingsPanel from '../components/SistemaSettingsPanel';
 import UpdateRequiredScreen, {
   DEFAULT_UPDATE_REQUIRED_MESSAGE,
+  UPDATE_REQUIRED_CTA,
+  UPDATE_REQUIRED_TITLE,
 } from './UpdateRequiredScreen';
 import { useAuth } from '../context/AuthContext';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -5245,21 +5247,36 @@ export default function SuperUserScreen() {
 
               {updateSectionOpen ? (
                 <View style={styles.appSettingsSectionBody}>
-                  <Text style={styles.appSettingsSectionHint}>
-                    Schermata mostrata quando la versione dell’app è sotto il minimo supportato
-                    (versione attuale: {getAppVersionInfo()?.name || '—'}
-                    {getAppVersionInfo()?.code != null ? ` (${getAppVersionInfo().code})` : ''}).
-                  </Text>
+                 
 
                   <Text style={styles.appSettingsPreviewTitle}>Anteprima</Text>
                   <View style={styles.updateRequiredPreviewStage}>
-                    <View style={styles.updateRequiredPreviewCard}>
-                      <Text style={styles.updateRequiredPreviewTitle}>Aggiornamento richiesto</Text>
-                      <Text style={styles.updateRequiredPreviewMessage}>
-                        {DEFAULT_UPDATE_REQUIRED_MESSAGE}
-                      </Text>
-                      <View style={styles.updateRequiredPreviewBtn}>
-                        <Text style={styles.updateRequiredPreviewBtnText}>Aggiorna ora</Text>
+                    {loginBackgroundPreview?.uri ? (
+                      <Image
+                        source={{ uri: loginBackgroundPreview.uri }}
+                        style={StyleSheet.absoluteFillObject}
+                        resizeMode="cover"
+                      />
+                    ) : null}
+                    <View style={styles.updateRequiredPreviewScrim} />
+                    <View style={styles.updateRequiredPreviewInner}>
+                      {loginLogoPreview?.uri ? (
+                        <Image
+                          source={{ uri: loginLogoPreview.uri }}
+                          style={styles.updateRequiredPreviewLogo}
+                          resizeMode="contain"
+                        />
+                      ) : (
+                        <Text style={styles.updateRequiredPreviewBrand}>FANTACOPPA</Text>
+                      )}
+                      <View style={styles.updateRequiredPreviewCard}>
+                        <Text style={styles.updateRequiredPreviewTitle}>{UPDATE_REQUIRED_TITLE}</Text>
+                        <Text style={styles.updateRequiredPreviewMessage} numberOfLines={3}>
+                          {DEFAULT_UPDATE_REQUIRED_MESSAGE}
+                        </Text>
+                        <View style={styles.updateRequiredPreviewBtn}>
+                          <Text style={styles.updateRequiredPreviewBtnText}>{UPDATE_REQUIRED_CTA}</Text>
+                        </View>
                       </View>
                     </View>
                   </View>
@@ -7825,6 +7842,8 @@ export default function SuperUserScreen() {
           previewMode
           onClose={() => setUpdateSimulateOpen(false)}
           updateInfo={{ message: DEFAULT_UPDATE_REQUIRED_MESSAGE }}
+          backgroundUri={loginBackgroundPreview?.uri || null}
+          logoUri={loginLogoPreview?.uri || null}
         />
       </Modal>
 
@@ -12061,49 +12080,74 @@ const styles = StyleSheet.create({
   },
   updateRequiredPreviewStage: {
     width: '100%',
+    minHeight: 320,
     borderRadius: 14,
     overflow: 'hidden',
-    backgroundColor: '#f4f6fb',
+    backgroundColor: '#f5f5f5',
     borderWidth: 1,
     borderColor: '#e2e8f0',
-    paddingVertical: 22,
+  },
+  updateRequiredPreviewScrim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(245, 245, 245, 0.42)',
+  },
+  updateRequiredPreviewInner: {
+    flex: 1,
     paddingHorizontal: 16,
+    paddingVertical: 20,
+    justifyContent: 'center',
+    minHeight: 320,
+  },
+  updateRequiredPreviewLogo: {
+    width: 120,
+    height: 72,
+    alignSelf: 'center',
+    marginBottom: 14,
+  },
+  updateRequiredPreviewBrand: {
+    alignSelf: 'center',
+    fontSize: 14,
+    fontWeight: '900',
+    letterSpacing: 2,
+    color: '#2c3e50',
+    marginBottom: 14,
   },
   updateRequiredPreviewCard: {
     backgroundColor: '#fff',
-    borderRadius: 14,
-    paddingVertical: 18,
-    paddingHorizontal: 16,
-    borderWidth: 1,
-    borderColor: '#e8edf5',
+    borderRadius: 12,
+    paddingVertical: 16,
+    paddingHorizontal: 14,
     shadowColor: '#000',
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
     elevation: 2,
   },
   updateRequiredPreviewTitle: {
     fontSize: 18,
-    fontWeight: '700',
-    color: '#1f2937',
+    fontWeight: '800',
+    color: '#2c3e50',
     marginBottom: 8,
+    textAlign: 'center',
   },
   updateRequiredPreviewMessage: {
-    fontSize: 14,
-    color: '#4b5563',
-    lineHeight: 20,
+    fontSize: 13,
+    color: '#555',
+    lineHeight: 18,
     marginBottom: 14,
+    textAlign: 'center',
   },
   updateRequiredPreviewBtn: {
-    backgroundColor: '#667eea',
+    backgroundColor: '#198754',
     borderRadius: 10,
     alignItems: 'center',
     paddingVertical: 12,
   },
   updateRequiredPreviewBtnText: {
     color: '#fff',
-    fontSize: 14,
-    fontWeight: '700',
+    fontSize: 15,
+    fontWeight: '800',
+    letterSpacing: 0.4,
   },
   appSettingsPreviewTitle: {
     fontSize: 12,

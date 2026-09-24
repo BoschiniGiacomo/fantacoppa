@@ -17,7 +17,7 @@ export async function readPersistedForceUpdate() {
       return null;
     }
     return {
-      message: parsed.message || 'Per continuare devi aggiornare l\'app.',
+      message: parsed.message || 'È disponibile una nuova versione. Aggiorna per scoprire le novità.',
       updateUrl: parsed.updateUrl || null,
       minVersionCode: parsed.minVersionCode || null,
     };
@@ -31,7 +31,7 @@ export async function persistForceUpdate(info) {
     await AsyncStorage.setItem(
       FORCE_UPDATE_STORAGE_KEY,
       JSON.stringify({
-        message: info?.message || 'Per continuare devi aggiornare l\'app.',
+        message: info?.message || 'È disponibile una nuova versione. Aggiorna per scoprire le novità.',
         updateUrl: info?.updateUrl || null,
         minVersionCode: info?.minVersionCode || null,
       }),
