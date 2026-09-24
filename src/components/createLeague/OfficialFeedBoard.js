@@ -1,78 +1,87 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useMemo } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
   ActivityIndicator,
-  Animated,
 } from 'react-native';
-import Svg, {
-  Path,
-  Circle,
-  Rect,
-  Defs,
-  LinearGradient,
-  Stop,
-  G,
-} from 'react-native-svg';
+import { TeamLogoImage } from '../StableCachedImage';
 
 /**
- * Scudetto / feed LED: Rosa libera vs Lega ufficiale.
- * Stesso linguaggio immersivo di accesso/tornelli, metafora nuova (crest + segnale).
+ * Switch custom Libera/Ufficiale + “pagina” a fianco:
+ * vuota (righe da scrivere) oppure piena (loghi + n. giocatori).
  */
-function CrestGlyph({ lit = false, size = 56, gid = 'crest' }) {
-  const stroke = lit ? '#1e3a8a' : '#94a3b8';
-  const fill = lit ? `url(#${gid})` : '#f1f5f9';
-  const star = lit ? '#fbbf24' : '#cbd5e1';
-
+function BlankPage() {
   return (
-    <Svg width={size} height={size} viewBox="0 0 64 64">
-      <Defs>
-        <LinearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
-          <Stop offset="0" stopColor="#818cf8" />
-          <Stop offset="1" stopColor="#4338ca" />
-        </LinearGradient>
-      </Defs>
-      <Path
-        d="M32 6 C22 6 14 10 12 14 L12 34 C12 46 20 54 32 58 C44 54 52 46 52 34 L52 14 C50 10 42 6 32 6 Z"
-        fill={fill}
-        stroke={stroke}
-        strokeWidth={lit ? 2.2 : 1.8}
-      />
-      {lit ? (
-        <G>
-          <Path
-            d="M32 18 L34.2 24.2 L40.8 24.4 L35.6 28.4 L37.4 34.8 L32 31.2 L26.6 34.8 L28.4 28.4 L23.2 24.4 L29.8 24.2 Z"
-            fill={star}
-          />
-          <Rect x="24" y="40" width="16" height="3.5" rx="1.75" fill="#c7d2fe" opacity={0.9} />
-        </G>
-      ) : (
-        <G opacity={0.55}>
-          <Circle cx="32" cy="28" r="6" fill="none" stroke={stroke} strokeWidth={1.6} strokeDasharray="3 3" />
-          <Rect x="24" y="40" width="16" height="3.5" rx="1.75" fill={stroke} opacity={0.35} />
-        </G>
-      )}
-    </Svg>
+    <View style={styles.pageInner}>
+      <View style={styles.pageHeaderLine} />
+      {[0.92, 0.78, 0.85, 0.55, 0.7].map((w, i) => (
+        <View
+          key={`line-${i}`}
+          style={[styles.ruledLine, { width: `${w * 100}%`, marginTop: i === 0 ? 14 : 10 }]}
+        />
+      ))}
+      <Text style={styles.blankHint}>Pagina vuota</Text>
+    </View>
   );
 }
 
-function SignalBars({ active }) {
-  const heights = [8, 12, 16, 20];
+function TeamPip({ team }) {
+  const path = String(team?.logo_path || '').trim();
+  if (path) {
+    return (
+      <TeamLogoImage
+        logoPath={path}
+        style={styles.logo}
+        fallbackStyle={[styles.logoFallback, { backgroundColor: `${team.jersey_color || '#667eea'}22` }]}
+        fallbackIconSize={14}
+      />
+    );
+  }
+  const color = team?.jersey_color || '#667eea';
   return (
-    <View style={styles.signalRow}>
-      {heights.map((h, i) => (
-        <View
-          key={`bar-${i}`}
-          style={[
-            styles.signalBar,
-            { height: h },
-            active ? styles.signalBarOn : styles.signalBarOff,
-            active && i < 3 ? null : active ? { opacity: 0.35 } : null,
-          ]}
-        />
-      ))}
+    <View style={[styles.logoFallback, { backgroundColor: `${color}28`, borderColor: `${color}55` }]}>
+      <View style={[styles.logoDot, { backgroundColor: color }]} />
+    </View>
+  );
+}
+
+function FilledPage({ league }) {
+  const logos = Array.isArray(league?.team_logos) ? league.team_logos.slice(0, 8) : [];
+  const players = Number(league?.player_count) || 0;
+  const teams = Number(league?.team_count) || 0;
+
+  return (
+    <View style={styles.pageInner}>
+      <Text style={styles.pageTitle} numberOfLines={1}>
+        {league?.name || 'Lega ufficiale'}
+      </Text>
+      {league?.official_group_name ? (
+        <Text style={styles.pageGroup} numberOfLines={1}>
+          {league.official_group_name}
+        </Text>
+      ) : null}
+
+      <View style={styles.logoGrid}>
+        {logos.length > 0
+          ? logos.map((t, i) => (
+              <TeamPip key={`${t.name || 't'}-${i}`} team={t} />
+            ))
+          : Array.from({ length: Math.min(6, Math.max(teams, 4)) }).map((_, i) => (
+              <View key={`ph-${i}`} style={styles.logoFallback}>
+                <View style={styles.logoDot} />
+              </View>
+            ))}
+      </View>
+
+      <View style={styles.statRow}>
+        <Text style={styles.statValue}>{players}</Text>
+        <Text style={styles.statLabel}>giocatori</Text>
+        <Text style={styles.statSep}>·</Text>
+        <Text style={styles.statValue}>{teams}</Text>
+        <Text style={styles.statLabel}>squadre</Text>
+      </View>
     </View>
   );
 }
@@ -86,339 +95,252 @@ export default function OfficialFeedBoard({
   onSelect,
   error,
 }) {
-  const pulse = useRef(new Animated.Value(enabled ? 1 : 0)).current;
-
-  useEffect(() => {
-    Animated.spring(pulse, {
-      toValue: enabled ? 1 : 0,
-      friction: 8,
-      tension: 120,
-      useNativeDriver: true,
-    }).start();
-  }, [enabled, pulse]);
-
-  const boardScale = pulse.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0.98, 1],
-  });
+  const selected = useMemo(
+    () => leagues.find((l) => l.id === selectedId) || leagues[0] || null,
+    [leagues, selectedId]
+  );
 
   return (
     <View style={styles.wrap}>
-      <View style={styles.segment}>
-        <TouchableOpacity
-          style={[styles.segBtn, !enabled && styles.segBtnOnFree]}
-          onPress={() => onToggle(false)}
-          activeOpacity={0.85}
-        >
-          <View style={[styles.miniCrest, !enabled && styles.miniCrestFree]}>
-            <CrestGlyph lit={false} size={36} gid="crestMiniFree" />
-          </View>
-          <Text style={[styles.segTitle, !enabled && styles.segTitleOnFree]}>Libera</Text>
-          <Text style={[styles.segSub, !enabled && styles.segSubOnFree]}>Rosa tua</Text>
-        </TouchableOpacity>
+      <View style={styles.row}>
+        {/* Switch custom verticale */}
+        <View style={styles.switchRail}>
+          <TouchableOpacity
+            style={[styles.switchOpt, !enabled && styles.switchOptOnFree]}
+            onPress={() => onToggle(false)}
+            activeOpacity={0.85}
+          >
+            <Text style={[styles.switchText, !enabled && styles.switchTextOnFree]}>Libera</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.switchOpt, enabled && styles.switchOptOnOff]}
+            onPress={() => onToggle(true)}
+            activeOpacity={0.85}
+          >
+            <Text style={[styles.switchText, enabled && styles.switchTextOnOff]}>Ufficiale</Text>
+          </TouchableOpacity>
+        </View>
 
-        <TouchableOpacity
-          style={[styles.segBtn, enabled && styles.segBtnOnOfficial]}
-          onPress={() => onToggle(true)}
-          activeOpacity={0.85}
-        >
-          <View style={[styles.miniCrest, enabled && styles.miniCrestOfficial]}>
-            <CrestGlyph lit size={36} gid="crestMiniOfficial" />
-          </View>
-          <Text style={[styles.segTitle, enabled && styles.segTitleOnOfficial]}>Ufficiale</Text>
-          <Text style={[styles.segSub, enabled && styles.segSubOnOfficial]}>Voti e rosa</Text>
-        </TouchableOpacity>
+        {/* Pagina finta */}
+        <View style={[styles.page, enabled ? styles.pageFilled : styles.pageBlank]}>
+          {enabled ? (
+            loading && !selected ? (
+              <ActivityIndicator size="small" color="#667eea" style={{ marginTop: 28 }} />
+            ) : selected ? (
+              <FilledPage league={selected} />
+            ) : (
+              <Text style={styles.emptyMini}>Nessuna lega</Text>
+            )
+          ) : (
+            <BlankPage />
+          )}
+        </View>
       </View>
 
-      <Animated.View
-        style={[
-          styles.board,
-          enabled ? styles.boardOn : styles.boardOff,
-          { transform: [{ scale: boardScale }] },
-        ]}
-      >
-        <View style={styles.boardTop}>
-          <View style={styles.boardLedRow}>
-            <View style={[styles.ledDot, enabled && styles.ledDotOn]} />
-            <View style={[styles.ledDot, enabled && styles.ledDotOn]} />
-            <View style={[styles.ledDot, enabled && styles.ledDotOn]} />
-          </View>
-          <Text style={[styles.boardEyebrow, enabled && styles.boardEyebrowOn]}>
-            {enabled ? 'FEED CAMPIONATO' : 'SENZA FEED'}
-          </Text>
-          <SignalBars active={enabled} />
+      {enabled && leagues.length > 1 ? (
+        <View style={styles.chips}>
+          {leagues.map((league) => {
+            const on = selectedId === league.id;
+            return (
+              <TouchableOpacity
+                key={league.id}
+                style={[styles.chip, on && styles.chipOn]}
+                onPress={() => onSelect?.(league)}
+                activeOpacity={0.85}
+              >
+                <Text style={[styles.chipText, on && styles.chipTextOn]} numberOfLines={1}>
+                  {league.name}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
         </View>
-
-        <View style={styles.boardBody}>
-          <CrestGlyph lit={enabled} size={64} gid="crestBoardMain" />
-          <View style={styles.boardCopy}>
-            <Text style={[styles.boardTitle, enabled && styles.boardTitleOn]}>
-              {enabled ? 'Collegata al tabellone' : 'Rosa indipendente'}
-            </Text>
-            <Text style={styles.boardHint}>
-              {enabled
-                ? 'Giocatori e voti dalla lega ufficiale'
-                : 'Niente collegamento al campionato'}
-            </Text>
-          </View>
-        </View>
-
-        {enabled ? (
-          <View style={styles.channels}>
-            {loading ? (
-              <ActivityIndicator size="small" color="#4338ca" style={{ paddingVertical: 14 }} />
-            ) : leagues.length === 0 ? (
-              <Text style={styles.empty}>Nessuna lega ufficiale disponibile</Text>
-            ) : (
-              leagues.map((league) => {
-                const selected = selectedId === league.id;
-                return (
-                  <TouchableOpacity
-                    key={league.id}
-                    style={[styles.channel, selected && styles.channelOn]}
-                    onPress={() => onSelect?.(league)}
-                    activeOpacity={0.85}
-                  >
-                    <View style={[styles.channelPip, selected && styles.channelPipOn]} />
-                    <View style={styles.channelCopy}>
-                      <Text style={[styles.channelName, selected && styles.channelNameOn]}>
-                        {league.name}
-                      </Text>
-                      {league.official_group_name ? (
-                        <Text style={styles.channelGroup}>{league.official_group_name}</Text>
-                      ) : null}
-                      <Text style={styles.channelMeta}>
-                        {league.team_count} squadre · {league.player_count} giocatori
-                      </Text>
-                    </View>
-                    <Text style={[styles.channelMark, selected && styles.channelMarkOn]}>
-                      {selected ? 'ON' : '—'}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })
-            )}
-          </View>
-        ) : null}
-      </Animated.View>
+      ) : null}
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
     </View>
   );
 }
 
+const PAGE_H = 132;
+
 const styles = StyleSheet.create({
   wrap: {
     marginBottom: 14,
   },
-  segment: {
+  row: {
     flexDirection: 'row',
+    alignItems: 'stretch',
     gap: 10,
-    marginBottom: 12,
   },
-  segBtn: {
-    flex: 1,
-    backgroundColor: '#fff',
+  switchRail: {
+    width: 92,
+    backgroundColor: '#f1f5f9',
     borderRadius: 14,
     borderWidth: 1.5,
     borderColor: '#e2e8f0',
-    paddingVertical: 12,
-    paddingHorizontal: 10,
+    padding: 4,
+    justifyContent: 'space-between',
+  },
+  switchOpt: {
+    flex: 1,
+    borderRadius: 10,
     alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
   },
-  segBtnOnFree: {
+  switchOptOnFree: {
+    backgroundColor: '#fff',
+    borderWidth: 1.5,
     borderColor: '#86efac',
-    backgroundColor: '#f0fdf4',
   },
-  segBtnOnOfficial: {
+  switchOptOnOff: {
+    backgroundColor: '#fff',
+    borderWidth: 1.5,
     borderColor: '#a5b4fc',
-    backgroundColor: '#eef2ff',
   },
-  miniCrest: {
-    marginBottom: 6,
-    opacity: 0.55,
-  },
-  miniCrestFree: {
-    opacity: 1,
-  },
-  miniCrestOfficial: {
-    opacity: 1,
-  },
-  segTitle: {
-    fontSize: 14,
+  switchText: {
+    fontSize: 12,
     fontWeight: '800',
     color: '#94a3b8',
   },
-  segTitleOnFree: {
+  switchTextOnFree: {
     color: '#166534',
   },
-  segTitleOnOfficial: {
+  switchTextOnOff: {
     color: '#1e3a8a',
   },
-  segSub: {
-    marginTop: 2,
-    fontSize: 11,
-    fontWeight: '500',
-    color: '#cbd5e1',
-  },
-  segSubOnFree: {
-    color: '#4ade80',
-  },
-  segSubOnOfficial: {
-    color: '#818cf8',
-  },
-  board: {
-    borderRadius: 16,
+  page: {
+    flex: 1,
+    minHeight: PAGE_H,
+    borderRadius: 14,
     borderWidth: 1.5,
-    paddingTop: 12,
-    paddingBottom: 10,
-    paddingHorizontal: 12,
     overflow: 'hidden',
   },
-  boardOff: {
-    backgroundColor: '#f8fafc',
-    borderColor: '#e2e8f0',
+  pageBlank: {
+    backgroundColor: '#fffef8',
+    borderColor: '#e7e2d6',
   },
-  boardOn: {
-    backgroundColor: '#0f172a',
-    borderColor: '#312e81',
+  pageFilled: {
+    backgroundColor: '#fff',
+    borderColor: '#c7d2fe',
   },
-  boardTop: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 10,
-  },
-  boardLedRow: {
-    flexDirection: 'row',
-    gap: 4,
-  },
-  ledDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#cbd5e1',
-  },
-  ledDotOn: {
-    backgroundColor: '#4ade80',
-  },
-  boardEyebrow: {
+  pageInner: {
     flex: 1,
-    marginHorizontal: 10,
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 1.1,
-    color: '#94a3b8',
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 10,
   },
-  boardEyebrowOn: {
-    color: '#a5b4fc',
-  },
-  signalRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 3,
-    height: 20,
-  },
-  signalBar: {
-    width: 4,
-    borderRadius: 2,
-  },
-  signalBarOff: {
-    backgroundColor: '#cbd5e1',
-  },
-  signalBarOn: {
-    backgroundColor: '#34d399',
-  },
-  boardBody: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingVertical: 4,
-  },
-  boardCopy: {
-    flex: 1,
-  },
-  boardTitle: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: '#334155',
-    marginBottom: 2,
-  },
-  boardTitleOn: {
-    color: '#f8fafc',
-  },
-  boardHint: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: '#94a3b8',
-    lineHeight: 16,
-  },
-  channels: {
-    marginTop: 12,
-    gap: 8,
-  },
-  channel: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(165,180,252,0.25)',
-    paddingVertical: 10,
-    paddingHorizontal: 10,
-  },
-  channelOn: {
-    backgroundColor: 'rgba(99,102,241,0.22)',
-    borderColor: '#818cf8',
-  },
-  channelPip: {
-    width: 8,
+  pageHeaderLine: {
     height: 8,
+    width: '42%',
     borderRadius: 4,
-    backgroundColor: '#475569',
+    backgroundColor: '#e8e4d8',
   },
-  channelPipOn: {
-    backgroundColor: '#4ade80',
+  ruledLine: {
+    height: 2,
+    borderRadius: 1,
+    backgroundColor: '#ded8ca',
   },
-  channelCopy: {
-    flex: 1,
+  blankHint: {
+    marginTop: 'auto',
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#b0a890',
   },
-  channelName: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#e2e8f0',
+  pageTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#1e3a8a',
   },
-  channelNameOn: {
-    color: '#fff',
-  },
-  channelGroup: {
+  pageGroup: {
     marginTop: 1,
     fontSize: 11,
     fontWeight: '600',
-    color: '#a5b4fc',
+    color: '#818cf8',
   },
-  channelMeta: {
-    marginTop: 2,
+  logoGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 10,
+  },
+  logo: {
+    width: 26,
+    height: 26,
+    borderRadius: 7,
+  },
+  logoFallback: {
+    width: 26,
+    height: 26,
+    borderRadius: 7,
+    backgroundColor: '#eef2ff',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  logoDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#94a3b8',
+  },
+  statRow: {
+    marginTop: 'auto',
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 4,
+    paddingTop: 8,
+  },
+  statValue: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#0f172a',
+  },
+  statLabel: {
     fontSize: 11,
-    fontWeight: '500',
+    fontWeight: '600',
     color: '#64748b',
   },
-  channelMark: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#475569',
-    letterSpacing: 0.5,
+  statSep: {
+    fontSize: 12,
+    color: '#cbd5e1',
+    marginHorizontal: 2,
   },
-  channelMarkOn: {
-    color: '#4ade80',
-  },
-  empty: {
+  emptyMini: {
     textAlign: 'center',
-    paddingVertical: 12,
-    fontSize: 13,
+    marginTop: 40,
+    fontSize: 12,
     fontWeight: '600',
     color: '#94a3b8',
+  },
+  chips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 8,
+  },
+  chip: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: '#f1f5f9',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    maxWidth: '48%',
+  },
+  chipOn: {
+    backgroundColor: '#eef2ff',
+    borderColor: '#a5b4fc',
+  },
+  chipText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#64748b',
+  },
+  chipTextOn: {
+    color: '#1e3a8a',
   },
   error: {
     marginTop: 8,
