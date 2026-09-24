@@ -256,11 +256,14 @@ export default function LeaguesScreen({ navigation }) {
         activeOpacity={0.85}
       >
         <View style={styles.leagueHeader}>
-          <Ionicons
-            name={isOfficial ? 'ribbon' : 'trophy'}
-            size={24}
-            color={isOfficial ? '#667eea' : '#f0a500'}
-          />
+          <View style={styles.trophyIconWrap}>
+            <Ionicons name="trophy" size={24} color="#f0a500" />
+            {isOfficial ? (
+              <View style={styles.officialMark}>
+                <Ionicons name="ribbon" size={9} color="#667eea" />
+              </View>
+            ) : null}
+          </View>
           <Text style={styles.leagueName} numberOfLines={1}>{item.name}</Text>
           <View style={styles.usersContainer}>
             <Ionicons name="people-outline" size={16} color="#999" />
@@ -931,6 +934,25 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 10,
+  },
+  trophyIconWrap: {
+    width: 26,
+    height: 26,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  officialMark: {
+    position: 'absolute',
+    right: -5,
+    bottom: -3,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: '#eef2ff',
+    borderWidth: 1,
+    borderColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   leagueName: {
     flex: 1,
