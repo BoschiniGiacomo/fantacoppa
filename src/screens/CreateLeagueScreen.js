@@ -255,12 +255,15 @@ export default function CreateLeagueScreen({ navigation }) {
   const [loadingOfficialLeagues, setLoadingOfficialLeagues] = useState(false);
   
   // Fetch official leagues when toggle is enabled
-  const fetchOfficialLeagues = async () => {
-    if (officialLeagues.length > 0) return; // Already loaded
+  const fetchOfficialLeagues = async (force = false) => {
+    if (!force && officialLeagues.length > 0) return;
     try {
       setLoadingOfficialLeagues(true);
       const response = await leagueService.getAvailableOfficialLeagues();
-      setOfficialLeagues(response.data || []);
+      const leagues = Array.isArray(response?.data)
+        ? response.data
+        : (Array.isArray(response) ? response : []);
+      setOfficialLeagues(leagues);
     } catch (error) {
       console.error('Error fetching official leagues:', error);
       showToast('Impossibile caricare le leghe ufficiali disponibili', 'error');
@@ -293,9 +296,22 @@ export default function CreateLeagueScreen({ navigation }) {
   // Fetch official leagues only if user enables toggle and list is still empty
   useEffect(() => {
     if (linkToOfficial && officialLeagues.length === 0) {
-      fetchOfficialLeagues();
+      fetchOfficialLeagues(true);
     }
   }, [linkToOfficial, officialLeagues.length]);
+
+  // Se la lista cambia, tieni una selezione valida
+  useEffect(() => {
+    if (!linkToOfficial || officialLeagues.length === 0) return;
+    const stillValid = officialLeagues.some((l) => l.id === formData.linkedToLeagueId);
+    if (!stillValid) {
+      setFormData((prev) => ({
+        ...prev,
+        linkedToLeagueId: officialLeagues[0].id,
+        linkedLeagueName: officialLeagues[0].name || '',
+      }));
+    }
+  }, [linkToOfficial, officialLeagues, formData.linkedToLeagueId]);
   
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [draftLoaded, setDraftLoaded] = useState(false);
@@ -770,7 +786,7 @@ export default function CreateLeagueScreen({ navigation }) {
             clearFieldError('officialLeague');
             setLinkToOfficial(value);
             if (value) {
-              fetchOfficialLeagues();
+              fetchOfficialLeagues(true);
               if (!formData.linkedToLeagueId && officialLeagues[0]) {
                 setFormData((prev) => ({
                   ...prev,

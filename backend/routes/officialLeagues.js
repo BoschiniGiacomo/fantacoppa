@@ -54,7 +54,6 @@ router.get('/available', authenticateToken, async (_req, res) => {
        LEFT JOIN official_league_groups og ON og.id = l.official_group_id
        WHERE COALESCE(l.is_official, 0) = 1
          AND COALESCE(l.is_visible_for_linking, 1) = 1
-         AND COALESCE(l.is_hidden_from_discovery, 0) = 0
        ORDER BY l.name ASC, l.id ASC`
     );
 

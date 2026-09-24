@@ -10,8 +10,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { TeamLogoImage } from '../StableCachedImage';
 
 /**
- * Switch Libera/Ufficiale + pagina a fianco.
- * Con più leghe: indice sotto, stessa carta crema (niente chip blu).
+ * Switch Libera/Ufficiale + pagina/i a fianco.
+ * Con più leghe: tutte le carte in lista, selezionabili.
  */
 function BlankPage() {
   return (
@@ -40,121 +40,80 @@ function BlankPage() {
   );
 }
 
-function TeamPip({ team }) {
+function TeamPip({ team, size = 26 }) {
   const path = String(team?.logo_path || '').trim();
+  const dim = { width: size, height: size, borderRadius: Math.round(size * 0.27) };
   if (path) {
     return (
       <TeamLogoImage
         logoPath={path}
-        style={styles.logo}
-        fallbackStyle={[styles.logoFallback, { backgroundColor: `${team.jersey_color || '#667eea'}22` }]}
-        fallbackIconSize={14}
+        style={dim}
+        fallbackStyle={[styles.logoFallback, dim, { backgroundColor: `${team.jersey_color || '#667eea'}22` }]}
+        fallbackIconSize={Math.round(size * 0.5)}
       />
     );
   }
   const color = team?.jersey_color || '#667eea';
   return (
-    <View style={[styles.logoFallback, { backgroundColor: `${color}28`, borderColor: `${color}55` }]}>
+    <View style={[styles.logoFallback, dim, { backgroundColor: `${color}28`, borderColor: `${color}55` }]}>
       <View style={[styles.logoDot, { backgroundColor: color }]} />
     </View>
   );
 }
 
-function MiniLogos({ league, max = 4 }) {
-  const logos = Array.isArray(league?.team_logos) ? league.team_logos.slice(0, max) : [];
-  if (logos.length === 0) {
-    return (
-      <View style={styles.miniLogoRow}>
-        {[0, 1, 2].map((i) => (
-          <View key={`m-${i}`} style={styles.miniLogoPh} />
-        ))}
-      </View>
-    );
-  }
-  return (
-    <View style={styles.miniLogoRow}>
-      {logos.map((t, i) => (
-        <View key={`${t.name || 't'}-${i}`} style={styles.miniLogoWrap}>
-          <TeamPip team={t} />
-        </View>
-      ))}
-    </View>
-  );
-}
-
-function FilledPage({ league }) {
-  const logos = Array.isArray(league?.team_logos) ? league.team_logos.slice(0, 8) : [];
+function LeaguePageCard({ league, selected, onPress, compact }) {
+  const logos = Array.isArray(league?.team_logos) ? league.team_logos.slice(0, compact ? 5 : 8) : [];
   const players = Number(league?.player_count) || 0;
   const teams = Number(league?.team_count) || 0;
+  const logoSize = compact ? 22 : 26;
 
   return (
-    <View style={styles.pageInner}>
-      <Text style={styles.pageTitle} numberOfLines={1}>
-        {league?.name || 'Lega ufficiale'}
-      </Text>
-      {league?.official_group_name ? (
-        <Text style={styles.pageGroup} numberOfLines={1}>
-          {league.official_group_name}
-        </Text>
-      ) : null}
-
-      <View style={styles.logoGrid}>
-        {logos.length > 0
-          ? logos.map((t, i) => (
-              <TeamPip key={`${t.name || 't'}-${i}`} team={t} />
-            ))
-          : Array.from({ length: Math.min(6, Math.max(teams, 4)) }).map((_, i) => (
-              <View key={`ph-${i}`} style={styles.logoFallback}>
-                <View style={styles.logoDot} />
-              </View>
-            ))}
-      </View>
-
-      <View style={styles.statRow}>
-        <Text style={styles.statValue}>{players}</Text>
-        <Text style={styles.statLabel}>giocatori</Text>
-        <Text style={styles.statSep}>·</Text>
-        <Text style={styles.statValue}>{teams}</Text>
-        <Text style={styles.statLabel}>squadre</Text>
-      </View>
-    </View>
-  );
-}
-
-function LeagueIndex({ leagues, selectedId, onSelect }) {
-  return (
-    <View style={styles.indexSheet}>
-      <Text style={styles.indexLabel}>Scegli quale collegare</Text>
-      {leagues.map((league, idx) => {
-        const on = selectedId === league.id || (!selectedId && idx === 0);
-        const players = Number(league.player_count) || 0;
-        return (
-          <TouchableOpacity
-            key={league.id}
-            style={[
-              styles.indexRow,
-              on && styles.indexRowOn,
-              idx === leagues.length - 1 && styles.indexRowLast,
-            ]}
-            onPress={() => onSelect?.(league)}
-            activeOpacity={0.85}
-          >
-            <View style={[styles.indexMark, on && styles.indexMarkOn]} />
-            <View style={styles.indexCopy}>
-              <Text style={[styles.indexName, on && styles.indexNameOn]} numberOfLines={1}>
-                {league.name}
+    <TouchableOpacity
+      style={[styles.page, styles.pageSheet, selected && styles.pageSelected]}
+      onPress={onPress}
+      activeOpacity={onPress ? 0.88 : 1}
+      disabled={!onPress}
+    >
+      <View style={styles.pageInner}>
+        <View style={styles.pageTopRow}>
+          <View style={styles.pageTitleCol}>
+            <Text style={styles.pageTitle} numberOfLines={1}>
+              {league?.name || 'Lega ufficiale'}
+            </Text>
+            {league?.official_group_name ? (
+              <Text style={styles.pageGroup} numberOfLines={1}>
+                {league.official_group_name}
               </Text>
-              <Text style={styles.indexMeta} numberOfLines={1}>
-                {[league.official_group_name, players ? `${players} giocatori` : null]
-                  .filter(Boolean)
-                  .join(' · ')}
-              </Text>
+            ) : null}
+          </View>
+          {onPress ? (
+            <View style={[styles.radio, selected && styles.radioOn]}>
+              {selected ? <View style={styles.radioDot} /> : null}
             </View>
-            <MiniLogos league={league} />
-          </TouchableOpacity>
-        );
-      })}
-    </View>
+          ) : null}
+        </View>
+
+        <View style={styles.logoGrid}>
+          {logos.length > 0
+            ? logos.map((t, i) => (
+                <TeamPip key={`${t.name || 't'}-${i}`} team={t} size={logoSize} />
+              ))
+            : Array.from({ length: Math.min(6, Math.max(teams, 4)) }).map((_, i) => (
+                <View key={`ph-${i}`} style={[styles.logoFallback, { width: logoSize, height: logoSize }]}>
+                  <View style={styles.logoDot} />
+                </View>
+              ))}
+        </View>
+
+        <View style={styles.statRow}>
+          <Text style={styles.statValue}>{players}</Text>
+          <Text style={styles.statLabel}>giocatori</Text>
+          <Text style={styles.statSep}>·</Text>
+          <Text style={styles.statValue}>{teams}</Text>
+          <Text style={styles.statLabel}>squadre</Text>
+        </View>
+      </View>
+    </TouchableOpacity>
   );
 }
 
@@ -167,11 +126,12 @@ export default function OfficialFeedBoard({
   onSelect,
   error,
 }) {
+  const list = Array.isArray(leagues) ? leagues : [];
   const selected = useMemo(
-    () => leagues.find((l) => l.id === selectedId) || leagues[0] || null,
-    [leagues, selectedId]
+    () => list.find((l) => l.id === selectedId) || list[0] || null,
+    [list, selectedId]
   );
-  const multi = enabled && leagues.length > 1;
+  const multi = list.length > 1;
 
   return (
     <View style={styles.wrap}>
@@ -198,35 +158,42 @@ export default function OfficialFeedBoard({
           </TouchableOpacity>
         </View>
 
-        <View style={[styles.page, styles.pageSheet]}>
-          {enabled ? (
-            loading && !selected ? (
-              <ActivityIndicator size="small" color="#78716c" style={{ marginTop: 28 }} />
-            ) : selected ? (
-              <FilledPage league={selected} />
-            ) : (
+        <View style={styles.pagesCol}>
+          {!enabled ? (
+            <View style={[styles.page, styles.pageSheet]}>
+              <BlankPage />
+            </View>
+          ) : loading && list.length === 0 ? (
+            <View style={[styles.page, styles.pageSheet, styles.pageCenter]}>
+              <ActivityIndicator size="small" color="#78716c" />
+            </View>
+          ) : list.length === 0 ? (
+            <View style={[styles.page, styles.pageSheet, styles.pageCenter]}>
               <Text style={styles.emptyMini}>Nessuna lega</Text>
-            )
+            </View>
+          ) : multi ? (
+            list.map((league) => {
+              const isOn = selected?.id === league.id;
+              return (
+                <LeaguePageCard
+                  key={league.id}
+                  league={league}
+                  selected={isOn}
+                  compact
+                  onPress={() => onSelect?.(league)}
+                />
+              );
+            })
           ) : (
-            <BlankPage />
+            <LeaguePageCard league={selected} selected />
           )}
         </View>
       </View>
-
-      {multi ? (
-        <LeagueIndex
-          leagues={leagues}
-          selectedId={selectedId}
-          onSelect={onSelect}
-        />
-      ) : null}
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
     </View>
   );
 }
-
-const PAGE_H = 132;
 
 const styles = StyleSheet.create({
   wrap: {
@@ -245,6 +212,7 @@ const styles = StyleSheet.create({
     borderColor: '#e2e8f0',
     padding: 4,
     justifyContent: 'space-between',
+    alignSelf: 'stretch',
   },
   switchOpt: {
     flex: 1,
@@ -279,22 +247,42 @@ const styles = StyleSheet.create({
   switchTextOnOff: {
     color: '#1e3a8a',
   },
-  page: {
+  pagesCol: {
     flex: 1,
-    minHeight: PAGE_H,
+    gap: 8,
+  },
+  page: {
     borderRadius: 14,
     borderWidth: 1.5,
     overflow: 'hidden',
+    minHeight: 120,
   },
   pageSheet: {
     backgroundColor: '#fffef8',
     borderColor: '#e7e2d6',
   },
+  pageSelected: {
+    borderColor: '#a8a29e',
+    backgroundColor: '#f7f3ea',
+  },
+  pageCenter: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 120,
+  },
   pageInner: {
-    flex: 1,
     paddingHorizontal: 12,
     paddingTop: 10,
     paddingBottom: 10,
+  },
+  pageTopRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+  },
+  pageTitleCol: {
+    flex: 1,
+    minWidth: 0,
   },
   blankCopy: {
     fontSize: 13,
@@ -319,8 +307,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#faf8f1',
   },
   ruledBlock: {
-    marginTop: 'auto',
-    paddingTop: 10,
+    marginTop: 14,
     gap: 8,
   },
   ruledLine: {
@@ -339,21 +326,32 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#a8a29e',
   },
+  radio: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 1.5,
+    borderColor: '#d6d0c0',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 1,
+  },
+  radioOn: {
+    borderColor: '#78716c',
+  },
+  radioDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#57534e',
+  },
   logoGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 6,
     marginTop: 10,
   },
-  logo: {
-    width: 26,
-    height: 26,
-    borderRadius: 7,
-  },
   logoFallback: {
-    width: 26,
-    height: 26,
-    borderRadius: 7,
     backgroundColor: '#faf8f1',
     borderWidth: 1,
     borderColor: '#e7e2d6',
@@ -367,7 +365,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#a8a29e',
   },
   statRow: {
-    marginTop: 'auto',
     flexDirection: 'row',
     alignItems: 'baseline',
     gap: 4,
@@ -389,87 +386,9 @@ const styles = StyleSheet.create({
     marginHorizontal: 2,
   },
   emptyMini: {
-    textAlign: 'center',
-    marginTop: 40,
     fontSize: 12,
     fontWeight: '600',
     color: '#a8a29e',
-  },
-  indexSheet: {
-    marginTop: 8,
-    backgroundColor: '#fffef8',
-    borderRadius: 14,
-    borderWidth: 1.5,
-    borderColor: '#e7e2d6',
-    paddingTop: 10,
-    paddingBottom: 4,
-    overflow: 'hidden',
-  },
-  indexLabel: {
-    paddingHorizontal: 12,
-    marginBottom: 6,
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#a8a29e',
-    letterSpacing: 0.2,
-  },
-  indexRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: '#e7e2d6',
-  },
-  indexRowOn: {
-    backgroundColor: '#f5f0e6',
-  },
-  indexRowLast: {},
-  indexMark: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    borderWidth: 1.5,
-    borderColor: '#d6d0c0',
-    backgroundColor: 'transparent',
-  },
-  indexMarkOn: {
-    backgroundColor: '#78716c',
-    borderColor: '#78716c',
-  },
-  indexCopy: {
-    flex: 1,
-    minWidth: 0,
-  },
-  indexName: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#78716c',
-  },
-  indexNameOn: {
-    color: '#44403c',
-  },
-  indexMeta: {
-    marginTop: 1,
-    fontSize: 11,
-    fontWeight: '500',
-    color: '#a8a29e',
-  },
-  miniLogoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  miniLogoWrap: {
-    marginLeft: -4,
-    transform: [{ scale: 0.85 }],
-  },
-  miniLogoPh: {
-    width: 18,
-    height: 18,
-    borderRadius: 5,
-    backgroundColor: '#ebe6da',
-    marginLeft: 3,
   },
   error: {
     marginTop: 8,
