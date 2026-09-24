@@ -26,6 +26,7 @@ import StartersPitchPreview from '../components/createLeague/StartersPitchPrevie
 import TeamsheetBoard from '../components/createLeague/TeamsheetBoard';
 import SampleScoreTicker, { RefereePanel } from '../components/createLeague/SampleScoreTicker';
 import { AccessKeycard, ApprovalClipboard } from '../components/createLeague/LockerObjects';
+import OfficialFeedBoard from '../components/createLeague/OfficialFeedBoard';
 import { SceneChapter, getSceneMeta } from '../components/createLeague/SceneChapter';
 
 const STEPS = [
@@ -761,87 +762,39 @@ export default function CreateLeagueScreen({ navigation }) {
 
       <View
         ref={(ref) => { fieldRefs.current.officialLeague = ref; }}
-        style={[styles.sceneCard, highlightField === 'officialLeague' && styles.highlightField]}
+        style={[highlightField === 'officialLeague' && styles.highlightField]}
       >
-        <View style={styles.switchGroup}>
-          <View style={styles.switchInfo}>
-            <View style={styles.switchTitleRow}>
-              <Ionicons name="ribbon" size={18} color="#667eea" />
-              <Text style={styles.labelOnLight}>Lega ufficiale</Text>
-            </View>
-            <Text style={styles.labelHintOnLight}>
-              Giocatori e voti dalla lega ufficiale
-            </Text>
-          </View>
-          <Switch
-            value={linkToOfficial}
-            onValueChange={(value) => {
-              clearFieldError('officialLeague');
-              setLinkToOfficial(value);
-              if (value) {
-                fetchOfficialLeagues();
-                if (!formData.linkedToLeagueId && officialLeagues[0]) {
-                  setFormData((prev) => ({
-                    ...prev,
-                    linkedToLeagueId: officialLeagues[0].id,
-                    linkedLeagueName: officialLeagues[0].name || '',
-                  }));
-                }
-              } else {
-                setFormData((prev) => ({ ...prev, linkedToLeagueId: null, linkedLeagueName: '' }));
+        <OfficialFeedBoard
+          enabled={linkToOfficial}
+          onToggle={(value) => {
+            clearFieldError('officialLeague');
+            setLinkToOfficial(value);
+            if (value) {
+              fetchOfficialLeagues();
+              if (!formData.linkedToLeagueId && officialLeagues[0]) {
+                setFormData((prev) => ({
+                  ...prev,
+                  linkedToLeagueId: officialLeagues[0].id,
+                  linkedLeagueName: officialLeagues[0].name || '',
+                }));
               }
-            }}
-            trackColor={SWITCH_TRACK}
-            thumbColor={linkToOfficial ? SWITCH_THUMB_ON : SWITCH_THUMB_OFF}
-          />
-        </View>
-
-        {linkToOfficial ? (
-          <View style={styles.officialList}>
-            {loadingOfficialLeagues ? (
-              <ActivityIndicator size="small" color="#667eea" style={{ paddingVertical: 16 }} />
-            ) : officialLeagues.length === 0 ? (
-              <Text style={styles.emptyOfficialText}>Nessuna lega ufficiale disponibile</Text>
-            ) : (
-              officialLeagues.map((league) => {
-                const isSelected = formData.linkedToLeagueId === league.id;
-                return (
-                  <TouchableOpacity
-                    key={league.id}
-                    style={[styles.officialItem, isSelected && styles.officialItemOn]}
-                    onPress={() => {
-                      clearFieldError('officialLeague');
-                      setFormData((prev) => ({
-                        ...prev,
-                        linkedToLeagueId: league.id,
-                        linkedLeagueName: league.name,
-                      }));
-                    }}
-                    activeOpacity={0.8}
-                  >
-                    <View style={styles.officialItemCopy}>
-                      <Text style={styles.officialItemName}>{league.name}</Text>
-                      {league.official_group_name ? (
-                        <Text style={styles.officialItemGroup}>{league.official_group_name}</Text>
-                      ) : null}
-                      <Text style={styles.officialItemMeta}>
-                        {league.team_count} squadre · {league.player_count} giocatori
-                      </Text>
-                    </View>
-                    <Ionicons
-                      name={isSelected ? 'checkmark-circle' : 'ellipse-outline'}
-                      size={22}
-                      color={isSelected ? '#667eea' : '#cbd5e1'}
-                    />
-                  </TouchableOpacity>
-                );
-              })
-            )}
-            {fieldErrors.officialLeague ? (
-              <Text style={styles.fieldErrorText}>{fieldErrors.officialLeague}</Text>
-            ) : null}
-          </View>
-        ) : null}
+            } else {
+              setFormData((prev) => ({ ...prev, linkedToLeagueId: null, linkedLeagueName: '' }));
+            }
+          }}
+          leagues={officialLeagues}
+          loading={loadingOfficialLeagues}
+          selectedId={formData.linkedToLeagueId}
+          onSelect={(league) => {
+            clearFieldError('officialLeague');
+            setFormData((prev) => ({
+              ...prev,
+              linkedToLeagueId: league.id,
+              linkedLeagueName: league.name,
+            }));
+          }}
+          error={fieldErrors.officialLeague}
+        />
       </View>
 
       <TeamsheetBoard
@@ -1404,7 +1357,7 @@ export default function CreateLeagueScreen({ navigation }) {
           <View style={styles.summaryRow}>
             <Text style={styles.summaryLabel}>Lega ufficiale</Text>
             <Text style={[styles.summaryValue, linkToOfficial && styles.summaryValueAccent]}>
-              {linkToOfficial ? (formData.linkedLeagueName || 'Da scegliere') : 'No'}
+              {linkToOfficial ? (formData.linkedLeagueName || 'Da scegliere') : 'Libera'}
             </Text>
           </View>
         </View>
