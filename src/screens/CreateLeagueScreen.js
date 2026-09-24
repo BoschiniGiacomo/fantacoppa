@@ -20,12 +20,19 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { leagueService } from '../services/api';
 import { Ionicons } from '@expo/vector-icons';
 import BonusIcon from '../components/BonusIcon';
+import BudgetVaultPreview from '../components/createLeague/BudgetVaultPreview';
+import StadiumPlaque from '../components/createLeague/StadiumPlaque';
+import StartersPitchPreview from '../components/createLeague/StartersPitchPreview';
+import TeamsheetBoard from '../components/createLeague/TeamsheetBoard';
+import SampleScoreTicker, { RefereePanel } from '../components/createLeague/SampleScoreTicker';
+import { AccessKeycard, ApprovalClipboard } from '../components/createLeague/LockerObjects';
+import { SceneChapter, getSceneMeta } from '../components/createLeague/SceneChapter';
 
 const STEPS = [
-  { id: 1, title: 'Informazioni', short: 'Info', icon: 'information-circle-outline' },
-  { id: 2, title: 'Squadra', short: 'Rosa', icon: 'people-outline' },
-  { id: 3, title: 'Bonus', short: 'Punti', icon: 'flash-outline' },
-  { id: 4, title: 'Riepilogo', short: 'Crea', icon: 'checkmark-circle-outline' },
+  { id: 1, title: 'Informazioni', short: '1', icon: 'business-outline' },
+  { id: 2, title: 'Squadra', short: '2', icon: 'shirt-outline' },
+  { id: 3, title: 'Bonus', short: '3', icon: 'flag-outline' },
+  { id: 4, title: 'Riepilogo', short: '4', icon: 'football-outline' },
 ];
 const CREATE_LEAGUE_DRAFT_KEY = 'create_league_draft_v1';
 
@@ -642,38 +649,17 @@ export default function CreateLeagueScreen({ navigation }) {
   const renderStepIndicator = () => {
     const active = STEPS.find((s) => s.id === currentStep) || STEPS[0];
     const progress = currentStep / STEPS.length;
+    const meta = getSceneMeta(currentStep);
     return (
-      <View style={styles.stepIndicator}>
+      <View style={styles.stepIndicatorLight}>
         <View style={styles.stepProgressMeta}>
-          <Text style={styles.stepProgressCount}>
-            Passo {currentStep} di {STEPS.length}
+          <Text style={[styles.stepProgressCountLight, { color: meta.accent }]}>
+            {currentStep} / {STEPS.length}
           </Text>
-          <Text style={styles.stepProgressTitle}>{active.title}</Text>
+          <Text style={styles.stepProgressTitleLight}>{active.title}</Text>
         </View>
-        <View style={styles.stepProgressTrack}>
-          <View style={[styles.stepProgressFill, { width: `${progress * 100}%` }]} />
-        </View>
-        <View style={styles.stepDotsRow}>
-          {STEPS.map((step) => {
-            const done = currentStep > step.id;
-            const on = currentStep === step.id;
-            return (
-              <View
-                key={step.id}
-                style={[
-                  styles.stepDot,
-                  done && styles.stepDotDone,
-                  on && styles.stepDotOn,
-                ]}
-              >
-                {done ? (
-                  <Ionicons name="checkmark" size={12} color="#fff" />
-                ) : (
-                  <Text style={[styles.stepDotText, on && styles.stepDotTextOn]}>{step.id}</Text>
-                )}
-              </View>
-            );
-          })}
+        <View style={styles.stepProgressTrackLight}>
+          <View style={[styles.stepProgressFillLight, { width: `${progress * 100}%`, backgroundColor: meta.accent }]} />
         </View>
       </View>
     );
@@ -681,24 +667,21 @@ export default function CreateLeagueScreen({ navigation }) {
 
   const renderStep1 = () => (
     <View style={styles.stepContent}>
-      <Text style={styles.stepDescription}>Nome, accesso e budget per iniziare.</Text>
+      <SceneChapter step={1} />
 
       <View
         ref={(ref) => { fieldRefs.current.name = ref; }}
-        style={[styles.fieldBlock, highlightField === 'name' && styles.highlightField]}
+        style={[highlightField === 'name' && styles.highlightField]}
       >
-        <Text style={styles.label}>Nome lega</Text>
-        <TextInput
-          ref={inputRefs.step1.name}
-          style={[styles.input, fieldErrors.name && styles.inputError]}
-          placeholder="Es. Fanta Coppa amici"
-          placeholderTextColor="#94a3b8"
+        <StadiumPlaque
           value={formData.name}
+          inputRef={inputRefs.step1.name}
+          error={fieldErrors.name}
           onChangeText={(text) => {
             clearFieldError('name');
             setFormData({ ...formData, name: text });
           }}
-          returnKeyType="next"
+          onFocus={() => handleInputFocus('step1.name', inputRefs.step1.name)}
           onSubmitEditing={() => {
             if (formData.enableAccessCode && inputRefs.step1.accessCode.current) {
               inputRefs.step1.accessCode.current.focus();
@@ -706,143 +689,112 @@ export default function CreateLeagueScreen({ navigation }) {
               inputRefs.step1.initialBudget.current?.focus();
             }
           }}
-          onFocus={() => handleInputFocus('step1.name', inputRefs.step1.name)}
         />
-        {fieldErrors.name ? <Text style={styles.fieldErrorText}>{fieldErrors.name}</Text> : null}
       </View>
 
-      <View
-        ref={(ref) => { fieldRefs.current.accessCode = ref; }}
-        style={[styles.card, highlightField === 'accessCode' && styles.highlightField]}
-      >
-        <View style={styles.switchGroup}>
-          <View style={styles.switchInfo}>
-            <Text style={styles.label}>Codice di accesso</Text>
-            <Text style={styles.labelHint}>Solo chi ha il codice può entrare</Text>
-          </View>
-          <Switch
-            value={formData.enableAccessCode}
-            onValueChange={(value) => {
-              clearFieldError('accessCode');
-              setFormData({ ...formData, enableAccessCode: value });
-            }}
-            trackColor={SWITCH_TRACK}
-            thumbColor={formData.enableAccessCode ? SWITCH_THUMB_ON : SWITCH_THUMB_OFF}
-          />
-        </View>
-        {formData.enableAccessCode ? (
-          <>
-            <TextInput
-              ref={inputRefs.step1.accessCode}
-              style={[styles.input, styles.inputInCard, fieldErrors.accessCode && styles.inputError]}
-              placeholder="Scrivi il codice"
-              placeholderTextColor="#94a3b8"
-              value={formData.accessCode}
-              onChangeText={(text) => {
-                clearFieldError('accessCode');
-                setFormData({ ...formData, accessCode: text });
-              }}
-              autoCapitalize="none"
-              autoCorrect={false}
-              returnKeyType="next"
-              onSubmitEditing={() => inputRefs.step1.initialBudget.current?.focus()}
-              onFocus={() => handleInputFocus('step1.accessCode', inputRefs.step1.accessCode)}
-            />
-            {fieldErrors.accessCode ? (
-              <Text style={styles.fieldErrorText}>{fieldErrors.accessCode}</Text>
-            ) : null}
-          </>
-        ) : null}
+      <View ref={(ref) => { fieldRefs.current.accessCode = ref; }}>
+        <AccessKeycard
+          enabled={formData.enableAccessCode}
+          onToggle={(value) => {
+            clearFieldError('accessCode');
+            setFormData({ ...formData, enableAccessCode: value });
+          }}
+          code={formData.accessCode}
+          onChangeCode={(text) => {
+            clearFieldError('accessCode');
+            setFormData({ ...formData, accessCode: text });
+          }}
+          inputRef={inputRefs.step1.accessCode}
+          onFocus={() => handleInputFocus('step1.accessCode', inputRefs.step1.accessCode)}
+          onSubmitEditing={() => inputRefs.step1.initialBudget.current?.focus()}
+          error={fieldErrors.accessCode}
+        />
       </View>
 
-      <View style={styles.card}>
-        <View style={styles.switchGroup}>
-          <View style={styles.switchInfo}>
-            <Text style={styles.label}>Approvazione iscrizioni</Text>
-            <Text style={styles.labelHint}>
-              {formData.requireApproval ? 'Un admin deve accettare le richieste' : 'Ingresso libero'}
-            </Text>
-          </View>
-          <Switch
-            value={formData.requireApproval}
-            onValueChange={(value) => setFormData({ ...formData, requireApproval: value })}
-            trackColor={SWITCH_TRACK}
-            thumbColor={formData.requireApproval ? SWITCH_THUMB_ON : SWITCH_THUMB_OFF}
-          />
-        </View>
-      </View>
+      <ApprovalClipboard
+        enabled={formData.requireApproval}
+        onToggle={(value) => setFormData({ ...formData, requireApproval: value })}
+      />
 
       <View
         ref={(ref) => { fieldRefs.current.budget = ref; }}
-        style={[styles.fieldBlock, highlightField === 'budget' && styles.highlightField]}
+        style={[highlightField === 'budget' && styles.highlightField]}
       >
-        <Text style={styles.label}>Budget iniziale</Text>
-        <Text style={styles.labelHint}>Crediti per ogni giocatore all’inizio</Text>
-        <View style={styles.budgetRow}>
-          <View style={styles.sliderWrapper} {...panResponder.panHandlers}>
-            <View
-              ref={sliderTrackRef}
-              style={styles.sliderTrack}
-              onLayout={(event) => {
-                sliderWidth.current = event.nativeEvent.layout.width;
-              }}
-            >
-              <View
-                style={[
-                  styles.sliderFill,
-                  { width: `${((parseInt(formData.initialBudget, 10) || 0) / 1000) * 100}%` },
-                ]}
-              />
-              <View
-                style={[
-                  styles.sliderThumb,
-                  { left: `${((parseInt(formData.initialBudget, 10) || 0) / 1000) * 100}%` },
-                ]}
-              />
-            </View>
-            <View style={styles.sliderLabels}>
-              <Text style={styles.sliderLabel}>0</Text>
-              <Text style={styles.sliderLabel}>1000</Text>
-            </View>
-          </View>
-          <TextInput
-            ref={inputRefs.step1.initialBudget}
-            style={[styles.input, styles.budgetInput, fieldErrors.budget && styles.inputError]}
-            placeholder="100"
-            placeholderTextColor="#94a3b8"
-            keyboardType="numeric"
-            value={formData.initialBudget}
-            onChangeText={(text) => {
-              clearFieldError('budget');
-              const numValue = parseInt(text, 10) || 0;
-              const clampedValue = Math.min(Math.max(numValue, 0), 1000);
-              setFormData({ ...formData, initialBudget: clampedValue.toString() });
-            }}
-            returnKeyType="done"
-            onSubmitEditing={handleNext}
-            onFocus={() => handleInputFocus('step1.initialBudget', inputRefs.step1.initialBudget)}
-          />
-        </View>
-        {fieldErrors.budget ? <Text style={styles.fieldErrorText}>{fieldErrors.budget}</Text> : null}
+        <BudgetVaultPreview
+          budget={formData.initialBudget}
+          error={fieldErrors.budget}
+          inputProps={{
+            slider: (
+              <View style={styles.zipSliderWrapper} {...panResponder.panHandlers}>
+                <View
+                  ref={sliderTrackRef}
+                  style={styles.zipTrack}
+                  onLayout={(event) => {
+                    sliderWidth.current = event.nativeEvent.layout.width;
+                  }}
+                >
+                  <View style={styles.zipTeethRow}>
+                    {Array.from({ length: 14 }).map((_, i) => (
+                      <View key={`zt-${i}`} style={styles.zipTooth} />
+                    ))}
+                  </View>
+                  <View
+                    style={[
+                      styles.zipFill,
+                      { width: `${((parseInt(formData.initialBudget, 10) || 0) / 1000) * 100}%` },
+                    ]}
+                  />
+                  <View
+                    style={[
+                      styles.zipPull,
+                      { left: `${((parseInt(formData.initialBudget, 10) || 0) / 1000) * 100}%` },
+                    ]}
+                  >
+                    <View style={styles.zipPullHole} />
+                  </View>
+                </View>
+                <View style={styles.zipLabels}>
+                  <Text style={styles.zipLabel}>0</Text>
+                  <Text style={styles.zipLabel}>1000</Text>
+                </View>
+              </View>
+            ),
+            textInput: {
+              ref: inputRefs.step1.initialBudget,
+              placeholder: '100',
+              keyboardType: 'numeric',
+              value: formData.initialBudget,
+              onChangeText: (text) => {
+                clearFieldError('budget');
+                const numValue = parseInt(text, 10) || 0;
+                const clampedValue = Math.min(Math.max(numValue, 0), 1000);
+                setFormData({ ...formData, initialBudget: clampedValue.toString() });
+              },
+              returnKeyType: 'done',
+              onSubmitEditing: handleNext,
+              onFocus: () => handleInputFocus('step1.initialBudget', inputRefs.step1.initialBudget),
+            },
+          }}
+        />
       </View>
     </View>
   );
 
   const renderStep2 = () => (
     <View style={styles.stepContent}>
-      <Text style={styles.stepDescription}>Rosa, titolari e lega ufficiale (opzionale).</Text>
+      <SceneChapter step={2} />
 
       <View
         ref={(ref) => { fieldRefs.current.officialLeague = ref; }}
-        style={[styles.card, highlightField === 'officialLeague' && styles.highlightField]}
+        style={[styles.sceneCard, highlightField === 'officialLeague' && styles.highlightField]}
       >
         <View style={styles.switchGroup}>
           <View style={styles.switchInfo}>
             <View style={styles.switchTitleRow}>
               <Ionicons name="ribbon" size={18} color="#667eea" />
-              <Text style={styles.label}>Lega ufficiale</Text>
+              <Text style={styles.labelOnLight}>Lega ufficiale</Text>
             </View>
-            <Text style={styles.labelHint}>
+            <Text style={styles.labelHintOnLight}>
               Giocatori e voti dalla lega ufficiale
             </Text>
           </View>
@@ -917,131 +869,77 @@ export default function CreateLeagueScreen({ navigation }) {
         ) : null}
       </View>
 
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Rosa massima</Text>
-        <View style={styles.roleLimitsRow}>
-          <View style={[styles.roleLimitItem, styles.roleLimitItemFirst]}>
-            <Text style={styles.roleLimitLabel}>P</Text>
-            <TextInput
-              ref={inputRefs.step2.maxPortieri}
-              style={styles.roleLimitInput}
-              keyboardType="numeric"
-              value={formData.maxPortieri}
-              onChangeText={(text) => setFormData({ ...formData, maxPortieri: text })}
-              returnKeyType="next"
-              onSubmitEditing={() => inputRefs.step2.maxDifensori.current?.focus()}
-              onFocus={() => handleInputFocus('step2.maxPortieri', inputRefs.step2.maxPortieri)}
-            />
-          </View>
-          <View style={styles.roleLimitSeparator} />
-          <View style={styles.roleLimitItem}>
-            <Text style={styles.roleLimitLabel}>D</Text>
-            <TextInput
-              ref={inputRefs.step2.maxDifensori}
-              style={styles.roleLimitInput}
-              keyboardType="numeric"
-              value={formData.maxDifensori}
-              onChangeText={(text) => setFormData({ ...formData, maxDifensori: text })}
-              returnKeyType="next"
-              onSubmitEditing={() => inputRefs.step2.maxCentrocampisti.current?.focus()}
-              onFocus={() => handleInputFocus('step2.maxDifensori', inputRefs.step2.maxDifensori)}
-            />
-          </View>
-          <View style={styles.roleLimitSeparator} />
-          <View style={styles.roleLimitItem}>
-            <Text style={styles.roleLimitLabel}>C</Text>
-            <TextInput
-              ref={inputRefs.step2.maxCentrocampisti}
-              style={styles.roleLimitInput}
-              keyboardType="numeric"
-              value={formData.maxCentrocampisti}
-              onChangeText={(text) => setFormData({ ...formData, maxCentrocampisti: text })}
-              returnKeyType="next"
-              onSubmitEditing={() => inputRefs.step2.maxAttaccanti.current?.focus()}
-              onFocus={() => handleInputFocus('step2.maxCentrocampisti', inputRefs.step2.maxCentrocampisti)}
-            />
-          </View>
-          <View style={styles.roleLimitSeparator} />
-          <View style={[styles.roleLimitItem, styles.roleLimitItemLast]}>
-            <Text style={styles.roleLimitLabel}>A</Text>
-            <TextInput
-              ref={inputRefs.step2.maxAttaccanti}
-              style={styles.roleLimitInput}
-              keyboardType="numeric"
-              value={formData.maxAttaccanti}
-              onChangeText={(text) => setFormData({ ...formData, maxAttaccanti: text })}
-              returnKeyType="next"
-              onSubmitEditing={() => inputRefs.step2.numeroTitolari.current?.focus()}
-              onFocus={() => handleInputFocus('step2.maxAttaccanti', inputRefs.step2.maxAttaccanti)}
-            />
-          </View>
-        </View>
-        <Text style={styles.roleLegend}>P portieri · D difensori · C centrocampisti · A attaccanti</Text>
-      </View>
+      <TeamsheetBoard
+        formData={formData}
+        setFormData={setFormData}
+        inputRefs={inputRefs}
+        onFocus={handleInputFocus}
+        onSubmitToTitolari={() => inputRefs.step2.numeroTitolari.current?.focus()}
+      />
 
-      <View style={styles.fieldBlock}>
-        <Text style={styles.label}>Titolari in campo</Text>
-        <Text style={styles.labelHint}>Da 4 a 11</Text>
-        <View style={styles.budgetRow}>
-          <View style={styles.sliderWrapper} {...titolariPanResponder.panHandlers}>
-            <View
-              ref={titolariSliderTrackRef}
-              style={styles.sliderTrack}
-              onLayout={(event) => {
-                titolariSliderWidth.current = event.nativeEvent.layout.width;
-              }}
-            >
+      <StartersPitchPreview
+        starters={formData.numeroTitolari}
+        inputProps={{
+          slider: (
+            <View style={styles.sliderWrapper} {...titolariPanResponder.panHandlers}>
               <View
-                style={[
-                  styles.sliderFill,
-                  {
-                    width: `${(((Math.min(Math.max(parseInt(formData.numeroTitolari, 10) || 11, 4), 11)) - 4) / 7) * 100}%`,
-                  },
-                ]}
-              />
-              <View
-                style={[
-                  styles.sliderThumb,
-                  {
-                    left: `${(((Math.min(Math.max(parseInt(formData.numeroTitolari, 10) || 11, 4), 11)) - 4) / 7) * 100}%`,
-                  },
-                ]}
-              />
+                ref={titolariSliderTrackRef}
+                style={styles.sliderTrack}
+                onLayout={(event) => {
+                  titolariSliderWidth.current = event.nativeEvent.layout.width;
+                }}
+              >
+                <View
+                  style={[
+                    styles.sliderFill,
+                    {
+                      width: `${(((Math.min(Math.max(parseInt(formData.numeroTitolari, 10) || 11, 4), 11)) - 4) / 7) * 100}%`,
+                    },
+                  ]}
+                />
+                <View
+                  style={[
+                    styles.sliderThumb,
+                    {
+                      left: `${(((Math.min(Math.max(parseInt(formData.numeroTitolari, 10) || 11, 4), 11)) - 4) / 7) * 100}%`,
+                    },
+                  ]}
+                />
+              </View>
+              <View style={styles.sliderLabels}>
+                <Text style={styles.sliderLabel}>4</Text>
+                <Text style={styles.sliderLabel}>11</Text>
+              </View>
             </View>
-            <View style={styles.sliderLabels}>
-              <Text style={styles.sliderLabel}>4</Text>
-              <Text style={styles.sliderLabel}>11</Text>
-            </View>
-          </View>
-          <TextInput
-            ref={inputRefs.step2.numeroTitolari}
-            style={[styles.input, styles.budgetInput]}
-            keyboardType="numeric"
-            value={formData.numeroTitolari}
-            onChangeText={(text) => {
+          ),
+          textInput: {
+            ref: inputRefs.step2.numeroTitolari,
+            keyboardType: 'numeric',
+            value: formData.numeroTitolari,
+            onChangeText: (text) => {
               if (text === '' || /^\d*$/.test(text)) {
                 setFormData({ ...formData, numeroTitolari: text });
               }
-            }}
-            onBlur={() => {
+            },
+            onBlur: () => {
               const numValue = parseInt(formData.numeroTitolari, 10);
               if (isNaN(numValue) || numValue < 4 || numValue > 11) {
                 const clampedValue = Math.min(Math.max(isNaN(numValue) ? 11 : numValue, 4), 11);
                 setFormData((prev) => ({ ...prev, numeroTitolari: clampedValue.toString() }));
               }
-            }}
-            returnKeyType="done"
-            onSubmitEditing={handleNext}
-            onFocus={() => handleInputFocus('step2.numeroTitolari', inputRefs.step2.numeroTitolari)}
-          />
-        </View>
-      </View>
+            },
+            returnKeyType: 'done',
+            onSubmitEditing: handleNext,
+            onFocus: () => handleInputFocus('step2.numeroTitolari', inputRefs.step2.numeroTitolari),
+          },
+        }}
+      />
 
-      <View style={styles.card}>
+      <View style={styles.sceneCard}>
         <View style={styles.switchGroup}>
           <View style={styles.switchInfo}>
-            <Text style={styles.label}>Formazione automatica</Text>
-            <Text style={styles.labelHint}>Compila da sola se non schieri</Text>
+            <Text style={styles.labelOnLight}>Formazione automatica</Text>
+            <Text style={styles.labelHintOnLight}>Compila da sola se non schieri</Text>
           </View>
           <Switch
             value={formData.autoLineupMode}
@@ -1053,8 +951,8 @@ export default function CreateLeagueScreen({ navigation }) {
 
         <View style={[styles.switchGroup, styles.switchGroupSpaced]}>
           <View style={styles.switchInfo}>
-            <Text style={styles.label}>Nascondi rose altrui</Text>
-            <Text style={styles.labelHint}>Le formazioni degli altri restano private</Text>
+            <Text style={styles.labelOnLight}>Nascondi rose altrui</Text>
+            <Text style={styles.labelHintOnLight}>Le formazioni degli altri restano private</Text>
           </View>
           <Switch
             value={!!formData.hideFormations}
@@ -1066,8 +964,8 @@ export default function CreateLeagueScreen({ navigation }) {
 
         {!formData.autoLineupMode ? (
           <View style={styles.deadlineBlock}>
-            <Text style={styles.label}>Scadenza formazioni</Text>
-            <Text style={styles.labelHint}>Orario predefinito della giornata</Text>
+            <Text style={styles.labelOnLight}>Scadenza formazioni</Text>
+            <Text style={styles.labelHintOnLight}>Orario predefinito della giornata</Text>
             <TouchableOpacity
               style={styles.timePickerButton}
               onPress={() => setShowTimePicker(true)}
@@ -1094,33 +992,32 @@ export default function CreateLeagueScreen({ navigation }) {
 
   const renderStep3 = () => (
     <View style={styles.stepContent}>
-      <Text style={styles.stepDescription}>Punti extra: attiva solo ciò che usi.</Text>
+      <SceneChapter step={3} />
 
-      {/* Header con switch abilitazione */}
-      <View style={styles.bmFormGroup}>
+      <View style={styles.sceneCard}>
         <View style={styles.bmLabelContainer}>
-          <Ionicons name="trophy-outline" size={18} color="#667eea" style={styles.bmLabelIcon} />
-          <Text style={styles.bmLabel}>Bonus/Malus</Text>
+          <View style={styles.refDot} />
+          <Text style={styles.labelOnLight}>Sistema punti</Text>
           <Switch
             value={formData.enableBonusMalus}
             onValueChange={(value) => setFormData({ ...formData, enableBonusMalus: value })}
-            trackColor={SWITCH_TRACK}
-            thumbColor={formData.enableBonusMalus ? SWITCH_THUMB_ON : SWITCH_THUMB_OFF}
+            trackColor={{ false: '#e2e8f0', true: '#fde68a' }}
+            thumbColor={formData.enableBonusMalus ? '#ca8a04' : '#f8fafc'}
             style={{ marginLeft: 'auto' }}
           />
         </View>
-        <Text style={styles.bmSubtitle}>Abilita o disabilita il sistema bonus/malus per la lega</Text>
+        <Text style={styles.labelHintOnLight}>Attiva premi e sanzioni in partita</Text>
       </View>
+
+      <SampleScoreTicker formData={formData} />
 
       {formData.enableBonusMalus && (
         <>
-          {/* ===== SEZIONE BONUS ===== */}
-          <Text style={styles.bmSectionTitle}>Bonus</Text>
-
+          <RefereePanel variant="bonus">
           {/* Gol segnato */}
-          <View style={styles.bmRowFull}>
+          <View style={styles.bmRowFullDark}>
             <View style={styles.bmRowIcon}><BonusIcon type="goal" size={20} /></View>
-            <Text style={styles.bmRowLabel} numberOfLines={1}>Gol segnato</Text>
+            <Text style={styles.bmRowLabelDark} numberOfLines={1}>Gol segnato</Text>
             <Switch
               value={formData.enableGoal}
               onValueChange={(value) => setFormData({ ...formData, enableGoal: value })}
@@ -1252,13 +1149,13 @@ export default function CreateLeagueScreen({ navigation }) {
             />
           </View>
 
-          {/* ===== SEZIONE MALUS ===== */}
-          <Text style={styles.bmSectionTitle}>Malus</Text>
+          </RefereePanel>
 
+          <RefereePanel variant="malus">
           {/* Cartellino giallo */}
-          <View style={styles.bmRowFull}>
+          <View style={styles.bmRowFullDark}>
             <View style={styles.bmRowIcon}><BonusIcon type="yellow_card" size={20} /></View>
-            <Text style={styles.bmRowLabel} numberOfLines={1}>Cartellino giallo</Text>
+            <Text style={styles.bmRowLabelDark} numberOfLines={1}>Cartellino giallo</Text>
             <Switch
               value={formData.enableYellowCard}
               onValueChange={(value) => setFormData({ ...formData, enableYellowCard: value })}
@@ -1450,6 +1347,7 @@ export default function CreateLeagueScreen({ navigation }) {
               onFocus={() => handleInputFocus('step3.malusNoDivisa', inputRefs.step3.malusNoDivisa)}
             />
           </View>
+          </RefereePanel>
         </>
       )}
     </View>
@@ -1457,9 +1355,21 @@ export default function CreateLeagueScreen({ navigation }) {
 
   const renderStep4 = () => (
     <View style={styles.stepContent}>
-      <Text style={styles.stepDescription}>Controlla e crea la lega.</Text>
+      <SceneChapter step={4} />
 
-      <View style={styles.summaryCard}>
+      <View style={styles.dossier}>
+        {formData.name.trim() ? (
+          <Text style={styles.dossierName} numberOfLines={1}>{formData.name.trim()}</Text>
+        ) : (
+          <Text style={styles.dossierNameMuted}>Senza nome</Text>
+        )}
+        <View style={styles.immersiveSummaryRow}>
+          <BudgetVaultPreview budget={formData.initialBudget} compact />
+          <StartersPitchPreview starters={formData.numeroTitolari} compact />
+        </View>
+      </View>
+
+      <View style={styles.summaryCardLight}>
         <View style={styles.summarySection}>
           <Text style={styles.summaryTitle}>Base</Text>
           <View style={styles.summaryRow}>
@@ -1477,7 +1387,7 @@ export default function CreateLeagueScreen({ navigation }) {
           <View style={styles.summaryRow}>
             <Text style={styles.summaryLabel}>Iscrizioni</Text>
             <Text style={styles.summaryValue}>
-              {formData.requireApproval ? 'Con approvazione' : 'Libere'}
+              {formData.requireApproval ? 'Con approvazione' : 'Senza approvazione'}
             </Text>
           </View>
           <View style={styles.summaryRow}>
@@ -1628,12 +1538,12 @@ export default function CreateLeagueScreen({ navigation }) {
   };
 
   return (
-    <View style={styles.container}>
-      <View style={[styles.header, { paddingTop: Math.max(insets.top, 8) }]}>
+    <View style={[styles.container, { backgroundColor: getSceneMeta(currentStep).bg }]}>
+      <View style={[styles.header, styles.headerLight, { paddingTop: Math.max(insets.top, 8) }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton} hitSlop={8}>
           <Ionicons name="arrow-back" size={22} color="#0f172a" />
         </TouchableOpacity>
-        <Text style={styles.title}>Crea lega</Text>
+        <Text style={styles.titleLight}>Crea lega</Text>
         <View style={styles.headerSpacer} />
       </View>
 
@@ -1662,7 +1572,7 @@ export default function CreateLeagueScreen({ navigation }) {
       </View>
 
       {keyboardHeight <= 0 ? (
-        <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 10) }]}>
+        <View style={[styles.footer, styles.footerLight, { paddingBottom: Math.max(insets.bottom, 10) }]}>
           {currentStep > 1 ? (
             <TouchableOpacity style={styles.footerButtonSecondary} onPress={handleBack} activeOpacity={0.8}>
               <Text style={styles.footerButtonSecondaryText}>Indietro</Text>
@@ -1721,7 +1631,345 @@ export default function CreateLeagueScreen({ navigation }) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#f3f6fb',
+  },
+  headerLight: {
+    backgroundColor: 'transparent',
+    borderBottomWidth: 0,
+  },
+  titleLight: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#0f172a',
+  },
+  stepIndicatorLight: {
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+  },
+  stepProgressCountLight: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  stepProgressTitleLight: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  stepProgressTrackLight: {
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: '#e2e8f0',
+    marginTop: 8,
+    overflow: 'hidden',
+  },
+  stepProgressFillLight: {
+    height: '100%',
+    borderRadius: 2,
+  },
+  sceneCard: {
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    padding: 14,
+    marginBottom: 14,
+  },
+  labelOnLight: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  labelHintOnLight: {
+    fontSize: 12,
+    color: '#64748b',
+    marginTop: 2,
+    fontWeight: '500',
+  },
+  refDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#eab308',
+    marginRight: 8,
+  },
+  dossier: {
+    backgroundColor: '#ecfdf5',
+    borderRadius: 14,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#bbf7d0',
+  },
+  dossierName: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#14532d',
+    marginBottom: 12,
+  },
+  dossierNameMuted: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#86efac',
+    marginBottom: 12,
+  },
+  summaryCardLight: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  footerLight: {
+    backgroundColor: '#fff',
+    borderTopColor: '#e2e8f0',
+  },
+  headerDark: {
+    backgroundColor: 'transparent',
+    borderBottomWidth: 0,
+  },
+  titleDark: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#f8fafc',
+    letterSpacing: 0.2,
+  },
+  stepIndicatorDark: {
+    paddingHorizontal: 16,
+    paddingBottom: 10,
+  },
+  stepProgressCountDark: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 1.5,
+    textTransform: 'uppercase',
+  },
+  stepProgressTitleDark: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#e2e8f0',
+  },
+  stepProgressTrackDark: {
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    marginTop: 8,
+    marginBottom: 10,
+    overflow: 'hidden',
+  },
+  stepProgressFillDark: {
+    height: '100%',
+    borderRadius: 2,
+  },
+  stepDotDark: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.25)',
+  },
+  stepDotDoneDark: {
+    backgroundColor: '#fbbf24',
+    borderColor: '#fbbf24',
+  },
+  stepDotTextDark: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#94a3b8',
+  },
+  sceneCard: {
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    padding: 14,
+    marginBottom: 14,
+  },
+  labelOnDark: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  labelHintOnDark: {
+    fontSize: 12,
+    color: '#64748b',
+    marginTop: 2,
+    fontWeight: '500',
+  },
+  sliderTrackDark: {
+    height: 6,
+    backgroundColor: '#44403c',
+    borderRadius: 3,
+    position: 'relative',
+  },
+  sliderFillGold: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    backgroundColor: '#fbbf24',
+    borderRadius: 3,
+  },
+  sliderThumbGold: {
+    position: 'absolute',
+    top: -7,
+    marginLeft: -10,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#fde68a',
+    borderWidth: 2,
+    borderColor: '#d97706',
+  },
+  sliderLabelDark: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#a8a29e',
+  },
+  emptyOfficialTextDark: {
+    color: '#a8a29e',
+    fontSize: 13,
+    paddingVertical: 12,
+  },
+  officialItemDark: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    backgroundColor: '#0c0a09',
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: '#44403c',
+  },
+  officialItemDarkOn: {
+    borderColor: '#fbbf24',
+    backgroundColor: '#292524',
+  },
+  officialItemNameDark: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#fafaf9',
+  },
+  officialItemGroupDark: {
+    fontSize: 12,
+    color: '#a8a29e',
+    marginTop: 2,
+  },
+  officialItemMetaDark: {
+    fontSize: 11,
+    color: '#78716c',
+    marginTop: 2,
+  },
+  deadlineBlockDark: {
+    marginTop: 14,
+    paddingTop: 14,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#44403c',
+  },
+  timePickerButtonDark: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#0c0a09',
+    borderRadius: 10,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#57534e',
+    gap: 12,
+    marginTop: 8,
+  },
+  timePickerTextDark: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#fde68a',
+  },
+  bmRowFullDark: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    marginBottom: 8,
+    gap: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.04)',
+  },
+  bmRowLabelDark: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#0f172a',
+  },
+  dossier: {
+    backgroundColor: '#ecfdf5',
+    borderRadius: 14,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#bbf7d0',
+  },
+  dossierStamp: {
+    display: 'none',
+  },
+  dossierStampText: {
+    fontSize: 10,
+  },
+  dossierTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#14532d',
+    marginBottom: 4,
+  },
+  dossierName: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#14532d',
+    marginBottom: 12,
+  },
+  dossierNameMuted: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#86efac',
+    marginBottom: 12,
+  },
+  summaryCardDark: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  footerDark: {
+    backgroundColor: '#0c0a09',
+    borderTopColor: '#292524',
+  },
+  footerButtonDark: {
+    flex: 1,
+    height: 48,
+    borderRadius: 12,
+    backgroundColor: '#667eea',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  footerButtonSecondaryDark: {
+    minWidth: 100,
+    height: 48,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#57534e',
+    backgroundColor: '#1c1917',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+  },
+  footerButtonSecondaryTextDark: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#e7e5e4',
   },
   header: {
     flexDirection: 'row',
@@ -2096,6 +2344,84 @@ const styles = StyleSheet.create({
     flex: 1,
     marginVertical: 12,
   },
+  zipSliderWrapper: {
+    flex: 1,
+    justifyContent: 'center',
+    marginVertical: 0,
+  },
+  zipTrack: {
+    height: 14,
+    backgroundColor: '#44403c',
+    borderRadius: 7,
+    position: 'relative',
+    marginBottom: 6,
+    borderWidth: 1,
+    borderColor: '#292524',
+    overflow: 'visible',
+    justifyContent: 'center',
+  },
+  zipTeethRow: {
+    ...StyleSheet.absoluteFillObject,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 4,
+    overflow: 'hidden',
+    borderRadius: 7,
+  },
+  zipTooth: {
+    width: 3,
+    height: 8,
+    borderRadius: 1,
+    backgroundColor: '#a8a29e',
+    opacity: 0.85,
+  },
+  zipFill: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    backgroundColor: '#78716c',
+    borderTopRightRadius: 6,
+    borderBottomRightRadius: 6,
+    opacity: 0.55,
+  },
+  zipPull: {
+    position: 'absolute',
+    top: -12,
+    marginLeft: -16,
+    width: 32,
+    height: 38,
+    borderRadius: 6,
+    backgroundColor: '#ca8a04',
+    borderWidth: 2,
+    borderColor: '#a16207',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 3,
+    shadowColor: '#000',
+    shadowOpacity: 0.3,
+    shadowRadius: 3,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
+  },
+  zipPullHole: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: '#78350f',
+    backgroundColor: 'transparent',
+  },
+  zipLabels: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  zipLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#a8a29e',
+  },
   step1SliderWrapper: {
     marginVertical: 8,
   },
@@ -2336,10 +2662,13 @@ const styles = StyleSheet.create({
   bmRowFull: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 4,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    marginBottom: 6,
+    backgroundColor: 'rgba(255,255,255,0.95)',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.06)',
   },
   bmRowIcon: {
     width: 28,
@@ -2391,6 +2720,27 @@ const styles = StyleSheet.create({
     borderColor: '#e0e0e0',
     color: '#333',
   },
+  immersiveSummaryHero: {
+    marginBottom: 16,
+  },
+  immersiveSummaryTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#0f172a',
+    letterSpacing: -0.3,
+    marginBottom: 4,
+  },
+  immersiveSummaryName: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#667eea',
+    marginBottom: 12,
+  },
+  immersiveSummaryRow: {
+    flexDirection: 'row',
+    gap: 10,
+    alignItems: 'stretch',
+  },
   summaryCard: {
     backgroundColor: '#fff',
     borderRadius: 12,
@@ -2407,7 +2757,7 @@ const styles = StyleSheet.create({
   summaryTitle: {
     fontSize: 15,
     fontWeight: '700',
-    color: '#333',
+    color: '#0f172a',
     marginBottom: 6,
   },
   summaryRow: {
@@ -2415,16 +2765,16 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: 5,
     borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+    borderBottomColor: '#f1f5f9',
   },
   summaryLabel: {
     fontSize: 13,
-    color: '#666',
+    color: '#64748b',
     fontWeight: '500',
   },
   summaryValue: {
     fontSize: 13,
-    color: '#333',
+    color: '#0f172a',
     fontWeight: '600',
     flex: 1,
     textAlign: 'right',
