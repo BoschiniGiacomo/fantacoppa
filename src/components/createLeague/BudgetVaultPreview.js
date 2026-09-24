@@ -2,9 +2,12 @@ import React, { useMemo } from 'react';
 import { View, Text, TextInput, StyleSheet } from 'react-native';
 
 const MAX_BUDGET = 1000;
-const MAX_STACKS = 12;
+const MAX_BILLS = 22;
+const FELT_W = 280;
+const FELT_H = 132;
+const MIN_GAP = 38;
 
-const STACK_COLORS = [
+const BILL_COLORS = [
   { body: '#dcfce7', edge: '#16a34a', band: '#4ade80' },
   { body: '#bbf7d0', edge: '#15803d', band: '#22c55e' },
   { body: '#fef3c7', edge: '#ca8a04', band: '#fbbf24' },
@@ -13,104 +16,124 @@ const STACK_COLORS = [
   { body: '#ede9fe', edge: '#6d28d9', band: '#a78bfa' },
 ];
 
-/** Griglia 4×3 sul feltro — cella larga, mazzette staccate e omogenee. */
-const COLS = 4;
-const ROWS = 3;
-const ORIGIN_X = 8;
-const ORIGIN_Y = 10;
-const STEP_X = 70;
-const STEP_Y = 42;
-
-const STACK_SLOTS = Array.from({ length: COLS * ROWS }, (_, i) => {
-  const c = i % COLS;
-  const r = Math.floor(i / COLS);
-  return { x: ORIGIN_X + c * STEP_X, y: ORIGIN_Y + r * STEP_Y };
-});
-
 function hash(n) {
   let x = Math.imul(n ^ 0x9e3779b9, 0x85ebca6b);
   x ^= x >>> 13;
+  x = Math.imul(x, 0xc2b2ae35);
+  x ^= x >>> 16;
   return (x >>> 0) / 4294967296;
 }
 
-/** Indici sparsi in modo uniforme sulla griglia (anche con 2–3 pezzi). */
-function pickUniformIndices(count, total) {
+function billCount(amount) {
+  if (amount < 20) return 0;
+  const t = amount / MAX_BUDGET;
+  const base = Math.round(2 + t * (MAX_BILLS - 2));
+  const jitter = Math.floor(hash(amount * 11) * 3) - 1;
+  return Math.min(MAX_BILLS, Math.max(1, base + jitter));
+}
+
+/**
+ * Posizioni sparse su tutto il feltro (griglia fine + jitter), niente torri.
+ */
+function buildBills(amount) {
+  const count = billCount(amount);
   if (count <= 0) return [];
-  if (count >= total) return Array.from({ length: total }, (_, i) => i);
-  const picks = [];
+
+  const seed = amount * 2654435761;
+  const cols = Math.ceil(Math.sqrt(count * (FELT_W / FELT_H)));
+  const rows = Math.ceil(count / cols);
+  const cellW = FELT_W / cols;
+  const cellH = FELT_H / rows;
+
+  // Ordine celle mescolato ma una cella → una banconota (copertura omogenea)
+  const cells = Array.from({ length: cols * rows }, (_, i) => i);
+  cells.sort((a, b) => hash(seed + a * 17) - hash(seed + b * 19));
+
+  const bills = [];
   for (let i = 0; i < count; i += 1) {
-    picks.push(Math.min(total - 1, Math.floor(((i + 0.5) * total) / count)));
-  }
-  // Evita duplicati se arrotondamenti coincidono
-  const used = new Set();
-  return picks.map((idx) => {
-    let j = idx;
-    while (used.has(j)) j = (j + 1) % total;
-    used.add(j);
-    return j;
-  });
-}
-
-function stackPlan(amount) {
-  const t = Math.min(1, Math.max(0, amount / MAX_BUDGET));
-  const jitter = Math.floor(hash(amount * 17) * 2);
-  const count = Math.min(MAX_STACKS, Math.max(0, Math.round(t * MAX_STACKS) + jitter));
-  const baseH = Math.max(1, Math.round(1 + t * 3));
-  const overflow = t > 0.88;
-  return { count, baseH, overflow, t, seed: amount * 2654435761 };
-}
-
-function buildStacks(plan) {
-  const { count, baseH, seed } = plan;
-  if (count <= 0) return [];
-
-  const slotIdx = pickUniformIndices(count, STACK_SLOTS.length);
-
-  return slotIdx.map((si, i) => {
-    const h = hash(seed + i * 97);
+    const cell = cells[i % cells.length];
+    const c = cell % cols;
+    const r = Math.floor(cell / cols);
+    const h1 = hash(seed + i * 97);
     const h2 = hash(seed + i * 193);
     const h3 = hash(seed + i * 389);
-    const layers = Math.max(1, Math.min(4, baseH + Math.floor(h * 2) - (h2 > 0.7 ? 1 : 0)));
-    return {
-      slot: STACK_SLOTS[si],
-      color: STACK_COLORS[Math.floor(h2 * STACK_COLORS.length)],
-      rot: (h3 - 0.5) * 28,
-      // jitter basso: restano nella cella, senza ammucchiarsi
-      jitterX: (h - 0.5) * 8,
-      jitterY: (h2 - 0.5) * 6,
-      layers,
-      lean: (h3 - 0.5) * 2,
-      wide: h > 0.5,
-    };
-  });
+    const h4 = hash(seed + i * 557);
+
+    const pad = 6;
+    const bw = 44 + Math.floor(h1 * 12);
+    const bh = 22 + Math.floor(h2 * 6);
+    let left = c * cellW + pad + h3 * Math.max(4, cellW - bw - pad * 2);
+    let top = r * cellH + pad + h4 * Math.max(4, cellH - bh - pad * 2);
+    left = Math.max(4, Math.min(left, FELT_W - bw - 4));
+    top = Math.max(4, Math.min(top, FELT_H - bh - 4));
+
+    // Leggero allontanamento se troppo vicino al precedente
+    if (bills.length > 0) {
+      const prev = bills[bills.length - 1];
+      const dx = left - prev.left;
+      const dy = top - prev.top;
+      if (dx * dx + dy * dy < MIN_GAP * MIN_GAP) {
+        left = Math.min(FELT_W - bw - 4, left + MIN_GAP * 0.6);
+        top = Math.min(FELT_H - bh - 4, top + (h2 > 0.5 ? MIN_GAP * 0.4 : -MIN_GAP * 0.3));
+        top = Math.max(4, top);
+      }
+    }
+
+    bills.push({
+      left,
+      top,
+      w: bw,
+      h: bh,
+      rot: (h1 - 0.5) * 50,
+      color: BILL_COLORS[Math.floor(h2 * BILL_COLORS.length)],
+      z: Math.floor(h3 * 100),
+    });
+  }
+
+  return bills;
 }
 
-function BillFace({ color, wide, small }) {
-  const w = small ? (wide ? 28 : 24) : wide ? 52 : 46;
-  const h = small ? (wide ? 15 : 13) : wide ? 28 : 24;
+function Bill({ bill, small }) {
+  const s = small ? 0.5 : 1;
+  const { color, w, h, rot, left, top, z } = bill;
   return (
     <View
       style={[
         styles.bill,
         {
-          width: w,
-          height: h,
+          width: w * s,
+          height: h * s,
+          left: left * s,
+          top: top * s,
           backgroundColor: color.body,
           borderColor: color.edge,
+          transform: [{ rotate: `${rot}deg` }],
+          zIndex: z,
         },
       ]}
     >
-      <View style={[styles.billStripeL, { backgroundColor: color.band }]} />
-      <View style={[styles.billStripeR, { backgroundColor: color.band }]} />
-      <View style={[styles.billBand, { backgroundColor: color.band }]} />
-      <View style={[styles.billSeal, small && styles.billSealSm, { borderColor: color.edge }]} />
-      <View style={[styles.billWatermark, { backgroundColor: color.edge }]} />
+      <View style={[styles.stripeL, { backgroundColor: color.band, width: 5 * s }]} />
+      <View style={[styles.stripeR, { backgroundColor: color.band, width: 5 * s }]} />
+      <View style={[styles.band, { backgroundColor: color.band, left: 8 * s, right: 8 * s }]} />
+      <View
+        style={[
+          styles.seal,
+          {
+            borderColor: color.edge,
+            width: 11 * s,
+            height: 11 * s,
+            borderRadius: 6 * s,
+            right: 8 * s,
+            top: 4 * s,
+          },
+        ]}
+      />
     </View>
   );
 }
 
 /**
- * Valigia top-down + mazzette; sotto solo zip + input Budget.
+ * Valigia top-down: banconote sparse (non in torri).
  */
 export default function BudgetVaultPreview({
   budget = 0,
@@ -119,53 +142,19 @@ export default function BudgetVaultPreview({
   error,
 }) {
   const amount = Math.min(MAX_BUDGET, Math.max(0, parseInt(budget, 10) || 0));
-  const plan = useMemo(() => stackPlan(amount), [amount]);
-  const stacks = useMemo(() => buildStacks(plan), [plan]);
+  const bills = useMemo(() => buildBills(amount), [amount]);
 
-  const renderStacks = (list, overflow, small = false) => {
+  const renderBills = (list, small = false) => {
     if (list.length === 0) {
       return <View style={[styles.emptyHint, small && styles.emptyHintSm]} />;
     }
-    const scale = small ? 0.55 : 1;
-    return list.map((s, i) => {
-      const lift = overflow && i >= list.length - 3 ? -8 : 0;
-      return (
-        <View
-          key={`st-${i}`}
-          style={[
-            styles.stackWrap,
-            {
-              left: (s.slot.x + s.jitterX) * scale + (small ? 2 : 0),
-              top: (s.slot.y + s.jitterY) * scale + lift + (small ? 2 : 0),
-              transform: [{ rotate: `${s.rot}deg` }],
-              zIndex: i,
-            },
-          ]}
-        >
-          {Array.from({ length: s.layers }).map((_, layer) => (
-            <View
-              key={`ly-${i}-${layer}`}
-              style={{
-                marginTop: layer === 0 ? 0 : small ? -9 : -13,
-                transform: [{ translateX: layer * s.lean }],
-              }}
-            >
-              <BillFace color={s.color} wide={s.wide} small={small} />
-            </View>
-          ))}
-        </View>
-      );
-    });
+    return list.map((b, i) => <Bill key={`b-${i}`} bill={b} small={small} />);
   };
-
-  const visible = compact ? stacks.slice(0, 7) : stacks;
 
   if (compact) {
     return (
       <View style={styles.compactCase}>
-        <View style={styles.compactInterior}>
-          {renderStacks(visible, false, true)}
-        </View>
+        <View style={styles.compactInterior}>{renderBills(bills.slice(0, 10), true)}</View>
         <Text style={styles.compactTicker}>{amount}</Text>
       </View>
     );
@@ -179,24 +168,8 @@ export default function BudgetVaultPreview({
           <View style={styles.caseCornerTR} />
           <View style={styles.caseCornerBL} />
           <View style={styles.caseCornerBR} />
-
           <View style={styles.caseInterior}>
-            <View style={styles.felt}>
-              {renderStacks(visible, plan.overflow)}
-              {plan.overflow ? (
-                <View style={styles.spillRow}>
-                  <View style={[styles.spillBill, { backgroundColor: '#86efac', transform: [{ rotate: '-22deg' }] }]}>
-                    <View style={[styles.billStripeL, { backgroundColor: '#16a34a', width: 4 }]} />
-                  </View>
-                  <View style={[styles.spillBill, { backgroundColor: '#fdba74', transform: [{ rotate: '16deg' }] }]}>
-                    <View style={[styles.billStripeL, { backgroundColor: '#c2410c', width: 4 }]} />
-                  </View>
-                  <View style={[styles.spillBill, { backgroundColor: '#93c5fd', transform: [{ rotate: '-8deg' }] }]}>
-                    <View style={[styles.billStripeL, { backgroundColor: '#1d4ed8', width: 4 }]} />
-                  </View>
-                </View>
-              ) : null}
-            </View>
+            <View style={styles.felt}>{renderBills(bills)}</View>
           </View>
         </View>
       </View>
@@ -275,7 +248,7 @@ const styles = StyleSheet.create({
     borderColor: '#44403c',
   },
   felt: {
-    height: 140,
+    height: FELT_H,
     backgroundColor: '#14532d',
     position: 'relative',
   },
@@ -299,81 +272,37 @@ const styles = StyleSheet.create({
     width: 48,
     height: 20,
   },
-  stackWrap: {
-    position: 'absolute',
-    alignItems: 'center',
-  },
   bill: {
+    position: 'absolute',
     borderRadius: 4,
     borderWidth: 1.5,
     overflow: 'hidden',
   },
-  billStripeL: {
+  stripeL: {
     position: 'absolute',
     left: 0,
     top: 0,
     bottom: 0,
-    width: 7,
     opacity: 0.75,
   },
-  billStripeR: {
+  stripeR: {
     position: 'absolute',
     right: 0,
     top: 0,
     bottom: 0,
-    width: 7,
     opacity: 0.75,
   },
-  billBand: {
+  band: {
     position: 'absolute',
-    left: 10,
-    right: 10,
-    top: '42%',
-    height: 4,
+    top: '40%',
+    height: 3,
     borderRadius: 1,
-    opacity: 0.45,
+    opacity: 0.4,
   },
-  billSeal: {
+  seal: {
     position: 'absolute',
-    right: 12,
-    top: 6,
-    width: 14,
-    height: 14,
-    borderRadius: 7,
     borderWidth: 1.5,
     backgroundColor: 'rgba(255,255,255,0.4)',
-  },
-  billSealSm: {
-    right: 5,
-    top: 3,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    borderWidth: 1,
-  },
-  billWatermark: {
-    position: 'absolute',
-    left: 12,
-    bottom: 5,
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    opacity: 0.2,
-  },
-  spillRow: {
-    position: 'absolute',
-    right: 6,
-    bottom: 4,
-    flexDirection: 'row',
-    gap: 2,
-  },
-  spillBill: {
-    width: 38,
-    height: 20,
-    borderRadius: 3,
-    borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.15)',
-    overflow: 'hidden',
   },
   metalRail: {
     backgroundColor: '#57534e',
