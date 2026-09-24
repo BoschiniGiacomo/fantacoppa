@@ -11,7 +11,7 @@ const ROLES = [
 ];
 
 /**
- * Foglio distinta: carta + fascia verde. Solo lettere ruolo, niente titoli.
+ * Foglio distinta: carta + fascia verde con titolo.
  */
 export default function TeamsheetBoard({
   formData,
@@ -22,7 +22,9 @@ export default function TeamsheetBoard({
 }) {
   return (
     <View style={styles.sheet}>
-      <View style={styles.sheetHead} />
+      <View style={styles.sheetHead}>
+        <Text style={styles.sheetHeadTitle}>Limite distinta squadra</Text>
+      </View>
       <View style={styles.sheetBody}>
         {ROLES.map((role, idx) => (
           <View key={role.key} style={[styles.row, idx === ROLES.length - 1 && styles.rowLast]}>
@@ -75,8 +77,15 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   sheetHead: {
-    height: 10,
     backgroundColor: '#166534',
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+  },
+  sheetHeadTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#ecfdf5',
+    letterSpacing: 0.2,
   },
   sheetBody: {
     padding: 14,

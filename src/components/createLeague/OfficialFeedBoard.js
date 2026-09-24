@@ -6,23 +6,36 @@ import {
   TouchableOpacity,
   ActivityIndicator,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { TeamLogoImage } from '../StableCachedImage';
 
 /**
- * Switch custom Libera/Ufficiale + “pagina” a fianco:
- * vuota (righe da scrivere) oppure piena (loghi + n. giocatori).
+ * Switch Libera/Ufficiale + pagina a fianco.
+ * Con più leghe: indice sotto, stessa carta crema (niente chip blu).
  */
 function BlankPage() {
   return (
     <View style={styles.pageInner}>
-      <View style={styles.pageHeaderLine} />
-      {[0.92, 0.78, 0.85, 0.55, 0.7].map((w, i) => (
-        <View
-          key={`line-${i}`}
-          style={[styles.ruledLine, { width: `${w * 100}%`, marginTop: i === 0 ? 14 : 10 }]}
-        />
-      ))}
-      <Text style={styles.blankHint}>Pagina vuota</Text>
+      <Text style={styles.blankCopy}>
+        Crea e gestisci i tuoi giocatori, squadre e voti
+      </Text>
+
+      <View style={styles.emptySlots}>
+        {[0, 1, 2, 3].map((i) => (
+          <View key={`slot-${i}`} style={styles.emptySlot}>
+            <Ionicons name="add" size={12} color="#c4bda8" />
+          </View>
+        ))}
+      </View>
+
+      <View style={styles.ruledBlock}>
+        {[0.88, 0.7, 0.5].map((w, i) => (
+          <View
+            key={`line-${i}`}
+            style={[styles.ruledLine, { width: `${w * 100}%` }]}
+          />
+        ))}
+      </View>
     </View>
   );
 }
@@ -43,6 +56,28 @@ function TeamPip({ team }) {
   return (
     <View style={[styles.logoFallback, { backgroundColor: `${color}28`, borderColor: `${color}55` }]}>
       <View style={[styles.logoDot, { backgroundColor: color }]} />
+    </View>
+  );
+}
+
+function MiniLogos({ league, max = 4 }) {
+  const logos = Array.isArray(league?.team_logos) ? league.team_logos.slice(0, max) : [];
+  if (logos.length === 0) {
+    return (
+      <View style={styles.miniLogoRow}>
+        {[0, 1, 2].map((i) => (
+          <View key={`m-${i}`} style={styles.miniLogoPh} />
+        ))}
+      </View>
+    );
+  }
+  return (
+    <View style={styles.miniLogoRow}>
+      {logos.map((t, i) => (
+        <View key={`${t.name || 't'}-${i}`} style={styles.miniLogoWrap}>
+          <TeamPip team={t} />
+        </View>
+      ))}
     </View>
   );
 }
@@ -86,6 +121,43 @@ function FilledPage({ league }) {
   );
 }
 
+function LeagueIndex({ leagues, selectedId, onSelect }) {
+  return (
+    <View style={styles.indexSheet}>
+      <Text style={styles.indexLabel}>Scegli quale collegare</Text>
+      {leagues.map((league, idx) => {
+        const on = selectedId === league.id || (!selectedId && idx === 0);
+        const players = Number(league.player_count) || 0;
+        return (
+          <TouchableOpacity
+            key={league.id}
+            style={[
+              styles.indexRow,
+              on && styles.indexRowOn,
+              idx === leagues.length - 1 && styles.indexRowLast,
+            ]}
+            onPress={() => onSelect?.(league)}
+            activeOpacity={0.85}
+          >
+            <View style={[styles.indexMark, on && styles.indexMarkOn]} />
+            <View style={styles.indexCopy}>
+              <Text style={[styles.indexName, on && styles.indexNameOn]} numberOfLines={1}>
+                {league.name}
+              </Text>
+              <Text style={styles.indexMeta} numberOfLines={1}>
+                {[league.official_group_name, players ? `${players} giocatori` : null]
+                  .filter(Boolean)
+                  .join(' · ')}
+              </Text>
+            </View>
+            <MiniLogos league={league} />
+          </TouchableOpacity>
+        );
+      })}
+    </View>
+  );
+}
+
 export default function OfficialFeedBoard({
   enabled,
   onToggle,
@@ -99,11 +171,11 @@ export default function OfficialFeedBoard({
     () => leagues.find((l) => l.id === selectedId) || leagues[0] || null,
     [leagues, selectedId]
   );
+  const multi = enabled && leagues.length > 1;
 
   return (
     <View style={styles.wrap}>
       <View style={styles.row}>
-        {/* Switch custom verticale */}
         <View style={styles.switchRail}>
           <TouchableOpacity
             style={[styles.switchOpt, !enabled && styles.switchOptOnFree]}
@@ -113,19 +185,23 @@ export default function OfficialFeedBoard({
             <Text style={[styles.switchText, !enabled && styles.switchTextOnFree]}>Libera</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.switchOpt, enabled && styles.switchOptOnOff]}
+            style={[styles.switchOpt, styles.switchOptRow, enabled && styles.switchOptOnOff]}
             onPress={() => onToggle(true)}
             activeOpacity={0.85}
           >
+            <Ionicons
+              name="link"
+              size={14}
+              color={enabled ? '#1e3a8a' : '#94a3b8'}
+            />
             <Text style={[styles.switchText, enabled && styles.switchTextOnOff]}>Ufficiale</Text>
           </TouchableOpacity>
         </View>
 
-        {/* Pagina finta */}
-        <View style={[styles.page, enabled ? styles.pageFilled : styles.pageBlank]}>
+        <View style={[styles.page, styles.pageSheet]}>
           {enabled ? (
             loading && !selected ? (
-              <ActivityIndicator size="small" color="#667eea" style={{ marginTop: 28 }} />
+              <ActivityIndicator size="small" color="#78716c" style={{ marginTop: 28 }} />
             ) : selected ? (
               <FilledPage league={selected} />
             ) : (
@@ -137,24 +213,12 @@ export default function OfficialFeedBoard({
         </View>
       </View>
 
-      {enabled && leagues.length > 1 ? (
-        <View style={styles.chips}>
-          {leagues.map((league) => {
-            const on = selectedId === league.id;
-            return (
-              <TouchableOpacity
-                key={league.id}
-                style={[styles.chip, on && styles.chipOn]}
-                onPress={() => onSelect?.(league)}
-                activeOpacity={0.85}
-              >
-                <Text style={[styles.chipText, on && styles.chipTextOn]} numberOfLines={1}>
-                  {league.name}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
+      {multi ? (
+        <LeagueIndex
+          leagues={leagues}
+          selectedId={selectedId}
+          onSelect={onSelect}
+        />
       ) : null}
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -174,7 +238,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   switchRail: {
-    width: 92,
+    width: 100,
     backgroundColor: '#f1f5f9',
     borderRadius: 14,
     borderWidth: 1.5,
@@ -188,6 +252,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 10,
+    paddingHorizontal: 6,
+  },
+  switchOptRow: {
+    flexDirection: 'row',
+    gap: 4,
   },
   switchOptOnFree: {
     backgroundColor: '#fff',
@@ -217,13 +286,9 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     overflow: 'hidden',
   },
-  pageBlank: {
+  pageSheet: {
     backgroundColor: '#fffef8',
     borderColor: '#e7e2d6',
-  },
-  pageFilled: {
-    backgroundColor: '#fff',
-    borderColor: '#c7d2fe',
   },
   pageInner: {
     flex: 1,
@@ -231,33 +296,48 @@ const styles = StyleSheet.create({
     paddingTop: 10,
     paddingBottom: 10,
   },
-  pageHeaderLine: {
-    height: 8,
-    width: '42%',
-    borderRadius: 4,
-    backgroundColor: '#e8e4d8',
+  blankCopy: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#78716c',
+    lineHeight: 18,
+  },
+  emptySlots: {
+    flexDirection: 'row',
+    gap: 6,
+    marginTop: 12,
+  },
+  emptySlot: {
+    width: 26,
+    height: 26,
+    borderRadius: 7,
+    borderWidth: 1.5,
+    borderColor: '#d6d0c0',
+    borderStyle: 'dashed',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#faf8f1',
+  },
+  ruledBlock: {
+    marginTop: 'auto',
+    paddingTop: 10,
+    gap: 8,
   },
   ruledLine: {
     height: 2,
     borderRadius: 1,
     backgroundColor: '#ded8ca',
   },
-  blankHint: {
-    marginTop: 'auto',
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#b0a890',
-  },
   pageTitle: {
     fontSize: 13,
     fontWeight: '800',
-    color: '#1e3a8a',
+    color: '#57534e',
   },
   pageGroup: {
     marginTop: 1,
     fontSize: 11,
     fontWeight: '600',
-    color: '#818cf8',
+    color: '#a8a29e',
   },
   logoGrid: {
     flexDirection: 'row',
@@ -274,9 +354,9 @@ const styles = StyleSheet.create({
     width: 26,
     height: 26,
     borderRadius: 7,
-    backgroundColor: '#eef2ff',
+    backgroundColor: '#faf8f1',
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: '#e7e2d6',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -284,7 +364,7 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#94a3b8',
+    backgroundColor: '#a8a29e',
   },
   statRow: {
     marginTop: 'auto',
@@ -296,16 +376,16 @@ const styles = StyleSheet.create({
   statValue: {
     fontSize: 15,
     fontWeight: '800',
-    color: '#0f172a',
+    color: '#57534e',
   },
   statLabel: {
     fontSize: 11,
     fontWeight: '600',
-    color: '#64748b',
+    color: '#a8a29e',
   },
   statSep: {
     fontSize: 12,
-    color: '#cbd5e1',
+    color: '#d6d3d1',
     marginHorizontal: 2,
   },
   emptyMini: {
@@ -313,34 +393,83 @@ const styles = StyleSheet.create({
     marginTop: 40,
     fontSize: 12,
     fontWeight: '600',
-    color: '#94a3b8',
+    color: '#a8a29e',
   },
-  chips: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
+  indexSheet: {
     marginTop: 8,
+    backgroundColor: '#fffef8',
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: '#e7e2d6',
+    paddingTop: 10,
+    paddingBottom: 4,
+    overflow: 'hidden',
   },
-  chip: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-    backgroundColor: '#f1f5f9',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    maxWidth: '48%',
-  },
-  chipOn: {
-    backgroundColor: '#eef2ff',
-    borderColor: '#a5b4fc',
-  },
-  chipText: {
+  indexLabel: {
+    paddingHorizontal: 12,
+    marginBottom: 6,
     fontSize: 11,
     fontWeight: '700',
-    color: '#64748b',
+    color: '#a8a29e',
+    letterSpacing: 0.2,
   },
-  chipTextOn: {
-    color: '#1e3a8a',
+  indexRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#e7e2d6',
+  },
+  indexRowOn: {
+    backgroundColor: '#f5f0e6',
+  },
+  indexRowLast: {},
+  indexMark: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    borderWidth: 1.5,
+    borderColor: '#d6d0c0',
+    backgroundColor: 'transparent',
+  },
+  indexMarkOn: {
+    backgroundColor: '#78716c',
+    borderColor: '#78716c',
+  },
+  indexCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  indexName: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#78716c',
+  },
+  indexNameOn: {
+    color: '#44403c',
+  },
+  indexMeta: {
+    marginTop: 1,
+    fontSize: 11,
+    fontWeight: '500',
+    color: '#a8a29e',
+  },
+  miniLogoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  miniLogoWrap: {
+    marginLeft: -4,
+    transform: [{ scale: 0.85 }],
+  },
+  miniLogoPh: {
+    width: 18,
+    height: 18,
+    borderRadius: 5,
+    backgroundColor: '#ebe6da',
+    marginLeft: 3,
   },
   error: {
     marginTop: 8,
