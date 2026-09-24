@@ -1,9 +1,21 @@
 import React from 'react';
-import { Linking, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+  Linking,
+  Platform,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const PLAY_STORE_URL = 'https://play.google.com/store/apps/details?id=com.fantacoppa.app';
 const APP_STORE_URL = 'https://apps.apple.com/us/app/fantacoppa/id6761119410';
 const FALLBACK_UPDATE_URL = PLAY_STORE_URL;
+
+export const DEFAULT_UPDATE_REQUIRED_MESSAGE =
+  "Questa versione dell'app non è più supportata. Aggiorna per continuare.";
 
 const getStoreUrlByPlatform = () => {
   if (Platform.OS === 'android') return PLAY_STORE_URL;
@@ -11,11 +23,17 @@ const getStoreUrlByPlatform = () => {
   return FALLBACK_UPDATE_URL;
 };
 
-export default function UpdateRequiredScreen({ updateInfo }) {
-  const message = updateInfo?.message || 'Per continuare devi aggiornare l\'app.';
+export default function UpdateRequiredScreen({
+  updateInfo,
+  previewMode = false,
+  onClose,
+}) {
+  const insets = useSafeAreaInsets();
+  const message = updateInfo?.message || DEFAULT_UPDATE_REQUIRED_MESSAGE;
   const updateUrl = updateInfo?.updateUrl || getStoreUrlByPlatform();
 
   const handleUpdatePress = async () => {
+    if (previewMode) return;
     try {
       await Linking.openURL(updateUrl);
     } catch (error) {
@@ -28,10 +46,30 @@ export default function UpdateRequiredScreen({ updateInfo }) {
       <View style={styles.card}>
         <Text style={styles.title}>Aggiornamento richiesto</Text>
         <Text style={styles.message}>{message}</Text>
-        <TouchableOpacity style={styles.button} onPress={handleUpdatePress} activeOpacity={0.85}>
-          <Text style={styles.buttonText}>Aggiorna ora</Text>
+        <TouchableOpacity
+          style={[styles.button, previewMode && styles.buttonPreview]}
+          onPress={handleUpdatePress}
+          activeOpacity={previewMode ? 1 : 0.85}
+          disabled={previewMode}
+        >
+          <Text style={styles.buttonText}>
+            {previewMode ? 'Aggiorna ora (anteprima)' : 'Aggiorna ora'}
+          </Text>
         </TouchableOpacity>
       </View>
+
+      {previewMode && typeof onClose === 'function' ? (
+        <TouchableOpacity
+          accessibilityLabel="Chiudi anteprima"
+          onPress={onClose}
+          style={[styles.closeBtn, { top: Math.max(insets.top, 10) + 6 }]}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+        >
+          <View style={styles.closeInner}>
+            <Ionicons name="close" size={26} color="#fff" />
+          </View>
+        </TouchableOpacity>
+      ) : null}
     </View>
   );
 }
@@ -75,9 +113,25 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 14,
   },
+  buttonPreview: {
+    opacity: 0.85,
+  },
   buttonText: {
     color: '#ffffff',
     fontSize: 16,
     fontWeight: '700',
+  },
+  closeBtn: {
+    position: 'absolute',
+    right: 14,
+    zIndex: 20,
+  },
+  closeInner: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(15, 23, 42, 0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

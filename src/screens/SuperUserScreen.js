@@ -24,9 +24,12 @@ import AppLoadingFullScreenModal from '../components/AppLoadingFullScreenModal';
 import BrandingPreviewFullScreenModal from '../components/BrandingPreviewFullScreenModal';
 import MatchHeroBackgroundOverlay from '../components/MatchHeroBackgroundOverlay';
 import SistemaSettingsPanel from '../components/SistemaSettingsPanel';
+import UpdateRequiredScreen, {
+  DEFAULT_UPDATE_REQUIRED_MESSAGE,
+} from './UpdateRequiredScreen';
 import { useAuth } from '../context/AuthContext';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { superuserService, publicAssetUrl } from '../services/api';
+import { superuserService, publicAssetUrl, getAppVersionInfo } from '../services/api';
 import { patchLeagueLocalRole } from '../services/leagueWarmCache';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -502,6 +505,8 @@ export default function SuperUserScreen() {
   const [matchBackgroundSectionOpen, setMatchBackgroundSectionOpen] = useState(false);
   const [matchBackgroundPreview, setMatchBackgroundPreview] = useState(null);
   const [pickingMatchBackground, setPickingMatchBackground] = useState(false);
+  const [updateSectionOpen, setUpdateSectionOpen] = useState(false);
+  const [updateSimulateOpen, setUpdateSimulateOpen] = useState(false);
   const [refreshingAppSettings, setRefreshingAppSettings] = useState(false);
   const appSettingsHydratedRef = useRef(false);
   const clustersOverviewHydratedRef = useRef(false);
@@ -4774,7 +4779,7 @@ export default function SuperUserScreen() {
             }
           >
             <Text style={styles.appSettingsSubtitle}>
-              Branding globale: caricamento, login e partite
+              Branding globale: caricamento, login, partite e schermata aggiornamento
             </Text>
 
             {/* Loading */}
@@ -5207,6 +5212,65 @@ export default function SuperUserScreen() {
                       </TouchableOpacity>
                     </>
                   )}
+                </View>
+              ) : null}
+            </View>
+
+            {/* Schermata aggiornamento forzato */}
+            <View style={[styles.appSettingsCard, updateSectionOpen && styles.appSettingsCardOpen]}>
+              <TouchableOpacity
+                style={styles.appSettingsSectionHeader}
+                onPress={() => setUpdateSectionOpen((v) => !v)}
+                activeOpacity={0.75}
+              >
+                <View style={styles.appSettingsSectionHeaderLeft}>
+                  <View style={[styles.appSettingsSectionIcon, styles.appSettingsSectionIconOn]}>
+                    <Ionicons name="cloud-download-outline" size={18} color="#667eea" />
+                  </View>
+                  <View style={styles.appSettingsSectionCopy}>
+                    <Text style={styles.appSettingsSectionTitle}>Aggiornamento</Text>
+                    <View style={[styles.appSettingsStatusPill, styles.appSettingsStatusPillOn]}>
+                      <Text style={[styles.appSettingsStatusPillText, styles.appSettingsStatusPillTextOn]}>
+                        Anteprima
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+                <Ionicons
+                  name={updateSectionOpen ? 'chevron-up' : 'chevron-down'}
+                  size={20}
+                  color="#94a3b8"
+                />
+              </TouchableOpacity>
+
+              {updateSectionOpen ? (
+                <View style={styles.appSettingsSectionBody}>
+                  <Text style={styles.appSettingsSectionHint}>
+                    Schermata mostrata quando la versione dell’app è sotto il minimo supportato
+                    (versione attuale: {getAppVersionInfo()?.name || '—'}
+                    {getAppVersionInfo()?.code != null ? ` (${getAppVersionInfo().code})` : ''}).
+                  </Text>
+
+                  <Text style={styles.appSettingsPreviewTitle}>Anteprima</Text>
+                  <View style={styles.updateRequiredPreviewStage}>
+                    <View style={styles.updateRequiredPreviewCard}>
+                      <Text style={styles.updateRequiredPreviewTitle}>Aggiornamento richiesto</Text>
+                      <Text style={styles.updateRequiredPreviewMessage}>
+                        {DEFAULT_UPDATE_REQUIRED_MESSAGE}
+                      </Text>
+                      <View style={styles.updateRequiredPreviewBtn}>
+                        <Text style={styles.updateRequiredPreviewBtnText}>Aggiorna ora</Text>
+                      </View>
+                    </View>
+                  </View>
+
+                  <TouchableOpacity
+                    style={styles.appSettingsOutlineBtn}
+                    onPress={() => setUpdateSimulateOpen(true)}
+                  >
+                    <Ionicons name="expand-outline" size={18} color="#667eea" />
+                    <Text style={styles.appSettingsOutlineBtnText}>Anteprima a tutto schermo</Text>
+                  </TouchableOpacity>
                 </View>
               ) : null}
             </View>
@@ -7748,6 +7812,21 @@ export default function SuperUserScreen() {
         backgroundUri={matchBackgroundPreview?.uri || null}
         onClose={() => setMatchBgSimulateOpen(false)}
       />
+
+      <Modal
+        visible={updateSimulateOpen}
+        animationType="fade"
+        transparent={false}
+        statusBarTranslucent
+        presentationStyle={Platform.OS === 'ios' ? 'fullScreen' : undefined}
+        onRequestClose={() => setUpdateSimulateOpen(false)}
+      >
+        <UpdateRequiredScreen
+          previewMode
+          onClose={() => setUpdateSimulateOpen(false)}
+          updateInfo={{ message: DEFAULT_UPDATE_REQUIRED_MESSAGE }}
+        />
+      </Modal>
 
       {toastMsg ? (
         <Modal transparent visible animationType="fade" statusBarTranslucent>
@@ -11979,6 +12058,52 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     color: '#667eea',
+  },
+  updateRequiredPreviewStage: {
+    width: '100%',
+    borderRadius: 14,
+    overflow: 'hidden',
+    backgroundColor: '#f4f6fb',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    paddingVertical: 22,
+    paddingHorizontal: 16,
+  },
+  updateRequiredPreviewCard: {
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    paddingVertical: 18,
+    paddingHorizontal: 16,
+    borderWidth: 1,
+    borderColor: '#e8edf5',
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 2,
+  },
+  updateRequiredPreviewTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#1f2937',
+    marginBottom: 8,
+  },
+  updateRequiredPreviewMessage: {
+    fontSize: 14,
+    color: '#4b5563',
+    lineHeight: 20,
+    marginBottom: 14,
+  },
+  updateRequiredPreviewBtn: {
+    backgroundColor: '#667eea',
+    borderRadius: 10,
+    alignItems: 'center',
+    paddingVertical: 12,
+  },
+  updateRequiredPreviewBtnText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '700',
   },
   appSettingsPreviewTitle: {
     fontSize: 12,
