@@ -5,11 +5,12 @@ import {
   StyleSheet,
   FlatList,
   TouchableOpacity,
+  TouchableWithoutFeedback,
   RefreshControl,
   ActivityIndicator,
   TextInput,
   Modal,
-  ScrollView,
+  useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { leagueService } from '../services/api';
@@ -42,9 +43,12 @@ function leagueMatchesFilter(league, filterKey) {
 }
 
 export default function LeaguesScreen({ navigation }) {
+  const { width: windowWidth } = useWindowDimensions();
   const [allLeagues, setAllLeagues] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterKey, setFilterKey] = useState('all');
+  const [showFilters, setShowFilters] = useState(false);
+  const [filterMenuLayout, setFilterMenuLayout] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [joinModalVisible, setJoinModalVisible] = useState(false);
@@ -54,6 +58,9 @@ export default function LeaguesScreen({ navigation }) {
   const [toastMsg, setToastMsg] = useState(null);
   const [badgeLegendOpen, setBadgeLegendOpen] = useState(false);
   const legendHideTimerRef = useRef(null);
+  const filterBtnRef = useRef(null);
+
+  const hasActiveFilters = filterKey !== 'all';
 
   const showToast = (text, type = 'error') => {
     setToastMsg({ text, type });
@@ -82,6 +89,57 @@ export default function LeaguesScreen({ navigation }) {
   }, [clearLegendHideTimer]);
 
   useEffect(() => () => clearLegendHideTimer(), [clearLegendHideTimer]);
+
+  useEffect(() => {
+    if (!showFilters) {
+      setFilterMenuLayout(null);
+      return undefined;
+    }
+    let cancelled = false;
+    const measureAnchor = () => {
+      const node = filterBtnRef?.current;
+      if (!node || typeof node.measureInWindow !== 'function') return;
+      try {
+        node.measureInWindow((x, y, width, height) => {
+          if (cancelled) return;
+          if (
+            typeof x !== 'number'
+            || typeof y !== 'number'
+            || typeof width !== 'number'
+            || typeof height !== 'number'
+          ) {
+            return;
+          }
+          const panelWidth = Math.min(280, Math.max(220, windowWidth - 24));
+          const left = Math.max(12, Math.min(x + width - panelWidth, windowWidth - panelWidth - 12));
+          setFilterMenuLayout({
+            left,
+            top: y + height + 6,
+            width: panelWidth,
+          });
+        });
+      } catch {
+        // Native node non ancora pronto
+      }
+    };
+    measureAnchor();
+    const retryTimer = setTimeout(measureAnchor, 64);
+    return () => {
+      cancelled = true;
+      clearTimeout(retryTimer);
+    };
+  }, [showFilters, windowWidth]);
+
+  const closeFilters = useCallback(() => setShowFilters(false), []);
+
+  const selectFilter = useCallback((key) => {
+    setFilterKey(key);
+    setShowFilters(false);
+  }, []);
+
+  const clearFilters = useCallback(() => {
+    setFilterKey('all');
+  }, []);
 
   const loadLeagues = useCallback(async () => {
     try {
@@ -113,17 +171,6 @@ export default function LeaguesScreen({ navigation }) {
     ),
     [allLeagues],
   );
-
-  const filterCounts = useMemo(() => {
-    const counts = { all: discoverableLeagues.length, official: 0, public: 0, private: 0, approval: 0 };
-    for (const league of discoverableLeagues) {
-      if (Number(league?.is_official) === 1 || league?.is_official === true) counts.official += 1;
-      if (leagueHasAccessCode(league)) counts.private += 1;
-      else counts.public += 1;
-      if (leagueRequiresApproval(league)) counts.approval += 1;
-    }
-    return counts;
-  }, [discoverableLeagues]);
 
   const filteredLeagues = useMemo(() => {
     let list = discoverableLeagues.filter((league) => leagueMatchesFilter(league, filterKey));
@@ -209,16 +256,14 @@ export default function LeaguesScreen({ navigation }) {
         activeOpacity={0.85}
       >
         <View style={styles.leagueHeader}>
-          <View style={[styles.trophyWrap, isOfficial && styles.trophyWrapOfficial]}>
-            <Ionicons
-              name={isOfficial ? 'ribbon' : 'trophy'}
-              size={20}
-              color={isOfficial ? '#667eea' : '#d97706'}
-            />
-          </View>
-          <Text style={styles.leagueName} numberOfLines={2}>{item.name}</Text>
+          <Ionicons
+            name={isOfficial ? 'ribbon' : 'trophy'}
+            size={24}
+            color={isOfficial ? '#667eea' : '#f0a500'}
+          />
+          <Text style={styles.leagueName} numberOfLines={1}>{item.name}</Text>
           <View style={styles.usersContainer}>
-            <Ionicons name="people-outline" size={16} color="#94a3b8" />
+            <Ionicons name="people-outline" size={16} color="#999" />
             <Text style={styles.usersValue}>{item.user_count || 0}</Text>
           </View>
         </View>
@@ -267,7 +312,7 @@ export default function LeaguesScreen({ navigation }) {
 
         <View style={styles.leagueFooter}>
           <View style={styles.matchdayLeft}>
-            <Ionicons name="calendar-outline" size={16} color="#94a3b8" />
+            <Ionicons name="calendar-outline" size={16} color="#999" />
             <Text style={styles.leagueMatchday}>{matchdayLabel}</Text>
           </View>
           <View style={styles.verticalDivider} />
@@ -303,14 +348,7 @@ export default function LeaguesScreen({ navigation }) {
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
         <View style={styles.titleRow}>
-          <View style={styles.titleBlock}>
-            <Text style={styles.title}>Scopri leghe</Text>
-            <Text style={styles.subtitle}>
-              {filteredLeagues.length === 1
-                ? '1 lega disponibile'
-                : `${filteredLeagues.length} leghe disponibili`}
-            </Text>
-          </View>
+          <Text style={styles.title}>Scopri leghe</Text>
           <TouchableOpacity
             style={[styles.legendToggle, badgeLegendOpen && styles.legendToggleActive]}
             onPress={toggleBadgeLegend}
@@ -326,58 +364,54 @@ export default function LeaguesScreen({ navigation }) {
           </TouchableOpacity>
         </View>
 
-        <View style={styles.searchContainer}>
-          <Ionicons name="search" size={18} color="#94a3b8" style={styles.searchIcon} />
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Cerca per nome…"
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            autoCapitalize="none"
-            placeholderTextColor="#94a3b8"
-          />
-          {searchQuery.length > 0 ? (
-            <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.clearButton} hitSlop={8}>
-              <Ionicons name="close-circle" size={18} color="#94a3b8" />
-            </TouchableOpacity>
-          ) : null}
-        </View>
-
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.filterRow}
-          style={styles.filterScroll}
-        >
-          {FILTERS.map((filter) => {
-            const active = filterKey === filter.key;
-            const count = filterCounts[filter.key] ?? 0;
-            return (
-              <TouchableOpacity
-                key={filter.key}
-                style={[styles.filterChip, active && styles.filterChipActive]}
-                onPress={() => setFilterKey(filter.key)}
-                activeOpacity={0.8}
-              >
-                <Ionicons
-                  name={filter.icon}
-                  size={14}
-                  color={active ? '#4338ca' : '#64748b'}
-                />
-                <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>
-                  {filter.label}
-                </Text>
-                {filter.key !== 'all' && count > 0 ? (
-                  <View style={[styles.filterCount, active && styles.filterCountActive]}>
-                    <Text style={[styles.filterCountText, active && styles.filterCountTextActive]}>
-                      {count}
-                    </Text>
-                  </View>
-                ) : null}
+        <View style={styles.searchRow}>
+          <View style={styles.searchContainer}>
+            <Ionicons name="search" size={18} color="#94a3b8" style={styles.searchIcon} />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Cerca per nome…"
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              autoCapitalize="none"
+              placeholderTextColor="#94a3b8"
+            />
+            {searchQuery.length > 0 ? (
+              <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.clearButton} hitSlop={8}>
+                <Ionicons name="close-circle" size={18} color="#94a3b8" />
               </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
+            ) : null}
+          </View>
+          <TouchableOpacity
+            ref={filterBtnRef}
+            style={[styles.filterBtn, (hasActiveFilters || showFilters) && styles.filterBtnActive]}
+            onPress={() => setShowFilters((open) => !open)}
+            activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel="Filtri leghe"
+          >
+            <Ionicons
+              name="options-outline"
+              size={20}
+              color={hasActiveFilters ? '#667eea' : '#94a3b8'}
+            />
+            <View
+              style={[
+                styles.filterCountBadge,
+                hasActiveFilters && styles.filterCountBadgeActive,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.filterCountBadgeText,
+                  hasActiveFilters && styles.filterCountBadgeTextActive,
+                ]}
+                numberOfLines={1}
+              >
+                {filteredLeagues.length}
+              </Text>
+            </View>
+          </TouchableOpacity>
+        </View>
 
         {badgeLegendOpen ? (
           <View style={styles.badgeLegend}>
@@ -433,7 +467,7 @@ export default function LeaguesScreen({ navigation }) {
               <TouchableOpacity
                 style={styles.emptyResetBtn}
                 onPress={() => {
-                  setFilterKey('all');
+                  clearFilters();
                   setSearchQuery('');
                 }}
               >
@@ -452,6 +486,91 @@ export default function LeaguesScreen({ navigation }) {
       >
         <Ionicons name="add" size={28} color="#fff" />
       </TouchableOpacity>
+
+      <Modal
+        visible={showFilters}
+        transparent
+        animationType="fade"
+        onRequestClose={closeFilters}
+        statusBarTranslucent
+      >
+        <TouchableWithoutFeedback onPress={closeFilters} accessible={false}>
+          <View style={styles.filterMenuRoot}>
+            {filterMenuLayout ? (
+              <TouchableWithoutFeedback accessible={false}>
+                <View
+                  style={[
+                    styles.filterDropdown,
+                    {
+                      top: filterMenuLayout.top,
+                      left: filterMenuLayout.left,
+                      width: filterMenuLayout.width,
+                    },
+                  ]}
+                >
+                  <View style={styles.filterDropdownHeader}>
+                    <Text style={styles.filterDropdownTitle}>Filtri</Text>
+                    <TouchableOpacity
+                      style={[
+                        styles.filterPresetChip,
+                        !hasActiveFilters && styles.filterPresetChipActive,
+                      ]}
+                      onPress={clearFilters}
+                      activeOpacity={0.75}
+                    >
+                      <Text
+                        style={[
+                          styles.filterPresetChipText,
+                          !hasActiveFilters && styles.filterPresetChipTextActive,
+                        ]}
+                      >
+                        Azzera
+                      </Text>
+                      {!hasActiveFilters ? (
+                        <Ionicons name="checkmark" size={12} color="#4f46e5" />
+                      ) : null}
+                    </TouchableOpacity>
+                  </View>
+                  {FILTERS.map((filter, idx) => {
+                    const on = filterKey === filter.key;
+                    return (
+                      <TouchableOpacity
+                        key={filter.key}
+                        style={[
+                          styles.filterDropdownItem,
+                          on && styles.filterDropdownItemOn,
+                          idx === FILTERS.length - 1 && styles.filterDropdownItemLast,
+                        ]}
+                        onPress={() => selectFilter(filter.key)}
+                        activeOpacity={0.8}
+                      >
+                        <View style={styles.filterDropdownItemLeft}>
+                          <Ionicons
+                            name={filter.icon}
+                            size={15}
+                            color={on ? '#4f46e5' : '#94a3b8'}
+                          />
+                          <Text
+                            style={[
+                              styles.filterDropdownItemText,
+                              on && styles.filterDropdownItemTextOn,
+                            ]}
+                          >
+                            {filter.label}
+                          </Text>
+                        </View>
+                        <View style={[styles.filterCheck, on && styles.filterCheckOn]}>
+                          {on ? <Ionicons name="checkmark" size={12} color="#fff" /> : null}
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </TouchableWithoutFeedback>
+            ) : null}
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
 
       <Modal
         visible={joinModalVisible}
@@ -565,25 +684,17 @@ const styles = StyleSheet.create({
   },
   titleRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 14,
     gap: 10,
   },
-  titleBlock: {
-    flex: 1,
-    gap: 2,
-  },
   title: {
+    flex: 1,
     fontSize: 26,
     fontWeight: '800',
     color: '#0f172a',
     letterSpacing: -0.4,
-  },
-  subtitle: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: '#64748b',
   },
   legendToggle: {
     width: 36,
@@ -599,14 +710,20 @@ const styles = StyleSheet.create({
     backgroundColor: '#eef2ff',
     borderColor: '#c7d2fe',
   },
+  searchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   searchContainer: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#f8fafc',
     borderRadius: 12,
     paddingHorizontal: 12,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: '#dbe3ef',
   },
   searchIcon: {
     marginRight: 8,
@@ -620,56 +737,146 @@ const styles = StyleSheet.create({
   clearButton: {
     padding: 2,
   },
-  filterScroll: {
-    marginTop: 12,
-    marginHorizontal: -16,
+  filterBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#dbe3ef',
+    backgroundColor: '#f8fafc',
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+    overflow: 'visible',
   },
-  filterRow: {
-    paddingHorizontal: 16,
-    gap: 8,
+  filterBtnActive: {
+    borderColor: '#c7d2fe',
+    backgroundColor: '#eef2ff',
   },
-  filterChip: {
+  filterCountBadge: {
+    position: 'absolute',
+    right: -4,
+    bottom: -4,
+    minWidth: 18,
+    height: 18,
+    paddingHorizontal: 4,
+    borderRadius: 9,
+    backgroundColor: '#e2e8f0',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: '#fff',
+  },
+  filterCountBadgeActive: {
+    backgroundColor: '#667eea',
+  },
+  filterCountBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#475569',
+  },
+  filterCountBadgeTextActive: {
+    color: '#fff',
+  },
+  filterMenuRoot: {
+    flex: 1,
+    backgroundColor: 'transparent',
+  },
+  filterDropdown: {
+    position: 'absolute',
+    borderWidth: 1,
+    borderColor: '#dbe3ef',
+    borderRadius: 12,
+    backgroundColor: '#fff',
+    overflow: 'hidden',
+    elevation: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.14,
+    shadowRadius: 12,
+  },
+  filterDropdownHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingVertical: 8,
+    justifyContent: 'space-between',
     paddingHorizontal: 12,
-    borderRadius: 20,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#e8edf5',
     backgroundColor: '#f8fafc',
+  },
+  filterDropdownTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#64748b',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
+  filterPresetChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: '#fff',
     borderWidth: 1,
     borderColor: '#e2e8f0',
   },
-  filterChipActive: {
+  filterPresetChipActive: {
     backgroundColor: '#eef2ff',
     borderColor: '#c7d2fe',
   },
-  filterChipText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#64748b',
-  },
-  filterChipTextActive: {
-    color: '#4338ca',
-  },
-  filterCount: {
-    minWidth: 18,
-    height: 18,
-    borderRadius: 9,
-    paddingHorizontal: 5,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#e2e8f0',
-  },
-  filterCountActive: {
-    backgroundColor: '#c7d2fe',
-  },
-  filterCountText: {
+  filterPresetChipText: {
     fontSize: 11,
     fontWeight: '700',
     color: '#64748b',
   },
-  filterCountTextActive: {
-    color: '#4338ca',
+  filterPresetChipTextActive: {
+    color: '#4f46e5',
+  },
+  filterDropdownItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#eef2f7',
+  },
+  filterDropdownItemOn: {
+    backgroundColor: '#f5f7ff',
+  },
+  filterDropdownItemLast: {
+    borderBottomWidth: 0,
+  },
+  filterDropdownItemLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+  },
+  filterDropdownItemText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#334155',
+  },
+  filterDropdownItemTextOn: {
+    color: '#4f46e5',
+  },
+  filterCheck: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: '#cbd5e1',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fff',
+  },
+  filterCheckOn: {
+    backgroundColor: '#4f46e5',
+    borderColor: '#4f46e5',
   },
   badgeLegend: {
     marginTop: 12,
@@ -700,7 +907,8 @@ const styles = StyleSheet.create({
     color: '#475569',
   },
   listContent: {
-    padding: 16,
+    paddingHorizontal: 12,
+    paddingTop: 12,
     paddingBottom: 96,
   },
   leagueCard: {
@@ -722,25 +930,14 @@ const styles = StyleSheet.create({
   leagueHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 12,
-  },
-  trophyWrap: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#fffbeb',
-  },
-  trophyWrapOfficial: {
-    backgroundColor: '#eef2ff',
+    marginBottom: 10,
   },
   leagueName: {
     flex: 1,
     fontSize: 18,
     fontWeight: '700',
     color: '#0f172a',
-    marginLeft: 10,
+    marginLeft: 8,
   },
   usersContainer: {
     flexDirection: 'row',
@@ -749,8 +946,8 @@ const styles = StyleSheet.create({
   },
   usersValue: {
     fontSize: 14,
-    color: '#94a3b8',
-    fontWeight: '600',
+    color: '#999',
+    fontWeight: '500',
   },
   leagueInfo: {
     flexDirection: 'row',
@@ -773,7 +970,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   privateBadge: {
-    backgroundColor: '#4f46e5',
+    backgroundColor: '#667eea',
   },
   approvalBadge: {
     backgroundColor: '#fef3c7',
@@ -797,9 +994,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   joinText: {
-    fontSize: 15,
+    fontSize: 16,
     color: '#667eea',
-    fontWeight: '700',
+    fontWeight: '600',
     marginLeft: 6,
   },
   leagueFooter: {
@@ -807,8 +1004,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingTop: 12,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: '#e2e8f0',
+    borderTopWidth: 1,
+    borderTopColor: '#f0f0f0',
   },
   matchdayLeft: {
     flexDirection: 'row',
@@ -817,46 +1014,44 @@ const styles = StyleSheet.create({
     flexShrink: 1,
   },
   leagueMatchday: {
-    fontSize: 13,
-    color: '#64748b',
+    fontSize: 14,
+    color: '#999',
     fontWeight: '500',
   },
   verticalDivider: {
-    width: StyleSheet.hairlineWidth,
-    height: 22,
-    backgroundColor: '#cbd5e1',
+    width: 1,
+    height: 20,
+    backgroundColor: '#ddd',
   },
   formationContainer: {
     alignItems: 'center',
   },
   formationLabel: {
     fontSize: 11,
-    color: '#94a3b8',
-    fontWeight: '500',
+    color: '#999',
+    fontWeight: '400',
   },
   formationValue: {
     fontSize: 14,
-    fontWeight: '700',
-    marginTop: 1,
+    fontWeight: '500',
   },
   marketContainer: {
     alignItems: 'center',
   },
   marketLabel: {
     fontSize: 11,
-    color: '#94a3b8',
-    fontWeight: '500',
+    color: '#999',
+    fontWeight: '400',
   },
   marketValue: {
     fontSize: 14,
-    fontWeight: '700',
-    marginTop: 1,
+    fontWeight: '500',
   },
   metaYes: {
-    color: '#15803d',
+    color: '#198754',
   },
   metaNo: {
-    color: '#b91c1c',
+    color: '#dc3545',
   },
   fab: {
     position: 'absolute',
