@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -11,7 +11,6 @@ import {
   Animated,
   Platform,
   PanResponder,
-  KeyboardAvoidingView,
   Keyboard,
   Dimensions,
 } from 'react-native';
@@ -23,12 +22,16 @@ import { Ionicons } from '@expo/vector-icons';
 import BonusIcon from '../components/BonusIcon';
 
 const STEPS = [
-  { id: 1, title: 'Informazioni Base', icon: 'information-circle' },
-  { id: 2, title: 'Configurazione Squadre', icon: 'people' },
-  { id: 3, title: 'Bonus/Malus', icon: 'trophy' },
-  { id: 4, title: 'Riepilogo', icon: 'checkmark-circle' },
+  { id: 1, title: 'Informazioni', short: 'Info', icon: 'information-circle-outline' },
+  { id: 2, title: 'Squadra', short: 'Rosa', icon: 'people-outline' },
+  { id: 3, title: 'Bonus', short: 'Punti', icon: 'flash-outline' },
+  { id: 4, title: 'Riepilogo', short: 'Crea', icon: 'checkmark-circle-outline' },
 ];
 const CREATE_LEAGUE_DRAFT_KEY = 'create_league_draft_v1';
+
+const SWITCH_TRACK = { false: '#e2e8f0', true: '#a5b4fc' };
+const SWITCH_THUMB_OFF = '#f8fafc';
+const SWITCH_THUMB_ON = '#667eea';
 
 export default function CreateLeagueScreen({ navigation }) {
   const insets = useSafeAreaInsets();
@@ -38,53 +41,75 @@ export default function CreateLeagueScreen({ navigation }) {
   const inputLayouts = React.useRef({});
   
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const keyboardHeightRef = useRef(0);
   const focusedInputRef = useRef(null);
   const focusedInputKey = useRef(null);
+  const scrollOffsetY = useRef(0);
   const [validationToast, setValidationToast] = useState('');
   const [toastMsg, setToastMsg] = useState(null);
   const [highlightField, setHighlightField] = useState(null); // campo da evidenziare
+  const [fieldErrors, setFieldErrors] = useState({});
   const fieldRefs = useRef({}); // ref per i container dei campi validabili
+  const stepOpacity = useRef(new Animated.Value(1)).current;
 
   const showToast = (text, type = 'error') => {
     setToastMsg({ text, type });
     setTimeout(() => setToastMsg(null), 2500);
   };
   
-  // Ensure numeroTitolari is always within range 4-11
-  useEffect(() => {
-    if (formData && formData.numeroTitolari !== undefined) {
-      const currentValue = parseInt(formData.numeroTitolari);
-      if (!isNaN(currentValue) && (currentValue < 4 || currentValue > 11)) {
-        const clampedValue = Math.min(Math.max(currentValue, 4), 11);
-        setFormData(prev => ({ ...prev, numeroTitolari: clampedValue.toString() }));
+  const scrollInputIntoView = useCallback((inputNode) => {
+    if (!inputNode || !scrollViewRef.current) return;
+    if (typeof inputNode.measureInWindow !== 'function') return;
+    if (typeof scrollViewRef.current.measureInWindow !== 'function') return;
+
+    const run = () => {
+      try {
+        const winH = Dimensions.get('window').height || 0;
+        const kbH = keyboardHeightRef.current;
+        scrollViewRef.current.measureInWindow((sx, sy, sw, sh) => {
+          if (!Number.isFinite(sy) || !Number.isFinite(sh) || sh <= 0) return;
+          inputNode.measureInWindow((ix, iy, iw, ih) => {
+            if (!Number.isFinite(iy) || !Number.isFinite(ih)) return;
+            const margin = 28;
+            const visibleTop = sy + margin;
+            // La ScrollView può misurarsi ancora "dietro" la tastiera: taglia al top tastiera.
+            const kbTop = kbH > 0 ? winH - kbH : sy + sh;
+            const visibleBottom = Math.min(sy + sh, kbTop) - margin;
+            const inputTop = iy;
+            const inputBottom = iy + ih;
+            let delta = 0;
+            if (inputBottom > visibleBottom) {
+              delta = inputBottom - visibleBottom;
+            } else if (inputTop < visibleTop) {
+              delta = inputTop - visibleTop;
+            }
+            if (delta === 0) return;
+            scrollViewRef.current?.scrollTo({
+              y: Math.max(0, scrollOffsetY.current + delta),
+              animated: true,
+            });
+          });
+        });
+      } catch {
+        // measure fallita: ignora
       }
-    }
-  }, [formData?.numeroTitolari]);
-  
-  const scrollViewLayoutY = React.useRef(0); // Y assoluta del top dello ScrollView sullo schermo
-  const scrollViewVisibleHeight = React.useRef(0);
-  const keyboardTopY = React.useRef(0); // Y assoluta del top della tastiera sullo schermo
+    };
+
+    requestAnimationFrame(() => setTimeout(run, 16));
+  }, []);
 
   useEffect(() => {
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
     const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
 
     const showSubscription = Keyboard.addListener(showEvent, (e) => {
-      const kbHeight = e.endCoordinates.height;
-      keyboardTopY.current = e.endCoordinates.screenY; // top della tastiera (Y assoluta)
-      setKeyboardHeight(kbHeight);
-
-      if (focusedInputRef.current && scrollViewRef.current) {
-        setTimeout(() => {
-          scrollInputIntoView(focusedInputRef.current);
-        }, 150);
-      }
+      const h = e.endCoordinates?.height || 0;
+      keyboardHeightRef.current = h;
+      setKeyboardHeight(h);
     });
     const hideSubscription = Keyboard.addListener(hideEvent, () => {
+      keyboardHeightRef.current = 0;
       setKeyboardHeight(0);
-      keyboardTopY.current = 0;
-      focusedInputRef.current = null;
-      focusedInputKey.current = null;
     });
 
     return () => {
@@ -93,44 +118,16 @@ export default function CreateLeagueScreen({ navigation }) {
     };
   }, []);
 
-  // Scrolla l'input appena sopra la tastiera
-  const scrollInputIntoView = (inputNode) => {
-    if (!inputNode || !scrollViewRef.current) return;
-
-    // 1) Misuro la posizione dell'input rispetto al contenuto dello ScrollView
-    inputNode.measureLayout(
-      scrollViewRef.current,
-      (x, yInContent, width, inputHeight) => {
-        // 2) Misuro dove si trova lo ScrollView sullo schermo
-        scrollViewRef.current.measure?.((svX, svY, svW, svH, svPageX, svPageY) => {
-          if (svPageY === undefined) return;
-
-          // Altezza visibile dello ScrollView
-          const visibleH = svH || scrollViewVisibleHeight.current || 500;
-          // Dove finisce la tastiera sullo schermo
-          const kbTop = keyboardTopY.current > 0
-            ? keyboardTopY.current
-            : (Dimensions?.get?.('window')?.height || 800) - (keyboardHeight || 300);
-
-          // L'area visibile sopra la tastiera va da svPageY a kbTop
-          const visibleAboveKb = kbTop - svPageY;
-
-          // Il bottom dell'input nel contenuto dello ScrollView
-          const inputBottom = yInContent + inputHeight;
-
-          // Voglio che inputBottom sia a visibleAboveKb - margin dal top dello ScrollView
-          const margin = 50; // margine sopra la tastiera
-          const targetScrollY = inputBottom - visibleAboveKb + margin;
-
-          scrollViewRef.current.scrollTo({
-            y: Math.max(0, targetScrollY),
-            animated: true,
-          });
-        });
-      },
-      () => {} // errore measureLayout ignorato
-    );
-  };
+  // Dopo che il padding sotto cresce con la tastiera, riporta il campo in vista.
+  useEffect(() => {
+    if (keyboardHeight <= 0 || !focusedInputRef.current) return undefined;
+    const t1 = setTimeout(() => scrollInputIntoView(focusedInputRef.current), 80);
+    const t2 = setTimeout(() => scrollInputIntoView(focusedInputRef.current), 280);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+  }, [keyboardHeight, scrollInputIntoView]);
 
   // Per i malus: forza il segno negativo quando esci dal campo
   const commitMalusValue = (fieldKey) => {
@@ -153,11 +150,15 @@ export default function CreateLeagueScreen({ navigation }) {
       scrollInputIntoView(inputRef.current);
     };
 
-    // Prova subito (tastiera potrebbe essere già aperta)
-    setTimeout(doScroll, 150);
-    // Riprova dopo che la tastiera è sicuramente aperta
-    setTimeout(doScroll, 450);
+    setTimeout(doScroll, 100);
+    setTimeout(doScroll, 320);
   };
+
+  // Spazio sotto: cresce con la tastiera, torna al padding del footer quando la chiudi.
+  const scrollBottomPad =
+    keyboardHeight > 0
+      ? keyboardHeight + 28
+      : 72 + Math.max(insets.bottom, 10);
 
   const inputRefs = {
     step1: {
@@ -229,6 +230,17 @@ export default function CreateLeagueScreen({ navigation }) {
     linkedToLeagueId: null,
     linkedLeagueName: '',
   });
+
+  // Ensure numeroTitolari is always within range 4-11
+  useEffect(() => {
+    if (formData && formData.numeroTitolari !== undefined) {
+      const currentValue = parseInt(formData.numeroTitolari, 10);
+      if (!isNaN(currentValue) && (currentValue < 4 || currentValue > 11)) {
+        const clampedValue = Math.min(Math.max(currentValue, 4), 11);
+        setFormData((prev) => ({ ...prev, numeroTitolari: clampedValue.toString() }));
+      }
+    }
+  }, [formData?.numeroTitolari]);
   
   const [linkToOfficial, setLinkToOfficial] = useState(false);
   const [officialLeagues, setOfficialLeagues] = useState([]);
@@ -249,8 +261,7 @@ export default function CreateLeagueScreen({ navigation }) {
     }
   };
   
-  // Inizializzazione: se ci sono leghe ufficiali selezionabili, abilita il toggle
-  // e preseleziona la prima; altrimenti lascia disabilitato.
+  // Carica leghe ufficiali disponibili (senza forzare l'associazione).
   useEffect(() => {
     let mounted = true;
     const bootstrapOfficialLeagues = async () => {
@@ -260,24 +271,9 @@ export default function CreateLeagueScreen({ navigation }) {
         if (!mounted) return;
         const leagues = Array.isArray(response.data) ? response.data : [];
         setOfficialLeagues(leagues);
-        if (leagues.length > 0) {
-          setLinkToOfficial(true);
-          setFormData(prev => ({
-            ...prev,
-            linkedToLeagueId: prev.linkedToLeagueId || leagues[0].id,
-            linkedLeagueName: prev.linkedLeagueName || leagues[0].name || '',
-          }));
-        } else {
-          setLinkToOfficial(false);
-          setFormData(prev => ({
-            ...prev,
-            linkedToLeagueId: null,
-            linkedLeagueName: '',
-          }));
-        }
       } catch (error) {
         if (!mounted) return;
-        setLinkToOfficial(false);
+        console.error('Error bootstrapping official leagues:', error);
       } finally {
         if (mounted) setLoadingOfficialLeagues(false);
       }
@@ -430,10 +426,12 @@ export default function CreateLeagueScreen({ navigation }) {
   const showValidationError = (message, fieldKey) => {
     setValidationToast(message);
     setHighlightField(fieldKey);
+    if (fieldKey) {
+      setFieldErrors((prev) => ({ ...prev, [fieldKey]: message }));
+    }
     setTimeout(() => setValidationToast(''), 2500);
     setTimeout(() => setHighlightField(null), 3000);
 
-    // Scrolla fino al campo problematico
     if (fieldKey && fieldRefs.current[fieldKey] && scrollViewRef.current) {
       fieldRefs.current[fieldKey].measureLayout(
         scrollViewRef.current,
@@ -445,6 +443,15 @@ export default function CreateLeagueScreen({ navigation }) {
     }
   };
 
+  const clearFieldError = (fieldKey) => {
+    setFieldErrors((prev) => {
+      if (!prev[fieldKey]) return prev;
+      const next = { ...prev };
+      delete next[fieldKey];
+      return next;
+    });
+  };
+
   const validateStep = (step) => {
     switch (step) {
       case 1:
@@ -452,44 +459,58 @@ export default function CreateLeagueScreen({ navigation }) {
           showValidationError('Inserisci il nome della lega', 'name');
           return false;
         }
-        if (parseInt(formData.initialBudget) < 1) {
-          showValidationError('Il budget iniziale deve essere almeno 1', 'budget');
+        if (formData.enableAccessCode && !String(formData.accessCode || '').trim()) {
+          showValidationError('Inserisci il codice di accesso, oppure disattivalo', 'accessCode');
+          return false;
+        }
+        if (parseInt(formData.initialBudget, 10) < 1) {
+          showValidationError('Il budget deve essere almeno 1', 'budget');
           return false;
         }
         return true;
       case 2:
         if (linkToOfficial && !formData.linkedToLeagueId) {
-          showValidationError('Seleziona una lega ufficiale a cui associarti', 'officialLeague');
+          showValidationError('Scegli una lega ufficiale da collegare', 'officialLeague');
           return false;
         }
         return true;
       case 3:
-        // Validazione step 3 (opzionale)
         return true;
       default:
         return true;
     }
   };
 
+  const animateToStep = (nextStep) => {
+    // Niente fade-out a 0: sullo step Bonus (pesante) lascia lo schermo vuoto
+    // mentre monta switch/input/icone. Cambio step subito + fade leggero in entrata.
+    stepOpacity.stopAnimation();
+    setCurrentStep(nextStep);
+    scrollOffsetY.current = 0;
+    requestAnimationFrame(() => {
+      scrollViewRef.current?.scrollTo({ y: 0, animated: false });
+    });
+    stepOpacity.setValue(0.92);
+    Animated.timing(stepOpacity, {
+      toValue: 1,
+      duration: 120,
+      useNativeDriver: true,
+    }).start();
+  };
+
   const handleNext = () => {
     if (validateStep(currentStep)) {
       if (currentStep < STEPS.length) {
-        setCurrentStep(currentStep + 1);
-        // Scroll to top when changing step
-        setTimeout(() => {
-          scrollViewRef.current?.scrollTo({ y: 0, animated: true });
-        }, 100);
+        setFieldErrors({});
+        animateToStep(currentStep + 1);
       }
     }
   };
 
   const handleBack = () => {
     if (currentStep > 1) {
-      setCurrentStep(currentStep - 1);
-      // Scroll to top when changing step
-      setTimeout(() => {
-        scrollViewRef.current?.scrollTo({ y: 0, animated: true });
-      }, 100);
+      setFieldErrors({});
+      animateToStep(currentStep - 1);
     }
   };
 
@@ -619,59 +640,64 @@ export default function CreateLeagueScreen({ navigation }) {
   };
 
   const renderStepIndicator = () => {
+    const active = STEPS.find((s) => s.id === currentStep) || STEPS[0];
+    const progress = currentStep / STEPS.length;
     return (
       <View style={styles.stepIndicator}>
-        {STEPS.map((step, index) => (
-          <React.Fragment key={step.id}>
-            <View style={styles.stepItem}>
+        <View style={styles.stepProgressMeta}>
+          <Text style={styles.stepProgressCount}>
+            Passo {currentStep} di {STEPS.length}
+          </Text>
+          <Text style={styles.stepProgressTitle}>{active.title}</Text>
+        </View>
+        <View style={styles.stepProgressTrack}>
+          <View style={[styles.stepProgressFill, { width: `${progress * 100}%` }]} />
+        </View>
+        <View style={styles.stepDotsRow}>
+          {STEPS.map((step) => {
+            const done = currentStep > step.id;
+            const on = currentStep === step.id;
+            return (
               <View
+                key={step.id}
                 style={[
-                  styles.stepCircle,
-                  currentStep >= step.id && styles.stepCircleActive,
+                  styles.stepDot,
+                  done && styles.stepDotDone,
+                  on && styles.stepDotOn,
                 ]}
               >
-                <Ionicons
-                  name={currentStep > step.id ? 'checkmark' : step.icon}
-                  size={20}
-                  color={currentStep >= step.id ? '#fff' : '#999'}
-                />
+                {done ? (
+                  <Ionicons name="checkmark" size={12} color="#fff" />
+                ) : (
+                  <Text style={[styles.stepDotText, on && styles.stepDotTextOn]}>{step.id}</Text>
+                )}
               </View>
-              {currentStep === step.id && (
-                <Text style={styles.stepLabel}>{step.title}</Text>
-              )}
-            </View>
-            {index < STEPS.length - 1 && (
-              <View
-                style={[
-                  styles.stepLine,
-                  currentStep > step.id && styles.stepLineActive,
-                ]}
-              />
-            )}
-          </React.Fragment>
-        ))}
+            );
+          })}
+        </View>
       </View>
     );
   };
 
   const renderStep1 = () => (
-    <View style={[styles.stepContent, styles.step1Content]}>
-      <Text style={[styles.stepDescription, styles.step1Description]}>
-        Imposta le informazioni principali della tua lega
-      </Text>
+    <View style={styles.stepContent}>
+      <Text style={styles.stepDescription}>Nome, accesso e budget per iniziare.</Text>
 
       <View
-        ref={(ref) => { fieldRefs.current['name'] = ref; }}
-        style={[styles.inputGroup, styles.step1InputGroup, highlightField === 'name' && styles.highlightField]}
+        ref={(ref) => { fieldRefs.current.name = ref; }}
+        style={[styles.fieldBlock, highlightField === 'name' && styles.highlightField]}
       >
-        <Text style={[styles.label, styles.step1Label]}>Nome Lega *</Text>
+        <Text style={styles.label}>Nome lega</Text>
         <TextInput
           ref={inputRefs.step1.name}
-          style={[styles.input, styles.step1Input]}
-          placeholder="Inserisci nome lega"
-          placeholderTextColor="#999"
+          style={[styles.input, fieldErrors.name && styles.inputError]}
+          placeholder="Es. Fanta Coppa amici"
+          placeholderTextColor="#94a3b8"
           value={formData.name}
-          onChangeText={(text) => setFormData({ ...formData, name: text })}
+          onChangeText={(text) => {
+            clearFieldError('name');
+            setFormData({ ...formData, name: text });
+          }}
           returnKeyType="next"
           onSubmitEditing={() => {
             if (formData.enableAccessCode && inputRefs.step1.accessCode.current) {
@@ -680,96 +706,97 @@ export default function CreateLeagueScreen({ navigation }) {
               inputRefs.step1.initialBudget.current?.focus();
             }
           }}
-          onLayout={(event) => {
-            const { y } = event.nativeEvent.layout;
-            inputLayouts.current['step1.name'] = { y };
-          }}
           onFocus={() => handleInputFocus('step1.name', inputRefs.step1.name)}
         />
+        {fieldErrors.name ? <Text style={styles.fieldErrorText}>{fieldErrors.name}</Text> : null}
       </View>
 
-      <View style={styles.card}>
+      <View
+        ref={(ref) => { fieldRefs.current.accessCode = ref; }}
+        style={[styles.card, highlightField === 'accessCode' && styles.highlightField]}
+      >
         <View style={styles.switchGroup}>
           <View style={styles.switchInfo}>
-            <Text style={styles.label}>Codice di Accesso</Text>
-            <Text style={styles.labelHint}>
-              Richiedi un codice per accedere alla lega
-            </Text>
+            <Text style={styles.label}>Codice di accesso</Text>
+            <Text style={styles.labelHint}>Solo chi ha il codice può entrare</Text>
           </View>
           <Switch
             value={formData.enableAccessCode}
-            onValueChange={(value) => setFormData({ ...formData, enableAccessCode: value })}
-            trackColor={{ false: '#e0e0e0', true: '#667eea' }}
-            thumbColor={formData.enableAccessCode ? '#fff' : '#f4f3f4'}
+            onValueChange={(value) => {
+              clearFieldError('accessCode');
+              setFormData({ ...formData, enableAccessCode: value });
+            }}
+            trackColor={SWITCH_TRACK}
+            thumbColor={formData.enableAccessCode ? SWITCH_THUMB_ON : SWITCH_THUMB_OFF}
           />
         </View>
-        {formData.enableAccessCode && (
-          <TextInput
-            ref={inputRefs.step1.accessCode}
-            style={[styles.input, { marginTop: 8 }]}
-            placeholder="Inserisci codice di accesso"
-            placeholderTextColor="#999"
-            value={formData.accessCode}
-            onChangeText={(text) => setFormData({ ...formData, accessCode: text })}
-            autoCapitalize="none"
-            autoCorrect={false}
-            returnKeyType="next"
-            onSubmitEditing={() => inputRefs.step1.initialBudget.current?.focus()}
-            onLayout={(event) => {
-              const { y } = event.nativeEvent.layout;
-              inputLayouts.current['step1.accessCode'] = { y };
-            }}
-            onFocus={() => handleInputFocus('step1.accessCode', inputRefs.step1.accessCode)}
-          />
-        )}
+        {formData.enableAccessCode ? (
+          <>
+            <TextInput
+              ref={inputRefs.step1.accessCode}
+              style={[styles.input, styles.inputInCard, fieldErrors.accessCode && styles.inputError]}
+              placeholder="Scrivi il codice"
+              placeholderTextColor="#94a3b8"
+              value={formData.accessCode}
+              onChangeText={(text) => {
+                clearFieldError('accessCode');
+                setFormData({ ...formData, accessCode: text });
+              }}
+              autoCapitalize="none"
+              autoCorrect={false}
+              returnKeyType="next"
+              onSubmitEditing={() => inputRefs.step1.initialBudget.current?.focus()}
+              onFocus={() => handleInputFocus('step1.accessCode', inputRefs.step1.accessCode)}
+            />
+            {fieldErrors.accessCode ? (
+              <Text style={styles.fieldErrorText}>{fieldErrors.accessCode}</Text>
+            ) : null}
+          </>
+        ) : null}
       </View>
 
       <View style={styles.card}>
         <View style={styles.switchGroup}>
           <View style={styles.switchInfo}>
-            <Text style={styles.label}>Approvazione Iscrizioni</Text>
+            <Text style={styles.label}>Approvazione iscrizioni</Text>
             <Text style={styles.labelHint}>
-              {formData.requireApproval
-                ? 'Le richieste di iscrizione devono essere approvate da un admin'
-                : 'Chiunque può iscriversi liberamente alla lega'}
+              {formData.requireApproval ? 'Un admin deve accettare le richieste' : 'Ingresso libero'}
             </Text>
           </View>
           <Switch
             value={formData.requireApproval}
             onValueChange={(value) => setFormData({ ...formData, requireApproval: value })}
-            trackColor={{ false: '#e0e0e0', true: '#667eea' }}
-            thumbColor={formData.requireApproval ? '#fff' : '#f4f3f4'}
+            trackColor={SWITCH_TRACK}
+            thumbColor={formData.requireApproval ? SWITCH_THUMB_ON : SWITCH_THUMB_OFF}
           />
         </View>
       </View>
 
       <View
-        ref={(ref) => { fieldRefs.current['budget'] = ref; }}
-        style={[styles.inputGroup, styles.step1InputGroup, highlightField === 'budget' && styles.highlightField]}
+        ref={(ref) => { fieldRefs.current.budget = ref; }}
+        style={[styles.fieldBlock, highlightField === 'budget' && styles.highlightField]}
       >
-        <View style={styles.budgetHeader}>
-          <Text style={[styles.label, styles.step1Label]}>Budget Iniziale *</Text>
-        </View>
-        <Text style={[styles.labelHint, styles.step1LabelHint]}>Budget disponibile per ogni utente all'inizio (0-1000)</Text>
+        <Text style={styles.label}>Budget iniziale</Text>
+        <Text style={styles.labelHint}>Crediti per ogni giocatore all’inizio</Text>
         <View style={styles.budgetRow}>
-          <View style={[styles.sliderWrapper, styles.step1SliderWrapper]} {...panResponder.panHandlers}>
-            <View 
-              ref={sliderTrackRef} 
+          <View style={styles.sliderWrapper} {...panResponder.panHandlers}>
+            <View
+              ref={sliderTrackRef}
               style={styles.sliderTrack}
               onLayout={(event) => {
                 sliderWidth.current = event.nativeEvent.layout.width;
               }}
             >
-              <View 
+              <View
                 style={[
-                  styles.sliderFill, 
-                  { width: `${((parseInt(formData.initialBudget) || 0) / 1000) * 100}%` }
-                ]} 
+                  styles.sliderFill,
+                  { width: `${((parseInt(formData.initialBudget, 10) || 0) / 1000) * 100}%` },
+                ]}
               />
               <View
                 style={[
                   styles.sliderThumb,
-                  { left: `${((parseInt(formData.initialBudget) || 0) / 1000) * 100}%` }
+                  { left: `${((parseInt(formData.initialBudget, 10) || 0) / 1000) * 100}%` },
                 ]}
               />
             </View>
@@ -780,133 +807,121 @@ export default function CreateLeagueScreen({ navigation }) {
           </View>
           <TextInput
             ref={inputRefs.step1.initialBudget}
-            style={[styles.input, styles.step1Input, styles.budgetInput]}
+            style={[styles.input, styles.budgetInput, fieldErrors.budget && styles.inputError]}
             placeholder="100"
-            placeholderTextColor="#999"
+            placeholderTextColor="#94a3b8"
             keyboardType="numeric"
             value={formData.initialBudget}
             onChangeText={(text) => {
-              const numValue = parseInt(text) || 0;
+              clearFieldError('budget');
+              const numValue = parseInt(text, 10) || 0;
               const clampedValue = Math.min(Math.max(numValue, 0), 1000);
               setFormData({ ...formData, initialBudget: clampedValue.toString() });
             }}
             returnKeyType="done"
-            onSubmitEditing={() => {
-              handleNext();
-            }}
-            onLayout={(event) => {
-              const { y } = event.nativeEvent.layout;
-              inputLayouts.current['step1.initialBudget'] = { y };
-            }}
+            onSubmitEditing={handleNext}
             onFocus={() => handleInputFocus('step1.initialBudget', inputRefs.step1.initialBudget)}
           />
         </View>
+        {fieldErrors.budget ? <Text style={styles.fieldErrorText}>{fieldErrors.budget}</Text> : null}
       </View>
-
     </View>
   );
 
   const renderStep2 = () => (
     <View style={styles.stepContent}>
-      <Text style={styles.stepDescription}>
-        Configura struttura e impostazioni della lega
-      </Text>
+      <Text style={styles.stepDescription}>Rosa, titolari e lega ufficiale (opzionale).</Text>
 
-      {/* Associazione a Lega Ufficiale */}
       <View
-        ref={(ref) => { fieldRefs.current['officialLeague'] = ref; }}
+        ref={(ref) => { fieldRefs.current.officialLeague = ref; }}
         style={[styles.card, highlightField === 'officialLeague' && styles.highlightField]}
       >
         <View style={styles.switchGroup}>
           <View style={styles.switchInfo}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <Ionicons name="ribbon" size={20} color="#667eea" />
-              <Text style={styles.label}>Associa a Lega Ufficiale{linkToOfficial ? ' *' : ''}</Text>
+            <View style={styles.switchTitleRow}>
+              <Ionicons name="ribbon" size={18} color="#667eea" />
+              <Text style={styles.label}>Lega ufficiale</Text>
             </View>
             <Text style={styles.labelHint}>
-              Giocatori, quotazioni e voti verranno dalla lega ufficiale
+              Giocatori e voti dalla lega ufficiale
             </Text>
           </View>
           <Switch
             value={linkToOfficial}
             onValueChange={(value) => {
+              clearFieldError('officialLeague');
               setLinkToOfficial(value);
               if (value) {
                 fetchOfficialLeagues();
+                if (!formData.linkedToLeagueId && officialLeagues[0]) {
+                  setFormData((prev) => ({
+                    ...prev,
+                    linkedToLeagueId: officialLeagues[0].id,
+                    linkedLeagueName: officialLeagues[0].name || '',
+                  }));
+                }
               } else {
-                setFormData(prev => ({ ...prev, linkedToLeagueId: null, linkedLeagueName: '' }));
+                setFormData((prev) => ({ ...prev, linkedToLeagueId: null, linkedLeagueName: '' }));
               }
             }}
-            trackColor={{ false: '#e0e0e0', true: '#667eea' }}
-            thumbColor={linkToOfficial ? '#fff' : '#f4f3f4'}
+            trackColor={SWITCH_TRACK}
+            thumbColor={linkToOfficial ? SWITCH_THUMB_ON : SWITCH_THUMB_OFF}
           />
         </View>
-        
-        {linkToOfficial && (
-          <View style={{ paddingHorizontal: 0, paddingTop: 12 }}>
+
+        {linkToOfficial ? (
+          <View style={styles.officialList}>
             {loadingOfficialLeagues ? (
-              <ActivityIndicator size="small" color="#667eea" style={{ padding: 16 }} />
+              <ActivityIndicator size="small" color="#667eea" style={{ paddingVertical: 16 }} />
             ) : officialLeagues.length === 0 ? (
-              <Text style={{ fontSize: 14, color: '#999', textAlign: 'center', padding: 16 }}>
-                Nessuna lega ufficiale disponibile
-              </Text>
+              <Text style={styles.emptyOfficialText}>Nessuna lega ufficiale disponibile</Text>
             ) : (
               officialLeagues.map((league) => {
                 const isSelected = formData.linkedToLeagueId === league.id;
                 return (
                   <TouchableOpacity
                     key={league.id}
-                    style={{
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      padding: 12,
-                      marginBottom: 8,
-                      borderRadius: 8,
-                      backgroundColor: isSelected ? '#eef0ff' : '#f9f9f9',
-                      borderWidth: isSelected ? 2 : 1,
-                      borderColor: isSelected ? '#667eea' : '#e0e0e0',
-                    }}
+                    style={[styles.officialItem, isSelected && styles.officialItemOn]}
                     onPress={() => {
-                      if (isSelected) {
-                        setFormData(prev => ({ ...prev, linkedToLeagueId: null, linkedLeagueName: '' }));
-                      } else {
-                        setFormData(prev => ({ ...prev, linkedToLeagueId: league.id, linkedLeagueName: league.name }));
-                      }
+                      clearFieldError('officialLeague');
+                      setFormData((prev) => ({
+                        ...prev,
+                        linkedToLeagueId: league.id,
+                        linkedLeagueName: league.name,
+                      }));
                     }}
+                    activeOpacity={0.8}
                   >
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ fontSize: 15, fontWeight: '600', color: '#333', marginBottom: 2 }}>
-                        {league.name}
-                      </Text>
-                      {league.official_group_name && (
-                        <Text style={{ fontSize: 12, color: '#667eea', marginBottom: 2 }}>
-                          {league.official_group_name}
-                        </Text>
-                      )}
-                      <Text style={{ fontSize: 12, color: '#999' }}>
-                        {league.team_count} squadre • {league.player_count} giocatori • {league.matchday_count} giornate
+                    <View style={styles.officialItemCopy}>
+                      <Text style={styles.officialItemName}>{league.name}</Text>
+                      {league.official_group_name ? (
+                        <Text style={styles.officialItemGroup}>{league.official_group_name}</Text>
+                      ) : null}
+                      <Text style={styles.officialItemMeta}>
+                        {league.team_count} squadre · {league.player_count} giocatori
                       </Text>
                     </View>
                     <Ionicons
                       name={isSelected ? 'checkmark-circle' : 'ellipse-outline'}
-                      size={24}
-                      color={isSelected ? '#667eea' : '#ccc'}
+                      size={22}
+                      color={isSelected ? '#667eea' : '#cbd5e1'}
                     />
                   </TouchableOpacity>
                 );
               })
             )}
+            {fieldErrors.officialLeague ? (
+              <Text style={styles.fieldErrorText}>{fieldErrors.officialLeague}</Text>
+            ) : null}
           </View>
-        )}
+        ) : null}
       </View>
 
       <View style={styles.card}>
-        <View style={styles.cardTitleContainer}>
-          <Text style={styles.cardTitle}>Limiti Giocatori per Ruolo</Text>
-        </View>
+        <Text style={styles.cardTitle}>Rosa massima</Text>
         <View style={styles.roleLimitsRow}>
           <View style={[styles.roleLimitItem, styles.roleLimitItemFirst]}>
-            <Text style={styles.roleLimitLabel}>Portieri</Text>
+            <Text style={styles.roleLimitLabel}>P</Text>
             <TextInput
               ref={inputRefs.step2.maxPortieri}
               style={styles.roleLimitInput}
@@ -915,16 +930,12 @@ export default function CreateLeagueScreen({ navigation }) {
               onChangeText={(text) => setFormData({ ...formData, maxPortieri: text })}
               returnKeyType="next"
               onSubmitEditing={() => inputRefs.step2.maxDifensori.current?.focus()}
-              onLayout={(event) => {
-                const { y } = event.nativeEvent.layout;
-                inputLayouts.current['step2.maxPortieri'] = { y };
-              }}
               onFocus={() => handleInputFocus('step2.maxPortieri', inputRefs.step2.maxPortieri)}
             />
           </View>
           <View style={styles.roleLimitSeparator} />
           <View style={styles.roleLimitItem}>
-            <Text style={styles.roleLimitLabel}>Difensori</Text>
+            <Text style={styles.roleLimitLabel}>D</Text>
             <TextInput
               ref={inputRefs.step2.maxDifensori}
               style={styles.roleLimitInput}
@@ -933,16 +944,12 @@ export default function CreateLeagueScreen({ navigation }) {
               onChangeText={(text) => setFormData({ ...formData, maxDifensori: text })}
               returnKeyType="next"
               onSubmitEditing={() => inputRefs.step2.maxCentrocampisti.current?.focus()}
-              onLayout={(event) => {
-                const { y } = event.nativeEvent.layout;
-                inputLayouts.current['step2.maxDifensori'] = { y };
-              }}
               onFocus={() => handleInputFocus('step2.maxDifensori', inputRefs.step2.maxDifensori)}
             />
           </View>
           <View style={styles.roleLimitSeparator} />
           <View style={styles.roleLimitItem}>
-            <Text style={styles.roleLimitLabel}>Centrocampisti</Text>
+            <Text style={styles.roleLimitLabel}>C</Text>
             <TextInput
               ref={inputRefs.step2.maxCentrocampisti}
               style={styles.roleLimitInput}
@@ -951,16 +958,12 @@ export default function CreateLeagueScreen({ navigation }) {
               onChangeText={(text) => setFormData({ ...formData, maxCentrocampisti: text })}
               returnKeyType="next"
               onSubmitEditing={() => inputRefs.step2.maxAttaccanti.current?.focus()}
-              onLayout={(event) => {
-                const { y } = event.nativeEvent.layout;
-                inputLayouts.current['step2.maxCentrocampisti'] = { y };
-              }}
               onFocus={() => handleInputFocus('step2.maxCentrocampisti', inputRefs.step2.maxCentrocampisti)}
             />
           </View>
           <View style={styles.roleLimitSeparator} />
           <View style={[styles.roleLimitItem, styles.roleLimitItemLast]}>
-            <Text style={styles.roleLimitLabel}>Attaccanti</Text>
+            <Text style={styles.roleLimitLabel}>A</Text>
             <TextInput
               ref={inputRefs.step2.maxAttaccanti}
               style={styles.roleLimitInput}
@@ -969,39 +972,39 @@ export default function CreateLeagueScreen({ navigation }) {
               onChangeText={(text) => setFormData({ ...formData, maxAttaccanti: text })}
               returnKeyType="next"
               onSubmitEditing={() => inputRefs.step2.numeroTitolari.current?.focus()}
-              onLayout={(event) => {
-                const { y } = event.nativeEvent.layout;
-                inputLayouts.current['step2.maxAttaccanti'] = { y };
-              }}
               onFocus={() => handleInputFocus('step2.maxAttaccanti', inputRefs.step2.maxAttaccanti)}
             />
           </View>
         </View>
+        <Text style={styles.roleLegend}>P portieri · D difensori · C centrocampisti · A attaccanti</Text>
       </View>
 
-      <View style={styles.inputGroup}>
-        <View style={styles.budgetHeader}>
-          <Text style={styles.label}>Numero Titolari in Campo</Text>
-        </View>
+      <View style={styles.fieldBlock}>
+        <Text style={styles.label}>Titolari in campo</Text>
+        <Text style={styles.labelHint}>Da 4 a 11</Text>
         <View style={styles.budgetRow}>
-          <View style={[styles.sliderWrapper, styles.step1SliderWrapper]} {...titolariPanResponder.panHandlers}>
-            <View 
-              ref={titolariSliderTrackRef} 
+          <View style={styles.sliderWrapper} {...titolariPanResponder.panHandlers}>
+            <View
+              ref={titolariSliderTrackRef}
               style={styles.sliderTrack}
               onLayout={(event) => {
                 titolariSliderWidth.current = event.nativeEvent.layout.width;
               }}
             >
-              <View 
+              <View
                 style={[
-                  styles.sliderFill, 
-                  { width: `${(((Math.min(Math.max(parseInt(formData.numeroTitolari) || 11, 4), 11)) - 4) / 7) * 100}%` }
-                ]} 
+                  styles.sliderFill,
+                  {
+                    width: `${(((Math.min(Math.max(parseInt(formData.numeroTitolari, 10) || 11, 4), 11)) - 4) / 7) * 100}%`,
+                  },
+                ]}
               />
               <View
                 style={[
                   styles.sliderThumb,
-                  { left: `${(((Math.min(Math.max(parseInt(formData.numeroTitolari) || 11, 4), 11)) - 4) / 7) * 100}%` }
+                  {
+                    left: `${(((Math.min(Math.max(parseInt(formData.numeroTitolari, 10) || 11, 4), 11)) - 4) / 7) * 100}%`,
+                  },
                 ]}
               />
             </View>
@@ -1012,37 +1015,23 @@ export default function CreateLeagueScreen({ navigation }) {
           </View>
           <TextInput
             ref={inputRefs.step2.numeroTitolari}
-            style={[styles.input, styles.step1Input, styles.budgetInput]}
+            style={[styles.input, styles.budgetInput]}
             keyboardType="numeric"
             value={formData.numeroTitolari}
             onChangeText={(text) => {
-              // Allow free editing, only validate on blur/submit
               if (text === '' || /^\d*$/.test(text)) {
                 setFormData({ ...formData, numeroTitolari: text });
               }
             }}
             onBlur={() => {
-              // Validate and correct when leaving the field
-              const numValue = parseInt(formData.numeroTitolari);
+              const numValue = parseInt(formData.numeroTitolari, 10);
               if (isNaN(numValue) || numValue < 4 || numValue > 11) {
                 const clampedValue = Math.min(Math.max(isNaN(numValue) ? 11 : numValue, 4), 11);
-                setFormData(prev => ({ ...prev, numeroTitolari: clampedValue.toString() }));
+                setFormData((prev) => ({ ...prev, numeroTitolari: clampedValue.toString() }));
               }
             }}
             returnKeyType="done"
-            onSubmitEditing={() => {
-              // Validate and correct when pressing done
-              const numValue = parseInt(formData.numeroTitolari);
-              if (isNaN(numValue) || numValue < 4 || numValue > 11) {
-                const clampedValue = Math.min(Math.max(isNaN(numValue) ? 11 : numValue, 4), 11);
-                setFormData(prev => ({ ...prev, numeroTitolari: clampedValue.toString() }));
-              }
-              handleNext();
-            }}
-            onLayout={(event) => {
-              const { y } = event.nativeEvent.layout;
-              inputLayouts.current['step2.numeroTitolari'] = { y };
-            }}
+            onSubmitEditing={handleNext}
             onFocus={() => handleInputFocus('step2.numeroTitolari', inputRefs.step2.numeroTitolari)}
           />
         </View>
@@ -1051,68 +1040,61 @@ export default function CreateLeagueScreen({ navigation }) {
       <View style={styles.card}>
         <View style={styles.switchGroup}>
           <View style={styles.switchInfo}>
-            <Text style={styles.label}>Formazione Automatica</Text>
-            <Text style={styles.labelHint}>
-              Se abilitata, la formazione viene impostata automaticamente
-            </Text>
+            <Text style={styles.label}>Formazione automatica</Text>
+            <Text style={styles.labelHint}>Compila da sola se non schieri</Text>
           </View>
           <Switch
             value={formData.autoLineupMode}
             onValueChange={(value) => setFormData({ ...formData, autoLineupMode: value })}
-            trackColor={{ false: '#e0e0e0', true: '#667eea' }}
-            thumbColor={formData.autoLineupMode ? '#fff' : '#f4f3f4'}
+            trackColor={SWITCH_TRACK}
+            thumbColor={formData.autoLineupMode ? SWITCH_THUMB_ON : SWITCH_THUMB_OFF}
           />
         </View>
 
-        <View style={[styles.switchGroup, { marginTop: 12 }]}>
+        <View style={[styles.switchGroup, styles.switchGroupSpaced]}>
           <View style={styles.switchInfo}>
-            <Text style={styles.label}>Nascondi formazioni</Text>
-            <Text style={styles.labelHint}>
-              Se attiva, in Squadre le rose degli altri giocatori restano oscurate
-            </Text>
+            <Text style={styles.label}>Nascondi rose altrui</Text>
+            <Text style={styles.labelHint}>Le formazioni degli altri restano private</Text>
           </View>
           <Switch
             value={!!formData.hideFormations}
             onValueChange={(value) => setFormData({ ...formData, hideFormations: value })}
-            trackColor={{ false: '#e0e0e0', true: '#667eea' }}
-            thumbColor={formData.hideFormations ? '#fff' : '#f4f3f4'}
+            trackColor={SWITCH_TRACK}
+            thumbColor={formData.hideFormations ? SWITCH_THUMB_ON : SWITCH_THUMB_OFF}
           />
         </View>
 
-        {/* Orario default scadenza - visibile solo se formazione automatica è disabilitata */}
-        {!formData.autoLineupMode && (
-          <View style={{ marginTop: 4 }}>
-            <Text style={styles.label}>Orario Default Scadenza</Text>
-            <Text style={styles.labelHint}>Orario predefinito per le scadenze delle formazioni</Text>
+        {!formData.autoLineupMode ? (
+          <View style={styles.deadlineBlock}>
+            <Text style={styles.label}>Scadenza formazioni</Text>
+            <Text style={styles.labelHint}>Orario predefinito della giornata</Text>
             <TouchableOpacity
               style={styles.timePickerButton}
               onPress={() => setShowTimePicker(true)}
             >
               <Ionicons name="time-outline" size={20} color="#667eea" />
               <Text style={styles.timePickerText}>{formData.defaultTime}</Text>
-              <Ionicons name="chevron-forward" size={20} color="#999" />
+              <Ionicons name="chevron-forward" size={18} color="#94a3b8" />
             </TouchableOpacity>
-            {showTimePicker && (
+            {showTimePicker ? (
               <DateTimePicker
                 value={getTimeDate()}
                 mode="time"
-                is24Hour={true}
+                is24Hour
                 display={Platform.OS === 'ios' ? 'spinner' : 'default'}
                 onValueChange={handleTimeChange}
                 onDismiss={handleTimeDismiss}
               />
-            )}
+            ) : null}
           </View>
-        )}
+        ) : null}
       </View>
     </View>
   );
 
   const renderStep3 = () => (
     <View style={styles.stepContent}>
-      <Text style={styles.stepDescription}>
-        Configura i bonus e i malus per gli eventi di gioco
-      </Text>
+      <Text style={styles.stepDescription}>Punti extra: attiva solo ciò che usi.</Text>
 
       {/* Header con switch abilitazione */}
       <View style={styles.bmFormGroup}>
@@ -1122,8 +1104,8 @@ export default function CreateLeagueScreen({ navigation }) {
           <Switch
             value={formData.enableBonusMalus}
             onValueChange={(value) => setFormData({ ...formData, enableBonusMalus: value })}
-            trackColor={{ false: '#e0e0e0', true: '#667eea' }}
-            thumbColor={formData.enableBonusMalus ? '#fff' : '#f4f3f4'}
+            trackColor={SWITCH_TRACK}
+            thumbColor={formData.enableBonusMalus ? SWITCH_THUMB_ON : SWITCH_THUMB_OFF}
             style={{ marginLeft: 'auto' }}
           />
         </View>
@@ -1475,26 +1457,29 @@ export default function CreateLeagueScreen({ navigation }) {
 
   const renderStep4 = () => (
     <View style={styles.stepContent}>
-     
+      <Text style={styles.stepDescription}>Controlla e crea la lega.</Text>
+
       <View style={styles.summaryCard}>
         <View style={styles.summarySection}>
-          <Text style={styles.summaryTitle}>Informazioni Base</Text>
+          <Text style={styles.summaryTitle}>Base</Text>
           <View style={styles.summaryRow}>
             <Text style={styles.summaryLabel}>Nome</Text>
-            <Text style={styles.summaryValue}>{formData.name || 'Non impostato'}</Text>
+            <Text style={styles.summaryValue}>{formData.name || '—'}</Text>
           </View>
-          {formData.enableAccessCode && (
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Codice</Text>
-              <Text style={styles.summaryValue}>{formData.accessCode || 'Non impostato'}</Text>
-            </View>
-          )}
-          {formData.requireApproval && (
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Approvazione</Text>
-              <Text style={styles.summaryValue}>Richiesta</Text>
-            </View>
-          )}
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>Accesso</Text>
+            <Text style={styles.summaryValue}>
+              {formData.enableAccessCode
+                ? (formData.accessCode.trim() || 'Codice vuoto')
+                : 'Pubblica'}
+            </Text>
+          </View>
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>Iscrizioni</Text>
+            <Text style={styles.summaryValue}>
+              {formData.requireApproval ? 'Con approvazione' : 'Libere'}
+            </Text>
+          </View>
           <View style={styles.summaryRow}>
             <Text style={styles.summaryLabel}>Budget</Text>
             <Text style={styles.summaryValue}>{formData.initialBudget}</Text>
@@ -1514,25 +1499,29 @@ export default function CreateLeagueScreen({ navigation }) {
             <Text style={styles.summaryValue}>{formData.numeroTitolari}</Text>
           </View>
           <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Formazione Auto</Text>
+            <Text style={styles.summaryLabel}>Formazione auto</Text>
             <Text style={styles.summaryValue}>
-              {formData.autoLineupMode ? 'Si' : 'No'}
+              {formData.autoLineupMode ? 'Sì' : 'No'}
             </Text>
           </View>
-          {!formData.autoLineupMode && (
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>Rose altrui</Text>
+            <Text style={styles.summaryValue}>
+              {formData.hideFormations ? 'Nascoste' : 'Visibili'}
+            </Text>
+          </View>
+          {!formData.autoLineupMode ? (
             <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Orario Scadenza</Text>
+              <Text style={styles.summaryLabel}>Scadenza</Text>
               <Text style={styles.summaryValue}>{formData.defaultTime}</Text>
             </View>
-          )}
-          {formData.linkedToLeagueId && (
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Lega Ufficiale</Text>
-              <Text style={[styles.summaryValue, { color: '#667eea', fontWeight: '600' }]}>
-                {formData.linkedLeagueName}
-              </Text>
-            </View>
-          )}
+          ) : null}
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>Lega ufficiale</Text>
+            <Text style={[styles.summaryValue, linkToOfficial && styles.summaryValueAccent]}>
+              {linkToOfficial ? (formData.linkedLeagueName || 'Da scegliere') : 'No'}
+            </Text>
+          </View>
         </View>
 
         <View style={[styles.summarySection, { marginBottom: 0 }]}>
@@ -1640,75 +1629,83 @@ export default function CreateLeagueScreen({ navigation }) {
 
   return (
     <View style={styles.container}>
-      <View style={[styles.header, { paddingTop: insets.top }]}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={24} color="#333" />
+      <View style={[styles.header, { paddingTop: Math.max(insets.top, 8) }]}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton} hitSlop={8}>
+          <Ionicons name="arrow-back" size={22} color="#0f172a" />
         </TouchableOpacity>
-        <Text style={styles.title}>Crea Nuova Lega</Text>
-        <View style={{ width: 40 }} />
+        <Text style={styles.title}>Crea lega</Text>
+        <View style={styles.headerSpacer} />
       </View>
 
       {renderStepIndicator()}
 
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={styles.keyboardAvoidingView}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
-      >
+      <View style={styles.keyboardAvoidingView}>
         <ScrollView
           ref={scrollViewRef}
           style={styles.scrollView}
-          contentContainerStyle={{ paddingBottom: 200 + insets.bottom }}
+          contentContainerStyle={[
+            styles.scrollContent,
+            { paddingBottom: scrollBottomPad },
+          ]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
-          onLayout={(e) => { scrollViewVisibleHeight.current = e.nativeEvent.layout.height; }}
+          keyboardDismissMode="on-drag"
+          onScroll={(e) => {
+            scrollOffsetY.current = e.nativeEvent.contentOffset.y;
+          }}
+          scrollEventThrottle={16}
         >
-          {renderCurrentStep()}
+          <Animated.View style={{ opacity: stepOpacity }}>
+            {renderCurrentStep()}
+          </Animated.View>
         </ScrollView>
-      </KeyboardAvoidingView>
-
-      <View style={[styles.footer, { paddingBottom: insets.bottom }]}>
-        {currentStep > 1 && (
-          <TouchableOpacity style={styles.footerButtonSecondary} onPress={handleBack}>
-            <Ionicons name="arrow-back" size={20} color="#667eea" />
-            <Text style={styles.footerButtonSecondaryText}>Indietro</Text>
-          </TouchableOpacity>
-        )}
-        <View style={{ flex: 1 }} />
-        {currentStep < STEPS.length ? (
-          <TouchableOpacity style={styles.footerButton} onPress={handleNext}>
-            <Text style={styles.footerButtonText}>Avanti</Text>
-            <Ionicons name="arrow-forward" size={20} color="#fff" />
-          </TouchableOpacity>
-        ) : (
-          <TouchableOpacity
-            style={[styles.footerButton, styles.footerButtonPrimary, loading && styles.buttonDisabled]}
-            onPress={handleCreate}
-            disabled={loading}
-          >
-            {loading ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <>
-                <Ionicons name="checkmark-circle" size={20} color="#fff" />
-                <Text style={styles.footerButtonText}>Crea Lega</Text>
-              </>
-            )}
-          </TouchableOpacity>
-        )}
       </View>
 
-      {/* Toast di validazione */}
-      {validationToast !== '' && (
-        <View style={styles.validationToast}>
+      {keyboardHeight <= 0 ? (
+        <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 10) }]}>
+          {currentStep > 1 ? (
+            <TouchableOpacity style={styles.footerButtonSecondary} onPress={handleBack} activeOpacity={0.8}>
+              <Text style={styles.footerButtonSecondaryText}>Indietro</Text>
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.footerButtonGhost} />
+          )}
+          {currentStep < STEPS.length ? (
+            <TouchableOpacity style={styles.footerButton} onPress={handleNext} activeOpacity={0.85}>
+              <Text style={styles.footerButtonText}>Continua</Text>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              style={[styles.footerButton, styles.footerButtonCreate, loading && styles.buttonDisabled]}
+              onPress={handleCreate}
+              disabled={loading}
+              activeOpacity={0.85}
+            >
+              {loading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.footerButtonText}>Crea lega</Text>
+              )}
+            </TouchableOpacity>
+          )}
+        </View>
+      ) : null}
+
+      {validationToast !== '' ? (
+        <View style={[styles.validationToast, { top: Math.max(insets.top, 8) + 56 }]}>
           <Ionicons name="alert-circle" size={18} color="#fff" />
           <Text style={styles.validationToastText}>{validationToast}</Text>
         </View>
-      )}
+      ) : null}
 
-      {/* Toast generico (success/error) */}
-      {toastMsg && (
-        <View style={[styles.generalToast, toastMsg.type === 'success' ? styles.generalToastSuccess : styles.generalToastError]}>
+      {toastMsg ? (
+        <View
+          style={[
+            styles.generalToast,
+            toastMsg.type === 'success' ? styles.generalToastSuccess : styles.generalToastError,
+            { top: Math.max(insets.top, 8) + 56 },
+          ]}
+        >
           <Ionicons
             name={toastMsg.type === 'success' ? 'checkmark-circle' : 'alert-circle'}
             size={18}
@@ -1716,7 +1713,7 @@ export default function CreateLeagueScreen({ navigation }) {
           />
           <Text style={styles.generalToastText}>{toastMsg.text}</Text>
         </View>
-      )}
+      ) : null}
     </View>
   );
 }
@@ -1730,30 +1727,298 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingHorizontal: 12,
+    paddingBottom: 10,
     backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#e2e8f0',
   },
   backButton: {
-    padding: 8,
-  },
-  title: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#333',
-  },
-  stepIndicator: {
-    flexDirection: 'row',
+    width: 40,
+    height: 40,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 20,
-    paddingHorizontal: 20,
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
   },
+  headerSpacer: {
+    width: 40,
+  },
+  title: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#0f172a',
+    letterSpacing: -0.2,
+  },
+  stepIndicator: {
+    paddingTop: 12,
+    paddingBottom: 14,
+    paddingHorizontal: 16,
+    backgroundColor: '#fff',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#e2e8f0',
+  },
+  stepProgressMeta: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  stepProgressCount: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#94a3b8',
+  },
+  stepProgressTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#0f172a',
+  },
+  stepProgressTrack: {
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#e2e8f0',
+    overflow: 'hidden',
+    marginBottom: 12,
+  },
+  stepProgressFill: {
+    height: '100%',
+    borderRadius: 2,
+    backgroundColor: '#667eea',
+  },
+  stepDotsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 4,
+  },
+  stepDot: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#f1f5f9',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepDotDone: {
+    backgroundColor: '#667eea',
+    borderColor: '#667eea',
+  },
+  stepDotOn: {
+    backgroundColor: '#eef2ff',
+    borderColor: '#667eea',
+  },
+  stepDotText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#94a3b8',
+  },
+  stepDotTextOn: {
+    color: '#667eea',
+  },
+  keyboardAvoidingView: {
+    flex: 1,
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
+  },
+  stepContent: {
+    padding: 16,
+  },
+  stepDescription: {
+    fontSize: 14,
+    color: '#64748b',
+    fontWeight: '500',
+    marginBottom: 16,
+    lineHeight: 20,
+  },
+  fieldBlock: {
+    marginBottom: 14,
+  },
+  fieldErrorText: {
+    marginTop: 6,
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#dc2626',
+  },
+  inputError: {
+    borderColor: '#fca5a5',
+    backgroundColor: '#fff7f7',
+  },
+  highlightField: {
+    borderRadius: 12,
+  },
+  label: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#0f172a',
+    marginBottom: 4,
+  },
+  labelHint: {
+    fontSize: 12,
+    color: '#94a3b8',
+    marginBottom: 8,
+    lineHeight: 16,
+  },
+  input: {
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#dbe3ef',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 15,
+    color: '#0f172a',
+  },
+  inputInCard: {
+    marginTop: 10,
+  },
+  card: {
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  cardTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#0f172a',
+    marginBottom: 12,
+  },
+  switchGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  switchGroupSpaced: {
+    marginTop: 14,
+    paddingTop: 14,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#eef2f7',
+  },
+  switchInfo: {
+    flex: 1,
+  },
+  switchTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 2,
+  },
+  officialList: {
+    marginTop: 12,
+    gap: 8,
+  },
+  emptyOfficialText: {
+    fontSize: 13,
+    color: '#94a3b8',
+    textAlign: 'center',
+    paddingVertical: 12,
+  },
+  officialItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  officialItemOn: {
+    backgroundColor: '#eef2ff',
+    borderColor: '#c7d2fe',
+  },
+  officialItemCopy: {
+    flex: 1,
+    marginRight: 8,
+  },
+  officialItemName: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  officialItemGroup: {
+    fontSize: 12,
+    color: '#667eea',
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  officialItemMeta: {
+    fontSize: 12,
+    color: '#94a3b8',
+    marginTop: 2,
+  },
+  roleLegend: {
+    marginTop: 10,
+    fontSize: 11,
+    color: '#94a3b8',
+    textAlign: 'center',
+  },
+  deadlineBlock: {
+    marginTop: 14,
+    paddingTop: 14,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#eef2f7',
+  },
+  summaryValueAccent: {
+    color: '#667eea',
+    fontWeight: '700',
+  },
+  footer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    backgroundColor: '#fff',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#e2e8f0',
+  },
+  footerButtonGhost: {
+    width: 100,
+  },
+  footerButtonSecondary: {
+    minWidth: 100,
+    height: 48,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#dbe3ef',
+    backgroundColor: '#f8fafc',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+  },
+  footerButtonSecondaryText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#475569',
+  },
+  footerButton: {
+    flex: 1,
+    height: 48,
+    borderRadius: 12,
+    backgroundColor: '#667eea',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  footerButtonCreate: {
+    backgroundColor: '#198754',
+  },
+  footerButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '800',
+    letterSpacing: 0.2,
+  },
+  buttonDisabled: {
+    opacity: 0.6,
+  },
+  // keep legacy keys used by remaining step3/bonus markup
   stepItem: {
     alignItems: 'center',
     minWidth: 60,
@@ -1789,15 +2054,6 @@ const styles = StyleSheet.create({
   stepLineActive: {
     backgroundColor: '#667eea',
   },
-  keyboardAvoidingView: {
-    flex: 1,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  stepContent: {
-    padding: 20,
-  },
   step1Content: {
     padding: 16,
   },
@@ -1819,9 +2075,11 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   stepDescription: {
-    fontSize: 12,
-    color: '#666',
+    fontSize: 14,
+    color: '#64748b',
+    fontWeight: '500',
     marginBottom: 16,
+    lineHeight: 20,
   },
   inputGroup: {
     marginBottom: 16,
@@ -1904,49 +2162,48 @@ const styles = StyleSheet.create({
     color: '#333',
   },
   label: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 8,
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#0f172a',
+    marginBottom: 4,
   },
   step1Label: {
-    fontSize: 15,
-    marginBottom: 6,
+    fontSize: 14,
+    marginBottom: 4,
   },
   labelHint: {
     fontSize: 12,
-    color: '#999',
+    color: '#94a3b8',
     marginBottom: 8,
+    lineHeight: 16,
   },
   step1LabelHint: {
-    fontSize: 11,
+    fontSize: 12,
     marginBottom: 6,
   },
   input: {
     backgroundColor: '#fff',
     borderRadius: 12,
-    padding: 16,
-    fontSize: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 15,
     borderWidth: 1,
-    borderColor: '#e0e0e0',
-    color: '#333',
+    borderColor: '#dbe3ef',
+    color: '#0f172a',
   },
   card: {
     backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
   },
   cardTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 16,
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#0f172a',
+    marginBottom: 12,
   },
   row: {
     flexDirection: 'row',
@@ -1957,23 +2214,21 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   cardTitleContainer: {
-    paddingHorizontal: 16,
     marginBottom: 8,
   },
   roleLimitsRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 0,
-    marginHorizontal: -16,
   },
   roleLimitItem: {
     flex: 1,
     alignItems: 'center',
   },
   roleLimitLabel: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: '#333',
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#0f172a',
     marginBottom: 6,
     textAlign: 'center',
   },
@@ -1984,31 +2239,31 @@ const styles = StyleSheet.create({
     paddingRight: 0,
   },
   roleLimitInput: {
-    backgroundColor: '#fff',
-    borderRadius: 8,
-    padding: 8,
-    fontSize: 14,
+    backgroundColor: '#f8fafc',
+    borderRadius: 10,
+    padding: 10,
+    fontSize: 15,
+    fontWeight: '700',
     borderWidth: 1,
-    borderColor: '#e0e0e0',
-    color: '#333',
+    borderColor: '#dbe3ef',
+    color: '#0f172a',
     textAlign: 'center',
     minWidth: 50,
   },
   roleLimitSeparator: {
-    width: 1,
+    width: StyleSheet.hairlineWidth,
     height: 40,
-    backgroundColor: '#e0e0e0',
-    marginHorizontal: 1,
+    backgroundColor: '#e2e8f0',
+    marginHorizontal: 2,
   },
   switchGroup: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 16,
+    gap: 12,
   },
   switchInfo: {
     flex: 1,
-    marginRight: 12,
   },
   bonusSection: {
     marginBottom: 20,
@@ -2202,79 +2457,69 @@ const styles = StyleSheet.create({
   footer: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingTop: 12,
     backgroundColor: '#fff',
-    borderTopWidth: 1,
-    borderTopColor: '#e0e0e0',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 5,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#e2e8f0',
   },
   footerButton: {
-    flexDirection: 'row',
+    flex: 1,
+    height: 48,
+    borderRadius: 12,
+    backgroundColor: '#667eea',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#667eea',
-    borderRadius: 12,
-    paddingVertical: 14,
-    paddingHorizontal: 24,
-    gap: 8,
-    minWidth: 120,
   },
   footerButtonPrimary: {
-    backgroundColor: '#4CAF50',
+    backgroundColor: '#198754',
   },
   footerButtonSecondary: {
-    flexDirection: 'row',
+    minWidth: 100,
+    height: 48,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#dbe3ef',
+    backgroundColor: '#f8fafc',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#f0f0f0',
-    borderRadius: 12,
-    paddingVertical: 14,
-    paddingHorizontal: 20,
-    gap: 8,
-    marginRight: 12,
+    paddingHorizontal: 16,
   },
   footerButtonText: {
     color: '#fff',
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '800',
+    letterSpacing: 0.2,
   },
   footerButtonSecondaryText: {
-    color: '#667eea',
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#475569',
   },
   buttonDisabled: {
     opacity: 0.6,
   },
   highlightField: {
-    borderWidth: 2,
-    borderColor: '#e53935',
+    borderWidth: 1.5,
+    borderColor: '#fca5a5',
     borderRadius: 12,
-    backgroundColor: '#fff5f5',
+    backgroundColor: '#fff7f7',
+    padding: 4,
   },
   validationToast: {
     position: 'absolute',
-    top: 100,
-    left: 20,
-    right: 20,
-    backgroundColor: '#e53935',
+    left: 16,
+    right: 16,
+    backgroundColor: '#dc2626',
     borderRadius: 12,
     paddingVertical: 12,
-    paddingHorizontal: 16,
+    paddingHorizontal: 14,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
+    zIndex: 50,
     elevation: 10,
-    zIndex: 999,
   },
   validationToastText: {
     color: '#fff',
@@ -2284,9 +2529,8 @@ const styles = StyleSheet.create({
   },
   generalToast: {
     position: 'absolute',
-    top: 100,
-    left: 20,
-    right: 20,
+    left: 16,
+    right: 16,
     borderRadius: 12,
     paddingVertical: 12,
     paddingHorizontal: 16,
