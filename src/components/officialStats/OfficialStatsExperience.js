@@ -28,13 +28,25 @@ export const STATS_LEADERBOARD_PREVIEW = 5;
 const LB_ROW_HEIGHT = 56;
 
 /** Cache in-memory: una fetch per competitionId finché l'app resta viva. */
+const TRENDING_CACHE_VERSION = 2;
 const trendingPlayersCache = new Map();
 
-function readTrendingCache(competitionId) {
+function trendingCacheKey(competitionId) {
   const cid = Number(competitionId);
   if (!Number.isFinite(cid) || cid <= 0) return null;
-  if (!trendingPlayersCache.has(cid)) return null;
-  return trendingPlayersCache.get(cid);
+  return `v${TRENDING_CACHE_VERSION}:${cid}`;
+}
+
+function readTrendingCache(competitionId) {
+  const key = trendingCacheKey(competitionId);
+  if (!key || !trendingPlayersCache.has(key)) return null;
+  return trendingPlayersCache.get(key);
+}
+
+function writeTrendingCache(competitionId, players) {
+  const key = trendingCacheKey(competitionId);
+  if (!key) return;
+  trendingPlayersCache.set(key, players);
 }
 
 const MEDAL = {
@@ -1256,6 +1268,40 @@ export function mapOfficialStatsBoards(defs, dataByKey) {
   }));
 }
 
+function enrichTrendingPhotosFromBoards(players, boards) {
+  const list = Array.isArray(players) ? players : [];
+  if (!list.length) return list;
+  const photoByPlayerId = new Map();
+  const photoByCluster = new Map();
+  for (const board of Array.isArray(boards) ? boards : []) {
+    for (const row of Array.isArray(board?.items) ? board.items : []) {
+      const photo = String(row?.photo_path || '').trim();
+      if (!photo) continue;
+      const pid = Number(row?.player_id);
+      if (pid > 0 && !photoByPlayerId.has(pid)) photoByPlayerId.set(pid, photo);
+      const cid = Number(row?.cluster_id);
+      if (cid > 0 && !photoByCluster.has(cid)) photoByCluster.set(cid, photo);
+    }
+  }
+  if (!photoByPlayerId.size && !photoByCluster.size) return list;
+
+  let changed = false;
+  const next = list.map((player) => {
+    const existing = String(player?.photo_path || '').trim();
+    if (existing) return player;
+    const pid = Number(player?.player_id);
+    const cid = Number(player?.cluster_id);
+    const photo =
+      (pid > 0 ? photoByPlayerId.get(pid) : '')
+      || (cid > 0 ? photoByCluster.get(cid) : '')
+      || '';
+    if (!photo) return player;
+    changed = true;
+    return { ...player, photo_path: photo };
+  });
+  return changed ? next : list;
+}
+
 function sharePhotosAcrossBoards(boards) {
   const list = Array.isArray(boards) ? boards : [];
   const photoByPlayerId = new Map();
@@ -1355,10 +1401,10 @@ export default function OfficialStatsExperience({
       try {
         const res = await matchesService.getTrendingPlayers(cid);
         const list = Array.isArray(res?.data?.players) ? res.data.players : [];
-        trendingPlayersCache.set(cid, list);
+        writeTrendingCache(cid, list);
         if (!cancelled) setTrendingPlayers(list);
       } catch (_) {
-        trendingPlayersCache.set(cid, []);
+        writeTrendingCache(cid, []);
         if (!cancelled) setTrendingPlayers([]);
       } finally {
         if (!cancelled) setTrendingLoading(false);
@@ -1473,6 +1519,10 @@ export default function OfficialStatsExperience({
   const normalizedQuery = normalizeQuery(query);
   const searching = normalizedQuery.length > 0;
   const displayBoards = useMemo(() => sharePhotosAcrossBoards(boards), [boards]);
+  const displayTrendingPlayers = useMemo(
+    () => enrichTrendingPhotosFromBoards(trendingPlayers, displayBoards),
+    [trendingPlayers, displayBoards],
+  );
   const activeBoard = displayBoards.find((b) => b.key === selectedBoard) || displayBoards[0];
   const searchHits = useMemo(() => {
     if (!searching) return [];
@@ -1579,7 +1629,7 @@ export default function OfficialStatsExperience({
               placeholder={searchPlaceholder}
             />
             <TrendingPlayersStrip
-              players={trendingPlayers}
+              players={displayTrendingPlayers}
               loading={trendingLoading}
               visible={showTrendingPlayers && !searching}
               onPressPlayer={onPressPlayer}
@@ -1682,7 +1732,7 @@ export default function OfficialStatsExperience({
     query,
     onChangeQuery,
     searchPlaceholder,
-    trendingPlayers,
+    displayTrendingPlayers,
     trendingLoading,
     showTrendingPlayers,
     searching,
@@ -1747,7 +1797,7 @@ export default function OfficialStatsExperience({
             placeholder={searchPlaceholder}
           />
           <TrendingPlayersStrip
-            players={trendingPlayers}
+            players={displayTrendingPlayers}
             loading={trendingLoading}
             visible={showTrendingPlayers && !searching}
             onPressPlayer={onPressPlayer}

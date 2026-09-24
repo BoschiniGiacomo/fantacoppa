@@ -2605,21 +2605,56 @@ router.get('/matches/players/trending', authenticateToken, async (req, res) => {
       });
     }
 
+    // Foto: eredita da qualsiasi membro del cluster (come classifiche / scheda giocatore).
     let players = withClusters;
+    try {
+      if (Number.isFinite(competitionId) && competitionId > 0) {
+        players = await attachLeaderboardPlayerPhotos(withClusters, competitionId);
+      } else {
+        const byComp = new Map();
+        for (const row of withClusters) {
+          const gid = Number(row.competition_id);
+          if (!(gid > 0)) continue;
+          if (!byComp.has(gid)) byComp.set(gid, []);
+          byComp.get(gid).push(row);
+        }
+        if (byComp.size) {
+          const enriched = [];
+          for (const [gid, rows] of byComp) {
+            enriched.push(...(await attachLeaderboardPlayerPhotos(rows, gid)));
+          }
+          // Mantieni ordine originale
+          const byKey = new Map(
+            enriched.map((row) => [`${Number(row.competition_id)}:${Number(row.player_id)}`, row]),
+          );
+          players = withClusters.map((row) => {
+            const key = `${Number(row.competition_id)}:${Number(row.player_id)}`;
+            return byKey.get(key) || row;
+          });
+        } else {
+          players = await attachLeaderboardPlayerPhotos(withClusters, 0);
+        }
+      }
+    } catch (err) {
+      console.warn('[trending] player photos:', err?.message || err);
+      players = withClusters;
+    }
+
     try {
       const competitions = await listCompetitionsOnlyEnabled();
       const compIds = [
         ...new Set([
           ...competitions.map((c) => Number(c.id)).filter((x) => x > 0),
-          ...withClusters.map((p) => Number(p.competition_id)).filter((x) => x > 0),
+          ...players.map((p) => Number(p.competition_id)).filter((x) => x > 0),
         ]),
       ];
       const logoMap = await buildBestOfficialTeamLogoMap(compIds, true);
-      players = await attachSearchPlayerCareerTeams(withClusters, logoMap);
+      const withCareerBase = players;
+      players = await attachSearchPlayerCareerTeams(players, logoMap);
       players = players.map((p, idx) => {
         const career = Array.isArray(p?.career_teams) ? p.career_teams : [];
         if (career.length > 0) return p;
-        const src = withClusters[idx] || {};
+        const src = withCareerBase[idx] || {};
         const fallbackPath = String(src.team_logo_path || '').trim();
         const teamName = String(p?.team_name || src.team_name || '').trim();
         if (!teamName && !fallbackPath) return { ...p, career_teams: [] };
@@ -2641,7 +2676,7 @@ router.get('/matches/players/trending', authenticateToken, async (req, res) => {
       players = annotateDuplicateSearchPlayerNames(players);
     } catch (err) {
       console.warn('[trending] career logos:', err?.message || err);
-      players = withClusters.map((p) => {
+      players = players.map((p) => {
         const fallbackPath = String(p?.team_logo_path || '').trim() || null;
         const teamName = String(p?.team_name || '').trim();
         return {
