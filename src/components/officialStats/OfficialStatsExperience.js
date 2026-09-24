@@ -13,7 +13,6 @@ import {
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import Animated, {
-  FadeIn,
   FadeInDown,
 } from 'react-native-reanimated';
 import Svg, { Circle, Line } from 'react-native-svg';
@@ -25,7 +24,18 @@ import { matchesService } from '../../services/api';
 
 export const ABSOLUTE_STATS_KEY = 'absolute';
 export const STATS_LEADERBOARD_PREVIEW = 5;
-const LB_ROW_HEIGHT = 52;
+/** Altezza fissa riga classifica (getItemLayout → scroll fluido). */
+const LB_ROW_HEIGHT = 56;
+
+/** Cache in-memory: una fetch per competitionId finché l'app resta viva. */
+const trendingPlayersCache = new Map();
+
+function readTrendingCache(competitionId) {
+  const cid = Number(competitionId);
+  if (!Number.isFinite(cid) || cid <= 0) return null;
+  if (!trendingPlayersCache.has(cid)) return null;
+  return trendingPlayersCache.get(cid);
+}
 
 const MEDAL = {
   1: { bg: '#fef3c7', fg: '#b45309' },
@@ -344,45 +354,15 @@ function StatsSearchBar({ value, onChange, placeholder }) {
   );
 }
 
-function TrendingPlayersStrip({ competitionId, visible, onPressPlayer, showTeamName = true }) {
-  const [players, setPlayers] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const seqRef = useRef(0);
-
-  useEffect(() => {
-    if (!visible) return undefined;
-    const cid = Number(competitionId);
-    if (!Number.isFinite(cid) || cid <= 0) {
-      setPlayers([]);
-      return undefined;
-    }
-
-    seqRef.current += 1;
-    const seq = seqRef.current;
-    let cancelled = false;
-
-    const run = async () => {
-      try {
-        setLoading(true);
-        const res = await matchesService.getTrendingPlayers(cid);
-        if (cancelled || seq !== seqRef.current) return;
-        setPlayers(Array.isArray(res?.data?.players) ? res.data.players : []);
-      } catch (_) {
-        if (cancelled || seq !== seqRef.current) return;
-        setPlayers([]);
-      } finally {
-        if (!cancelled && seq === seqRef.current) setLoading(false);
-      }
-    };
-
-    void run();
-    return () => {
-      cancelled = true;
-    };
-  }, [visible, competitionId]);
-
+function TrendingPlayersStrip({
+  players = [],
+  loading = false,
+  visible,
+  onPressPlayer,
+  showTeamName = true,
+}) {
   if (!visible) return null;
-  if (loading) {
+  if (loading && !players.length) {
     return (
       <View style={styles.trendingWrap}>
         <View style={styles.trendingHeader}>
@@ -533,12 +513,16 @@ function LeaderboardRow({
       <RankBadge rank={rank} />
       <View style={styles.lbMain}>
         <Text style={styles.lbName} numberOfLines={1}>{playerName}</Text>
-        {teamName ? <Text style={styles.lbTeam} numberOfLines={1}>{teamName}</Text> : null}
+        <Text style={styles.lbTeam} numberOfLines={1}>
+          {teamName || ' '}
+        </Text>
       </View>
       <Text style={styles.lbValue}>{value}</Text>
     </TouchableOpacity>
   );
 }
+
+const MemoLeaderboardRow = React.memo(LeaderboardRow);
 
 /** Lista inline (ricerca): liste filtrate, di solito corte. */
 function LeaderboardList({
@@ -573,7 +557,7 @@ function LeaderboardList({
         const rank = ranks[sourceIndex] || sourceIndex + 1;
         const isLast = i === visible.length - 1 && !(canExpand && !expanded);
         const rowNode = (
-          <LeaderboardRow
+          <MemoLeaderboardRow
             row={row}
             rank={rank}
             onPressPlayer={onPressPlayer}
@@ -1340,6 +1324,51 @@ export default function OfficialStatsExperience({
   const [query, setQuery] = useState('');
   const [selectedBoard, setSelectedBoard] = useState(boards[0]?.key || 'scorers');
   const [expanded, setExpanded] = useState(false);
+  const cachedTrending = readTrendingCache(competitionId);
+  const [trendingPlayers, setTrendingPlayers] = useState(() => cachedTrending || []);
+  const [trendingLoading, setTrendingLoading] = useState(() => (
+    showTrendingPlayers && Number(competitionId) > 0 && cachedTrending == null
+  ));
+
+  // Carica "I più cercati" una sola volta per competitionId; in cache finché l'app resta aperta.
+  useEffect(() => {
+    if (!showTrendingPlayers) {
+      setTrendingLoading(false);
+      return undefined;
+    }
+    const cid = Number(competitionId);
+    if (!Number.isFinite(cid) || cid <= 0) {
+      setTrendingPlayers([]);
+      setTrendingLoading(false);
+      return undefined;
+    }
+    const cached = readTrendingCache(cid);
+    if (cached) {
+      setTrendingPlayers(cached);
+      setTrendingLoading(false);
+      return undefined;
+    }
+
+    let cancelled = false;
+    setTrendingLoading(true);
+    (async () => {
+      try {
+        const res = await matchesService.getTrendingPlayers(cid);
+        const list = Array.isArray(res?.data?.players) ? res.data.players : [];
+        trendingPlayersCache.set(cid, list);
+        if (!cancelled) setTrendingPlayers(list);
+      } catch (_) {
+        trendingPlayersCache.set(cid, []);
+        if (!cancelled) setTrendingPlayers([]);
+      } finally {
+        if (!cancelled) setTrendingLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [competitionId, showTrendingPlayers]);
 
   const setCombinedScrollRef = useCallback((node) => {
     // FlatList espone scrollToOffset; le schermate parent usano scrollTo({ y }).
@@ -1489,14 +1518,19 @@ export default function OfficialStatsExperience({
   const renderLbRow = useCallback(({ item, index }) => {
     const isLast = index === visibleLbRows.length - 1 && !canExpandBoard;
     return (
-      <View style={contentInsetTop > 0 ? styles.insetCardMid : null}>
+      <View
+        style={[
+          styles.lbRowShell,
+          contentInsetTop > 0 ? styles.insetCardMid : null,
+        ]}
+      >
         <View style={[
           styles.boardCardSegment,
           index === 0 ? styles.boardCardSegmentFirst : null,
           isLast ? styles.boardCardSegmentLast : null,
         ]}
         >
-          <LeaderboardRow
+          <MemoLeaderboardRow
             row={item}
             rank={resolveActiveRank(item, index)}
             onPressPlayer={onPressPlayer}
@@ -1510,6 +1544,21 @@ export default function OfficialStatsExperience({
   const lbKeyExtractor = useCallback((row, index) => (
     `${selectedYear}-${activeBoard?.key || 'b'}-${leaderboardRowIdentity(row, index)}`
   ), [selectedYear, activeBoard?.key]);
+
+  const getLbItemLayout = useCallback((_, index) => ({
+    length: LB_ROW_HEIGHT,
+    offset: LB_ROW_HEIGHT * index,
+    index,
+  }), []);
+
+  const onChangeQuery = useCallback((text) => {
+    setQuery(text);
+    setExpanded(false);
+  }, []);
+
+  const toggleExpanded = useCallback(() => {
+    setExpanded((v) => !v);
+  }, []);
 
   const renderListHeader = useCallback(() => (
     <>
@@ -1526,14 +1575,12 @@ export default function OfficialStatsExperience({
             <PeriodSelector years={years} selectedYear={selectedYear} onSelectYear={onSelectYear} />
             <StatsSearchBar
               value={query}
-              onChange={(text) => {
-                setQuery(text);
-                setExpanded(false);
-              }}
+              onChange={onChangeQuery}
               placeholder={searchPlaceholder}
             />
             <TrendingPlayersStrip
-              competitionId={competitionId}
+              players={trendingPlayers}
+              loading={trendingLoading}
               visible={showTrendingPlayers && !searching}
               onPressPlayer={onPressPlayer}
               showTeamName={searchIncludesTeam}
@@ -1556,9 +1603,8 @@ export default function OfficialStatsExperience({
             <Text style={styles.emptyText}>Nessun giocatore trovato.</Text>
           ) : (
             searchHits.map((hit, idx) => (
-              <Animated.View
+              <View
                 key={`search-${hit.board.key}`}
-                entering={FadeIn.delay(idx * 40).duration(220)}
                 style={styles.searchGroup}
               >
                 <View style={styles.boardHead}>
@@ -1577,7 +1623,7 @@ export default function OfficialStatsExperience({
                   includeTeam={searchIncludesTeam}
                   animKey={`${selectedYear}-search-${hit.board.key}`}
                 />
-              </Animated.View>
+              </View>
             ))
           )
         ) : (
@@ -1634,8 +1680,10 @@ export default function OfficialStatsExperience({
     selectedYear,
     onSelectYear,
     query,
+    onChangeQuery,
     searchPlaceholder,
-    competitionId,
+    trendingPlayers,
+    trendingLoading,
     showTrendingPlayers,
     searching,
     onPressPlayer,
@@ -1660,10 +1708,10 @@ export default function OfficialStatsExperience({
     return (
       <View style={contentInsetTop > 0 ? styles.insetCardBottom : null}>
         {canExpandBoard ? (
-          <View style={[styles.boardCardSegment, styles.boardCardSegmentLast]}>
+          <View style={[styles.boardCardSegment, styles.boardCardSegmentLast, { height: LB_ROW_HEIGHT }]}>
             <TouchableOpacity
               style={styles.expandBtn}
-              onPress={() => setExpanded((v) => !v)}
+              onPress={toggleExpanded}
               activeOpacity={0.75}
             >
               <Text style={styles.expandText}>
@@ -1685,6 +1733,7 @@ export default function OfficialStatsExperience({
     contentInsetTop,
     expanded,
     activeItems.length,
+    toggleExpanded,
   ]);
 
   return (
@@ -1694,14 +1743,12 @@ export default function OfficialStatsExperience({
           <PeriodSelector years={years} selectedYear={selectedYear} onSelectYear={onSelectYear} />
           <StatsSearchBar
             value={query}
-            onChange={(text) => {
-              setQuery(text);
-              setExpanded(false);
-            }}
+            onChange={onChangeQuery}
             placeholder={searchPlaceholder}
           />
           <TrendingPlayersStrip
-            competitionId={competitionId}
+            players={trendingPlayers}
+            loading={trendingLoading}
             visible={showTrendingPlayers && !searching}
             onPressPlayer={onPressPlayer}
             showTeamName={searchIncludesTeam}
@@ -1727,6 +1774,7 @@ export default function OfficialStatsExperience({
           data={visibleLbRows}
           keyExtractor={lbKeyExtractor}
           renderItem={renderLbRow}
+          getItemLayout={getLbItemLayout}
           ListHeaderComponent={renderListHeader}
           ListFooterComponent={renderListFooter}
           contentContainerStyle={[
@@ -1743,11 +1791,11 @@ export default function OfficialStatsExperience({
           onScrollBeginDrag={handleScrollBeginDrag}
           onScrollEndDrag={handleScrollEndDrag}
           scrollEventThrottle={16}
-          initialNumToRender={12}
-          windowSize={11}
-          maxToRenderPerBatch={16}
+          initialNumToRender={16}
+          windowSize={7}
+          maxToRenderPerBatch={12}
           updateCellsBatchingPeriod={50}
-          removeClippedSubviews
+          removeClippedSubviews={false}
         />
       )}
     </View>
@@ -2374,6 +2422,8 @@ const styles = StyleSheet.create({
     borderRightWidth: 1,
     borderColor: '#e5e7eb',
     backgroundColor: '#fff',
+    height: LB_ROW_HEIGHT,
+    overflow: 'hidden',
   },
   boardCardSegmentFirst: {
     borderTopWidth: 1,
@@ -2385,15 +2435,17 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: 14,
     borderBottomRightRadius: 14,
   },
+  lbRowShell: {
+    height: LB_ROW_HEIGHT,
+  },
   lbRow: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
     paddingHorizontal: 12,
-    paddingVertical: 10,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: '#eef2f7',
-    minHeight: LB_ROW_HEIGHT,
   },
   lbRowLast: { borderBottomWidth: 0 },
   rankBadge: {
@@ -2417,17 +2469,16 @@ const styles = StyleSheet.create({
     color: '#64748b',
     fontVariant: ['tabular-nums'],
   },
-  lbMain: { flex: 1, minWidth: 0 },
+  lbMain: { flex: 1, minWidth: 0, justifyContent: 'center' },
   lbName: { fontSize: 14, fontWeight: '700', color: '#0f172a' },
   lbTeam: { marginTop: 1, fontSize: 11, fontWeight: '500', color: '#94a3b8' },
   lbValue: { fontSize: 16, fontWeight: '800', color: '#0f172a', minWidth: 28, textAlign: 'right' },
   expandBtn: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 4,
-    paddingVertical: 12,
-    minHeight: LB_ROW_HEIGHT,
   },
   expandText: { fontSize: 13, fontWeight: '700', color: '#0f172a' },
 });
