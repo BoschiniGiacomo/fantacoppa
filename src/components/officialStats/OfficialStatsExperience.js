@@ -1,4 +1,12 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  startTransition,
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -535,6 +543,49 @@ function LeaderboardRow({
 }
 
 const MemoLeaderboardRow = React.memo(LeaderboardRow);
+
+/** Cella FlatList: stile precomputato, memo stretto. */
+const LbVirtualCell = React.memo(function LbVirtualCell({
+  row,
+  rank,
+  isFirst,
+  isLast,
+  withInset,
+  onPressPlayer,
+}) {
+  const playerName = String(row?.name || '-');
+  const teamName = String(row?.team_name || '').trim();
+  const playerId = Number(row?.player_id);
+  const canOpen = playerId > 0;
+  const value = Number(row?.value || 0);
+  return (
+    <View style={withInset ? styles.lbFlatInset : styles.lbRowShell}>
+      <View
+        style={[
+          styles.boardCardSegment,
+          isFirst ? styles.boardCardSegmentFirst : null,
+          isLast ? styles.boardCardSegmentLast : null,
+        ]}
+      >
+        <TouchableOpacity
+          style={[styles.lbRow, isLast && styles.lbRowLast]}
+          activeOpacity={canOpen ? 0.72 : 1}
+          disabled={!canOpen}
+          onPress={() => onPressPlayer?.(row)}
+        >
+          <RankBadge rank={rank} />
+          <View style={styles.lbMain}>
+            <Text style={styles.lbName} numberOfLines={1}>{playerName}</Text>
+            <Text style={styles.lbTeam} numberOfLines={1}>
+              {teamName || ' '}
+            </Text>
+          </View>
+          <Text style={styles.lbValue}>{value}</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+});
 
 /** Lista inline (ricerca): liste filtrate, di solito corte. */
 function LeaderboardList({
@@ -1549,57 +1600,39 @@ export default function OfficialStatsExperience({
     return map;
   }, [activeItems]);
   const canExpandBoard = !searching && !loading && activeItems.length > STATS_LEADERBOARD_PREVIEW;
-  const visibleLbRows = useMemo(() => {
-    if (searching || loading) return [];
-    if (!activeBoard) return [];
-    if (activeItems.length === 0) return [];
-    if (!expanded && canExpandBoard) return activeItems.slice(0, STATS_LEADERBOARD_PREVIEW);
-    return activeItems;
-  }, [searching, loading, activeBoard, activeItems, expanded, canExpandBoard]);
-
-  const resolveActiveRank = useCallback((row, fallbackIdx) => {
-    const identity = leaderboardRowIdentity(row, fallbackIdx);
-    const sourceIndex = activeIndexByIdentity.has(identity)
-      ? activeIndexByIdentity.get(identity)
-      : fallbackIdx;
-    return activeRanks[sourceIndex] || sourceIndex + 1;
-  }, [activeIndexByIdentity, activeRanks]);
-
-  const renderLbRow = useCallback(({ item, index }) => {
-    const isLast = index === visibleLbRows.length - 1 && !canExpandBoard;
-    return (
-      <View
-        style={[
-          styles.lbRowShell,
-          contentInsetTop > 0 ? styles.insetCardMid : null,
-        ]}
-      >
-        <View style={[
-          styles.boardCardSegment,
-          index === 0 ? styles.boardCardSegmentFirst : null,
-          isLast ? styles.boardCardSegmentLast : null,
-        ]}
-        >
-          <MemoLeaderboardRow
-            row={item}
-            rank={resolveActiveRank(item, index)}
-            onPressPlayer={onPressPlayer}
-            isLast={isLast}
-          />
-        </View>
-      </View>
-    );
-  }, [visibleLbRows.length, canExpandBoard, contentInsetTop, resolveActiveRank, onPressPlayer]);
-
-  const lbKeyExtractor = useCallback((row, index) => (
-    `${selectedYear}-${activeBoard?.key || 'b'}-${leaderboardRowIdentity(row, index)}`
-  ), [selectedYear, activeBoard?.key]);
-
-  const getLbItemLayout = useCallback((_, index) => ({
-    length: LB_ROW_HEIGHT,
-    offset: LB_ROW_HEIGHT * index,
-    index,
-  }), []);
+  const visibleLbModels = useMemo(() => {
+    if (searching || loading || !activeBoard || activeItems.length === 0) return [];
+    const rows = (!expanded && canExpandBoard)
+      ? activeItems.slice(0, STATS_LEADERBOARD_PREVIEW)
+      : activeItems;
+    const lastIdx = rows.length - 1;
+    return rows.map((row, index) => {
+      const identity = leaderboardRowIdentity(row, index);
+      const sourceIndex = activeIndexByIdentity.has(identity)
+        ? activeIndexByIdentity.get(identity)
+        : index;
+      return {
+        key: identity,
+        row,
+        rank: activeRanks[sourceIndex] || sourceIndex + 1,
+        isFirst: index === 0,
+        isLast: index === lastIdx && !canExpandBoard,
+      };
+    });
+  }, [
+    searching,
+    loading,
+    activeBoard,
+    activeItems,
+    expanded,
+    canExpandBoard,
+    activeIndexByIdentity,
+    activeRanks,
+  ]);
+  const deferredLbModels = useDeferredValue(visibleLbModels);
+  const listRows = deferredLbModels;
+  const hasLbRows = activeItems.length > 0 && !searching && !loading;
+  const withInset = contentInsetTop > 0;
 
   const onChangeQuery = useCallback((text) => {
     setQuery(text);
@@ -1607,20 +1640,47 @@ export default function OfficialStatsExperience({
   }, []);
 
   const toggleExpanded = useCallback(() => {
-    setExpanded((v) => !v);
+    startTransition(() => {
+      setExpanded((v) => !v);
+    });
   }, []);
+
+  const renderLbRow = useCallback(({ item }) => (
+    <LbVirtualCell
+      row={item.row}
+      rank={item.rank}
+      isFirst={item.isFirst}
+      isLast={item.isLast}
+      withInset={withInset}
+      onPressPlayer={onPressPlayer}
+    />
+  ), [withInset, onPressPlayer]);
+
+  const lbKeyExtractor = useCallback((item) => item.key, []);
+
+  const getLbItemLayout = useCallback((_, index) => ({
+    length: LB_ROW_HEIGHT,
+    offset: LB_ROW_HEIGHT * index,
+    index,
+  }), []);
+
+  const listContentStyle = useMemo(() => ([
+    styles.scrollContent,
+    withInset ? styles.scrollContentWithInset : null,
+    contentMinHeight > 0 ? { minHeight: contentMinHeight } : null,
+  ]), [withInset, contentMinHeight]);
 
   const renderListHeader = useCallback(() => (
     <>
-      {contentInsetTop > 0 ? <View style={{ height: contentInsetTop }} pointerEvents="none" /> : null}
+      {withInset ? <View style={{ height: contentInsetTop }} pointerEvents="none" /> : null}
       <View
         style={
-          contentInsetTop > 0
-            ? (visibleLbRows.length > 0 || canExpandBoard ? styles.insetCardTop : styles.insetCard)
+          withInset
+            ? (hasLbRows || canExpandBoard ? styles.insetCardTop : styles.insetCard)
             : null
         }
       >
-        {contentInsetTop > 0 ? (
+        {withInset ? (
           <>
             <PeriodSelector years={years} selectedYear={selectedYear} onSelectYear={onSelectYear} />
             <StatsSearchBar
@@ -1652,7 +1712,7 @@ export default function OfficialStatsExperience({
           searchHits.length === 0 ? (
             <Text style={styles.emptyText}>Nessun giocatore trovato.</Text>
           ) : (
-            searchHits.map((hit, idx) => (
+            searchHits.map((hit) => (
               <View
                 key={`search-${hit.board.key}`}
                 style={styles.searchGroup}
@@ -1723,8 +1783,9 @@ export default function OfficialStatsExperience({
       </View>
     </>
   ), [
+    withInset,
     contentInsetTop,
-    visibleLbRows.length,
+    hasLbRows,
     canExpandBoard,
     years,
     selectedYear,
@@ -1754,11 +1815,11 @@ export default function OfficialStatsExperience({
   ]);
 
   const renderListFooter = useCallback(() => {
-    if (searching || loading || !(visibleLbRows.length > 0 || canExpandBoard)) return null;
+    if (searching || loading || !(hasLbRows || canExpandBoard)) return null;
     return (
-      <View style={contentInsetTop > 0 ? styles.insetCardBottom : null}>
+      <View style={withInset ? styles.insetCardBottom : null}>
         {canExpandBoard ? (
-          <View style={[styles.boardCardSegment, styles.boardCardSegmentLast, { height: LB_ROW_HEIGHT }]}>
+          <View style={[styles.boardCardSegment, styles.boardCardSegmentLast, styles.lbRowShell]}>
             <TouchableOpacity
               style={styles.expandBtn}
               onPress={toggleExpanded}
@@ -1778,9 +1839,9 @@ export default function OfficialStatsExperience({
   }, [
     searching,
     loading,
-    visibleLbRows.length,
+    hasLbRows,
     canExpandBoard,
-    contentInsetTop,
+    withInset,
     expanded,
     activeItems.length,
     toggleExpanded,
@@ -1788,7 +1849,7 @@ export default function OfficialStatsExperience({
 
   return (
     <View style={styles.root}>
-      {contentInsetTop > 0 ? null : (
+      {withInset ? null : (
         <>
           <PeriodSelector years={years} selectedYear={selectedYear} onSelectYear={onSelectYear} />
           <StatsSearchBar
@@ -1813,7 +1874,7 @@ export default function OfficialStatsExperience({
         </>
       )}
 
-      {loading && contentInsetTop <= 0 ? (
+      {loading && !withInset ? (
         <View style={styles.loadingBox}>
           <ActivityIndicator color="#667eea" />
         </View>
@@ -1821,17 +1882,13 @@ export default function OfficialStatsExperience({
         <FlatList
           ref={setCombinedScrollRef}
           style={styles.scroll}
-          data={visibleLbRows}
+          data={listRows}
           keyExtractor={lbKeyExtractor}
           renderItem={renderLbRow}
           getItemLayout={getLbItemLayout}
           ListHeaderComponent={renderListHeader}
           ListFooterComponent={renderListFooter}
-          contentContainerStyle={[
-            styles.scrollContent,
-            contentInsetTop > 0 ? styles.scrollContentWithInset : null,
-            contentMinHeight > 0 ? { minHeight: contentMinHeight } : null,
-          ]}
+          contentContainerStyle={listContentStyle}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
@@ -1841,11 +1898,11 @@ export default function OfficialStatsExperience({
           onScrollBeginDrag={handleScrollBeginDrag}
           onScrollEndDrag={handleScrollEndDrag}
           scrollEventThrottle={16}
-          initialNumToRender={16}
-          windowSize={7}
-          maxToRenderPerBatch={12}
-          updateCellsBatchingPeriod={50}
-          removeClippedSubviews={false}
+          initialNumToRender={10}
+          windowSize={5}
+          maxToRenderPerBatch={8}
+          updateCellsBatchingPeriod={80}
+          removeClippedSubviews
         />
       )}
     </View>
@@ -2487,6 +2544,14 @@ const styles = StyleSheet.create({
   },
   lbRowShell: {
     height: LB_ROW_HEIGHT,
+  },
+  lbFlatInset: {
+    height: LB_ROW_HEIGHT,
+    backgroundColor: '#fff',
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderColor: '#ececec',
+    paddingHorizontal: 8,
   },
   lbRow: {
     flex: 1,

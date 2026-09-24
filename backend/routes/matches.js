@@ -5821,6 +5821,19 @@ function absoluteGroupStatsCacheKey(compId, mode) {
   return `${compId}:${mode}:v6`;
 }
 
+/** Invalida la cache stats assolute per un gruppo (tutte le modalità). */
+function invalidateAbsoluteGroupStatsCache(competitionId) {
+  const compId = Number(competitionId);
+  if (!Number.isFinite(compId) || compId <= 0) {
+    ABSOLUTE_GROUP_STATS_CACHE.clear();
+    return;
+  }
+  const prefix = `${compId}:`;
+  for (const key of ABSOLUTE_GROUP_STATS_CACHE.keys()) {
+    if (String(key).startsWith(prefix)) ABSOLUTE_GROUP_STATS_CACHE.delete(key);
+  }
+}
+
 function resolveAbsoluteStatsMode(options = {}) {
   const leaderboards = options.leaderboards;
   if (!Array.isArray(leaderboards) || !leaderboards.length) return 'full';
@@ -5840,9 +5853,12 @@ async function computeOfficialGroupSeasonStats(competitionId, targetLeagueIds, i
     const statsMode = resolveAbsoluteStatsMode(options);
     const scorersOnly = statsMode === 'scorers_presences';
     const cacheKey = absoluteGroupStatsCacheKey(compId, statsMode);
-    const cached = ABSOLUTE_GROUP_STATS_CACHE.get(cacheKey);
-    if (cached && cached.expiresAt > Date.now()) {
-      return cached.data;
+    const bypassCache = options.bypassCache === true || options.force === true;
+    if (!bypassCache) {
+      const cached = ABSOLUTE_GROUP_STATS_CACHE.get(cacheKey);
+      if (cached && cached.expiresAt > Date.now()) {
+        return cached.data;
+      }
     }
 
     const editionPromise = scorersOnly
@@ -8851,6 +8867,7 @@ router.officialGroupStatsApi = {
   computeOfficialGroupSeasonStats,
   fetchOfficialGroupEditionWinLeaderboard,
   mergeAbsoluteStatsByCluster,
+  invalidateAbsoluteGroupStatsCache,
 };
 
 module.exports = router;

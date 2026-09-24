@@ -2,6 +2,18 @@ const { query } = require('../config/database');
 const { recomputeAndStoreOfficialGroupAbsoluteStats } = require('./officialGroupAbsoluteStatsStore');
 
 const inflightByGroupId = new Map();
+/** Se arriva un altro schedule mentre un refresh è in corso, rilancia dopo. */
+const pendingRerunByGroupId = new Set();
+
+function invalidateAbsoluteGroupStatsCacheSafe(groupId) {
+  try {
+    const matchesMod = require('../routes/matches');
+    const invalidate = matchesMod.officialGroupStatsApi?.invalidateAbsoluteGroupStatsCache;
+    if (typeof invalidate === 'function') invalidate(groupId);
+  } catch (_) {
+    // best-effort
+  }
+}
 
 async function resolveOfficialGroupIdFromLeague(leagueId) {
   let currentId = Number(leagueId);
@@ -44,7 +56,11 @@ async function scheduleOfficialGroupAbsoluteStatsRefresh(groupId) {
   const gid = Number(groupId);
   if (!Number.isFinite(gid) || gid <= 0) return null;
 
+  // Sempre invalidare subito: anche se c'è un job in volo, il prossimo compute non userà dati pre-voto.
+  invalidateAbsoluteGroupStatsCacheSafe(gid);
+
   if (inflightByGroupId.has(gid)) {
+    pendingRerunByGroupId.add(gid);
     return inflightByGroupId.get(gid);
   }
 
@@ -59,6 +75,10 @@ async function scheduleOfficialGroupAbsoluteStatsRefresh(groupId) {
       return { upserted: 0, failed: true };
     } finally {
       inflightByGroupId.delete(gid);
+      if (pendingRerunByGroupId.has(gid)) {
+        pendingRerunByGroupId.delete(gid);
+        void scheduleOfficialGroupAbsoluteStatsRefresh(gid);
+      }
     }
   })();
 
@@ -102,4 +122,5 @@ module.exports = {
   scheduleOfficialGroupAbsoluteStatsRefresh,
   scheduleOfficialGroupAbsoluteStatsRefreshForLeague,
   scheduleOfficialGroupAbsoluteStatsRefreshForMatch,
+  invalidateAbsoluteGroupStatsCacheSafe,
 };

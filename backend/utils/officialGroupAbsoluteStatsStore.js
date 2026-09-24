@@ -655,6 +655,9 @@ async function recomputeAndStoreOfficialGroupAbsoluteStats(groupId) {
   const [stats, player_meta] = await Promise.all([
     computeOfficialGroupSeasonStats(gid, leagueIds, true, {
       leaderboards: ['scorers', 'presences'],
+      // Dopo salvataggio voti la cache in-memory può essere ancora pre-voto:
+      // forzare il ricalcolo da player_ratings prima di scrivere lo store.
+      bypassCache: true,
     }),
     buildPlayerMetaForGroup(gid),
   ]);
