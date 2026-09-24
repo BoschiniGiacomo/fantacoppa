@@ -1068,47 +1068,49 @@ router.get('/all', authenticateToken, async (req, res) => {
     await ensureMatchdaysGhostSchema();
     await ensureJoinRequestsTable();
     const userId = Number(req.user.userId);
+    // Discovery: payload snello + JOIN (niente subquery correlate su settings / count / giornata).
     const leagues = await query(
-      `SELECT l.id, l.name, l.creator_id, l.created_at,
-              l.initial_budget, l.default_deadline_time, l.max_portieri, l.max_difensori,
-              l.max_centrocampisti, l.max_attaccanti, l.numero_titolari, l.auto_lineup_mode,
-              l.linked_to_league_id,
+      `SELECT l.id, l.name, l.created_at,
               COALESCE(l.is_official, 0) AS is_official,
-              ll.name AS linked_league_name,
-              my.role,
-              COALESCE(ulp.favorite, 0) AS favorite,
-              COALESCE(ulp.archived, 0) AS archived,
-              COALESCE(ulp.notifications_enabled, 1) AS notifications_enabled,
-              CASE WHEN my.user_id IS NULL THEN 0 ELSE 1 END AS is_joined,
+              COALESCE(l.auto_lineup_mode, 0) AS auto_lineup_mode,
               CASE WHEN NULLIF(BTRIM(COALESCE(l.access_code, '')), '') IS NOT NULL THEN 1 ELSE 0 END AS has_access_code,
-              COALESCE((
-                SELECT lms.require_approval::int
-                FROM league_market_settings lms
-                WHERE lms.league_id = l.id
-                LIMIT 1
-              ), 0) AS require_approval,
-              (SELECT COUNT(*) FROM league_members lm2 WHERE lm2.league_id = l.id) AS user_count,
-              COALESCE((
-                SELECT lms.market_locked::int
-                FROM league_market_settings lms
-                WHERE lms.league_id = l.id
-                LIMIT 1
-              ), 0) AS market_locked,
-              ${CURRENT_MATCHDAY_SUBQUERY}
+              COALESCE(lms.require_approval::int, 0) AS require_approval,
+              COALESCE(lms.market_locked::int, 0) AS market_locked,
+              COALESCE(mc.user_count, 0) AS user_count,
+              0 AS is_joined,
+              COALESCE(cmd.current_matchday, 1) AS current_matchday
        FROM leagues l
-       LEFT JOIN leagues ll ON ll.id = l.linked_to_league_id
-       LEFT JOIN league_members my ON my.league_id = l.id AND my.user_id = ?
-       LEFT JOIN user_league_prefs ulp ON ulp.league_id = l.id AND ulp.user_id = ?
-       WHERE my.user_id IS NULL
-         AND COALESCE(l.is_hidden_from_discovery, 0) = 0
+       LEFT JOIN league_market_settings lms ON lms.league_id = l.id
+       LEFT JOIN (
+         SELECT league_id, COUNT(*)::int AS user_count
+         FROM league_members
+         GROUP BY league_id
+       ) mc ON mc.league_id = l.id
+       LEFT JOIN (
+         SELECT mr.league_id,
+                (COALESCE(MAX(mr.giornata), 0) + 1)::int AS current_matchday
+         FROM matchday_results mr
+         INNER JOIN leagues lg ON lg.id = mr.league_id
+         INNER JOIN matchdays md_cm
+           ON md_cm.league_id = COALESCE(NULLIF(lg.linked_to_league_id, 0), lg.id)
+          AND md_cm.giornata = mr.giornata
+          AND COALESCE(md_cm.is_ghost, 0) = 0
+         GROUP BY mr.league_id
+       ) cmd ON cmd.league_id = l.id
+       WHERE COALESCE(l.is_hidden_from_discovery, 0) = 0
+         AND NOT EXISTS (
+           SELECT 1 FROM league_members lm
+           WHERE lm.league_id = l.id AND lm.user_id = ?
+         )
          AND NOT EXISTS (
            SELECT 1 FROM league_join_requests jr
            WHERE jr.league_id = l.id
              AND jr.user_id = ?
              AND jr.status = 'pending'
          )
-       ORDER BY COALESCE(l.is_official, 0) DESC, l.created_at DESC, l.id DESC`,
-      [userId, userId, userId]
+       ORDER BY COALESCE(l.is_official, 0) DESC, l.created_at DESC, l.id DESC
+       LIMIT 100`,
+      [userId, userId]
     );
     res.json(leagues);
   } catch (error) {

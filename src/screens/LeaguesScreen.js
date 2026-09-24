@@ -9,8 +9,9 @@ import {
   ActivityIndicator,
   TextInput,
   Modal,
+  ScrollView,
 } from 'react-native';
-import { useAuth } from '../context/AuthContext';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { leagueService } from '../services/api';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
@@ -20,10 +21,30 @@ import {
   leagueRequiresApproval,
 } from '../utils/leagueJoin';
 
+const FILTERS = [
+  { key: 'all', label: 'Tutte', icon: 'apps-outline' },
+  { key: 'official', label: 'Ufficiali', icon: 'ribbon-outline' },
+  { key: 'public', label: 'Pubbliche', icon: 'globe-outline' },
+  { key: 'private', label: 'Private', icon: 'lock-closed-outline' },
+  { key: 'approval', label: 'Approvazione', icon: 'hourglass-outline' },
+];
+
+function leagueMatchesFilter(league, filterKey) {
+  if (filterKey === 'all') return true;
+  const isPrivate = leagueHasAccessCode(league);
+  const needsApproval = leagueRequiresApproval(league);
+  const isOfficial = Number(league?.is_official) === 1 || league?.is_official === true;
+  if (filterKey === 'official') return isOfficial;
+  if (filterKey === 'public') return !isPrivate;
+  if (filterKey === 'private') return isPrivate;
+  if (filterKey === 'approval') return needsApproval;
+  return true;
+}
+
 export default function LeaguesScreen({ navigation }) {
-  const { user, logout } = useAuth();
   const [allLeagues, setAllLeagues] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [filterKey, setFilterKey] = useState('all');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [joinModalVisible, setJoinModalVisible] = useState(false);
@@ -46,13 +67,11 @@ export default function LeaguesScreen({ navigation }) {
     }
   }, []);
 
-  /** Toggle sticky dalla "i" in header. */
   const toggleBadgeLegend = useCallback(() => {
     clearLegendHideTimer();
     setBadgeLegendOpen((open) => !open);
   }, [clearLegendHideTimer]);
 
-  /** Tap sull'icona in card: mostra legenda e la nasconde dopo pochi secondi. */
   const revealBadgeLegendBriefly = useCallback(() => {
     clearLegendHideTimer();
     setBadgeLegendOpen(true);
@@ -64,7 +83,6 @@ export default function LeaguesScreen({ navigation }) {
 
   useEffect(() => () => clearLegendHideTimer(), [clearLegendHideTimer]);
 
-  // Nessun poll continuo. Lista discovery sempre aggiornata a ogni focus (e pull / dopo join).
   const loadLeagues = useCallback(async () => {
     try {
       const response = await leagueService.getAllLeagues();
@@ -89,20 +107,35 @@ export default function LeaguesScreen({ navigation }) {
     loadLeagues();
   };
 
-  // Filtra le leghe in base alla ricerca
-  const filteredLeagues = useMemo(() => {
-    let list = (Array.isArray(allLeagues) ? allLeagues : []).filter(
+  const discoverableLeagues = useMemo(
+    () => (Array.isArray(allLeagues) ? allLeagues : []).filter(
       (league) => Number(league?.is_joined || 0) !== 1
-    );
+    ),
+    [allLeagues],
+  );
+
+  const filterCounts = useMemo(() => {
+    const counts = { all: discoverableLeagues.length, official: 0, public: 0, private: 0, approval: 0 };
+    for (const league of discoverableLeagues) {
+      if (Number(league?.is_official) === 1 || league?.is_official === true) counts.official += 1;
+      if (leagueHasAccessCode(league)) counts.private += 1;
+      else counts.public += 1;
+      if (leagueRequiresApproval(league)) counts.approval += 1;
+    }
+    return counts;
+  }, [discoverableLeagues]);
+
+  const filteredLeagues = useMemo(() => {
+    let list = discoverableLeagues.filter((league) => leagueMatchesFilter(league, filterKey));
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase().trim();
       list = list.filter(
         (league) => league?.name && String(league.name).toLowerCase().includes(q)
       );
     }
-    list.sort((a, b) => Number(b?.is_official || 0) - Number(a?.is_official || 0));
+    list = [...list].sort((a, b) => Number(b?.is_official || 0) - Number(a?.is_official || 0));
     return list;
-  }, [allLeagues, searchQuery]);
+  }, [discoverableLeagues, searchQuery, filterKey]);
 
   const handleLeaguePress = (league) => {
     setSelectedLeague(league);
@@ -118,33 +151,27 @@ export default function LeaguesScreen({ navigation }) {
       return;
     }
 
-    const needsApproval = leagueRequiresApproval(selectedLeague);
-    const leagueId = selectedLeague.id;
-
     setJoining(true);
     try {
-      const response = await leagueService.join(leagueId, accessCode || null);
+      const leagueId = selectedLeague.id;
+      const response = await leagueService.join(
+        leagueId,
+        leagueHasAccessCode(selectedLeague) ? accessCode.trim() : undefined
+      );
 
-      // Con approvazione: mai entrare in lega da questo flusso (solo richiesta / attesa).
-      if (needsApproval || isJoinPendingResponse(response, selectedLeague)) {
+      if (isJoinPendingResponse(response, selectedLeague)) {
         setJoinModalVisible(false);
         setSelectedLeague(null);
         setAccessCode('');
+        showToast('Richiesta inviata: in attesa di approvazione', 'success');
         await loadLeagues();
-        showToast(
-          response?.data?.message
-            || 'Richiesta inviata. La trovi in Home → In attesa.',
-          'success'
-        );
         return;
       }
 
       const joinedLeagueId = response?.data?.leagueId || leagueId;
-
       setJoinModalVisible(false);
       setSelectedLeague(null);
       setAccessCode('');
-
       await loadLeagues();
       navigation.navigate('League', { leagueId: joinedLeagueId });
     } catch (error) {
@@ -165,30 +192,41 @@ export default function LeaguesScreen({ navigation }) {
     }
   };
 
-  const renderLeagueItem = ({ item }) => {
+  const renderLeagueItem = useCallback(({ item }) => {
     const isPrivate = leagueHasAccessCode(item);
     const needsApproval = leagueRequiresApproval(item);
+    const isOfficial = Number(item?.is_official) === 1 || item?.is_official === true;
+    const autoLineup = item.auto_lineup_mode === 1 || item.auto_lineup_mode === true;
+    const marketLocked = Number(item.market_locked) === 1;
+    const matchdayLabel = item.current_matchday
+      ? `${item.current_matchday}ª giornata`
+      : 'Non iniziata';
+
     return (
       <TouchableOpacity
-        style={styles.leagueCard}
+        style={[styles.leagueCard, isOfficial && styles.leagueCardOfficial]}
         onPress={() => handleLeaguePress(item)}
         activeOpacity={0.85}
       >
         <View style={styles.leagueHeader}>
-          <Ionicons name="trophy" size={24} color="#ffc107" />
-          <Text style={styles.leagueName}>{item.name}</Text>
+          <View style={[styles.trophyWrap, isOfficial && styles.trophyWrapOfficial]}>
+            <Ionicons
+              name={isOfficial ? 'ribbon' : 'trophy'}
+              size={20}
+              color={isOfficial ? '#667eea' : '#d97706'}
+            />
+          </View>
+          <Text style={styles.leagueName} numberOfLines={2}>{item.name}</Text>
           <View style={styles.usersContainer}>
-            <Ionicons name="people-outline" size={16} color="#999" />
+            <Ionicons name="people-outline" size={16} color="#94a3b8" />
             <Text style={styles.usersValue}>{item.user_count || 0}</Text>
           </View>
         </View>
+
         <View style={styles.leagueInfo}>
           <View style={styles.leagueBadgeContainer}>
             <TouchableOpacity
-              style={[
-                styles.leagueBadgeIcon,
-                isPrivate ? styles.privateBadge : styles.publicBadge,
-              ]}
+              style={[styles.leagueBadgeIcon, isPrivate ? styles.privateBadge : styles.publicBadge]}
               onPress={revealBadgeLegendBriefly}
               activeOpacity={0.75}
               accessibilityRole="button"
@@ -198,7 +236,7 @@ export default function LeaguesScreen({ navigation }) {
               <Ionicons
                 name={isPrivate ? 'lock-closed' : 'globe-outline'}
                 size={14}
-                color={isPrivate ? '#fff' : '#198754'}
+                color={isPrivate ? '#fff' : '#15803d'}
               />
             </TouchableOpacity>
             {needsApproval ? (
@@ -210,8 +248,13 @@ export default function LeaguesScreen({ navigation }) {
                 accessibilityLabel="Richiede approvazione"
                 accessibilityHint="Mostra legenda dei simboli"
               >
-                <Ionicons name="hourglass-outline" size={14} color="#856404" />
+                <Ionicons name="hourglass-outline" size={14} color="#a16207" />
               </TouchableOpacity>
+            ) : null}
+            {isOfficial ? (
+              <View style={styles.officialPill}>
+                <Text style={styles.officialPillText}>Ufficiale</Text>
+              </View>
             ) : null}
           </View>
           <View style={styles.joinContainer}>
@@ -221,47 +264,53 @@ export default function LeaguesScreen({ navigation }) {
             </Text>
           </View>
         </View>
+
         <View style={styles.leagueFooter}>
-          <View style={styles.matchdayContainer}>
-            <View style={styles.matchdayLeft}>
-              <Ionicons name="calendar-outline" size={16} color="#999" />
-              <Text style={styles.leagueMatchday}>
-                {item.current_matchday ? `${item.current_matchday}ª giornata` : 'Non iniziata'}
-              </Text>
-            </View>
-            <View style={styles.verticalDivider} />
-            <View style={styles.formationContainer}>
-              <Text style={styles.formationLabel}>Auto-formazione</Text>
-              <Text style={[styles.formationValue, (item.auto_lineup_mode === 1 || item.auto_lineup_mode === true) ? styles.formationYes : styles.formationNo]}>
-                {(item.auto_lineup_mode === 1 || item.auto_lineup_mode === true) ? 'Sì' : 'No'}
-              </Text>
-            </View>
-            <View style={styles.verticalDivider} />
-            <View style={styles.marketContainer}>
-              <Text style={styles.marketLabel}>Mercato</Text>
-              <Text style={[styles.marketValue, item.market_locked === 1 ? styles.marketClosed : styles.marketOpen]}>
-                {item.market_locked === 1 ? 'Chiuso' : 'Aperto'}
-              </Text>
-            </View>
+          <View style={styles.matchdayLeft}>
+            <Ionicons name="calendar-outline" size={16} color="#94a3b8" />
+            <Text style={styles.leagueMatchday}>{matchdayLabel}</Text>
+          </View>
+          <View style={styles.verticalDivider} />
+          <View style={styles.formationContainer}>
+            <Text style={styles.formationLabel}>Auto-formazione</Text>
+            <Text style={[styles.formationValue, autoLineup ? styles.metaYes : styles.metaNo]}>
+              {autoLineup ? 'Sì' : 'No'}
+            </Text>
+          </View>
+          <View style={styles.verticalDivider} />
+          <View style={styles.marketContainer}>
+            <Text style={styles.marketLabel}>Mercato</Text>
+            <Text style={[styles.marketValue, marketLocked ? styles.metaNo : styles.metaYes]}>
+              {marketLocked ? 'Chiuso' : 'Aperto'}
+            </Text>
           </View>
         </View>
       </TouchableOpacity>
     );
-  };
+  }, [revealBadgeLegendBriefly]);
 
   if (loading) {
     return (
-      <View style={styles.centerContainer}>
-        <ActivityIndicator size="large" color="#667eea" />
-      </View>
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <View style={styles.centerContainer}>
+          <ActivityIndicator size="large" color="#667eea" />
+        </View>
+      </SafeAreaView>
     );
   }
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
         <View style={styles.titleRow}>
-          <Text style={styles.title}>Crea o unisciti a una lega</Text>
+          <View style={styles.titleBlock}>
+            <Text style={styles.title}>Scopri leghe</Text>
+            <Text style={styles.subtitle}>
+              {filteredLeagues.length === 1
+                ? '1 lega disponibile'
+                : `${filteredLeagues.length} leghe disponibili`}
+            </Text>
+          </View>
           <TouchableOpacity
             style={[styles.legendToggle, badgeLegendOpen && styles.legendToggleActive]}
             onPress={toggleBadgeLegend}
@@ -276,27 +325,65 @@ export default function LeaguesScreen({ navigation }) {
             />
           </TouchableOpacity>
         </View>
+
         <View style={styles.searchContainer}>
-          <Ionicons name="search" size={20} color="#666" style={styles.searchIcon} />
+          <Ionicons name="search" size={18} color="#94a3b8" style={styles.searchIcon} />
           <TextInput
             style={styles.searchInput}
-            placeholder="Cerca leghe..."
+            placeholder="Cerca per nome…"
             value={searchQuery}
             onChangeText={setSearchQuery}
             autoCapitalize="none"
-            placeholderTextColor="#999"
+            placeholderTextColor="#94a3b8"
           />
-          {searchQuery.length > 0 && (
-            <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.clearButton}>
-              <Ionicons name="close-circle" size={20} color="#999" />
+          {searchQuery.length > 0 ? (
+            <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.clearButton} hitSlop={8}>
+              <Ionicons name="close-circle" size={18} color="#94a3b8" />
             </TouchableOpacity>
-          )}
+          ) : null}
         </View>
+
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.filterRow}
+          style={styles.filterScroll}
+        >
+          {FILTERS.map((filter) => {
+            const active = filterKey === filter.key;
+            const count = filterCounts[filter.key] ?? 0;
+            return (
+              <TouchableOpacity
+                key={filter.key}
+                style={[styles.filterChip, active && styles.filterChipActive]}
+                onPress={() => setFilterKey(filter.key)}
+                activeOpacity={0.8}
+              >
+                <Ionicons
+                  name={filter.icon}
+                  size={14}
+                  color={active ? '#4338ca' : '#64748b'}
+                />
+                <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>
+                  {filter.label}
+                </Text>
+                {filter.key !== 'all' && count > 0 ? (
+                  <View style={[styles.filterCount, active && styles.filterCountActive]}>
+                    <Text style={[styles.filterCountText, active && styles.filterCountTextActive]}>
+                      {count}
+                    </Text>
+                  </View>
+                ) : null}
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+
         {badgeLegendOpen ? (
           <View style={styles.badgeLegend}>
             <View style={styles.badgeLegendItem}>
               <View style={[styles.leagueBadgeIcon, styles.publicBadge, styles.badgeLegendIcon]}>
-                <Ionicons name="globe-outline" size={13} color="#198754" />
+                <Ionicons name="globe-outline" size={13} color="#15803d" />
               </View>
               <Text style={styles.badgeLegendText}>Pubblica</Text>
             </View>
@@ -308,7 +395,7 @@ export default function LeaguesScreen({ navigation }) {
             </View>
             <View style={styles.badgeLegendItem}>
               <View style={[styles.leagueBadgeIcon, styles.approvalBadge, styles.badgeLegendIcon]}>
-                <Ionicons name="hourglass-outline" size={13} color="#856404" />
+                <Ionicons name="hourglass-outline" size={13} color="#a16207" />
               </View>
               <Text style={styles.badgeLegendText}>Approvazione</Text>
             </View>
@@ -319,22 +406,40 @@ export default function LeaguesScreen({ navigation }) {
       <FlatList
         data={filteredLeagues}
         renderItem={renderLeagueItem}
-        keyExtractor={(item) => item.id.toString()}
+        keyExtractor={(item) => String(item.id)}
         contentContainerStyle={styles.listContent}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#667eea" />
         }
+        showsVerticalScrollIndicator={false}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
-            <Ionicons name="trophy-outline" size={64} color="#ccc" />
+            <View style={styles.emptyIconWrap}>
+              <Ionicons name="trophy-outline" size={36} color="#94a3b8" />
+            </View>
             <Text style={styles.emptyText}>
-              {searchQuery.trim() ? 'Nessuna lega trovata' : 'Nessuna lega disponibile'}
+              {searchQuery.trim() || filterKey !== 'all'
+                ? 'Nessuna lega trovata'
+                : 'Nessuna lega disponibile'}
             </Text>
             <Text style={styles.emptySubtext}>
-              {searchQuery.trim() 
-                ? 'Prova con un altro nome' 
-                : 'Crea una nuova lega per iniziare'}
+              {searchQuery.trim()
+                ? 'Prova un altro nome o togli i filtri'
+                : filterKey !== 'all'
+                  ? 'Prova un altro filtro'
+                  : 'Crea una nuova lega per iniziare'}
             </Text>
+            {filterKey !== 'all' || searchQuery.trim() ? (
+              <TouchableOpacity
+                style={styles.emptyResetBtn}
+                onPress={() => {
+                  setFilterKey('all');
+                  setSearchQuery('');
+                }}
+              >
+                <Text style={styles.emptyResetText}>Azzera filtri</Text>
+              </TouchableOpacity>
+            ) : null}
           </View>
         }
       />
@@ -342,37 +447,37 @@ export default function LeaguesScreen({ navigation }) {
       <TouchableOpacity
         style={styles.fab}
         onPress={() => navigation.navigate('CreateLeague')}
+        activeOpacity={0.9}
+        accessibilityLabel="Crea una nuova lega"
       >
-        <Ionicons name="add" size={32} color="#fff" />
+        <Ionicons name="add" size={28} color="#fff" />
       </TouchableOpacity>
 
-      {/* Modal per unirsi */}
       <Modal
         visible={joinModalVisible}
-        transparent={true}
+        transparent
         animationType="fade"
         onRequestClose={() => setJoinModalVisible(false)}
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            {/* Icona decorativa */}
             <View style={styles.modalIconWrap}>
-              <Ionicons name="enter-outline" size={32} color="#667eea" />
+              <Ionicons name="enter-outline" size={28} color="#667eea" />
             </View>
 
             <Text style={styles.modalTitle}>
-              {leagueRequiresApproval(selectedLeague) ? 'Richiedi accesso' : 'Unisciti alla Lega'}
+              {leagueRequiresApproval(selectedLeague) ? 'Richiedi accesso' : 'Unisciti alla lega'}
             </Text>
             <Text style={styles.modalLeagueName}>{selectedLeague?.name}</Text>
 
             {leagueHasAccessCode(selectedLeague) ? (
               <View style={styles.inputGroup}>
                 <View style={styles.inputWrapper}>
-                  <Ionicons name="lock-closed-outline" size={18} color="#999" style={{ marginRight: 10 }} />
+                  <Ionicons name="lock-closed-outline" size={18} color="#94a3b8" style={{ marginRight: 10 }} />
                   <TextInput
                     style={styles.inputInline}
                     placeholder="Codice di accesso"
-                    placeholderTextColor="#bbb"
+                    placeholderTextColor="#94a3b8"
                     value={accessCode}
                     onChangeText={setAccessCode}
                     autoCapitalize="none"
@@ -383,9 +488,9 @@ export default function LeaguesScreen({ navigation }) {
             ) : null}
 
             {leagueRequiresApproval(selectedLeague) ? (
-              <View style={styles.infoBox}>
-                <Ionicons name="hourglass-outline" size={16} color="#856404" />
-                <Text style={styles.infoBoxText}>
+              <View style={[styles.infoBox, styles.infoBoxWarn]}>
+                <Ionicons name="hourglass-outline" size={16} color="#a16207" />
+                <Text style={[styles.infoBoxText, styles.infoBoxTextWarn]}>
                   Serve approvazione di un admin: resti in attesa.
                 </Text>
               </View>
@@ -422,21 +527,21 @@ export default function LeaguesScreen({ navigation }) {
             </View>
           </View>
         </View>
-        {toastMsg && (
+        {toastMsg ? (
           <View style={[styles.toast, toastMsg.type === 'success' ? styles.toastSuccess : styles.toastError]}>
             <Ionicons name={toastMsg.type === 'success' ? 'checkmark-circle' : 'alert-circle'} size={18} color="#fff" />
             <Text style={styles.toastText}>{toastMsg.text}</Text>
           </View>
-        )}
+        ) : null}
       </Modal>
 
-      {!joinModalVisible && toastMsg && (
+      {!joinModalVisible && toastMsg ? (
         <View style={[styles.toast, toastMsg.type === 'success' ? styles.toastSuccess : styles.toastError]}>
           <Ionicons name={toastMsg.type === 'success' ? 'checkmark-circle' : 'alert-circle'} size={18} color="#fff" />
           <Text style={styles.toastText}>{toastMsg.text}</Text>
         </View>
-      )}
-    </View>
+      ) : null}
+    </SafeAreaView>
   );
 }
 
@@ -451,42 +556,127 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   header: {
-    padding: 20,
-    paddingTop: 50,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 12,
     backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#e2e8f0',
   },
   titleRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
-    marginBottom: 15,
+    marginBottom: 14,
     gap: 10,
   },
-  title: {
+  titleBlock: {
     flex: 1,
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#333',
+    gap: 2,
+  },
+  title: {
+    fontSize: 26,
+    fontWeight: '800',
+    color: '#0f172a',
+    letterSpacing: -0.4,
+  },
+  subtitle: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#64748b',
   },
   legendToggle: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#f1f5f9',
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
   },
   legendToggleActive: {
     backgroundColor: '#eef2ff',
+    borderColor: '#c7d2fe',
+  },
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f8fafc',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  searchIcon: {
+    marginRight: 8,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 15,
+    paddingVertical: 11,
+    color: '#0f172a',
+  },
+  clearButton: {
+    padding: 2,
+  },
+  filterScroll: {
+    marginTop: 12,
+    marginHorizontal: -16,
+  },
+  filterRow: {
+    paddingHorizontal: 16,
+    gap: 8,
+  },
+  filterChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  filterChipActive: {
+    backgroundColor: '#eef2ff',
+    borderColor: '#c7d2fe',
+  },
+  filterChipText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#64748b',
+  },
+  filterChipTextActive: {
+    color: '#4338ca',
+  },
+  filterCount: {
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    paddingHorizontal: 5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#e2e8f0',
+  },
+  filterCountActive: {
+    backgroundColor: '#c7d2fe',
+  },
+  filterCountText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#64748b',
+  },
+  filterCountTextActive: {
+    color: '#4338ca',
   },
   badgeLegend: {
     marginTop: 12,
     flexDirection: 'row',
     flexWrap: 'wrap',
     alignItems: 'center',
-    gap: 10,
+    gap: 12,
     paddingVertical: 10,
     paddingHorizontal: 12,
     borderRadius: 12,
@@ -498,64 +688,69 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    marginRight: 4,
   },
   badgeLegendIcon: {
-    marginRight: 0,
-    marginBottom: 0,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
   },
   badgeLegendText: {
     fontSize: 12,
     fontWeight: '600',
     color: '#475569',
   },
-  searchContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#f5f5f5',
-    borderRadius: 10,
-    paddingHorizontal: 15,
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
-  },
-  searchIcon: {
-    marginRight: 10,
-  },
-  searchInput: {
-    flex: 1,
-    fontSize: 16,
-    paddingVertical: 12,
-    color: '#333',
-  },
-  clearButton: {
-    padding: 4,
-  },
   listContent: {
-    padding: 15,
+    padding: 16,
+    paddingBottom: 96,
   },
   leagueCard: {
     backgroundColor: '#fff',
-    borderRadius: 12,
+    borderRadius: 14,
     padding: 16,
     marginBottom: 12,
-    shadowColor: '#000',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    shadowColor: '#0f172a',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  leagueCardOfficial: {
+    borderColor: '#c7d2fe',
   },
   leagueHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     marginBottom: 12,
   },
+  trophyWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fffbeb',
+  },
+  trophyWrapOfficial: {
+    backgroundColor: '#eef2ff',
+  },
   leagueName: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#333',
-    marginLeft: 10,
     flex: 1,
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#0f172a',
+    marginLeft: 10,
+  },
+  usersContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  usersValue: {
+    fontSize: 14,
+    color: '#94a3b8',
+    fontWeight: '600',
   },
   leagueInfo: {
     flexDirection: 'row',
@@ -568,6 +763,7 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     alignItems: 'center',
     gap: 6,
+    flex: 1,
   },
   leagueBadgeIcon: {
     width: 30,
@@ -576,172 +772,177 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  adminBadge: {
-    backgroundColor: '#667eea',
-  },
   privateBadge: {
-    backgroundColor: '#667eea',
+    backgroundColor: '#4f46e5',
   },
   approvalBadge: {
-    backgroundColor: '#fff3cd',
+    backgroundColor: '#fef3c7',
   },
   publicBadge: {
-    backgroundColor: '#d1e7dd',
+    backgroundColor: '#dcfce7',
   },
-  marketContainer: {
-    alignItems: 'center',
+  officialPill: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: '#eef2ff',
   },
-  marketLabel: {
+  officialPillText: {
     fontSize: 11,
-    color: '#999',
-    fontWeight: '400',
-  },
-  marketValue: {
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  marketOpen: {
-    color: '#198754',
-  },
-  marketClosed: {
-    color: '#dc3545',
-  },
-  usersContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  usersValue: {
-    fontSize: 14,
-    color: '#999',
-    fontWeight: '500',
-  },
-  leagueFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#f0f0f0',
-  },
-  matchdayContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  matchdayLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  verticalDivider: {
-    width: 1,
-    height: 20,
-    backgroundColor: '#ddd',
-  },
-  formationContainer: {
-    alignItems: 'center',
-  },
-  leagueMatchday: {
-    fontSize: 14,
-    color: '#999',
-    fontWeight: '500',
-  },
-  formationLabel: {
-    fontSize: 11,
-    color: '#999',
-    fontWeight: '400',
-  },
-  formationValue: {
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  formationYes: {
-    color: '#198754',
-  },
-  formationNo: {
-    color: '#dc3545',
+    fontWeight: '700',
+    color: '#667eea',
   },
   joinContainer: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   joinText: {
-    fontSize: 16,
+    fontSize: 15,
     color: '#667eea',
-    fontWeight: '600',
+    fontWeight: '700',
     marginLeft: 6,
+  },
+  leagueFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#e2e8f0',
+  },
+  matchdayLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flexShrink: 1,
+  },
+  leagueMatchday: {
+    fontSize: 13,
+    color: '#64748b',
+    fontWeight: '500',
+  },
+  verticalDivider: {
+    width: StyleSheet.hairlineWidth,
+    height: 22,
+    backgroundColor: '#cbd5e1',
+  },
+  formationContainer: {
+    alignItems: 'center',
+  },
+  formationLabel: {
+    fontSize: 11,
+    color: '#94a3b8',
+    fontWeight: '500',
+  },
+  formationValue: {
+    fontSize: 14,
+    fontWeight: '700',
+    marginTop: 1,
+  },
+  marketContainer: {
+    alignItems: 'center',
+  },
+  marketLabel: {
+    fontSize: 11,
+    color: '#94a3b8',
+    fontWeight: '500',
+  },
+  marketValue: {
+    fontSize: 14,
+    fontWeight: '700',
+    marginTop: 1,
+  },
+  metaYes: {
+    color: '#15803d',
+  },
+  metaNo: {
+    color: '#b91c1c',
+  },
+  fab: {
+    position: 'absolute',
+    right: 20,
+    bottom: 24,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#667eea',
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 6,
+    shadowColor: '#4338ca',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.28,
+    shadowRadius: 8,
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: 'rgba(15, 23, 42, 0.45)',
     justifyContent: 'center',
     alignItems: 'center',
   },
   modalContent: {
     backgroundColor: '#fff',
     borderRadius: 20,
-    padding: 28,
-    width: '85%',
+    padding: 24,
+    width: '88%',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.15,
-    shadowRadius: 20,
-    elevation: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
   },
   modalIconWrap: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: '#eef0ff',
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#eef2ff',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 16,
+    marginBottom: 14,
   },
   modalTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#333',
+    fontSize: 19,
+    fontWeight: '800',
+    color: '#0f172a',
     marginBottom: 4,
   },
   modalLeagueName: {
     fontSize: 15,
     fontWeight: '600',
     color: '#667eea',
-    marginBottom: 20,
+    marginBottom: 18,
     textAlign: 'center',
   },
   inputGroup: {
     width: '100%',
-    marginBottom: 20,
+    marginBottom: 16,
   },
   inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f8f9fa',
+    backgroundColor: '#f8fafc',
     borderRadius: 12,
     paddingHorizontal: 14,
-    paddingVertical: 4,
     borderWidth: 1,
-    borderColor: '#e8e8e8',
+    borderColor: '#e2e8f0',
   },
   inputInline: {
     flex: 1,
     fontSize: 16,
-    color: '#333',
+    color: '#0f172a',
     paddingVertical: 12,
   },
   infoBox: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    backgroundColor: '#eef0ff',
-    borderRadius: 10,
+    backgroundColor: '#eef2ff',
+    borderRadius: 12,
     paddingVertical: 10,
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
     gap: 8,
-    marginBottom: 20,
+    marginBottom: 18,
     width: '100%',
+  },
+  infoBoxWarn: {
+    backgroundColor: '#fffbeb',
   },
   infoBoxText: {
     flex: 1,
@@ -750,28 +951,31 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     lineHeight: 18,
   },
+  infoBoxTextWarn: {
+    color: '#a16207',
+  },
   modalFooter: {
     flexDirection: 'row',
-    gap: 12,
+    gap: 10,
     width: '100%',
   },
   cancelBtn: {
     flex: 1,
     paddingVertical: 13,
-    borderRadius: 10,
+    borderRadius: 12,
     alignItems: 'center',
-    backgroundColor: '#f0f0f0',
+    backgroundColor: '#f1f5f9',
   },
   cancelBtnText: {
-    color: '#555',
+    color: '#475569',
     fontSize: 15,
-    fontWeight: '600',
+    fontWeight: '700',
   },
   joinBtn: {
     flex: 1,
     paddingVertical: 13,
     paddingHorizontal: 12,
-    borderRadius: 10,
+    borderRadius: 12,
     alignItems: 'center',
     backgroundColor: '#667eea',
     flexDirection: 'row',
@@ -780,7 +984,7 @@ const styles = StyleSheet.create({
   joinBtnText: {
     color: '#fff',
     fontSize: 15,
-    fontWeight: '600',
+    fontWeight: '700',
   },
   buttonDisabled: {
     opacity: 0.6,
@@ -788,63 +992,66 @@ const styles = StyleSheet.create({
   emptyContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 60,
+    paddingVertical: 56,
+    paddingHorizontal: 24,
+  },
+  emptyIconWrap: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
   },
   emptyText: {
-    fontSize: 18,
-    color: '#999',
+    fontSize: 17,
+    color: '#334155',
     marginTop: 16,
-    fontWeight: '600',
+    fontWeight: '700',
   },
   emptySubtext: {
     fontSize: 14,
-    color: '#ccc',
-    marginTop: 8,
+    color: '#94a3b8',
+    marginTop: 6,
+    textAlign: 'center',
   },
-  fab: {
-    position: 'absolute',
-    right: 20,
-    bottom: 20,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: '#667eea',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#667eea',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 5,
+  emptyResetBtn: {
+    marginTop: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 999,
+    backgroundColor: '#eef2ff',
+  },
+  emptyResetText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#667eea',
   },
   toast: {
     position: 'absolute',
-    top: 100,
-    left: 20,
-    right: 20,
-    borderRadius: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
+    left: 16,
+    right: 16,
+    bottom: 28,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
-    elevation: 10,
-    zIndex: 999,
-  },
-  toastError: {
-    backgroundColor: '#e53935',
+    gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    elevation: 6,
   },
   toastSuccess: {
-    backgroundColor: '#2e7d32',
+    backgroundColor: '#15803d',
+  },
+  toastError: {
+    backgroundColor: '#b91c1c',
   },
   toastText: {
+    flex: 1,
     color: '#fff',
     fontSize: 14,
     fontWeight: '600',
-    flex: 1,
   },
 });
