@@ -23,7 +23,12 @@ export default function TeamsheetBoard({
   return (
     <View style={styles.sheet}>
       <View style={styles.sheetHead}>
-        <Text style={styles.sheetHeadTitle}>Limite distinta squadra</Text>
+        <View style={styles.sheetHeadRule} />
+        <View style={styles.sheetHeadCenter}>
+          <Text style={styles.sheetHeadEyebrow}>DISTINTA</Text>
+          <Text style={styles.sheetHeadTitle}>Limite squadra</Text>
+        </View>
+        <View style={styles.sheetHeadRule} />
       </View>
       <View style={styles.sheetBody}>
         {ROLES.map((role, idx) => (
@@ -78,14 +83,36 @@ const styles = StyleSheet.create({
   },
   sheetHead: {
     backgroundColor: '#166534',
-    paddingVertical: 10,
-    paddingHorizontal: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+  },
+  sheetHeadRule: {
+    flex: 1,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: 'rgba(236, 253, 245, 0.35)',
+  },
+  sheetHeadCenter: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sheetHeadEyebrow: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: 'rgba(236, 253, 245, 0.7)',
+    letterSpacing: 2.4,
+    marginBottom: 2,
+    textAlign: 'center',
   },
   sheetHeadTitle: {
-    fontSize: 13,
+    fontSize: 15,
     fontWeight: '800',
     color: '#ecfdf5',
-    letterSpacing: 0.2,
+    letterSpacing: 0.4,
+    textAlign: 'center',
   },
   sheetBody: {
     padding: 14,

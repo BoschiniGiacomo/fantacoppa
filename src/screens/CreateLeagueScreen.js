@@ -28,6 +28,7 @@ import SampleScoreTicker, { RefereePanel } from '../components/createLeague/Samp
 import { AccessKeycard, ApprovalClipboard } from '../components/createLeague/LockerObjects';
 import OfficialFeedBoard from '../components/createLeague/OfficialFeedBoard';
 import { SceneChapter, getSceneMeta } from '../components/createLeague/SceneChapter';
+import LineupRulesTiles from '../components/createLeague/LineupRulesTiles';
 
 const STEPS = [
   { id: 1, title: 'Informazioni', short: '1', icon: 'business-outline' },
@@ -825,17 +826,17 @@ export default function CreateLeagueScreen({ navigation }) {
         starters={formData.numeroTitolari}
         inputProps={{
           slider: (
-            <View style={styles.sliderWrapper} {...titolariPanResponder.panHandlers}>
+            <View style={styles.titolariSliderWrapper} {...titolariPanResponder.panHandlers}>
               <View
                 ref={titolariSliderTrackRef}
-                style={styles.sliderTrack}
+                style={styles.titolariSliderTrack}
                 onLayout={(event) => {
                   titolariSliderWidth.current = event.nativeEvent.layout.width;
                 }}
               >
                 <View
                   style={[
-                    styles.sliderFill,
+                    styles.titolariSliderFill,
                     {
                       width: `${(((Math.min(Math.max(parseInt(formData.numeroTitolari, 10) || 11, 4), 11)) - 4) / 7) * 100}%`,
                     },
@@ -843,16 +844,12 @@ export default function CreateLeagueScreen({ navigation }) {
                 />
                 <View
                   style={[
-                    styles.sliderThumb,
+                    styles.titolariSliderThumb,
                     {
                       left: `${(((Math.min(Math.max(parseInt(formData.numeroTitolari, 10) || 11, 4), 11)) - 4) / 7) * 100}%`,
                     },
                   ]}
                 />
-              </View>
-              <View style={styles.sliderLabels}>
-                <Text style={styles.sliderLabel}>4</Text>
-                <Text style={styles.sliderLabel}>11</Text>
               </View>
             </View>
           ),
@@ -879,58 +876,44 @@ export default function CreateLeagueScreen({ navigation }) {
         }}
       />
 
-      <View style={styles.sceneCard}>
-        <View style={styles.switchGroup}>
-          <View style={styles.switchInfo}>
-            <Text style={styles.labelOnLight}>Formazione automatica</Text>
-            <Text style={styles.labelHintOnLight}>Compila da sola se non schieri</Text>
-          </View>
-          <Switch
-            value={formData.autoLineupMode}
-            onValueChange={(value) => setFormData({ ...formData, autoLineupMode: value })}
-            trackColor={SWITCH_TRACK}
-            thumbColor={formData.autoLineupMode ? SWITCH_THUMB_ON : SWITCH_THUMB_OFF}
-          />
-        </View>
-
-        <View style={[styles.switchGroup, styles.switchGroupSpaced]}>
-          <View style={styles.switchInfo}>
-            <Text style={styles.labelOnLight}>Nascondi rose altrui</Text>
-            <Text style={styles.labelHintOnLight}>Le formazioni degli altri restano private</Text>
-          </View>
-          <Switch
-            value={!!formData.hideFormations}
-            onValueChange={(value) => setFormData({ ...formData, hideFormations: value })}
-            trackColor={SWITCH_TRACK}
-            thumbColor={formData.hideFormations ? SWITCH_THUMB_ON : SWITCH_THUMB_OFF}
-          />
-        </View>
-
-        {!formData.autoLineupMode ? (
-          <View style={styles.deadlineBlock}>
-            <Text style={styles.labelOnLight}>Scadenza formazioni</Text>
-            <Text style={styles.labelHintOnLight}>Orario predefinito della giornata</Text>
-            <TouchableOpacity
-              style={styles.timePickerButton}
-              onPress={() => setShowTimePicker(true)}
-            >
-              <Ionicons name="time-outline" size={20} color="#667eea" />
-              <Text style={styles.timePickerText}>{formData.defaultTime}</Text>
-              <Ionicons name="chevron-forward" size={18} color="#94a3b8" />
-            </TouchableOpacity>
-            {showTimePicker ? (
-              <DateTimePicker
-                value={getTimeDate()}
-                mode="time"
-                is24Hour
-                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                onValueChange={handleTimeChange}
-                onDismiss={handleTimeDismiss}
-              />
-            ) : null}
-          </View>
-        ) : null}
-      </View>
+      <LineupRulesTiles
+        autoLineupMode={formData.autoLineupMode}
+        hideFormations={formData.hideFormations}
+        onToggleAuto={() =>
+          setFormData((prev) => ({ ...prev, autoLineupMode: !prev.autoLineupMode }))
+        }
+        onToggleHide={() =>
+          setFormData((prev) => ({ ...prev, hideFormations: !prev.hideFormations }))
+        }
+        deadlineSlot={
+          !formData.autoLineupMode ? (
+            <>
+              <Text style={styles.labelOnLight}>Scadenza formazioni</Text>
+              <Text style={styles.labelHintOnLight}>Orario predefinito della giornata</Text>
+              <TouchableOpacity
+                style={styles.timePickerButton}
+                onPress={() => setShowTimePicker(true)}
+              >
+                <Ionicons name="time-outline" size={20} color="#16a34a" />
+                <Text style={[styles.timePickerText, { color: '#14532d' }]}>
+                  {formData.defaultTime}
+                </Text>
+                <Ionicons name="chevron-forward" size={18} color="#94a3b8" />
+              </TouchableOpacity>
+              {showTimePicker ? (
+                <DateTimePicker
+                  value={getTimeDate()}
+                  mode="time"
+                  is24Hour
+                  display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                  onValueChange={handleTimeChange}
+                  onDismiss={handleTimeDismiss}
+                />
+              ) : null}
+            </>
+          ) : null
+        }
+      />
     </View>
   );
 
@@ -2287,6 +2270,40 @@ const styles = StyleSheet.create({
   sliderWrapper: {
     flex: 1,
     marginVertical: 12,
+  },
+  titolariSliderWrapper: {
+    width: '100%',
+    justifyContent: 'center',
+  },
+  titolariSliderTrack: {
+    height: 6,
+    backgroundColor: '#d1fae5',
+    borderRadius: 3,
+    position: 'relative',
+  },
+  titolariSliderFill: {
+    height: 6,
+    backgroundColor: '#16a34a',
+    borderRadius: 3,
+    position: 'absolute',
+    left: 0,
+    top: 0,
+  },
+  titolariSliderThumb: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: '#dc2626',
+    position: 'absolute',
+    top: -8,
+    marginLeft: -11,
+    borderWidth: 2.5,
+    borderColor: '#fff',
+    shadowColor: '#0f172a',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.3,
+    shadowRadius: 2,
+    elevation: 3,
   },
   budgetSliderWrap: {
     height: 42,

@@ -4,40 +4,69 @@ import BonusIcon from '../BonusIcon';
 
 const BASE_VOTE = 6;
 
+/** Eventi campione: rispecchiano i toggle dello step 3. */
+const SAMPLE_EVENTS = [
+  { enableKey: 'enableGoal', kind: 'goal', valueKey: 'bonusGoal', side: 'bonus' },
+  { enableKey: 'enableAssist', kind: 'assist', valueKey: 'bonusAssist', side: 'bonus' },
+  { enableKey: 'enablePenaltySaved', kind: 'penalty_saved', valueKey: 'bonusPenaltySaved', side: 'bonus' },
+  { enableKey: 'enableCleanSheet', kind: 'clean_sheet', valueKey: 'bonusCleanSheet', side: 'bonus' },
+  { enableKey: 'enableBriso', kind: 'briso', valueKey: 'bonusBriso', side: 'bonus' },
+  { enableKey: 'enableYellowCard', kind: 'yellow_card', valueKey: 'malusYellowCard', side: 'malus' },
+  { enableKey: 'enableRedCard', kind: 'red_card', valueKey: 'malusRedCard', side: 'malus' },
+  { enableKey: 'enableGoalsConceded', kind: 'goals_conceded', valueKey: 'malusGoalsConceded', side: 'malus' },
+  { enableKey: 'enableOwnGoal', kind: 'own_goal', valueKey: 'malusOwnGoal', side: 'malus' },
+  { enableKey: 'enablePenaltyMissed', kind: 'penalty_missed', valueKey: 'malusPenaltyMissed', side: 'malus' },
+  { enableKey: 'enablePalloneFuori', kind: 'pallone_fuori', valueKey: 'malusPalloneFuori', side: 'malus' },
+  { enableKey: 'enableNoDivisa', kind: 'no_divisa', valueKey: 'malusNoDivisa', side: 'malus' },
+];
+
 function toNum(v, fallback = 0) {
   const n = parseFloat(String(v ?? '').replace(',', '.'));
   return Number.isFinite(n) ? n : fallback;
 }
 
+function formatAmount(amount) {
+  const n = Math.round(amount * 10) / 10;
+  const abs = Math.abs(n);
+  const body = Number.isInteger(abs) ? String(abs) : abs.toFixed(1);
+  if (n > 0) return `+${body}`;
+  if (n < 0) return `−${body}`;
+  return body;
+}
+
 /**
- * Cartellino giallo con esempio punti — solo numeri e icone.
+ * Cartellino giallo: voto + bonus/malus attivi → totale.
  */
 export default function SampleScoreTicker({ formData }) {
   const scale = useRef(new Animated.Value(1)).current;
 
-  const { total, parts } = useMemo(() => {
+  const { total, bonuses, maluses } = useMemo(() => {
     if (!formData?.enableBonusMalus) {
-      return { total: BASE_VOTE, parts: [{ kind: 'vote', amount: BASE_VOTE }] };
+      return { total: BASE_VOTE, bonuses: [], maluses: [] };
     }
-    const chunks = [{ kind: 'vote', amount: BASE_VOTE }];
+
+    const bonusParts = [];
+    const malusParts = [];
     let sum = BASE_VOTE;
-    const push = (enabled, kind, raw) => {
-      if (!enabled) return;
-      const v = toNum(raw, 0);
-      if (v === 0) return;
-      chunks.push({ kind, amount: v });
+
+    for (const ev of SAMPLE_EVENTS) {
+      if (!formData[ev.enableKey]) continue;
+      let v = toNum(formData[ev.valueKey], 0);
+      if (v === 0) continue;
+      if (ev.side === 'malus' && v > 0) v = -v;
+      if (ev.side === 'bonus' && v < 0) v = Math.abs(v);
+      const part = { kind: ev.kind, amount: v, side: ev.side };
+      if (ev.side === 'bonus') bonusParts.push(part);
+      else malusParts.push(part);
       sum += v;
+    }
+
+    return {
+      total: Math.round(sum * 10) / 10,
+      bonuses: bonusParts,
+      maluses: malusParts,
     };
-    push(formData.enableGoal, 'goal', formData.bonusGoal);
-    push(formData.enableAssist, 'assist', formData.bonusAssist);
-    return { total: Math.round(sum * 10) / 10, parts: chunks };
-  }, [
-    formData?.enableBonusMalus,
-    formData?.enableGoal,
-    formData?.bonusGoal,
-    formData?.enableAssist,
-    formData?.bonusAssist,
-  ]);
+  }, [formData]);
 
   useEffect(() => {
     scale.setValue(1.08);
@@ -51,27 +80,50 @@ export default function SampleScoreTicker({ formData }) {
 
   if (!formData?.enableBonusMalus) return null;
 
+  const formatTotal = Number.isInteger(total) ? String(total) : total.toFixed(1);
+
   return (
     <View style={styles.card}>
-      <View style={styles.cardBack}>
-        <View style={styles.parts}>
-          {parts.map((p, i) => (
-            <View key={`${p.kind}-${i}`} style={styles.partChip}>
-              {p.kind === 'vote' ? (
-                <Text style={styles.voteGlyph}>6</Text>
-              ) : (
-                <BonusIcon type={p.kind} size={16} />
-              )}
-              <Text style={styles.partAmount}>
-                {p.kind === 'vote' ? '' : `+${p.amount}`}
-              </Text>
+      <View style={styles.cardHead}>
+        <Text style={styles.cardHeadLabel}>Esempio punteggio</Text>
+        <Text style={styles.cardHeadHint}>Voto + eventi della giornata</Text>
+      </View>
+
+      <View style={styles.cardBody}>
+        <View style={styles.stack}>
+          <View style={styles.row}>
+            <View style={[styles.chip, styles.chipVote]}>
+              <Text style={styles.voteGlyph}>6</Text>
+              <Text style={styles.chipMeta}>voto</Text>
             </View>
-          ))}
+
+            {bonuses.map((p) => (
+              <View key={`b-${p.kind}`} style={[styles.chip, styles.chipBonus]}>
+                <BonusIcon type={p.kind} size={15} />
+                <Text style={[styles.chipAmount, styles.amountBonus]}>
+                  {formatAmount(p.amount)}
+                </Text>
+              </View>
+            ))}
+
+            {maluses.map((p) => (
+              <View key={`m-${p.kind}`} style={[styles.chip, styles.chipMalus]}>
+                <BonusIcon type={p.kind} size={15} />
+                <Text style={[styles.chipAmount, styles.amountMalus]}>
+                  {formatAmount(p.amount)}
+                </Text>
+              </View>
+            ))}
+          </View>
+
+          {(bonuses.length === 0 && maluses.length === 0) ? (
+            <Text style={styles.emptyHint}>Attiva premi o sanzioni qui sotto</Text>
+          ) : null}
         </View>
+
         <Animated.View style={[styles.totalBox, { transform: [{ scale }] }]}>
-          <Text style={styles.total}>
-            {Number.isInteger(total) ? total : total.toFixed(1)}
-          </Text>
+          <Text style={styles.totalLabel}>Tot</Text>
+          <Text style={styles.total}>{formatTotal}</Text>
         </Animated.View>
       </View>
     </View>
@@ -92,59 +144,121 @@ export function RefereePanel({ variant = 'bonus', children }) {
 const styles = StyleSheet.create({
   card: {
     marginBottom: 14,
-    borderRadius: 10,
+    borderRadius: 12,
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: '#eab308',
     shadowColor: '#ca8a04',
-    shadowOpacity: 0.15,
+    shadowOpacity: 0.14,
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 2 },
     elevation: 2,
   },
-  cardBack: {
+  cardHead: {
+    backgroundColor: '#f59e0b',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  cardHeadLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#1c1917',
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+  },
+  cardHeadHint: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: 'rgba(28,25,23,0.65)',
+  },
+  cardBody: {
     backgroundColor: '#facc15',
-    padding: 14,
+    padding: 12,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 10,
   },
-  parts: {
+  stack: {
     flex: 1,
+    gap: 6,
+  },
+  row: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
   },
-  partChip: {
+  chip: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: 'rgba(255,255,255,0.45)',
     borderRadius: 8,
-    paddingHorizontal: 8,
+    paddingHorizontal: 7,
     paddingVertical: 5,
+    borderWidth: 1,
+  },
+  chipVote: {
+    backgroundColor: 'rgba(28,25,23,0.9)',
+    borderColor: 'rgba(28,25,23,0.9)',
+    gap: 5,
+  },
+  chipBonus: {
+    backgroundColor: 'rgba(240,253,244,0.92)',
+    borderColor: 'rgba(34,197,94,0.45)',
+  },
+  chipMalus: {
+    backgroundColor: 'rgba(254,242,242,0.95)',
+    borderColor: 'rgba(239,68,68,0.4)',
   },
   voteGlyph: {
     fontSize: 14,
-    fontWeight: '800',
-    color: '#1c1917',
+    fontWeight: '900',
+    color: '#facc15',
   },
-  partAmount: {
-    fontSize: 13,
+  chipMeta: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: 'rgba(250,204,21,0.85)',
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
+  },
+  chipAmount: {
+    fontSize: 12,
     fontWeight: '800',
-    color: '#1c1917',
+  },
+  amountBonus: {
+    color: '#166534',
+  },
+  amountMalus: {
+    color: '#b91c1c',
+  },
+  emptyHint: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: 'rgba(28,25,23,0.55)',
   },
   totalBox: {
     backgroundColor: '#1c1917',
     borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    minWidth: 56,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    minWidth: 58,
     alignItems: 'center',
   },
+  totalLabel: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: 'rgba(250,204,21,0.7)',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+    marginBottom: 1,
+  },
   total: {
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: '900',
     color: '#fff',
   },

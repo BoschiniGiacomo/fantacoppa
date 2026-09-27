@@ -1,9 +1,13 @@
 import React, { useMemo } from 'react';
 import { View, Text, TextInput, StyleSheet } from 'react-native';
-import { buildStartersSlots, ROLE_COLORS } from './startersLayout';
+import { buildStartersSlots } from './startersLayout';
+
+/** Quote verticali delle linee (attacco → portiere), dal bordo alto. */
+const ROW_TOP = ['11%', '34%', '57%', '80%'];
 
 /**
- * Campetto: solo maglie e campo. Il numero compare piccolo in angolo.
+ * Lavagna tattica: pallini sul campo.
+ * Ruoli e moduli si decidono dopo, in lega.
  */
 export default function StartersPitchPreview({
   starters = 11,
@@ -13,79 +17,89 @@ export default function StartersPitchPreview({
   const count = Math.min(11, Math.max(4, parseInt(starters, 10) || 11));
   const slots = useMemo(() => buildStartersSlots(count), [count]);
   const rows = [0, 1, 2, 3].map((rowIndex) => slots.filter((s) => s.row === rowIndex));
+  const rowTops = compact ? ['12%', '36%', '58%', '80%'] : ROW_TOP;
 
   return (
     <View style={[styles.wrap, compact && styles.wrapCompact]}>
       {!compact ? (
         <View style={styles.boardFrame}>
           <View style={styles.pitch}>
-            <View style={styles.halfway} />
-            <View style={styles.circle} />
-            <View style={styles.boxTop} />
-            <View style={styles.boxBottom} />
-            <View style={styles.countBadge}>
-              <Text style={styles.countBadgeText}>{count}</Text>
-            </View>
-            {rows.map((rowSlots, rowIndex) => (
-              <View
-                key={`row-${rowIndex}`}
-                style={[
-                  styles.line,
-                  rowIndex === 0 && styles.lineAttack,
-                  rowIndex === 3 && styles.lineGk,
-                ]}
-              >
-                {rowSlots.map((slot, i) => (
-                  <View
-                    key={`${slot.role}-${slot.indexInRow}`}
-                    style={[styles.jersey, { backgroundColor: ROLE_COLORS[slot.role] }]}
-                  >
-                    <Text style={styles.jerseyNum}>
-                      {i + 1 + rows.slice(0, rowIndex).reduce((a, r) => a + r.length, 0)}
-                    </Text>
-                  </View>
-                ))}
-              </View>
-            ))}
+            {/* Solo laterali: niente riga full-width in alto */}
+            <View style={styles.boxTop} pointerEvents="none" />
+            <View style={styles.boxBottom} pointerEvents="none" />
+            <View style={styles.sidelineLeft} pointerEvents="none" />
+            <View style={styles.sidelineRight} pointerEvents="none" />
+            {/* Metà campo: linea e cerchio sullo stesso asse (top 50%) */}
+            <View style={styles.halfway} pointerEvents="none" />
+            <View style={styles.circle} pointerEvents="none" />
+
+            {rows.map((rowSlots, rowIndex) =>
+              rowSlots.length === 0 ? null : (
+                <View
+                  key={`row-${rowIndex}`}
+                  style={[styles.line, { top: rowTops[rowIndex] }]}
+                >
+                  {rowSlots.map((slot) => (
+                    <View key={`${slot.row}-${slot.indexInRow}`} style={styles.magnet} />
+                  ))}
+                </View>
+              )
+            )}
           </View>
+
           {inputProps ? (
             <View style={styles.controls}>
-              <View style={styles.sliderSlot}>{inputProps.slider}</View>
-              <TextInput
-                ref={inputProps.textInput?.ref}
-                {...(inputProps.textInput
-                  ? (({ ref: _r, style: _s, ...rest }) => rest)(inputProps.textInput)
-                  : {})}
-                style={[styles.titolariInput, inputProps.textInput?.style]}
-                placeholderTextColor="#94a3b8"
-                selectionColor="#166534"
-              />
+              <View style={styles.controlsMainRow}>
+                <View style={styles.sliderCol}>
+                  <View style={styles.sliderLabels}>
+                    <Text style={styles.sliderLabel}>4</Text>
+                    <Text style={styles.sliderLabel}>11</Text>
+                  </View>
+                  <View style={styles.sliderSlot}>{inputProps.slider}</View>
+                </View>
+                <View style={styles.titolariField}>
+                  <Text style={styles.titolariLabel}>Titolari</Text>
+                  <TextInput
+                    ref={inputProps.textInput?.ref}
+                    {...(inputProps.textInput
+                      ? (({ ref: _r, style: _s, ...rest }) => rest)(inputProps.textInput)
+                      : {})}
+                    style={[styles.titolariInput, inputProps.textInput?.style]}
+                    placeholderTextColor="#94a3b8"
+                    selectionColor="#166534"
+                  />
+                </View>
+              </View>
             </View>
           ) : null}
         </View>
       ) : (
         <View style={styles.compactWrap}>
           <View style={[styles.pitch, styles.pitchCompact]}>
-            <View style={styles.halfway} />
-            <View style={styles.countBadgeCompact}>
-              <Text style={styles.countBadgeTextCompact}>{count}</Text>
-            </View>
-            {rows.map((rowSlots, rowIndex) => (
-              <View key={`cr-${rowIndex}`} style={styles.line}>
-                {rowSlots.map((slot) => (
-                  <View
-                    key={`c-${slot.role}-${slot.indexInRow}`}
-                    style={[styles.dotCompact, { backgroundColor: ROLE_COLORS[slot.role] }]}
-                  />
-                ))}
-              </View>
-            ))}
+            <View style={styles.halfway} pointerEvents="none" />
+            {rows.map((rowSlots, rowIndex) =>
+              rowSlots.length === 0 ? null : (
+                <View
+                  key={`cr-${rowIndex}`}
+                  style={[styles.line, styles.lineCompact, { top: rowTops[rowIndex] }]}
+                >
+                  {rowSlots.map((slot) => (
+                    <View
+                      key={`c-${slot.row}-${slot.indexInRow}`}
+                      style={styles.magnetCompact}
+                    />
+                  ))}
+                </View>
+              )
+            )}
           </View>
         </View>
       )}
     </View>
   );
 }
+
+const LINE = 'rgba(255,255,255,0.38)';
 
 const styles = StyleSheet.create({
   wrap: {
@@ -108,128 +122,153 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   pitch: {
-    height: 188,
-    backgroundColor: '#22a55a',
-    justifyContent: 'space-between',
-    paddingVertical: 12,
-    paddingHorizontal: 8,
+    height: 200,
+    backgroundColor: '#1a6b3c',
     overflow: 'hidden',
+    position: 'relative',
   },
   pitchCompact: {
     height: 100,
     borderRadius: 12,
-    paddingVertical: 8,
   },
-  countBadge: {
+  sidelineLeft: {
     position: 'absolute',
     top: 8,
-    right: 8,
-    minWidth: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: 'rgba(15,23,42,0.55)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 8,
-    zIndex: 3,
+    bottom: 8,
+    left: 8,
+    width: 1.5,
+    backgroundColor: LINE,
   },
-  countBadgeText: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: '#fff',
-  },
-  countBadgeCompact: {
+  sidelineRight: {
     position: 'absolute',
-    top: 6,
-    right: 6,
-    minWidth: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: 'rgba(15,23,42,0.5)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 3,
-  },
-  countBadgeTextCompact: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#fff',
+    top: 8,
+    bottom: 8,
+    right: 8,
+    width: 1.5,
+    backgroundColor: LINE,
   },
   halfway: {
     position: 'absolute',
-    left: 0,
-    right: 0,
+    left: 8,
+    right: 8,
     top: '50%',
-    height: 1.5,
-    backgroundColor: 'rgba(255,255,255,0.4)',
+    height: 2,
+    backgroundColor: LINE,
+    transform: [{ translateY: -1 }],
+    zIndex: 1,
   },
   circle: {
     position: 'absolute',
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.4)',
     top: '50%',
     left: '50%',
-    marginTop: -26,
-    marginLeft: -26,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    borderWidth: 2,
+    borderColor: LINE,
+    transform: [{ translateX: -28 }, { translateY: -28 }],
+    zIndex: 1,
   },
   boxTop: {
     position: 'absolute',
     top: 0,
-    left: '28%',
-    right: '28%',
-    height: 30,
+    left: '26%',
+    right: '26%',
+    height: 36,
     borderBottomWidth: 1.5,
     borderLeftWidth: 1.5,
     borderRightWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.35)',
+    borderColor: LINE,
   },
   boxBottom: {
     position: 'absolute',
     bottom: 0,
-    left: '28%',
-    right: '28%',
-    height: 30,
+    left: '26%',
+    right: '26%',
+    height: 36,
     borderTopWidth: 1.5,
     borderLeftWidth: 1.5,
     borderRightWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.35)',
+    borderColor: LINE,
   },
   line: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    marginTop: -12,
     flexDirection: 'row',
     justifyContent: 'space-evenly',
     alignItems: 'center',
     zIndex: 2,
   },
-  lineAttack: { paddingTop: 2 },
-  lineGk: { paddingBottom: 2 },
-  jersey: {
-    width: 26,
-    height: 30,
-    borderRadius: 4,
-    borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.9)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    elevation: 2,
+  lineCompact: {
+    marginTop: -6,
+    left: 10,
+    right: 10,
   },
-  jerseyNum: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#fff',
+  magnet: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#dc2626',
+    borderWidth: 2.5,
+    borderColor: '#fff',
+    shadowColor: '#0f172a',
+    shadowOpacity: 0.35,
+    shadowRadius: 2,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 3,
+  },
+  magnetCompact: {
+    width: 13,
+    height: 13,
+    borderRadius: 7,
+    backgroundColor: '#dc2626',
+    borderWidth: 1.5,
+    borderColor: '#fff',
   },
   controls: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 10,
-    padding: 12,
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 12,
     backgroundColor: '#f8fafc',
   },
-  sliderSlot: { flex: 1 },
+  controlsMainRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 12,
+  },
+  sliderCol: {
+    flex: 1,
+  },
+  sliderLabels: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 2,
+  },
+  sliderLabel: {
+    fontSize: 12,
+    color: '#94a3b8',
+    fontWeight: '600',
+  },
+  sliderSlot: {
+    height: 42,
+    justifyContent: 'center',
+  },
+  titolariField: {
+    alignItems: 'center',
+    gap: 4,
+  },
+  titolariLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#64748b',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+  },
   titolariInput: {
     width: 56,
+    height: 42,
     backgroundColor: '#fff',
     borderWidth: 1,
     borderColor: '#cbd5e1',
@@ -238,16 +277,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '800',
     textAlign: 'center',
-    paddingVertical: 10,
+    paddingVertical: 0,
   },
   compactWrap: {
     flex: 1,
-  },
-  dotCompact: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.85)',
   },
 });

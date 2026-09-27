@@ -6,7 +6,7 @@ const SCENE = {
   1: {
     title: 'La tua lega',
     subtitle: 'Nome, accesso e budget.',
-    bg: '#f3f6fb',
+    bg: '#f7f4ef',
     accent: '#667eea',
   },
   2: {
@@ -18,13 +18,13 @@ const SCENE = {
   3: {
     title: 'Le regole',
     subtitle: 'Come si assegnano i punti.',
-    bg: '#faf7f0',
+    bg: '#f7f4ef',
     accent: '#ca8a04',
   },
   4: {
     title: 'Tutto pronto',
     subtitle: 'Un’occhiata prima del fischio.',
-    bg: '#f1f7f3',
+    bg: '#f7f4ef',
     accent: '#16a34a',
   },
 };
