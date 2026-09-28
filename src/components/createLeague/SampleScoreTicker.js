@@ -1,8 +1,11 @@
 import React, { useEffect, useMemo, useRef } from 'react';
 import { View, Text, StyleSheet, Animated } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import BonusIcon from '../BonusIcon';
 
 const BASE_VOTE = 6;
+const ROLE_ORANGE = '#e6a817';
+const SLOT = 58;
 
 /** Eventi campione: rispecchiano i toggle dello step 3. */
 const SAMPLE_EVENTS = [
@@ -25,17 +28,13 @@ function toNum(v, fallback = 0) {
   return Number.isFinite(n) ? n : fallback;
 }
 
-function formatAmount(amount) {
-  const n = Math.round(amount * 10) / 10;
-  const abs = Math.abs(n);
-  const body = Number.isInteger(abs) ? String(abs) : abs.toFixed(1);
-  if (n > 0) return `+${body}`;
-  if (n < 0) return `−${body}`;
-  return body;
+function formatRating(n) {
+  const v = Math.round(n * 10) / 10;
+  return Number.isInteger(v) ? String(v) : v.toFixed(1);
 }
 
 /**
- * Cartellino giallo: voto + bonus/malus attivi → totale.
+ * Anteprima come slot in campo in classifica.
  */
 export default function SampleScoreTicker({ formData }) {
   const scale = useRef(new Animated.Value(1)).current;
@@ -55,7 +54,7 @@ export default function SampleScoreTicker({ formData }) {
       if (v === 0) continue;
       if (ev.side === 'malus' && v > 0) v = -v;
       if (ev.side === 'bonus' && v < 0) v = Math.abs(v);
-      const part = { kind: ev.kind, amount: v, side: ev.side };
+      const part = { kind: ev.kind, amount: v };
       if (ev.side === 'bonus') bonusParts.push(part);
       else malusParts.push(part);
       sum += v;
@@ -69,7 +68,7 @@ export default function SampleScoreTicker({ formData }) {
   }, [formData]);
 
   useEffect(() => {
-    scale.setValue(1.08);
+    scale.setValue(1.06);
     Animated.spring(scale, {
       toValue: 1,
       friction: 5,
@@ -80,51 +79,51 @@ export default function SampleScoreTicker({ formData }) {
 
   if (!formData?.enableBonusMalus) return null;
 
-  const formatTotal = Number.isInteger(total) ? String(total) : total.toFixed(1);
-
   return (
     <View style={styles.card}>
-      <View style={styles.cardHead}>
-        <Text style={styles.cardHeadLabel}>Esempio punteggio</Text>
-        <Text style={styles.cardHeadHint}>Voto + eventi della giornata</Text>
-      </View>
-
-      <View style={styles.cardBody}>
-        <View style={styles.stack}>
-          <View style={styles.row}>
-            <View style={[styles.chip, styles.chipVote]}>
-              <Text style={styles.voteGlyph}>6</Text>
-              <Text style={styles.chipMeta}>voto</Text>
-            </View>
-
-            {bonuses.map((p) => (
-              <View key={`b-${p.kind}`} style={[styles.chip, styles.chipBonus]}>
-                <BonusIcon type={p.kind} size={15} />
-                <Text style={[styles.chipAmount, styles.amountBonus]}>
-                  {formatAmount(p.amount)}
-                </Text>
-              </View>
-            ))}
-
-            {maluses.map((p) => (
-              <View key={`m-${p.kind}`} style={[styles.chip, styles.chipMalus]}>
-                <BonusIcon type={p.kind} size={15} />
-                <Text style={[styles.chipAmount, styles.amountMalus]}>
-                  {formatAmount(p.amount)}
-                </Text>
-              </View>
-            ))}
+      <View style={styles.mainRow}>
+        <View style={styles.playerCol}>
+          <View style={styles.plate}>
+            <Ionicons name="person" size={34} color="rgba(255,255,255,0.92)" />
           </View>
-
-          {(bonuses.length === 0 && maluses.length === 0) ? (
-            <Text style={styles.emptyHint}>Attiva premi o sanzioni qui sotto</Text>
-          ) : null}
+          <View style={styles.namePill}>
+            <Text style={styles.namePillText} numberOfLines={1}>
+              Rossi
+            </Text>
+          </View>
+          <Animated.View style={[styles.votesPill, { transform: [{ scale }] }]}>
+            <Text style={styles.voteBase}>{formatRating(BASE_VOTE)}</Text>
+            <View style={styles.voteSep} />
+            <Text style={styles.voteFinal}>{formatRating(total)}</Text>
+          </Animated.View>
         </View>
 
-        <Animated.View style={[styles.totalBox, { transform: [{ scale }] }]}>
-          <Text style={styles.totalLabel}>Tot</Text>
-          <Text style={styles.total}>{formatTotal}</Text>
-        </Animated.View>
+        <View style={styles.eventsCol}>
+          {(bonuses.length > 0 || maluses.length > 0) ? (
+            <View style={styles.eventsInner}>
+              <View style={styles.eventRow}>
+                {bonuses.length > 0
+                  ? bonuses.map((p) => (
+                      <View key={`b-${p.kind}`} style={styles.fieldBonusChip}>
+                        <BonusIcon type={p.kind} size={22} />
+                      </View>
+                    ))
+                  : <Text style={styles.rowPlaceholder}>—</Text>}
+              </View>
+              <View style={styles.eventRow}>
+                {maluses.length > 0
+                  ? maluses.map((p) => (
+                      <View key={`m-${p.kind}`} style={styles.fieldBonusChip}>
+                        <BonusIcon type={p.kind} size={22} />
+                      </View>
+                    ))
+                  : <Text style={styles.rowPlaceholder}>—</Text>}
+              </View>
+            </View>
+          ) : (
+            <Text style={styles.emptyEvents}>Attiva premi o sanzioni qui sotto</Text>
+          )}
+        </View>
       </View>
     </View>
   );
@@ -144,123 +143,128 @@ export function RefereePanel({ variant = 'bonus', children }) {
 const styles = StyleSheet.create({
   card: {
     marginBottom: 14,
-    borderRadius: 12,
-    overflow: 'hidden',
+    backgroundColor: '#fff',
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#eab308',
-    shadowColor: '#ca8a04',
-    shadowOpacity: 0.14,
-    shadowRadius: 6,
+    borderColor: '#e2e8f0',
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    shadowColor: '#78716c',
+    shadowOpacity: 0.08,
+    shadowRadius: 5,
     shadowOffset: { width: 0, height: 2 },
     elevation: 2,
   },
-  cardHead: {
-    backgroundColor: '#f59e0b',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    justifyContent: 'space-between',
-    gap: 8,
-  },
-  cardHeadLabel: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#1c1917',
-    letterSpacing: 0.4,
-    textTransform: 'uppercase',
-  },
-  cardHeadHint: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: 'rgba(28,25,23,0.65)',
-  },
-  cardBody: {
-    backgroundColor: '#facc15',
-    padding: 12,
+  mainRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 14,
   },
-  stack: {
+  playerCol: {
+    alignItems: 'center',
+    width: 78,
+    gap: 2,
+  },
+  plate: {
+    width: SLOT,
+    height: SLOT,
+    borderRadius: SLOT / 2,
+    backgroundColor: ROLE_ORANGE,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2.5,
+    borderColor: ROLE_ORANGE,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.22,
+    shadowRadius: 3,
+    elevation: 2,
+    zIndex: 1,
+  },
+  namePill: {
+    backgroundColor: ROLE_ORANGE,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    minWidth: 64,
+    alignItems: 'center',
+    maxWidth: 78,
+    marginTop: -10,
+    zIndex: 3,
+    elevation: 4,
+  },
+  namePillText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  votesPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: '#e5e7eb',
+    marginTop: -4,
+    zIndex: 5,
+    elevation: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.12,
+    shadowRadius: 1.5,
+  },
+  voteBase: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#1c1917',
+  },
+  voteSep: {
+    width: 1,
+    height: 11,
+    backgroundColor: '#d1d5db',
+    marginHorizontal: 5,
+  },
+  voteFinal: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#2e7d32',
+  },
+  eventsCol: {
     flex: 1,
-    gap: 6,
+    justifyContent: 'center',
+    minHeight: SLOT + 44,
   },
-  row: {
+  eventsInner: {
+    gap: 8,
+  },
+  eventRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     alignItems: 'center',
     gap: 6,
   },
-  chip: {
+  fieldBonusChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    backgroundColor: '#fff',
     borderRadius: 8,
-    paddingHorizontal: 7,
-    paddingVertical: 5,
-    borderWidth: 1,
+    paddingHorizontal: 5,
+    paddingVertical: 4,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: '#e5e7eb',
   },
-  chipVote: {
-    backgroundColor: 'rgba(28,25,23,0.9)',
-    borderColor: 'rgba(28,25,23,0.9)',
-    gap: 5,
-  },
-  chipBonus: {
-    backgroundColor: 'rgba(240,253,244,0.92)',
-    borderColor: 'rgba(34,197,94,0.45)',
-  },
-  chipMalus: {
-    backgroundColor: 'rgba(254,242,242,0.95)',
-    borderColor: 'rgba(239,68,68,0.4)',
-  },
-  voteGlyph: {
-    fontSize: 14,
-    fontWeight: '900',
-    color: '#facc15',
-  },
-  chipMeta: {
-    fontSize: 9,
-    fontWeight: '700',
-    color: 'rgba(250,204,21,0.85)',
-    textTransform: 'uppercase',
-    letterSpacing: 0.3,
-  },
-  chipAmount: {
-    fontSize: 12,
-    fontWeight: '800',
-  },
-  amountBonus: {
-    color: '#166534',
-  },
-  amountMalus: {
-    color: '#b91c1c',
-  },
-  emptyHint: {
+  rowPlaceholder: {
     fontSize: 11,
     fontWeight: '600',
-    color: 'rgba(28,25,23,0.55)',
+    color: '#e2e8f0',
   },
-  totalBox: {
-    backgroundColor: '#1c1917',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    minWidth: 58,
-    alignItems: 'center',
-  },
-  totalLabel: {
-    fontSize: 9,
-    fontWeight: '700',
-    color: 'rgba(250,204,21,0.7)',
-    letterSpacing: 0.5,
-    textTransform: 'uppercase',
-    marginBottom: 1,
-  },
-  total: {
-    fontSize: 20,
-    fontWeight: '900',
-    color: '#fff',
+  emptyEvents: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: '#94a3b8',
   },
   panel: {
     borderRadius: 12,
@@ -269,18 +273,18 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   panelBonus: {
-    backgroundColor: '#f0fdf4',
-    borderColor: '#bbf7d0',
+    backgroundColor: '#ecfdf5',
+    borderColor: '#a7f3d0',
   },
   panelMalus: {
-    backgroundColor: '#fffbeb',
-    borderColor: '#fde68a',
+    backgroundColor: '#faf6f0',
+    borderColor: '#e8dfd2',
   },
   panelStripe: {
     height: 5,
   },
-  stripeBonus: { backgroundColor: '#22c55e' },
-  stripeMalus: { backgroundColor: '#eab308' },
+  stripeBonus: { backgroundColor: '#166534' },
+  stripeMalus: { backgroundColor: '#a16207' },
   panelInner: {
     padding: 10,
   },

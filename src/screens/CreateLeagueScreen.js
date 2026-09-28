@@ -54,6 +54,9 @@ export default function CreateLeagueScreen({ navigation }) {
   const focusedInputRef = useRef(null);
   const focusedInputKey = useRef(null);
   const scrollOffsetY = useRef(0);
+  const scrollViewportH = useRef(0);
+  const scrollContentH = useRef(0);
+  const [canScrollMore, setCanScrollMore] = useState(false);
   const [validationToast, setValidationToast] = useState('');
   const [toastMsg, setToastMsg] = useState(null);
   const [highlightField, setHighlightField] = useState(null); // campo da evidenziare
@@ -506,14 +509,25 @@ export default function CreateLeagueScreen({ navigation }) {
     }
   };
 
+  const updateScrollHint = useCallback(() => {
+    const viewH = scrollViewportH.current;
+    const contentH = scrollContentH.current;
+    const y = scrollOffsetY.current;
+    const overflow = contentH > viewH + 12;
+    const remaining = contentH - (y + viewH);
+    setCanScrollMore(overflow && remaining > 28);
+  }, []);
+
   const animateToStep = (nextStep) => {
     // Niente fade-out a 0: sullo step Bonus (pesante) lascia lo schermo vuoto
     // mentre monta switch/input/icone. Cambio step subito + fade leggero in entrata.
     stepOpacity.stopAnimation();
     setCurrentStep(nextStep);
     scrollOffsetY.current = 0;
+    setCanScrollMore(false);
     requestAnimationFrame(() => {
       scrollViewRef.current?.scrollTo({ y: 0, animated: false });
+      updateScrollHint();
     });
     stepOpacity.setValue(0.92);
     Animated.timing(stepOpacity, {
@@ -928,8 +942,8 @@ export default function CreateLeagueScreen({ navigation }) {
           <Switch
             value={formData.enableBonusMalus}
             onValueChange={(value) => setFormData({ ...formData, enableBonusMalus: value })}
-            trackColor={{ false: '#e2e8f0', true: '#fde68a' }}
-            thumbColor={formData.enableBonusMalus ? '#ca8a04' : '#f8fafc'}
+            trackColor={{ false: '#e2e8f0', true: '#e8dfd2' }}
+            thumbColor={formData.enableBonusMalus ? '#a16207' : '#f8fafc'}
             style={{ marginLeft: 'auto' }}
           />
         </View>
@@ -948,7 +962,7 @@ export default function CreateLeagueScreen({ navigation }) {
             <Switch
               value={formData.enableGoal}
               onValueChange={(value) => setFormData({ ...formData, enableGoal: value })}
-              trackColor={{ false: '#e0e0e0', true: '#4CAF50' }}
+              trackColor={{ false: '#e0e0e0', true: '#166534' }}
               thumbColor={formData.enableGoal ? '#fff' : '#f4f3f4'}
               style={styles.bmRowSwitch}
             />
@@ -975,7 +989,7 @@ export default function CreateLeagueScreen({ navigation }) {
             <Switch
               value={formData.enableAssist}
               onValueChange={(value) => setFormData({ ...formData, enableAssist: value })}
-              trackColor={{ false: '#e0e0e0', true: '#4CAF50' }}
+              trackColor={{ false: '#e0e0e0', true: '#166534' }}
               thumbColor={formData.enableAssist ? '#fff' : '#f4f3f4'}
               style={styles.bmRowSwitch}
             />
@@ -1002,7 +1016,7 @@ export default function CreateLeagueScreen({ navigation }) {
             <Switch
               value={formData.enablePenaltySaved}
               onValueChange={(value) => setFormData({ ...formData, enablePenaltySaved: value })}
-              trackColor={{ false: '#e0e0e0', true: '#4CAF50' }}
+              trackColor={{ false: '#e0e0e0', true: '#166534' }}
               thumbColor={formData.enablePenaltySaved ? '#fff' : '#f4f3f4'}
               style={styles.bmRowSwitch}
             />
@@ -1029,7 +1043,7 @@ export default function CreateLeagueScreen({ navigation }) {
             <Switch
               value={formData.enableCleanSheet}
               onValueChange={(value) => setFormData({ ...formData, enableCleanSheet: value })}
-              trackColor={{ false: '#e0e0e0', true: '#4CAF50' }}
+              trackColor={{ false: '#e0e0e0', true: '#166534' }}
               thumbColor={formData.enableCleanSheet ? '#fff' : '#f4f3f4'}
               style={styles.bmRowSwitch}
             />
@@ -1056,7 +1070,7 @@ export default function CreateLeagueScreen({ navigation }) {
             <Switch
               value={formData.enableBriso}
               onValueChange={(value) => setFormData({ ...formData, enableBriso: value })}
-              trackColor={{ false: '#e0e0e0', true: '#4CAF50' }}
+              trackColor={{ false: '#e0e0e0', true: '#166534' }}
               thumbColor={formData.enableBriso ? '#fff' : '#f4f3f4'}
               style={styles.bmRowSwitch}
             />
@@ -1284,167 +1298,153 @@ export default function CreateLeagueScreen({ navigation }) {
     <View style={styles.stepContent}>
       <SceneChapter step={4} />
 
-      <View style={styles.dossier}>
-        {formData.name.trim() ? (
-          <Text style={styles.dossierName} numberOfLines={1}>{formData.name.trim()}</Text>
-        ) : (
-          <Text style={styles.dossierNameMuted}>Senza nome</Text>
-        )}
-        <View style={styles.immersiveSummaryRow}>
-          <BudgetVaultPreview budget={formData.initialBudget} compact />
-          <StartersPitchPreview starters={formData.numeroTitolari} compact />
+      <View style={styles.summaryCardLight}>
+        <Text style={styles.summaryTitle}>Base</Text>
+        <View style={styles.summaryRow}>
+          <Text style={styles.summaryLabel}>Nome</Text>
+          <Text style={styles.summaryValue}>{formData.name || '—'}</Text>
+        </View>
+        <View style={styles.summaryRow}>
+          <Text style={styles.summaryLabel}>Accesso</Text>
+          <Text style={styles.summaryValue}>
+            {formData.enableAccessCode
+              ? (formData.accessCode.trim() || 'Codice vuoto')
+              : 'Pubblica'}
+          </Text>
+        </View>
+        <View style={styles.summaryRow}>
+          <Text style={styles.summaryLabel}>Iscrizioni</Text>
+          <Text style={styles.summaryValue}>
+            {formData.requireApproval ? 'Con approvazione' : 'Senza approvazione'}
+          </Text>
+        </View>
+        <View style={[styles.summaryRow, styles.summaryRowLast]}>
+          <Text style={styles.summaryLabel}>Budget</Text>
+          <Text style={styles.summaryValue}>{formData.initialBudget}</Text>
         </View>
       </View>
 
       <View style={styles.summaryCardLight}>
-        <View style={styles.summarySection}>
-          <Text style={styles.summaryTitle}>Base</Text>
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Nome</Text>
-            <Text style={styles.summaryValue}>{formData.name || '—'}</Text>
-          </View>
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Accesso</Text>
-            <Text style={styles.summaryValue}>
-              {formData.enableAccessCode
-                ? (formData.accessCode.trim() || 'Codice vuoto')
-                : 'Pubblica'}
-            </Text>
-          </View>
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Iscrizioni</Text>
-            <Text style={styles.summaryValue}>
-              {formData.requireApproval ? 'Con approvazione' : 'Senza approvazione'}
-            </Text>
-          </View>
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Budget</Text>
-            <Text style={styles.summaryValue}>{formData.initialBudget}</Text>
-          </View>
+        <Text style={styles.summaryTitle}>Squadra</Text>
+        <View style={styles.summaryRow}>
+          <Text style={styles.summaryLabel}>Ruoli</Text>
+          <Text style={styles.summaryValue}>
+            P:{formData.maxPortieri} D:{formData.maxDifensori} C:{formData.maxCentrocampisti} A:{formData.maxAttaccanti}
+          </Text>
         </View>
+        <View style={styles.summaryRow}>
+          <Text style={styles.summaryLabel}>Titolari</Text>
+          <Text style={styles.summaryValue}>{formData.numeroTitolari}</Text>
+        </View>
+        <View style={styles.summaryRow}>
+          <Text style={styles.summaryLabel}>Formazione auto</Text>
+          <Text style={styles.summaryValue}>
+            {formData.autoLineupMode ? 'Sì' : 'No'}
+          </Text>
+        </View>
+        <View style={styles.summaryRow}>
+          <Text style={styles.summaryLabel}>Rose altrui</Text>
+          <Text style={styles.summaryValue}>
+            {formData.hideFormations ? 'Nascoste' : 'Visibili'}
+          </Text>
+        </View>
+        {!formData.autoLineupMode ? (
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>Scadenza</Text>
+            <Text style={styles.summaryValue}>{formData.defaultTime}</Text>
+          </View>
+        ) : null}
+        <View style={[styles.summaryRow, styles.summaryRowLast]}>
+          <Text style={styles.summaryLabel}>Lega ufficiale</Text>
+          <Text style={[styles.summaryValue, linkToOfficial && styles.summaryValueAccent]}>
+            {linkToOfficial ? (formData.linkedLeagueName || 'Da scegliere') : 'Libera'}
+          </Text>
+        </View>
+      </View>
 
-        <View style={styles.summarySection}>
-          <Text style={styles.summaryTitle}>Squadra</Text>
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Ruoli</Text>
-            <Text style={styles.summaryValue}>
-              P:{formData.maxPortieri} D:{formData.maxDifensori} C:{formData.maxCentrocampisti} A:{formData.maxAttaccanti}
-            </Text>
+      <View style={[styles.summaryCardLight, styles.summaryCardLast]}>
+        <Text style={styles.summaryTitle}>Bonus / Malus</Text>
+        {!formData.enableBonusMalus ? (
+          <View style={[styles.summaryRow, styles.summaryRowLast]}>
+            <Text style={styles.summaryLabel}>Sistema</Text>
+            <Text style={styles.summaryValue}>Disabilitato</Text>
           </View>
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Titolari</Text>
-            <Text style={styles.summaryValue}>{formData.numeroTitolari}</Text>
+        ) : (
+          <View style={styles.summaryBonusWrap}>
+            {formData.enableGoal && (
+              <View style={styles.summaryBonusChip}><View style={styles.summaryBonusChipInner}>
+                <BonusIcon type="goal" size={16} />
+                <Text style={[styles.summaryBonusVal, { color: '#166534' }]}>+{formData.bonusGoal}</Text>
+              </View></View>
+            )}
+            {formData.enableAssist && (
+              <View style={styles.summaryBonusChip}><View style={styles.summaryBonusChipInner}>
+                <BonusIcon type="assist" size={16} />
+                <Text style={[styles.summaryBonusVal, { color: '#166534' }]}>+{formData.bonusAssist}</Text>
+              </View></View>
+            )}
+            {formData.enablePenaltySaved && (
+              <View style={styles.summaryBonusChip}><View style={styles.summaryBonusChipInner}>
+                <BonusIcon type="penalty_saved" size={16} />
+                <Text style={[styles.summaryBonusVal, { color: '#166534' }]}>+{formData.bonusPenaltySaved}</Text>
+              </View></View>
+            )}
+            {formData.enableCleanSheet && (
+              <View style={styles.summaryBonusChip}><View style={styles.summaryBonusChipInner}>
+                <BonusIcon type="clean_sheet" size={16} />
+                <Text style={[styles.summaryBonusVal, { color: '#166534' }]}>+{formData.bonusCleanSheet}</Text>
+              </View></View>
+            )}
+            {formData.enableBriso && (
+              <View style={styles.summaryBonusChip}><View style={styles.summaryBonusChipInner}>
+                <BonusIcon type="briso" size={16} />
+                <Text style={[styles.summaryBonusVal, { color: '#166534' }]}>+{formData.bonusBriso}</Text>
+              </View></View>
+            )}
+            {formData.enableYellowCard && (
+              <View style={styles.summaryBonusChip}><View style={styles.summaryBonusChipInner}>
+                <BonusIcon type="yellow_card" size={16} />
+                <Text style={[styles.summaryBonusVal, { color: '#b91c1c' }]}>{formData.malusYellowCard}</Text>
+              </View></View>
+            )}
+            {formData.enableRedCard && (
+              <View style={styles.summaryBonusChip}><View style={styles.summaryBonusChipInner}>
+                <BonusIcon type="red_card" size={16} />
+                <Text style={[styles.summaryBonusVal, { color: '#b91c1c' }]}>{formData.malusRedCard}</Text>
+              </View></View>
+            )}
+            {formData.enableGoalsConceded && (
+              <View style={styles.summaryBonusChip}><View style={styles.summaryBonusChipInner}>
+                <BonusIcon type="goals_conceded" size={16} />
+                <Text style={[styles.summaryBonusVal, { color: '#b91c1c' }]}>{formData.malusGoalsConceded}</Text>
+              </View></View>
+            )}
+            {formData.enableOwnGoal && (
+              <View style={styles.summaryBonusChip}><View style={styles.summaryBonusChipInner}>
+                <BonusIcon type="own_goal" size={16} />
+                <Text style={[styles.summaryBonusVal, { color: '#b91c1c' }]}>{formData.malusOwnGoal}</Text>
+              </View></View>
+            )}
+            {formData.enablePenaltyMissed && (
+              <View style={styles.summaryBonusChip}><View style={styles.summaryBonusChipInner}>
+                <BonusIcon type="penalty_missed" size={16} />
+                <Text style={[styles.summaryBonusVal, { color: '#b91c1c' }]}>{formData.malusPenaltyMissed}</Text>
+              </View></View>
+            )}
+            {formData.enablePalloneFuori && (
+              <View style={styles.summaryBonusChip}><View style={styles.summaryBonusChipInner}>
+                <BonusIcon type="pallone_fuori" size={16} />
+                <Text style={[styles.summaryBonusVal, { color: '#b91c1c' }]}>{formData.malusPalloneFuori}</Text>
+              </View></View>
+            )}
+            {formData.enableNoDivisa && (
+              <View style={styles.summaryBonusChip}><View style={styles.summaryBonusChipInner}>
+                <BonusIcon type="no_divisa" size={16} />
+                <Text style={[styles.summaryBonusVal, { color: '#b91c1c' }]}>{formData.malusNoDivisa}</Text>
+              </View></View>
+            )}
           </View>
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Formazione auto</Text>
-            <Text style={styles.summaryValue}>
-              {formData.autoLineupMode ? 'Sì' : 'No'}
-            </Text>
-          </View>
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Rose altrui</Text>
-            <Text style={styles.summaryValue}>
-              {formData.hideFormations ? 'Nascoste' : 'Visibili'}
-            </Text>
-          </View>
-          {!formData.autoLineupMode ? (
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Scadenza</Text>
-              <Text style={styles.summaryValue}>{formData.defaultTime}</Text>
-            </View>
-          ) : null}
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Lega ufficiale</Text>
-            <Text style={[styles.summaryValue, linkToOfficial && styles.summaryValueAccent]}>
-              {linkToOfficial ? (formData.linkedLeagueName || 'Da scegliere') : 'Libera'}
-            </Text>
-          </View>
-        </View>
-
-        <View style={[styles.summarySection, { marginBottom: 0 }]}>
-          <Text style={styles.summaryTitle}>Bonus/Malus</Text>
-          {!formData.enableBonusMalus ? (
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Sistema</Text>
-              <Text style={styles.summaryValue}>Disabilitato</Text>
-            </View>
-          ) : (
-            <View style={styles.summaryBonusWrap}>
-              {formData.enableGoal && (
-                <View style={styles.summaryBonusChip}><View style={styles.summaryBonusChipInner}>
-                  <BonusIcon type="goal" size={16} />
-                  <Text style={[styles.summaryBonusVal, { color: '#4CAF50' }]}>+{formData.bonusGoal}</Text>
-                </View></View>
-              )}
-              {formData.enableAssist && (
-                <View style={styles.summaryBonusChip}><View style={styles.summaryBonusChipInner}>
-                  <BonusIcon type="assist" size={16} />
-                  <Text style={[styles.summaryBonusVal, { color: '#4CAF50' }]}>+{formData.bonusAssist}</Text>
-                </View></View>
-              )}
-              {formData.enablePenaltySaved && (
-                <View style={styles.summaryBonusChip}><View style={styles.summaryBonusChipInner}>
-                  <BonusIcon type="penalty_saved" size={16} />
-                  <Text style={[styles.summaryBonusVal, { color: '#4CAF50' }]}>+{formData.bonusPenaltySaved}</Text>
-                </View></View>
-              )}
-              {formData.enableCleanSheet && (
-                <View style={styles.summaryBonusChip}><View style={styles.summaryBonusChipInner}>
-                  <BonusIcon type="clean_sheet" size={16} />
-                  <Text style={[styles.summaryBonusVal, { color: '#4CAF50' }]}>+{formData.bonusCleanSheet}</Text>
-                </View></View>
-              )}
-              {formData.enableBriso && (
-                <View style={styles.summaryBonusChip}><View style={styles.summaryBonusChipInner}>
-                  <BonusIcon type="briso" size={16} />
-                  <Text style={[styles.summaryBonusVal, { color: '#4CAF50' }]}>+{formData.bonusBriso}</Text>
-                </View></View>
-              )}
-              {formData.enableYellowCard && (
-                <View style={styles.summaryBonusChip}><View style={styles.summaryBonusChipInner}>
-                  <BonusIcon type="yellow_card" size={16} />
-                  <Text style={[styles.summaryBonusVal, { color: '#e53935' }]}>{formData.malusYellowCard}</Text>
-                </View></View>
-              )}
-              {formData.enableRedCard && (
-                <View style={styles.summaryBonusChip}><View style={styles.summaryBonusChipInner}>
-                  <BonusIcon type="red_card" size={16} />
-                  <Text style={[styles.summaryBonusVal, { color: '#e53935' }]}>{formData.malusRedCard}</Text>
-                </View></View>
-              )}
-              {formData.enableGoalsConceded && (
-                <View style={styles.summaryBonusChip}><View style={styles.summaryBonusChipInner}>
-                  <BonusIcon type="goals_conceded" size={16} />
-                  <Text style={[styles.summaryBonusVal, { color: '#e53935' }]}>{formData.malusGoalsConceded}</Text>
-                </View></View>
-              )}
-              {formData.enableOwnGoal && (
-                <View style={styles.summaryBonusChip}><View style={styles.summaryBonusChipInner}>
-                  <BonusIcon type="own_goal" size={16} />
-                  <Text style={[styles.summaryBonusVal, { color: '#e53935' }]}>{formData.malusOwnGoal}</Text>
-                </View></View>
-              )}
-              {formData.enablePenaltyMissed && (
-                <View style={styles.summaryBonusChip}><View style={styles.summaryBonusChipInner}>
-                  <BonusIcon type="penalty_missed" size={16} />
-                  <Text style={[styles.summaryBonusVal, { color: '#e53935' }]}>{formData.malusPenaltyMissed}</Text>
-                </View></View>
-              )}
-              {formData.enablePalloneFuori && (
-                <View style={styles.summaryBonusChip}><View style={styles.summaryBonusChipInner}>
-                  <BonusIcon type="pallone_fuori" size={16} />
-                  <Text style={[styles.summaryBonusVal, { color: '#e53935' }]}>{formData.malusPalloneFuori}</Text>
-                </View></View>
-              )}
-              {formData.enableNoDivisa && (
-                <View style={styles.summaryBonusChip}><View style={styles.summaryBonusChipInner}>
-                  <BonusIcon type="no_divisa" size={16} />
-                  <Text style={[styles.summaryBonusVal, { color: '#e53935' }]}>{formData.malusNoDivisa}</Text>
-                </View></View>
-              )}
-            </View>
-          )}
-        </View>
+        )}
       </View>
     </View>
   );
@@ -1484,11 +1484,22 @@ export default function CreateLeagueScreen({ navigation }) {
             styles.scrollContent,
             { paddingBottom: scrollBottomPad },
           ]}
-          showsVerticalScrollIndicator={false}
+          showsVerticalScrollIndicator
+          persistentScrollbar
+          indicatorStyle="black"
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
+          onLayout={(e) => {
+            scrollViewportH.current = e.nativeEvent.layout.height;
+            updateScrollHint();
+          }}
+          onContentSizeChange={(_w, h) => {
+            scrollContentH.current = h;
+            updateScrollHint();
+          }}
           onScroll={(e) => {
             scrollOffsetY.current = e.nativeEvent.contentOffset.y;
+            updateScrollHint();
           }}
           scrollEventThrottle={16}
         >
@@ -1496,6 +1507,15 @@ export default function CreateLeagueScreen({ navigation }) {
             {renderCurrentStep()}
           </Animated.View>
         </ScrollView>
+        {canScrollMore && keyboardHeight <= 0 ? (
+          <View style={styles.scrollHint} pointerEvents="none">
+            <View style={styles.scrollHintFade} />
+            <View style={styles.scrollHintPill}>
+              <Ionicons name="chevron-down" size={14} color="#166534" />
+              <Text style={styles.scrollHintText}>Scorri per tutte le impostazioni</Text>
+            </View>
+          </View>
+        ) : null}
       </View>
 
       {keyboardHeight <= 0 ? (
@@ -1616,22 +1636,33 @@ const styles = StyleSheet.create({
     width: 10,
     height: 10,
     borderRadius: 5,
-    backgroundColor: '#eab308',
+    backgroundColor: '#a16207',
     marginRight: 8,
   },
   dossier: {
     backgroundColor: '#ecfdf5',
     borderRadius: 14,
-    padding: 16,
-    marginBottom: 16,
+    padding: 14,
+    marginBottom: 12,
     borderWidth: 1,
     borderColor: '#bbf7d0',
+    overflow: 'hidden',
+  },
+  dossierKicker: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#166534',
+    letterSpacing: 0.7,
+    textTransform: 'uppercase',
+    marginBottom: 4,
+    opacity: 0.75,
   },
   dossierName: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: '800',
     color: '#14532d',
     marginBottom: 12,
+    letterSpacing: -0.3,
   },
   dossierNameMuted: {
     fontSize: 15,
@@ -1641,10 +1672,14 @@ const styles = StyleSheet.create({
   },
   summaryCardLight: {
     backgroundColor: '#fff',
-    borderRadius: 12,
+    borderRadius: 14,
     padding: 14,
     borderWidth: 1,
     borderColor: '#e2e8f0',
+    marginBottom: 10,
+  },
+  summaryCardLast: {
+    marginBottom: 4,
   },
   footerLight: {
     backgroundColor: '#fff',
@@ -1834,10 +1869,11 @@ const styles = StyleSheet.create({
   dossier: {
     backgroundColor: '#ecfdf5',
     borderRadius: 14,
-    padding: 16,
-    marginBottom: 16,
+    padding: 14,
+    marginBottom: 12,
     borderWidth: 1,
     borderColor: '#bbf7d0',
+    overflow: 'hidden',
   },
   dossierStamp: {
     display: 'none',
@@ -1851,11 +1887,21 @@ const styles = StyleSheet.create({
     color: '#14532d',
     marginBottom: 4,
   },
+  dossierKicker: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#166534',
+    letterSpacing: 0.7,
+    textTransform: 'uppercase',
+    marginBottom: 4,
+    opacity: 0.75,
+  },
   dossierName: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: '800',
     color: '#14532d',
     marginBottom: 12,
+    letterSpacing: -0.3,
   },
   dossierNameMuted: {
     fontSize: 15,
@@ -1992,12 +2038,48 @@ const styles = StyleSheet.create({
   },
   keyboardAvoidingView: {
     flex: 1,
+    position: 'relative',
   },
   scrollView: {
     flex: 1,
   },
   scrollContent: {
     flexGrow: 1,
+  },
+  scrollHint: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: 'center',
+    paddingBottom: 10,
+    paddingTop: 18,
+  },
+  scrollHintFade: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(247, 244, 239, 0.88)',
+  },
+  scrollHintPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#ecfdf5',
+    borderWidth: 1,
+    borderColor: '#bbf7d0',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    zIndex: 1,
+    shadowColor: '#166534',
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 2,
+  },
+  scrollHintText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#166534',
   },
   stepContent: {
     padding: 16,
@@ -2160,10 +2242,10 @@ const styles = StyleSheet.create({
   footerButtonSecondary: {
     minWidth: 100,
     height: 48,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#dbe3ef',
-    backgroundColor: '#f8fafc',
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: '#c4d4c8',
+    backgroundColor: '#fff',
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 16,
@@ -2171,18 +2253,18 @@ const styles = StyleSheet.create({
   footerButtonSecondaryText: {
     fontSize: 15,
     fontWeight: '700',
-    color: '#475569',
+    color: '#166534',
   },
   footerButton: {
     flex: 1,
     height: 48,
-    borderRadius: 12,
-    backgroundColor: '#667eea',
+    borderRadius: 14,
+    backgroundColor: '#166534',
     alignItems: 'center',
     justifyContent: 'center',
   },
   footerButtonCreate: {
-    backgroundColor: '#198754',
+    backgroundColor: '#14532d',
   },
   footerButtonText: {
     color: '#fff',
@@ -2763,17 +2845,24 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   summaryTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#0f172a',
-    marginBottom: 6,
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#166534',
+    letterSpacing: 0.3,
+    textTransform: 'uppercase',
+    marginBottom: 8,
   },
   summaryRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingVertical: 5,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#eef2f7',
+  },
+  summaryRowLast: {
+    borderBottomWidth: 0,
+    paddingBottom: 0,
   },
   summaryLabel: {
     fontSize: 13,
@@ -2783,14 +2872,15 @@ const styles = StyleSheet.create({
   summaryValue: {
     fontSize: 13,
     color: '#0f172a',
-    fontWeight: '600',
+    fontWeight: '700',
     flex: 1,
     textAlign: 'right',
+    marginLeft: 12,
   },
   summaryBonusWrap: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    marginTop: 4,
+    marginTop: 2,
     marginHorizontal: -3,
   },
   summaryBonusChip: {
@@ -2802,14 +2892,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#f8f9fa',
+    backgroundColor: '#f8fafc',
     borderRadius: 8,
-    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: '#eef2f7',
+    paddingVertical: 7,
     paddingHorizontal: 4,
     gap: 4,
   },
   summaryBonusVal: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '700',
   },
   footer: {
@@ -2825,21 +2917,21 @@ const styles = StyleSheet.create({
   footerButton: {
     flex: 1,
     height: 48,
-    borderRadius: 12,
-    backgroundColor: '#667eea',
+    borderRadius: 14,
+    backgroundColor: '#166534',
     alignItems: 'center',
     justifyContent: 'center',
   },
   footerButtonPrimary: {
-    backgroundColor: '#198754',
+    backgroundColor: '#14532d',
   },
   footerButtonSecondary: {
     minWidth: 100,
     height: 48,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#dbe3ef',
-    backgroundColor: '#f8fafc',
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: '#c4d4c8',
+    backgroundColor: '#fff',
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 16,
@@ -2853,7 +2945,7 @@ const styles = StyleSheet.create({
   footerButtonSecondaryText: {
     fontSize: 15,
     fontWeight: '700',
-    color: '#475569',
+    color: '#166534',
   },
   buttonDisabled: {
     opacity: 0.6,

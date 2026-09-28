@@ -74,7 +74,8 @@ export default function StartersPitchPreview({
           ) : null}
         </View>
       ) : (
-        <View style={styles.compactWrap}>
+        <View style={styles.compactCard}>
+          <Text style={styles.compactLabel}>Titolari · {count}</Text>
           <View style={[styles.pitch, styles.pitchCompact]}>
             <View style={styles.halfway} pointerEvents="none" />
             {rows.map((rowSlots, rowIndex) =>
@@ -109,6 +110,24 @@ const styles = StyleSheet.create({
     marginBottom: 0,
     flex: 1,
   },
+  compactCard: {
+    flex: 1,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    padding: 10,
+    minHeight: 128,
+    overflow: 'hidden',
+  },
+  compactLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#94a3b8',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+    marginBottom: 8,
+  },
   boardFrame: {
     backgroundColor: '#fff',
     borderRadius: 14,
@@ -128,8 +147,9 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   pitchCompact: {
-    height: 100,
-    borderRadius: 12,
+    height: 88,
+    borderRadius: 10,
+    flex: 1,
   },
   sidelineLeft: {
     position: 'absolute',

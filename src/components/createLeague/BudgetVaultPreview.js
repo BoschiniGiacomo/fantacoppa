@@ -278,18 +278,18 @@ export default function BudgetVaultPreview({
 }) {
   const amount = Math.min(MAX, Math.max(0, parseInt(budget, 10) || 0));
   const piles = useMemo(() => pilesFromBudget(amount), [amount]);
-  const scale = compact ? 0.62 : 1;
+  const scale = compact ? 0.48 : 1;
 
   const stage = (
     <View style={[styles.stage, compact && styles.stageCompact]}>
       <View style={[styles.shelf, compact && styles.shelfCompact]}>
         {piles.length === 0 ? (
-          <View style={styles.empty}>
+          <View style={[styles.empty, compact && styles.emptyCompact]}>
             <View style={styles.emptyPad} />
             {!compact ? <Text style={styles.hint}>Trascina per riempire</Text> : null}
           </View>
         ) : (
-          <View style={styles.pilesRow}>
+          <View style={[styles.pilesRow, compact && styles.pilesRowCompact]}>
             {piles.map((layers, i) => (
               <Mazzetta key={`p-${i}`} layers={layers} index={i} scale={scale} />
             ))}
@@ -303,8 +303,9 @@ export default function BudgetVaultPreview({
   if (compact) {
     return (
       <View style={styles.compact}>
+        <Text style={styles.compactLabel}>Budget</Text>
         <Text style={styles.compactAmount}>{amount}</Text>
-        {stage}
+        <View style={styles.compactStageClip}>{stage}</View>
       </View>
     );
   }
@@ -379,10 +380,11 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   shelfCompact: {
-    minHeight: 72,
-    paddingTop: 6,
-    paddingBottom: 4,
+    minHeight: 64,
+    paddingTop: 4,
+    paddingBottom: 3,
     paddingHorizontal: 4,
+    overflow: 'hidden',
   },
   shelfLip: {
     height: 3,
@@ -398,11 +400,18 @@ const styles = StyleSheet.create({
     gap: 6,
     minHeight: 110,
   },
+  pilesRowCompact: {
+    minHeight: 48,
+    gap: 2,
+  },
   empty: {
     alignItems: 'center',
     justifyContent: 'flex-end',
     minHeight: 110,
     paddingBottom: 6,
+  },
+  emptyCompact: {
+    minHeight: 48,
   },
   emptyPad: {
     width: 36,
@@ -468,11 +477,25 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#e2e8f0',
     padding: 10,
+    overflow: 'hidden',
+    minHeight: 128,
+  },
+  compactLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#94a3b8',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+    marginBottom: 2,
   },
   compactAmount: {
     fontSize: 22,
     fontWeight: '800',
-    color: '#0f172a',
+    color: '#166534',
     marginBottom: 6,
+  },
+  compactStageClip: {
+    overflow: 'hidden',
+    borderRadius: 10,
   },
 });

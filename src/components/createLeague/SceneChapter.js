@@ -23,7 +23,7 @@ const SCENE = {
   },
   4: {
     title: 'Tutto pronto',
-    subtitle: 'Un’occhiata prima del fischio.',
+    subtitle: 'Verifica tutto prima di creare la lega',
     bg: '#f7f4ef',
     accent: '#16a34a',
   },
